@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Direction A · Chart</title>
+<style>
+/* ==========================================================================
+   Direction A · "Chart" — 1health tokens used (source: app/globals.css)
+   Neutrals ........ graphite #202833 · charcoal #313b47 · slate #566373
+                     mist #aeb8c4 · cloud #e6ebf0
+   Brand ........... trust-blue #246b8f (brand-primary, primary, ring)
+                     clinical-ice #e8f7fa (accent / hover surface)
+                     signal-aqua #8fd8e6 (focus glow only)
+   Surfaces ........ background #f4f7fa · card #ffffff · secondary #eaeff4
+                     muted #edf1f5 · border/input #e1e8ef
+   Status .......... success #3baa78 / success-strong #1b7a4f
+                     info #2f80a8 / info-strong #256a8c (link text, AA)
+                     warning #d6a83a / warning-strong #8a6511
+                     error #d84f45 / error-strong #b23a31 (error + destructive ONLY)
+   Radius .......... sm 6 · md 10 (buttons, inputs) · lg 16 (cards)
+   Spacing ......... 8px grid: 4 / 8 / 12 / 16 / 24 / 32 / 48
+   Type ............ Inter → system stack. h3 24/32 600 · body 16/24 · body-sm 14/20
+                     caption 12/16. Small-caps only on short metadata headings.
+   Elevation ....... shadow-xs 0 1px 2px rgba(0,0,0,.06) · elevation-1 0 4px 16px rgba(0,0,0,.18)
+   ========================================================================== */
+:root{
+  --graphite:#202833;--charcoal:#313b47;--slate:#566373;--mist:#aeb8c4;--cloud:#e6ebf0;
+  --trust-blue:#246b8f;--clinical-ice:#e8f7fa;--signal-aqua:#8fd8e6;
+  --background:#f4f7fa;--card:#ffffff;--secondary:#eaeff4;--muted:#edf1f5;--border:#e1e8ef;
+  --success:#3baa78;--success-strong:#1b7a4f;--info:#2f80a8;--info-strong:#256a8c;
+  --warning:#d6a83a;--warning-strong:#8a6511;--error:#d84f45;--error-strong:#b23a31;
+  --r-sm:6px;--r-md:10px;--r-lg:16px;
+  --font:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --shadow-xs:0 1px 2px rgba(0,0,0,.06);--elev-1:0 4px 16px rgba(0,0,0,.18);
+  --glow:0 0 0 1px rgba(143,216,230,.32),0 0 24px rgba(143,216,230,.18);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--cloud);color:var(--graphite);font-family:var(--font);-webkit-font-smoothing:antialiased}
+a{color:var(--info-strong)}
+:focus-visible{outline:2px solid var(--trust-blue);outline-offset:2px;box-shadow:var(--glow)}
+
+/* ---------- presentation shell ---------- */
+.doc{max-width:1340px;margin:0 auto;padding:40px 30px 96px}
+.doc-head{max-width:860px;margin:0 0 32px}
+.eyebrow{font-size:12px;line-height:16px;letter-spacing:.08em;text-transform:uppercase;color:var(--slate);margin:0 0 8px}
+.doc-head h2{font-size:32px;line-height:40px;font-weight:600;margin:0 0 12px}
+.doc-head p{font-size:16px;line-height:24px;color:var(--charcoal);margin:0}
+.frame-label{font-size:12px;line-height:16px;color:var(--slate);margin:0 0 8px;letter-spacing:.04em}
+.browser{width:1280px;margin:0 auto 48px;background:var(--card);border-radius:var(--r-lg);box-shadow:var(--elev-1);overflow:clip}
+.chrome{height:40px;background:var(--secondary);display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid var(--border)}
+.chrome i{width:10px;height:10px;border-radius:50%;background:var(--mist);display:block}
+.url{margin-left:16px;flex:1;max-width:560px;height:26px;border-radius:var(--r-sm);background:var(--card);color:var(--slate);font-size:12px;display:flex;align-items:center;padding:0 12px}
+.ico{width:16px;height:16px;flex:none;vertical-align:-3px}
+
+/* ---------- app ---------- */
+.app{background:var(--background);font-size:14px;line-height:20px}
+.appbar{height:56px;background:var(--card);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:16px;padding:0 32px}
+.wordmark{font-weight:700;font-size:16px;color:var(--trust-blue);letter-spacing:-.01em}
+.vr{width:1px;height:20px;background:var(--border)}
+.apptitle{font-weight:600;font-size:16px}
+.return{margin-left:auto;min-height:44px;display:inline-flex;align-items:center;gap:6px;font-weight:500;text-decoration:none}
+.return:hover{text-decoration:underline}
+
+.identity{background:var(--card);padding:24px 32px 0;display:flex;align-items:center;gap:16px}
+.avatar{width:56px;height:56px;border-radius:50%;background:var(--clinical-ice);color:var(--trust-blue);font-weight:600;font-size:20px;display:grid;place-items:center;border:1px solid var(--border)}
+.name{font-size:24px;line-height:32px;font-weight:600;margin:0}
+.meta{margin:0;color:var(--slate);font-size:14px}
+.idfacts{margin:0 0 0 auto;display:flex;gap:0}
+.idfacts div{padding:0 24px;border-left:1px solid var(--border)}
+.idfacts dt{font-size:12px;line-height:16px;color:var(--slate);font-variant:all-small-caps;letter-spacing:.06em;font-size:13px}
+.idfacts dd{margin:2px 0 0;font-variant-numeric:tabular-nums}
+
+.tabs{background:var(--card);border-bottom:1px solid var(--border);display:flex;gap:8px;padding:16px 32px 0}
+.tab{min-height:44px;display:inline-flex;align-items:center;gap:8px;padding:0 12px;border:0;background:none;font:inherit;font-size:14px;color:var(--slate);border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer}
+.tab[aria-selected=true]{color:var(--graphite);font-weight:600;border-bottom-color:var(--trust-blue)}
+.tab[aria-disabled=true]{cursor:not-allowed}
+.soon{font-size:12px;line-height:16px;color:var(--slate);background:var(--muted);border-radius:999px;padding:2px 8px}
+
+.layout{display:grid;grid-template-columns:200px 1fr;gap:32px;padding:32px;align-items:start}
+.toc{position:sticky;top:16px}
+.toc-h{font-variant:all-small-caps;letter-spacing:.08em;color:var(--slate);font-size:13px;margin:0 0 8px 14px}
+.toc ol{list-style:none;margin:0;padding:0;border-left:1px solid var(--border)}
+.toc a{display:flex;align-items:center;min-height:44px;padding:0 14px;margin-left:-1px;border-left:2px solid transparent;color:var(--charcoal);text-decoration:none}
+.toc a:hover{color:var(--graphite);background:var(--clinical-ice)}
+.toc a[aria-current=location]{border-left-color:var(--trust-blue);color:var(--trust-blue);font-weight:600}
+.toc .count{margin-left:auto;color:var(--slate);font-variant-numeric:tabular-nums;font-size:12px}
+
+main{display:grid;gap:24px;min-width:0}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--shadow-xs)}
+.card-h{display:flex;align-items:center;gap:12px;padding:12px 24px;border-bottom:1px solid var(--border);min-height:64px}
+.sc{margin:0;font-size:16px;line-height:24px;font-weight:600;font-variant:all-small-caps;letter-spacing:.07em;color:var(--charcoal)}
+.card-h .aside{color:var(--slate);font-size:12px}
+.card-h .tools{margin-left:auto;display:flex;gap:8px;align-items:center}
+
+.btn{min-height:44px;padding:0 16px;border-radius:var(--r-md);font:inherit;font-weight:500;font-size:14px;display:inline-flex;align-items:center;gap:8px;cursor:pointer;border:1px solid transparent;text-decoration:none;white-space:nowrap}
+.btn-primary{background:var(--trust-blue);color:#fff}
+.btn-outline{background:var(--card);border-color:var(--border);color:var(--graphite)}
+.btn-outline:hover{background:var(--clinical-ice)}
+.btn-ghost{background:none;color:var(--trust-blue)}
+.btn-ghost:hover{background:var(--clinical-ice)}
+.btn-secondary{background:var(--secondary);color:var(--charcoal)}
+.btn[disabled]{background:var(--muted);color:var(--slate);border-color:var(--border);cursor:not-allowed}
+
+/* label / value chart grid */
+.grid{display:grid;grid-template-columns:repeat(4,1fr);margin:0}
+.grid>div{padding:12px 24px;border-bottom:1px solid var(--border);border-right:1px solid var(--border)}
+.grid>div:nth-child(4n){border-right:0}
+.grid dt{font-size:12px;line-height:16px;color:var(--slate)}
+.grid dd{margin:4px 0 0;font-size:14px;line-height:20px;font-weight:500;font-variant-numeric:tabular-nums}
+.grid .empty{color:var(--slate);font-weight:400}
+.grid .span2{grid-column:span 2}
+.grid .last{border-bottom:0}
+.ssn{display:flex;align-items:center;gap:8px}
+.ssn code{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;font-size:14px}
+.link-btn{min-height:44px;margin:-12px 0;padding:0 8px;background:none;border:0;font:inherit;font-size:13px;color:var(--info-strong);display:inline-flex;align-items:center;gap:4px;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.sig{display:flex;align-items:center;gap:16px}
+.sig-thumb{width:168px;height:52px;border:1px dashed var(--mist);border-radius:var(--r-sm);background:var(--background);color:var(--graphite);display:grid;place-items:center}
+.sig-thumb svg{width:148px;height:40px}
+.sig small{display:block;color:var(--slate);font-size:12px;font-weight:400}
+
+/* text badges (medical-record tags) */
+.tag{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:var(--r-sm);border:1px solid var(--border);font-size:13px;font-variant:all-small-caps;letter-spacing:.06em;font-weight:600;color:var(--charcoal);background:var(--card)}
+.tag.ok{color:var(--success-strong);border-color:rgba(59,170,120,.45);background:rgba(59,170,120,.08)}
+.tag.warn{color:var(--warning-strong);border-color:rgba(214,168,58,.55);background:rgba(214,168,58,.10)}
+.tag.primary{color:var(--trust-blue);border-color:rgba(36,107,143,.35);background:var(--clinical-ice)}
+.tag .ico{width:12px;height:12px;vertical-align:0}
+
+/* phone records */
+.rec{display:grid;grid-template-columns:240px 1fr 160px 150px auto;align-items:center;gap:16px;padding:12px 24px;border-bottom:1px solid var(--border);min-height:72px}
+.rec .num{font-size:16px;line-height:24px;font-weight:600;font-variant-numeric:tabular-nums}
+.rec .lbl{font-size:12px;line-height:16px;color:var(--slate);display:block;margin-bottom:4px}
+.rec .tags{display:flex;gap:6px;flex-wrap:wrap}
+.rec .acts{display:flex;gap:8px;justify-content:flex-end;position:relative}
+.notif{display:inline-flex;align-items:center;gap:6px}
+.tipwrap{position:relative;display:inline-flex}
+.tip{position:absolute;bottom:calc(100% + 8px);right:0;background:var(--graphite);color:#fff;font-size:12px;line-height:16px;padding:6px 10px;border-radius:var(--r-sm);white-space:nowrap;box-shadow:var(--elev-1)}
+.tip::after{content:"";position:absolute;top:100%;right:24px;border:6px solid transparent;border-top-color:var(--graphite)}
+.card-f{display:flex;align-items:center;gap:16px;padding:8px 16px 8px 12px}
+.note{color:var(--slate);font-size:13px;display:inline-flex;gap:6px;align-items:center;margin-left:auto}
+
+/* edit view (roomier) */
+.editing{border-color:var(--trust-blue);box-shadow:0 0 0 3px var(--clinical-ice)}
+.unsaved{display:inline-flex;align-items:center;gap:6px;color:var(--warning-strong);font-size:13px;font-weight:600}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.dot.warn{background:var(--warning)}
+.erow{display:grid;grid-template-columns:1fr 180px auto;gap:16px;padding:24px;border-bottom:1px solid var(--border);align-items:start}
+.erow.new{background:var(--background)}
+.field label{display:block;font-size:14px;font-weight:500;margin-bottom:8px}
+.input{height:44px;width:100%;border:1px solid var(--border);border-radius:var(--r-md);background:var(--card);padding:0 12px;font:inherit;font-size:16px;color:var(--graphite);display:flex;align-items:center;gap:8px}
+.input.locked{background:var(--muted);color:var(--charcoal)}
+.input.locked .ico{color:var(--slate);margin-left:auto}
+.input.err{border:2px solid var(--error);padding:0 11px}
+.input.sel{justify-content:space-between}
+.help{font-size:13px;line-height:20px;color:var(--slate);margin:8px 0 0;display:flex;gap:6px;align-items:center}
+.help.err{color:var(--error-strong);font-weight:500}
+.erow .badges{display:flex;gap:6px;margin-top:8px}
+.erow .rm{margin-top:28px}
+.edit-f{display:flex;align-items:center;gap:12px;padding:16px 24px}
+.edit-f .btn-add{margin-right:auto}
+
+.emptyst{padding:24px;display:flex;align-items:center;gap:16px}
+.emptyst p{margin:0;color:var(--charcoal)}
+.emptyst small{display:block;color:var(--slate);font-size:13px}
+.emptyst .btn{margin-left:auto}
+
+.savebar{position:sticky;bottom:0;background:var(--card);border-top:1px solid var(--border);box-shadow:0 -4px 16px rgba(0,0,0,.08);display:flex;align-items:center;gap:16px;padding:10px 32px;z-index:2}
+.savebar .sum{display:flex;align-items:center;gap:8px;font-weight:500}
+.savebar .sub{color:var(--slate);font-size:13px}
+.savebar .right{margin-left:auto;display:flex;gap:8px}
+
+/* ---------- mobile ---------- */
+.mobile-row{display:flex;gap:48px;justify-content:center;align-items:flex-start}
+.phone{width:410px;border:10px solid var(--graphite);border-radius:44px;overflow:clip;background:var(--background);box-shadow:var(--elev-1);height:820px;flex:none}
+.status{height:36px;background:var(--card);display:flex;align-items:center;justify-content:space-between;padding:0 24px;font-size:12px;font-weight:600}
+.m .appbar{height:52px;padding:0 16px;gap:8px}
+.m .apptitle{font-size:15px}
+.m .return{font-size:14px}
+.m .identity{padding:16px 16px 0;gap:12px}
+.m .avatar{width:44px;height:44px;font-size:16px}
+.m .name{font-size:20px;line-height:28px}
+.m .meta{font-size:13px}
+.m .tabs{padding:8px 8px 0;gap:0;overflow:hidden}
+.m .tab{padding:0 10px;white-space:nowrap}
+.jump{padding:16px 16px 0}
+.jump label{display:block;font-size:12px;color:var(--slate);margin-bottom:6px}
+.m main{padding:16px;gap:16px}
+.m .card-h{padding:8px 8px 8px 16px;min-height:56px}
+.m .grid{grid-template-columns:1fr 1fr}
+.m .grid>div{padding:10px 16px}
+.m .grid>div:nth-child(4n){border-right:1px solid var(--border)}
+.m .grid>div:nth-child(2n){border-right:0}
+.mnotes{max-width:420px;font-size:14px;line-height:22px;color:var(--charcoal)}
+.mnotes h3{font-size:20px;line-height:28px;font-weight:600;margin:0 0 12px;color:var(--graphite)}
+.mnotes ul{padding-left:18px;margin:0}
+.mnotes li{margin-bottom:8px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-lock" viewBox="0 0 16 16"><path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="3.25" y="7" width="9.5" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 16 16"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.75v4M8 11.1v.1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.25v4M8 4.9v.1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-out" viewBox="0 0 16 16"><path d="M9 3h4v4M13 3 7 9M11.5 9.5V13h-9V4H6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 16 16"><path d="M4 11V7.5a4 4 0 0 1 8 0V11l1 1.5H3L4 11ZM6.5 14.25h3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+  <symbol id="i-sig" viewBox="0 0 160 44"><path d="M6 30c9-1 13-20 19-20s-3 24 5 24 9-16 15-16-2 13 4 13 8-9 13-9 2 7 8 7 10-5 18-5 14 3 24 1 20-7 30-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<div class="doc">
+  <header class="doc-head">
+    <p class="eyebrow">Design direction A of 3 · Personal Profile</p>
+    <h2>Chart</h2>
+    <p>Reads like a well-kept medical record: a ruled label/value grid, hairline dividers and short small-caps headings, with status written as text tags rather than color. It suits patients and providers who scan for one fact and leave, and it borrows the authority of the paper chart. Edit mode opens up into roomier, form-sized rows, so the change from reading to editing is obvious.</p>
+  </header>
+
+  <p class="frame-label">DESKTOP · 1280 px · Contacts tab, scrolled to Phone</p>
+  <div class="browser">
+    <div class="chrome"><i></i><i></i><i></i><div class="url">profile.1health.app/?tab=contacts#phone</div></div>
+
+    <div class="app">
+      <header class="appbar">
+        <span class="wordmark">1health</span><span class="vr"></span><span class="apptitle">Personal Profile</span>
+        <a class="return" href="#">Return to 1health <svg class="ico"><use href="#i-out"/></svg></a>
+      </header>
+
+      <section class="identity" aria-label="Profile">
+        <div class="avatar" aria-hidden="true">MR</div>
+        <div>
+          <h1 class="name">Maria Rodriguez</h1>
+          <p class="meta">Your profile · Last updated Oct 9, 2026</p>
+        </div>
+        <dl class="idfacts">
+          <div><dt>Primary phone</dt><dd>+1 (415) 551-2125</dd></div>
+          <div><dt>Primary email</dt><dd>maria.r@example.com</dd></div>
+        </dl>
+      </section>
+
+      <nav class="tabs" role="tablist" aria-label="Profile areas">
+        <button class="tab" role="tab" aria-selected="true">Contacts</button>
+        <button class="tab" role="tab" aria-selected="false">Insurance</button>
+        <button class="tab" role="tab" aria-selected="false" aria-disabled="true">Medical <span class="soon">Coming soon</span></button>
+      </nav>
+
+      <div class="layout">
+        <nav class="toc" aria-label="Sections on this page">
+          <p class="toc-h">On this page</p>
+          <ol>
+            <li><a href="#personal">Personal information</a></li>
+            <li><a href="#phone" aria-current="location">Phone <span class="count">2</span></a></li>
+            <li><a href="#email">Email <span class="count">1</span></a></li>
+            <li><a href="#social">Social media <span class="count">0</span></a></li>
+            <li><a href="#addresses">Addresses <span class="count">1</span></a></li>
+          </ol>
+        </nav>
+
+        <main>
+          <!-- PERSONAL INFORMATION · read view -->
+          <section class="card" id="personal" aria-labelledby="h-personal">
+            <div class="card-h">
+              <h2 class="sc" id="h-personal">Personal information</h2>
+              <div class="tools"><button class="btn btn-outline">Edit</button></div>
+            </div>
+            <dl class="grid">
+              <div><dt>First name</dt><dd>Maria</dd></div>
+              <div><dt>Middle name</dt><dd class="empty" aria-label="Not provided">—</dd></div>
+              <div><dt>Last name</dt><dd>Rodriguez</dd></div>
+              <div><dt>Birth date</dt><dd>06/01/1988</dd></div>
+              <div><dt>Race</dt><dd>Unknown</dd></div>
+              <div><dt>Ethnicity</dt><dd>Hispanic or Latino</dd></div>
+              <div><dt>Biological gender</dt><dd>Female</dd></div>
+              <div><dt>Gender identity</dt><dd>Female</dd></div>
+              <div class="span2 last"><dt>Social Security number</dt><dd class="ssn"><code>***-**-4821</code> <button class="link-btn" aria-label="Reveal Social Security number"><svg class="ico"><use href="#i-eye"/></svg>Reveal</button></dd></div>
+              <div class="span2 last" id="signature"><dt>Signature</dt><dd class="sig"><span class="sig-thumb" role="img" aria-label="Signature on file"><svg><use href="#i-sig"/></svg></span><span>On file<small>Added Mar 14, 2025</small></span></dd></div>
+            </dl>
+          </section>
+
+          <!-- PHONE · read view -->
+          <section class="card" id="phone" aria-labelledby="h-phone">
+            <div class="card-h">
+              <h2 class="sc" id="h-phone">Phone</h2><span class="aside">2 numbers</span>
+            </div>
+            <div class="rec">
+              <div><span class="lbl">Number</span><span class="num">+1 (415) 551-2125</span></div>
+              <div><span class="lbl">Labels</span><span class="tags"><span class="tag primary">Primary</span><span class="tag">Mobile</span></span></div>
+              <div><span class="lbl">Status</span><span class="tag ok"><svg class="ico"><use href="#i-check"/></svg>Verified</span></div>
+              <div><span class="lbl">Notifications</span><span class="notif"><svg class="ico"><use href="#i-bell"/></svg>On</span></div>
+              <div class="acts"><button class="btn btn-ghost">Edit</button></div>
+            </div>
+            <div class="rec">
+              <div><span class="lbl">Number</span><span class="num">+57 311 468 8417</span></div>
+              <div><span class="lbl">Labels</span><span class="tags"><span class="tag">Old</span><span class="tag">Mobile</span></span></div>
+              <div><span class="lbl">Status</span><span class="tag warn"><svg class="ico"><use href="#i-alert"/></svg>Not verified</span></div>
+              <div><span class="lbl">Notifications</span><span class="notif" style="color:var(--slate)">Off</span></div>
+              <div class="acts">
+                <button class="btn btn-outline">Verify</button>
+                <span class="tipwrap">
+                  <button class="btn" disabled aria-describedby="tip-mp">Make primary</button>
+                  <span class="tip" role="tooltip" id="tip-mp">Verify this number first</span>
+                </span>
+              </div>
+            </div>
+            <div class="card-f">
+              <button class="btn btn-ghost"><svg class="ico"><use href="#i-plus"/></svg>Add phone</button>
+              <span class="note"><svg class="ico"><use href="#i-info"/></svg>Changing your primary phone changes how you sign in.</span>
+            </div>
+          </section>
+
+          <!-- EMAIL · edit view (state variant) -->
+          <section class="card editing" id="email" aria-labelledby="h-email">
+            <div class="card-h">
+              <h2 class="sc" id="h-email">Email</h2><span class="aside">Editing</span>
+              <div class="tools"><span class="unsaved"><span class="dot warn" aria-hidden="true"></span>Unsaved changes</span></div>
+            </div>
+            <div class="erow">
+              <div class="field">
+                <label for="e1">Email address</label>
+                <div class="input locked" id="e1" aria-readonly="true">maria.r@example.com <svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg></div>
+                <p class="help">Locked. This is the address you sign in with.</p>
+                <div class="badges"><span class="tag primary">Primary</span><span class="tag ok"><svg class="ico"><use href="#i-check"/></svg>Verified</span></div>
+              </div>
+              <div class="field"><label>Label</label><div class="input sel">Personal <svg class="ico"><use href="#i-chev"/></svg></div></div>
+              <div></div>
+            </div>
+            <div class="erow new">
+              <div class="field">
+                <label for="e2">New email address</label>
+                <div class="input err" id="e2" aria-invalid="true" aria-describedby="e2-err">maria.rodriguez@</div>
+                <p class="help err" id="e2-err"><svg class="ico"><use href="#i-alert"/></svg>Enter a valid email address</p>
+              </div>
+              <div class="field"><label>Label</label><div class="input sel">Work <svg class="ico"><use href="#i-chev"/></svg></div></div>
+              <button class="btn btn-ghost rm" style="color:var(--charcoal)">Remove</button>
+            </div>
+            <div class="edit-f">
+              <button class="btn btn-ghost btn-add"><svg class="ico"><use href="#i-plus"/></svg>Add another email</button>
+              <button class="btn btn-secondary">Cancel</button>
+              <button class="btn btn-primary">Save email</button>
+            </div>
+          </section>
+
+          <!-- SOCIAL MEDIA · empty -->
+          <section class="card" id="social" aria-labelledby="h-social">
+            <div class="card-h"><h2 class="sc" id="h-social">Social media</h2></div>
+            <div class="emptyst"><p>No social media profiles<small>Add a profile if you want your care team to have it on record.</small></p><button class="btn btn-outline"><svg class="ico"><use href="#i-plus"/></svg>Add profile</button></div>
+          </section>
+
+          <!-- ADDRESSES -->
+          <section class="card" id="addresses" aria-labelledby="h-addr">
+            <div class="card-h"><h2 class="sc" id="h-addr">Addresses</h2><span class="aside">1 address</span></div>
+            <div class="rec" style="border-bottom:0;grid-template-columns:1fr 240px auto">
+              <div><span class="lbl">Address</span><span style="font-weight:500">1450 Mission St, Apt 4B, San Francisco, CA 94103</span></div>
+              <div><span class="lbl">Labels</span><span class="tags"><span class="tag primary">Primary</span><span class="tag">Home</span></span></div>
+              <div class="acts"><button class="btn btn-ghost">Edit</button></div>
+            </div>
+          </section>
+        </main>
+      </div>
+
+      <div class="savebar" role="region" aria-label="Unsaved changes">
+        <span class="sum"><span class="dot warn" aria-hidden="true"></span>1 section has unsaved changes</span>
+        <span class="sub">Email · 1 field needs attention</span>
+        <span class="right"><button class="btn btn-secondary">Discard all</button><button class="btn btn-primary">Save all (1)</button></span>
+      </div>
+    </div>
+  </div>
+
+  <p class="frame-label" style="text-align:center">MOBILE · 390 px · top of the same page</p>
+  <div class="mobile-row">
+    <div class="phone m">
+      <div class="status"><span>9:41</span><span>100%</span></div>
+      <div class="app">
+        <header class="appbar">
+          <span class="apptitle">Personal Profile</span>
+          <a class="return" href="#">Return to 1health</a>
+        </header>
+        <section class="identity">
+          <div class="avatar" aria-hidden="true">MR</div>
+          <div><h1 class="name">Maria Rodriguez</h1><p class="meta">Last updated Oct 9, 2026</p></div>
+        </section>
+        <nav class="tabs" role="tablist">
+          <button class="tab" role="tab" aria-selected="true">Contacts</button>
+          <button class="tab" role="tab" aria-selected="false">Insurance</button>
+          <button class="tab" role="tab" aria-disabled="true">Medical <span class="soon">Soon</span></button>
+        </nav>
+        <div class="jump">
+          <label for="jmp">Jump to</label>
+          <div class="input sel" id="jmp" role="combobox" aria-expanded="false">Phone <svg class="ico"><use href="#i-chev"/></svg></div>
+        </div>
+        <main>
+          <section class="card">
+            <div class="card-h"><h2 class="sc">Personal information</h2><div class="tools"><button class="btn btn-outline">Edit</button></div></div>
+            <dl class="grid">
+              <div><dt>First name</dt><dd>Maria</dd></div>
+              <div><dt>Middle name</dt><dd class="empty">—</dd></div>
+              <div><dt>Last name</dt><dd>Rodriguez</dd></div>
+              <div><dt>Birth date</dt><dd>06/01/1988</dd></div>
+              <div><dt>Race</dt><dd>Unknown</dd></div>
+              <div><dt>Ethnicity</dt><dd>Hispanic or Latino</dd></div>
+              <div><dt>Biological gender</dt><dd>Female</dd></div>
+              <div><dt>Gender identity</dt><dd>Female</dd></div>
+              <div class="span2"><dt>Social Security number</dt><dd class="ssn"><code>***-**-4821</code><button class="link-btn"><svg class="ico"><use href="#i-eye"/></svg>Reveal</button></dd></div>
+            </dl>
+          </section>
+        </main>
+      </div>
+    </div>
+    <div class="mnotes">
+      <h3>What changes at 390 px</h3>
+      <ul>
+        <li>The sticky section menu becomes a <strong>Jump to</strong> control under the tabs; it keeps the same deep links (<code>#phone</code>).</li>
+        <li>The chart grid drops from four columns to two. Labels stay above values, so nothing truncates.</li>
+        <li>Phone records stack: number on top, tags below, actions full-width at 44 px.</li>
+        <li>The Save all bar spans the full width and sits above the home indicator.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</body>
+</html>
