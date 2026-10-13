@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast"
  * Prevents multiple simultaneous redirect attempts that cause React Error #185.
  *
  * Usage:
- *   const { handleSessionExpired, isSessionExpired } = useSessionExpired()
+ *   const { handleSessionExpired } = useSessionExpired()
  *
  *   // In your action handler:
  *   if (handleSessionExpired(result.error)) return
@@ -18,13 +18,10 @@ export function useSessionExpired() {
   const { toast } = useToast()
   const router = useRouter()
   const isRedirectingRef = useRef(false)
-  const hasExpiredRef = useRef(false)
 
   const handleSessionExpired = useCallback(
     (error: string | undefined | null): boolean => {
       if (error === "SESSION_EXPIRED") {
-        hasExpiredRef.current = true
-
         // Prevent multiple redirects
         if (isRedirectingRef.current) {
           return true
@@ -51,6 +48,5 @@ export function useSessionExpired() {
 
   return {
     handleSessionExpired,
-    isSessionExpired: hasExpiredRef.current,
   }
 }

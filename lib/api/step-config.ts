@@ -116,7 +116,8 @@ export async function updateStepConfiguration(
 
 /** Drop `id` from a row (the server reuses it; working PUTs omit it). */
 function withoutId<T extends { id?: number }>(row: T): Omit<T, "id"> {
-  const { id, ...rest } = row
+  const rest: Omit<T, "id"> & { id?: number } = { ...row }
+  delete rest.id
   return rest
 }
 

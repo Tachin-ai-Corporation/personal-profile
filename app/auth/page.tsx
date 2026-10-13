@@ -2,7 +2,7 @@
 
 import type React from "react"
 import Image from "next/image"
-import { Suspense, useEffect, useState } from "react"
+import { Suspense, useEffect, useEffectEvent, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { AlertCircle, CheckCircle2, ExternalLink } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -98,27 +98,21 @@ function AnimatedLogo({ state }: { state: "idle" | "loading" | "success" }) {
 }
 
 function AuthContent() {
-  const [authState, setAuthState] = useState<AuthState>("idle")
+  const [rawAuthState, setAuthState] = useState<AuthState>("idle")
   const [error, setError] = useState<AuthError | null>(null)
   const [manualLpl, setManualLpl] = useState("")
-  const [environment, setEnvironment] = useState<Environment | null>(null)
+  // Auto-detect environment on first render. AuthContent only renders on the
+  // client (it reads useSearchParams under a Suspense boundary), so document is available.
+  const [environment, setEnvironment] = useState<Environment | null>(
+    () => detectEnvironmentFromReferrer() ?? getEnvironmentFromCookie(),
+  )
   const searchParams = useSearchParams()
   const router = useRouter()
 
   const lpl = (searchParams.get("lpl") || "").replace(/ /g, "+")
 
-  // Auto-detect environment on mount
-  useEffect(() => {
-    const fromReferrer = detectEnvironmentFromReferrer()
-    if (fromReferrer) {
-      setEnvironment(fromReferrer)
-      return
-    }
-    const fromCookie = getEnvironmentFromCookie()
-    if (fromCookie) {
-      setEnvironment(fromCookie)
-    }
-  }, [])
+  // With an environment but no LPL, an idle screen becomes manual entry.
+  const authState: AuthState = rawAuthState === "idle" && environment && !lpl ? "manual-entry" : rawAuthState
 
   // Persist environment choice to cookie
   useEffect(() => {
@@ -129,11 +123,13 @@ function AuthContent() {
   }, [environment])
 
   // Process LPL when ready
+  const onLplReady = useEffectEvent((lplValue: string) => {
+    processLpl(lplValue)
+  })
+
   useEffect(() => {
     if (environment && lpl) {
-      processLpl(lpl)
-    } else if (environment && !lpl) {
-      setAuthState("manual-entry")
+      onLplReady(lpl)
     }
   }, [environment, lpl])
 

@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Key screen · Insurance</title>
+<style>
+/* ==========================================================================
+   KEY SCREEN · Insurance tab with the Add insurance drawer open (?tab=insurance)
+   Governing spine sections (spine wins over this mock):
+     DESIGN.md  Components: Insurance card · Row status badges (precedence chips) ·
+                Insurance editor (drawer / full-screen) · Inputs · Inline banner (info) ·
+                Elevation & Depth (drawer = elevation-2) · Shapes
+     EXPERIENCE Information Architecture (Insurance tab, Insurance editor) ·
+                Component Patterns: Insurance card · Insurance editor · Inputs
+                State Patterns: Image upload failed · Responsive & Platform
+                Key Flows: UJ-2 Jordan adds their spouse's insurance (steps 2–6)
+     PRD FR-28, FR-29, FR-31
+   LAYOUT CHOICES MADE HERE (need confirmation; purple "Layout choice" tags in-page):
+     I1 Cards stack in ONE column at full main-column width (DESIGN assumption kept).
+        Inside a card: title row · key/value table (two pairs per row) on the left ·
+        Front/Back thumbnails on the right. On mobile the thumbnails drop below.
+     I2 Thumbnails 120 × 76 px (DESIGN assumption kept), caption "Front"/"Back" under each.
+        Missing image = dashed 120 × 76 placeholder + "Retry upload" link under it.
+     I3 Drawer 480 px (DESIGN assumption kept), full height, scrim over the page,
+        sticky header (title + close) and sticky footer (Cancel, Save).
+     I4 Drawer field order: Insurer → Type + Precedence → demotion notice →
+        Relationship → Member ID + Group ID → Effective + Expiration → Cancellation →
+        Subscriber group → Card images (front | back side by side).
+     I5 No section index on the Insurance tab (EXPERIENCE assumption kept).
+     I6 Persona: Jordan Avery (UJ-2), spouse Alex Avery.
+   ========================================================================== */
+/* ---- Shared Ledger base (matches .working/direction-c-ledger.html) ----
+   Tokens: app/globals.css via DESIGN.md frontmatter. Approved a11y deltas applied:
+   destructive fill = error-strong #b23a31 · input borders = #7a8696 (status-neutral, 3.7:1) · link text = info-strong #256a8c.
+   Off-scale 13/15 px from the direction mock normalized to 14/16 px (DESIGN.md Typography). Light theme only. */
+:root{
+  --graphite:#202833;--charcoal:#313b47;--slate:#566373;--mist:#aeb8c4;--cloud:#e6ebf0;
+  --trust-blue:#246b8f;--clinical-ice:#e8f7fa;--signal-aqua:#8fd8e6;
+  --background:#f4f7fa;--card:#ffffff;--secondary:#eaeff4;--muted:#edf1f5;--border:#e1e8ef;
+  --success:#3baa78;--success-strong:#1b7a4f;--info-strong:#256a8c;
+  --warning:#d6a83a;--warning-strong:#8a6511;--error:#d84f45;--error-strong:#b23a31;
+  --r-sm:6px;--r-md:10px;--r-lg:16px;
+  --font:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --elev-1:0 4px 16px rgba(0,0,0,.18);
+  --elev-2:0 12px 40px rgba(0,0,0,.24);
+  --glow:0 0 0 1px rgba(143,216,230,.32),0 0 24px rgba(143,216,230,.18);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--cloud);color:var(--graphite);font-family:var(--font);-webkit-font-smoothing:antialiased}
+a{color:var(--info-strong)}
+:focus-visible{outline:2px solid var(--trust-blue);outline-offset:2px;box-shadow:var(--glow)}
+.focus-demo{outline:2px solid var(--trust-blue);outline-offset:2px;box-shadow:var(--glow)}
+.sr{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+
+/* presentation shell */
+.doc{max-width:1340px;margin:0 auto;padding:40px 30px 96px}
+.doc-head{max-width:880px;margin:0 0 32px}
+.eyebrow{font-size:12px;line-height:16px;letter-spacing:.08em;text-transform:uppercase;color:var(--slate);margin:0 0 8px}
+.doc-head h2{font-size:32px;line-height:40px;font-weight:600;margin:0 0 12px}
+.doc-head p{font-size:16px;line-height:24px;color:var(--charcoal);margin:0 0 8px}
+.frame-label{font-size:12px;line-height:16px;color:var(--slate);margin:0 0 8px;letter-spacing:.04em}
+.browser{width:1280px;margin:0 auto 48px;background:var(--card);border-radius:var(--r-lg);box-shadow:var(--elev-1);overflow:clip;position:relative}
+.chrome{height:40px;background:var(--secondary);display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid var(--border)}
+.chrome i{width:10px;height:10px;border-radius:50%;background:var(--mist);display:block}
+.url{margin-left:16px;flex:1;max-width:560px;height:26px;border-radius:var(--r-sm);background:var(--card);color:var(--slate);font-size:12px;display:flex;align-items:center;padding:0 12px}
+.ico{width:16px;height:16px;flex:none;vertical-align:-3px}
+.annot{display:inline-block;font-size:11px;line-height:16px;font-weight:600;color:var(--slate);border:1px dashed var(--mist);border-radius:var(--r-sm);padding:0 6px;background:var(--card);text-transform:none;letter-spacing:0}
+.choice{display:inline-block;font-size:11px;line-height:16px;font-weight:600;color:#6b3fa0;border:1px dashed #b79ad8;border-radius:var(--r-sm);padding:0 6px;background:#faf6ff;text-transform:none;letter-spacing:0}
+
+/* app */
+.app{background:var(--card);font-size:14px;line-height:20px}
+.appbar{height:52px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;padding:0 24px;background:var(--card)}
+.wordmark{font-weight:700;font-size:16px;color:var(--trust-blue)}
+.vr{width:1px;height:18px;background:var(--border)}
+.apptitle{font-weight:600;font-size:16px}
+.return{margin-left:auto;min-height:44px;display:inline-flex;align-items:center;gap:6px;font-weight:500;text-decoration:none}
+.identity{display:flex;align-items:center;gap:12px;padding:16px 24px;border-bottom:1px solid var(--border);background:var(--background)}
+.avatar{width:40px;height:40px;border-radius:50%;background:var(--card);border:1px solid var(--border);color:var(--trust-blue);font-weight:600;font-size:16px;display:grid;place-items:center;flex:none}
+.name{font-size:20px;line-height:28px;font-weight:600;margin:0}
+.meta{margin:0 0 0 8px;color:var(--slate);font-size:14px}
+.idline{margin-left:auto;display:flex;gap:24px;font-size:14px;color:var(--slate);font-variant-numeric:tabular-nums}
+.idline b{color:var(--graphite);font-weight:500}
+.tabs{display:flex;gap:4px;padding:0 24px;border-bottom:1px solid var(--border)}
+.tab{min-height:44px;display:inline-flex;align-items:center;gap:8px;padding:0 12px;border:0;background:none;font:inherit;color:var(--slate);border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer}
+.tab[aria-selected=true]{color:var(--graphite);font-weight:600;border-bottom-color:var(--trust-blue)}
+.soon{font-size:12px;line-height:16px;color:var(--slate);background:var(--muted);border-radius:var(--r-sm);padding:0 6px}
+.layout{display:grid;grid-template-columns:200px 1fr;align-items:start}
+.index{position:sticky;top:0;padding:16px 0;border-right:1px solid var(--border);align-self:stretch}
+.index ol{list-style:none;margin:0;padding:0}
+.index a{display:grid;grid-template-columns:24px 1fr auto;align-items:center;min-height:44px;padding:0 16px 0 20px;color:var(--charcoal);text-decoration:none;font-variant-numeric:tabular-nums}
+.index .no,.index .c{font-family:var(--mono);font-size:12px;color:var(--slate)}
+.index a[aria-current=location]{background:var(--clinical-ice);color:var(--trust-blue);font-weight:600;box-shadow:inset 3px 0 0 var(--trust-blue)}
+.index a[aria-current=location] .no,.index a[aria-current=location] .c{color:var(--trust-blue)}
+main{padding:16px 24px 32px;display:grid;gap:32px;min-width:0}
+.sec-h{display:flex;align-items:center;gap:8px;min-height:44px;margin-bottom:8px}
+.sec-h h2{margin:0;font-size:16px;line-height:24px;font-weight:600}
+.sec-h .c{font-size:14px;color:var(--slate);font-variant-numeric:tabular-nums}
+.sec-h .tools{margin-left:auto;display:flex;gap:8px;align-items:center}
+
+/* buttons */
+.btn{min-height:44px;padding:0 14px;border-radius:var(--r-md);font:inherit;font-weight:500;font-size:14px;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;border:1px solid transparent;white-space:nowrap;text-decoration:none}
+.btn-primary{background:var(--trust-blue);color:#fff}
+.btn-outline{background:var(--card);border-color:var(--border);color:var(--graphite)}
+.btn-ghost{background:none;color:var(--trust-blue)}
+.btn-secondary{background:var(--secondary);color:var(--charcoal)}
+.btn-destructive{background:var(--error-strong);color:#fff}
+.btn[aria-disabled=true]{background:var(--muted);color:var(--slate);border-color:var(--border);cursor:not-allowed}
+.btn-cell{min-height:44px;padding:0 10px;font-size:14px}
+.kebab{width:44px;height:44px;padding:0;justify-content:center;background:none;color:var(--charcoal)}
+.linkbtn{min-height:44px;padding:0 6px;border:0;background:none;font:inherit;font-size:14px;font-weight:500;color:var(--info-strong);display:inline-flex;align-items:center;gap:4px;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+
+/* tables */
+.tbl-wrap{border:1px solid var(--border);border-radius:var(--r-md);overflow:visible;background:var(--card)}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{background:var(--muted);text-align:left;font-size:12px;line-height:16px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--slate);height:36px;padding:0 12px;border-bottom:1px solid var(--border)}
+thead tr:first-child th:first-child{border-top-left-radius:var(--r-md)}
+thead tr:first-child th:last-child{border-top-right-radius:var(--r-md)}
+td{height:44px;padding:0 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+tbody tr:last-child td{border-bottom:0}
+.chip{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:var(--r-sm);font-size:12px;font-weight:600;background:var(--muted);color:var(--charcoal);white-space:nowrap}
+.chip.primary{background:var(--trust-blue);color:#fff}
+.st{display:inline-flex;align-items:center;gap:6px;font-weight:500;white-space:nowrap}
+.st.ok{color:var(--success-strong)}.st.warn{color:var(--warning-strong)}
+.st .ico{width:14px;height:14px}
+.muted{color:var(--slate)}
+.mono{font-family:var(--mono);font-weight:500}
+.acts{display:flex;justify-content:flex-end;align-items:center;gap:4px;white-space:nowrap}
+.tipwrap{position:relative;display:inline-flex}
+.tip{position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:var(--graphite);color:#fff;font-size:12px;line-height:16px;padding:6px 10px;border-radius:var(--r-sm);white-space:nowrap;box-shadow:var(--elev-1);z-index:3;font-weight:400}
+.tip::after{content:"";position:absolute;top:100%;left:50%;margin-left:-6px;border:6px solid transparent;border-top-color:var(--graphite)}
+
+/* edit */
+.editing{border-color:var(--trust-blue);box-shadow:0 0 0 3px var(--clinical-ice)}
+.edit td{height:auto;padding:16px 12px;vertical-align:top}
+.edit tr.new>td{background:var(--background)}
+.edit tfoot td{background:var(--card);border-top:1px solid var(--border);padding:8px 8px 8px 12px;border-bottom-left-radius:var(--r-md);border-bottom-right-radius:var(--r-md)}
+.edit-f{display:flex;align-items:center;gap:8px}
+.unsaved{display:inline-flex;align-items:center;gap:6px;color:var(--warning-strong);font-weight:600;font-size:14px;margin-right:auto}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.dot.warn{background:var(--warning)}
+.removed .strike{text-decoration:line-through;color:var(--slate)}
+.removed td{color:var(--slate)}
+
+/* inputs (border = mist, approved a11y fix) */
+.field{display:grid;gap:6px;min-width:0;position:relative}
+.lbl{font-size:14px;line-height:20px;font-weight:500;color:var(--charcoal)}
+.lbl .opt{font-weight:400;color:var(--slate)}
+.input{height:44px;width:100%;border:1px solid #7a8696;border-radius:var(--r-md);background:var(--card);padding:0 12px;font:inherit;font-size:16px;line-height:24px;display:flex;align-items:center;gap:8px;color:var(--graphite);min-width:0;white-space:nowrap;overflow:hidden}
+.input .ph{color:var(--slate)}
+.input.focus{border-color:var(--trust-blue);outline:2px solid var(--trust-blue);outline-offset:2px;box-shadow:var(--glow)}
+.input.locked{background:var(--muted);color:var(--charcoal)}
+.input.err{border:2px solid var(--error);padding:0 11px}
+.input.sel{justify-content:space-between}
+.input.sel .ico,.input .trail{margin-left:auto;color:var(--slate)}
+.help{font-size:14px;line-height:20px;color:var(--slate);margin:0;display:flex;gap:6px;align-items:flex-start}
+.help .ico{margin-top:2px}
+.help.err{color:var(--error-strong);font-weight:500}
+.check{display:inline-flex;align-items:center;gap:10px;min-height:44px;font-size:14px;font-weight:500;color:var(--charcoal)}
+.box{width:20px;height:20px;border:1.5px solid #7a8696;border-radius:4px;background:var(--card);flex:none;display:grid;place-items:center}
+.box.on{background:var(--trust-blue);border-color:var(--trust-blue);color:#fff}
+
+/* listbox (combobox / suggestions) */
+.listbox{position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:var(--elev-1);padding:4px;z-index:5;list-style:none;margin:0}
+.listbox li{min-height:44px;display:flex;flex-direction:column;justify-content:center;padding:4px 10px;border-radius:var(--r-sm);font-size:14px;line-height:20px}
+.listbox li.active{background:var(--clinical-ice)}
+.listbox li .l2{color:var(--slate)}
+.listbox .lb-foot{min-height:32px;font-size:12px;line-height:16px;color:var(--slate);border-top:1px solid var(--border);margin-top:4px;padding:8px 10px 4px;border-radius:0}
+
+/* banners */
+.banner{display:flex;gap:10px;align-items:flex-start;padding:12px;border-radius:var(--r-md);font-size:14px;line-height:20px}
+.banner.info{background:var(--clinical-ice);color:var(--graphite)}
+.banner.info>.ico{color:var(--info-strong);margin-top:2px}
+
+/* save all */
+.savebar{position:sticky;bottom:0;background:var(--card);border-top:1px solid var(--border);display:flex;align-items:center;gap:12px;padding:6px 24px;z-index:4}
+.savebar .sub{color:var(--slate);font-size:14px}
+.savebar .right{margin-left:auto;display:flex;gap:8px}
+.pill{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);min-height:44px;padding:0 20px;border-radius:9999px;background:var(--trust-blue);color:#fff;font-weight:600;font-size:14px;display:inline-flex;align-items:center;gap:8px;box-shadow:var(--elev-1);border:0;white-space:nowrap;z-index:6}
+
+/* mobile frame (390 inner) */
+.mobile-row{display:flex;gap:48px;justify-content:center;align-items:flex-start;flex-wrap:wrap}
+.phone{width:410px;border:10px solid var(--graphite);border-radius:44px;overflow:clip;background:var(--card);box-shadow:var(--elev-1);flex:none;position:relative}
+.status{height:36px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;font-size:12px;font-weight:600;background:var(--card)}
+.m .appbar{padding:0 16px}
+.m .identity{padding:12px 16px}
+.m .tabs{padding:0 8px}
+.m .tab{padding:0 10px}
+.m main{padding:12px 16px 96px}
+.jump{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.jump label{font-size:14px;color:var(--slate);white-space:nowrap}
+.mnotes{max-width:420px;font-size:14px;line-height:22px;color:var(--charcoal)}
+.mnotes h3{font-size:20px;line-height:28px;font-weight:600;margin:0 0 12px;color:var(--graphite)}
+.mnotes ul{padding-left:18px;margin:0}
+.mnotes li{margin-bottom:8px}
+.scrim{position:absolute;inset:0;background:rgba(32,40,51,.45);z-index:8}
+
+.ins-main{padding:16px 24px 48px;display:block}
+.cards{display:grid;gap:16px}
+.icard{border:1px solid var(--border);border-radius:var(--r-md);background:var(--card)}
+.icard-h{display:flex;align-items:center;gap:10px;min-height:52px;padding:0 4px 0 16px;border-bottom:1px solid var(--border)}
+.icard-h h3{margin:0;font-size:16px;line-height:24px;font-weight:600}
+.icard-h .kebab{margin-left:auto}
+.icard-b{display:flex;align-items:stretch}
+.icard-b .kvw{flex:1;min-width:0}
+.kv td{height:40px}
+.kv td.k{color:var(--slate);width:13%;white-space:nowrap}
+.kv td.v{width:37%;font-weight:500}
+.kv td.k + td.v{border-right:1px solid var(--border)}
+.kv td.v:last-child{border-right:0}
+.empty{color:var(--slate);font-weight:400}
+.thumbs{display:flex;gap:12px;padding:12px 16px;border-left:1px solid var(--border);align-items:flex-start}
+.thumb{display:grid;gap:4px;justify-items:center;font-size:12px;line-height:16px;color:var(--slate)}
+.thumb button.img{width:120px;height:76px;padding:0;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--background);overflow:hidden;cursor:zoom-in;display:block}
+.thumb button.img svg{width:120px;height:76px;display:block}
+.thumb .missing{width:120px;height:76px;border:1.5px dashed var(--mist);border-radius:var(--r-sm);background:var(--background);display:grid;place-items:center;align-content:center;gap:4px;color:var(--slate);text-align:center;font-size:12px}
+.thumb .linkbtn{min-height:44px;margin-top:-8px}
+.drawer{position:absolute;top:0;right:0;bottom:0;width:480px;background:var(--card);box-shadow:var(--elev-2);z-index:9;display:flex;flex-direction:column}
+.dr-h{display:flex;align-items:center;gap:8px;min-height:60px;padding:0 8px 0 24px;border-bottom:1px solid var(--border)}
+.dr-h h2{margin:0;font-size:16px;line-height:24px;font-weight:600}
+.dr-b{flex:1;padding:20px 24px 24px;display:grid;gap:16px;align-content:start}
+.dr-f{border-top:1px solid var(--border);padding:8px 24px;display:flex;justify-content:flex-end;gap:8px;background:var(--card)}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+.grp{border-top:1px solid var(--border);padding-top:16px;display:grid;gap:4px}
+.grp h3{margin:0;font-size:16px;line-height:24px;font-weight:600}
+.flag{display:inline-flex;align-items:center;gap:6px;padding-right:10px;border-right:1px solid var(--border);color:var(--charcoal);font-size:14px}
+.up{display:grid;gap:8px}
+.up .pv{border:1px solid var(--border);border-radius:var(--r-sm);background:var(--background);overflow:hidden;aspect-ratio:120/76}
+.up .pv svg{width:100%;height:100%;display:block}
+.up .meta2{font-size:12px;line-height:16px;color:var(--slate)}
+.up .drop{border:1.5px dashed var(--mist);border-radius:var(--r-sm);background:var(--background);aspect-ratio:120/76;display:grid;place-items:center;align-content:center;gap:6px;color:var(--slate);font-size:12px;text-align:center;padding:8px}
+.up .acts2{display:flex;gap:4px;margin-left:-6px}
+.banner .act{margin-top:8px}
+.states{display:flex;gap:24px;justify-content:center;margin:0 auto 48px;flex-wrap:wrap}
+.state-card{width:432px;background:var(--card);border-radius:var(--r-lg);box-shadow:var(--elev-1);padding:20px 24px 24px}
+.state-card .listbox{position:static;margin-top:4px}
+.m .mhead{display:flex;align-items:center;gap:4px;min-height:52px;padding:0 8px;border-bottom:1px solid var(--border)}
+.m .mhead h1{margin:0;font-size:16px;line-height:24px;font-weight:600}
+.m .mbody{padding:16px;display:grid;gap:16px;align-content:start}
+.m .mfoot{position:absolute;left:0;right:0;bottom:0;border-top:1px solid var(--border);background:var(--card);padding:8px 16px 28px;display:flex;gap:8px}
+.m .mfoot .btn{flex:1}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-lock" viewBox="0 0 16 16"><path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="3.25" y="7" width="9.5" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 16 16"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 16 16"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M2.5 2.5l11 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.75v4M8 11.1v.1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.25v4M8 4.9v.1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5 8.25l2 2 4-4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-tick" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-out" viewBox="0 0 16 16"><path d="M9 3h4v4M13 3 7 9M11.5 9.5V13h-9V4H6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chev-r" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chev-up" viewBox="0 0 16 16"><path d="M4 10l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-back" viewBox="0 0 16 16"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-kebab" viewBox="0 0 16 16"><circle cx="8" cy="3.5" r="1.4" fill="currentColor"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/><circle cx="8" cy="12.5" r="1.4" fill="currentColor"/></symbol>
+  <symbol id="i-x" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 16 16"><rect x="2.5" y="3.5" width="11" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 16 16"><path d="M8 10.5V2.5M4.75 5.5 8 2.25l3.25 3.25M2.5 10.5v2.25c0 .4.35.75.75.75h9.5c.4 0 .75-.35.75-.75V10.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 16 16"><path d="M2 5.5c0-.55.45-1 1-1h2l1.2-1.6h3.6L11 4.5h2c.55 0 1 .45 1 1v6.5c0 .55-.45 1-1 1H3c-.55 0-1-.45-1-1z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="8" cy="8.5" r="2.4" fill="none" stroke="currentColor" stroke-width="1.4"/></symbol>
+  <symbol id="i-image" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="6" cy="6.5" r="1.2" fill="currentColor"/><path d="M2.5 12l3.5-3.5 2.5 2.5 2-2 3 3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+  <symbol id="i-sig" viewBox="0 0 160 44"><path d="M6 30c9-1 13-20 19-20s-3 24 5 24 9-16 15-16-2 13 4 13 8-9 13-9 2 7 8 7 10-5 18-5 14 3 24 1 20-7 30-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <!-- insurance card thumbnails (stylized, no real logos) -->
+  <symbol id="card-front" viewBox="0 0 120 76"><rect width="120" height="76" rx="5" fill="#ffffff"/><rect width="120" height="20" rx="5" fill="#246b8f"/><rect y="14" width="120" height="6" fill="#246b8f"/><rect x="8" y="7" width="38" height="6" rx="2" fill="#e8f7fa"/><rect x="8" y="28" width="30" height="4" rx="2" fill="#aeb8c4"/><rect x="8" y="35" width="56" height="5" rx="2" fill="#313b47"/><rect x="8" y="46" width="24" height="4" rx="2" fill="#aeb8c4"/><rect x="8" y="53" width="44" height="5" rx="2" fill="#313b47"/><rect x="78" y="46" width="30" height="20" rx="3" fill="#edf1f5"/></symbol>
+  <symbol id="card-back" viewBox="0 0 120 76"><rect width="120" height="76" rx="5" fill="#ffffff"/><rect y="10" width="120" height="12" fill="#313b47"/><rect x="8" y="30" width="96" height="3" rx="1.5" fill="#aeb8c4"/><rect x="8" y="37" width="88" height="3" rx="1.5" fill="#aeb8c4"/><rect x="8" y="44" width="100" height="3" rx="1.5" fill="#aeb8c4"/><rect x="8" y="51" width="70" height="3" rx="1.5" fill="#aeb8c4"/><rect x="8" y="62" width="40" height="5" rx="2" fill="#246b8f"/></symbol>
+  <!-- portrait placeholder for Profile Picture (illustrative only) -->
+  <symbol id="portrait" viewBox="0 0 96 96"><rect width="96" height="96" fill="#cfe9f0"/><circle cx="48" cy="38" r="17" fill="#566373"/><path d="M14 96c2-22 16-32 34-32s32 10 34 32z" fill="#566373"/><path d="M31 34c0-13 8-21 17-21s19 6 18 22c-3-7-9-10-18-10s-14 3-17 9z" fill="#202833"/></symbol>
+  <symbol id="portrait-old" viewBox="0 0 96 96"><rect width="96" height="96" fill="#e6ebf0"/><circle cx="48" cy="40" r="16" fill="#7a8696"/><path d="M16 96c2-21 15-30 32-30s30 9 32 30z" fill="#7a8696"/></symbol>
+</svg>
+
+<div class="doc">
+  <header class="doc-head">
+    <p class="eyebrow">Key screen 2 of 4 · Personal Profile · Ledger</p>
+    <h2>Insurance, adding a spouse's policy</h2>
+    <p>Jordan has two policies on file: Medical (Primary, both card images) and Dental (Secondary, back image failed to upload). They are adding their spouse Alex's Blue Cross Blue Shield of Illinois plan as Primary Medical, so the drawer offers to make the current Medical policy secondary.</p>
+    <p><span class="choice">Layout choice</span> tags mark compositions this mock decided; see the comment block in the source for the list.</p>
+  </header>
+
+  <p class="frame-label">DESKTOP · 1280 px · Insurance tab at rest (two policies)</p>
+  <div class="browser">
+    <div class="chrome"><i></i><i></i><i></i><div class="url">profile.1health.app/?tab=insurance</div></div>
+    <div class="app" style="position:relative">
+      <header class="appbar">
+        <span class="wordmark">1health</span><span class="vr"></span><span class="apptitle">Personal Profile</span>
+        <a class="return" href="#">Return to 1health <svg class="ico"><use href="#i-out"/></svg></a>
+      </header>
+      <section class="identity" aria-label="Profile">
+        <div class="avatar" aria-hidden="true">JA</div>
+        <h1 class="name">Jordan Avery</h1>
+        <div class="idline"><span>Primary phone <b>+1 (312) 555-0193</b></span><span>Primary email <b>jordan.avery@example.com</b></span></div>
+      </section>
+      <nav class="tabs" role="tablist" aria-label="Profile areas">
+        <button class="tab" role="tab" aria-selected="false">Contacts</button>
+        <button class="tab" role="tab" aria-selected="true">Insurance</button>
+        <button class="tab" role="tab" aria-selected="false">Medical <span class="soon">Coming soon</span></button>
+      </nav>
+
+      <main class="ins-main">
+        <section aria-labelledby="h-ins0">
+          <div class="sec-h"><h2 id="h-ins0">Insurance</h2><span class="c">2</span><span class="choice">Layout choice I5 · no index</span>
+            <div class="tools"><button class="btn btn-outline"><svg class="ico"><use href="#i-plus"/></svg>Add insurance</button></div></div>
+          <div class="cards">
+            <!-- Medical · Primary -->
+            <article class="icard" aria-labelledby="c1a">
+              <div class="icard-h"><h3 id="c1a">Medical Insurance</h3><span class="chip primary">Primary</span><span class="choice">Layout choice I1</span>
+                <button class="btn kebab" aria-label="More actions for Medical Insurance, UnitedHealthcare" aria-haspopup="menu"><svg class="ico"><use href="#i-kebab"/></svg></button></div>
+              <div class="icard-b">
+                <div class="kvw"><table class="kv"><tbody>
+                  <tr><td class="k">Insurer</td><td class="v">UnitedHealthcare</td><td class="k">Subscriber</td><td class="v">Jordan Avery</td></tr>
+                  <tr><td class="k">Member ID</td><td class="v">948221037</td><td class="k">Effective</td><td class="v">01/01/2025</td></tr>
+                  <tr><td class="k">Group ID</td><td class="v">704512</td><td class="k">Expiration</td><td class="v">12/31/2026</td></tr>
+                  <tr><td class="k"></td><td class="v"></td><td class="k">Cancellation</td><td class="v empty">Not provided</td></tr>
+                </tbody></table></div>
+                <div class="thumbs">
+                  <div class="thumb"><button class="img" aria-label="View front of Medical Insurance card"><svg><use href="#card-front"/></svg></button>Front</div>
+                  <div class="thumb"><button class="img" aria-label="View back of Medical Insurance card"><svg><use href="#card-back"/></svg></button>Back</div>
+                </div>
+              </div>
+            </article>
+            <!-- Dental · Secondary, back image missing -->
+            <article class="icard" aria-labelledby="c2a">
+              <div class="icard-h"><h3 id="c2a">Dental Insurance</h3><span class="chip">Secondary</span>
+                <button class="btn kebab" aria-label="More actions for Dental Insurance, Delta Dental of Illinois" aria-haspopup="menu"><svg class="ico"><use href="#i-kebab"/></svg></button></div>
+              <div class="icard-b">
+                <div class="kvw"><table class="kv"><tbody>
+                  <tr><td class="k">Insurer</td><td class="v">Delta Dental of Illinois</td><td class="k">Subscriber</td><td class="v">Jordan Avery</td></tr>
+                  <tr><td class="k">Member ID</td><td class="v">118044719</td><td class="k">Effective</td><td class="v">03/01/2025</td></tr>
+                  <tr><td class="k">Group ID</td><td class="v">33019</td><td class="k">Expiration</td><td class="v empty">Not provided</td></tr>
+                  <tr><td class="k"></td><td class="v"></td><td class="k">Cancellation</td><td class="v empty">Not provided</td></tr>
+                </tbody></table></div>
+                <div class="thumbs">
+                  <div class="thumb"><button class="img" aria-label="View front of Dental Insurance card"><svg><use href="#card-front"/></svg></button>Front</div>
+                  <div class="thumb"><div class="missing" role="img" aria-label="Back image not uploaded"><svg class="ico"><use href="#i-image"/></svg>Image not uploaded</div><button class="linkbtn">Retry upload</button></div>
+                </div>
+              </div>
+            </article>
+          </div>
+          <p style="margin:12px 0 0"><span class="choice">Layout choice I2 · thumbnails 120 × 76</span></p>
+        </section>
+      </main>
+
+    </div>
+  </div>
+
+  <p class="frame-label">DESKTOP · 1280 px · Insurance tab, Add insurance drawer open (shown at full height; the drawer body scrolls in the product)</p>
+  <div class="browser">
+    <div class="chrome"><i></i><i></i><i></i><div class="url">profile.1health.app/?tab=insurance</div></div>
+    <div class="app" style="position:relative;min-height:1760px">
+      <header class="appbar">
+        <span class="wordmark">1health</span><span class="vr"></span><span class="apptitle">Personal Profile</span>
+        <a class="return" href="#">Return to 1health <svg class="ico"><use href="#i-out"/></svg></a>
+      </header>
+      <section class="identity" aria-label="Profile">
+        <div class="avatar" aria-hidden="true">JA</div>
+        <h1 class="name">Jordan Avery</h1>
+        <div class="idline"><span>Primary phone <b>+1 (312) 555-0193</b></span><span>Primary email <b>jordan.avery@example.com</b></span></div>
+      </section>
+      <nav class="tabs" role="tablist" aria-label="Profile areas">
+        <button class="tab" role="tab" aria-selected="false">Contacts</button>
+        <button class="tab" role="tab" aria-selected="true">Insurance</button>
+        <button class="tab" role="tab" aria-selected="false">Medical <span class="soon">Coming soon</span></button>
+      </nav>
+
+      <main class="ins-main" aria-hidden="true">
+        <section aria-labelledby="h-ins">
+          <div class="sec-h"><h2 id="h-ins">Insurance</h2><span class="c">2</span><span class="choice">Layout choice I5 · no index</span>
+            <div class="tools"><button class="btn btn-outline"><svg class="ico"><use href="#i-plus"/></svg>Add insurance</button></div></div>
+          <div class="cards">
+            <!-- Medical · Primary -->
+            <article class="icard" aria-labelledby="c1">
+              <div class="icard-h"><h3 id="c1">Medical Insurance</h3><span class="chip primary">Primary</span><span class="choice">Layout choice I1</span>
+                <button class="btn kebab" aria-label="More actions for Medical Insurance, UnitedHealthcare" aria-haspopup="menu"><svg class="ico"><use href="#i-kebab"/></svg></button></div>
+              <div class="icard-b">
+                <div class="kvw"><table class="kv"><tbody>
+                  <tr><td class="k">Insurer</td><td class="v">UnitedHealthcare</td><td class="k">Subscriber</td><td class="v">Jordan Avery</td></tr>
+                  <tr><td class="k">Member ID</td><td class="v">948221037</td><td class="k">Effective</td><td class="v">01/01/2025</td></tr>
+                  <tr><td class="k">Group ID</td><td class="v">704512</td><td class="k">Expiration</td><td class="v">12/31/2026</td></tr>
+                  <tr><td class="k"></td><td class="v"></td><td class="k">Cancellation</td><td class="v empty">Not provided</td></tr>
+                </tbody></table></div>
+                <div class="thumbs">
+                  <div class="thumb"><button class="img" aria-label="View front of Medical Insurance card"><svg><use href="#card-front"/></svg></button>Front</div>
+                  <div class="thumb"><button class="img" aria-label="View back of Medical Insurance card"><svg><use href="#card-back"/></svg></button>Back</div>
+                </div>
+              </div>
+            </article>
+            <!-- Dental · Secondary, back image missing -->
+            <article class="icard" aria-labelledby="c2">
+              <div class="icard-h"><h3 id="c2">Dental Insurance</h3><span class="chip">Secondary</span>
+                <button class="btn kebab" aria-label="More actions for Dental Insurance, Delta Dental of Illinois" aria-haspopup="menu"><svg class="ico"><use href="#i-kebab"/></svg></button></div>
+              <div class="icard-b">
+                <div class="kvw"><table class="kv"><tbody>
+                  <tr><td class="k">Insurer</td><td class="v">Delta Dental of Illinois</td><td class="k">Subscriber</td><td class="v">Jordan Avery</td></tr>
+                  <tr><td class="k">Member ID</td><td class="v">118044719</td><td class="k">Effective</td><td class="v">03/01/2025</td></tr>
+                  <tr><td class="k">Group ID</td><td class="v">33019</td><td class="k">Expiration</td><td class="v empty">Not provided</td></tr>
+                  <tr><td class="k"></td><td class="v"></td><td class="k">Cancellation</td><td class="v empty">Not provided</td></tr>
+                </tbody></table></div>
+                <div class="thumbs">
+                  <div class="thumb"><button class="img" aria-label="View front of Dental Insurance card"><svg><use href="#card-front"/></svg></button>Front</div>
+                  <div class="thumb"><div class="missing" role="img" aria-label="Back image not uploaded"><svg class="ico"><use href="#i-image"/></svg>Image not uploaded</div><button class="linkbtn">Retry upload</button></div>
+                </div>
+              </div>
+            </article>
+          </div>
+          <p style="margin:12px 0 0"><span class="choice">Layout choice I2 · thumbnails 120 × 76</span></p>
+        </section>
+      </main>
+
+      <div class="scrim" aria-hidden="true"></div>
+
+      <!-- Insurance editor drawer -->
+      <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="dr-t">
+        <div class="dr-h"><h2 id="dr-t">Add insurance</h2><span class="choice" style="margin-left:8px">Layout choice I3 · 480 px</span>
+          <button class="btn kebab" style="margin-left:auto" aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button></div>
+        <div class="dr-b">
+          <div class="field"><label class="lbl" for="ins">Insurer</label>
+            <div class="input" id="ins" role="combobox" aria-expanded="false"><svg class="ico" style="color:var(--slate)"><use href="#i-search"/></svg>Blue Cross Blue Shield of Illinois<svg class="ico trail"><use href="#i-x"/></svg></div>
+            <p class="help">Search the list, or add your insurer by name if it isn't there.</p></div>
+
+          <div class="two">
+            <div class="field"><label class="lbl">Type</label><div class="input sel">Medical<svg class="ico"><use href="#i-chev"/></svg></div></div>
+            <div class="field"><label class="lbl">Precedence</label><div class="input sel">Primary<svg class="ico"><use href="#i-chev"/></svg></div></div>
+          </div>
+          <div class="banner info" role="status">
+            <svg class="ico"><use href="#i-info"/></svg>
+            <div>Only one primary Medical policy. Make UnitedHealthcare secondary?
+              <div class="act"><button class="btn btn-outline" style="background:var(--card)">Make UnitedHealthcare secondary</button></div>
+              <div class="muted" style="margin-top:6px">The change saves with this policy.</div></div>
+          </div>
+          <div class="field"><label class="lbl">Relationship to the insured</label><div class="input sel">Spouse<svg class="ico"><use href="#i-chev"/></svg></div></div>
+
+          <div class="two">
+            <div class="field"><label class="lbl">Member ID</label><div class="input">XOJ882104556</div></div>
+            <div class="field"><label class="lbl">Group ID <span class="opt">(optional)</span></label><div class="input">B40177</div></div>
+          </div>
+          <div class="two">
+            <div class="field"><label class="lbl">Effective date</label><div class="input">11/01/2026<svg class="ico trail"><use href="#i-cal"/></svg></div></div>
+            <div class="field"><label class="lbl">Expiration date <span class="opt">(optional)</span></label><div class="input"><span class="ph">MM/DD/YYYY</span><svg class="ico trail"><use href="#i-cal"/></svg></div></div>
+          </div>
+          <div class="two">
+            <div class="field"><label class="lbl">Cancellation date <span class="opt">(optional)</span></label><div class="input"><span class="ph">MM/DD/YYYY</span><svg class="ico trail"><use href="#i-cal"/></svg></div></div>
+          </div>
+          <p class="help" style="margin-top:-8px">Expiration and cancellation must be after the effective date. Cancellation must be before expiration.</p>
+
+          <div class="grp">
+            <h3>Subscriber</h3>
+            <p class="help">The person who holds this policy. Needed because the relationship isn't Self.</p>
+          </div>
+          <div class="two">
+            <div class="field"><label class="lbl">First name</label><div class="input">Alex</div></div>
+            <div class="field"><label class="lbl">Last name</label><div class="input">Avery</div></div>
+          </div>
+          <div class="field"><label class="lbl">Email</label><div class="input">alex.avery@example.com</div>
+            <p class="help">Use Alex's email, not the one you sign in with.</p></div>
+          <div class="two">
+            <div class="field"><label class="lbl">Phone</label><div class="input"><span class="flag">US +1</span>(312) 555-0148</div></div>
+            <div class="field"><label class="lbl">Birth date</label><div class="input">04/22/1987<svg class="ico trail"><use href="#i-cal"/></svg></div></div>
+          </div>
+
+          <div class="grp">
+            <h3>Card images</h3>
+            <p class="help">PNG or JPEG, up to 10 MB. Images upload after the policy saves.</p>
+          </div>
+          <div class="two">
+            <div class="up">
+              <span class="lbl">Front</span>
+              <div class="pv" role="img" aria-label="Preview of front of card"><svg viewBox="0 0 120 76"><use href="#card-front"/></svg></div>
+              <span class="meta2">bcbsil-front.jpg · 1.8 MB</span>
+              <div class="acts2"><button class="linkbtn">Replace</button><button class="linkbtn">Remove</button></div>
+            </div>
+            <div class="up">
+              <span class="lbl">Back <span class="opt" style="font-weight:400;color:var(--slate)">(optional)</span></span>
+              <div class="drop"><svg class="ico"><use href="#i-upload"/></svg>No image chosen</div>
+              <button class="btn btn-outline"><svg class="ico"><use href="#i-upload"/></svg>Choose back image</button>
+            </div>
+          </div>
+          <p style="margin:0"><span class="choice">Layout choice I4 · field order</span></p>
+        </div>
+        <div class="dr-f"><button class="btn btn-secondary">Cancel</button><button class="btn btn-primary">Save</button></div>
+      </aside>
+    </div>
+  </div>
+
+  <p class="frame-label" style="text-align:center">STATE DETAIL · Insurer search (drawer and full-screen page)</p>
+  <div class="states">
+    <div class="state-card">
+      <div class="field"><label class="lbl">Insurer</label>
+        <div class="input focus" role="combobox" aria-expanded="true"><svg class="ico" style="color:var(--slate)"><use href="#i-search"/></svg>Blue Cross</div>
+        <ul class="listbox" role="listbox" aria-label="Insurers">
+          <li role="option" class="active"><span>Blue Cross Blue Shield of Illinois</span></li>
+          <li role="option"><span>Blue Cross Blue Shield of Texas</span></li>
+          <li role="option"><span>Blue Cross Blue Shield of Michigan</span></li>
+          <li role="option"><span>Blue Cross of Idaho</span></li>
+        </ul>
+      </div>
+      <p class="help" style="margin-top:12px">Matches from the platform list.</p>
+    </div>
+    <div class="state-card">
+      <div class="field"><label class="lbl">Insurer</label>
+        <div class="input focus" role="combobox" aria-expanded="true"><svg class="ico" style="color:var(--slate)"><use href="#i-search"/></svg>Prairie Mutual Health</div>
+        <ul class="listbox" role="listbox" aria-label="Insurers">
+          <li role="option" class="active"><span style="display:inline-flex;align-items:center;gap:6px;color:var(--trust-blue);font-weight:500"><svg class="ico"><use href="#i-plus"/></svg>Add “Prairie Mutual Health”</span></li>
+        </ul>
+      </div>
+      <p class="help" style="margin-top:12px">Not on the list: add it by name (FR-29).</p>
+    </div>
+  </div>
+
+  <p class="frame-label" style="text-align:center">MOBILE · 390 × 844 · editor as a full-screen page</p>
+  <div class="mobile-row">
+    <div class="phone m" style="height:864px">
+      <div class="status"><span>9:41</span><span>100%</span></div>
+      <div class="app">
+        <header class="mhead">
+          <button class="btn kebab" aria-label="Back to Insurance"><svg class="ico"><use href="#i-back"/></svg></button>
+          <h1>Add insurance</h1>
+        </header>
+        <div class="mbody">
+          <div class="field"><label class="lbl">Insurer</label>
+            <div class="input"><svg class="ico" style="color:var(--slate)"><use href="#i-search"/></svg>Blue Cross Blue Shield of Illinois</div></div>
+          <div class="field"><label class="lbl">Type</label><div class="input sel">Medical<svg class="ico"><use href="#i-chev"/></svg></div></div>
+          <div class="field"><label class="lbl">Precedence</label><div class="input sel">Primary<svg class="ico"><use href="#i-chev"/></svg></div></div>
+          <div class="banner info" role="status">
+            <svg class="ico"><use href="#i-info"/></svg>
+            <div>Only one primary Medical policy. Make UnitedHealthcare secondary?
+              <div class="act"><button class="btn btn-outline" style="background:var(--card)">Make UnitedHealthcare secondary</button></div></div>
+          </div>
+          <div class="field"><label class="lbl">Relationship to the insured</label><div class="input sel">Spouse<svg class="ico"><use href="#i-chev"/></svg></div></div>
+          <div class="field"><label class="lbl">Member ID</label><div class="input">XOJ882104556</div></div>
+        </div>
+      </div>
+      <div class="mfoot"><button class="btn btn-secondary">Cancel</button><button class="btn btn-primary">Save</button></div>
+    </div>
+    <div class="mnotes" style="max-width:340px">
+      <h3>What changes at 390 px</h3>
+      <ul>
+        <li>The drawer becomes a full-screen page with a back control in place of close; same fields, same order.</li>
+        <li>Paired fields (Type + Precedence, Member ID + Group ID, dates, names) stack one per row.</li>
+        <li>Cancel and Save stay pinned to the bottom edge; the body scrolls.</li>
+        <li>Back with unsaved changes triggers the leave guard.</li>
+        <li>On the tab itself, card thumbnails move below the key/value table.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</body>
+</html>
