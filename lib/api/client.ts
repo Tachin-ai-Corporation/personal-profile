@@ -1,25 +1,18 @@
 /**
  * =============================================================================
- * 1health API — shared client helper
+ * callApi — the single browser transport
  * =============================================================================
  *
- * Every `lib/api/*.ts` module is built on top of `authFetch` (Bearer token +
- * automatic 401 refresh/retry, see `lib/auth-client.ts`). This module distills
- * the repeated try/parse/error boilerplate into one place so a new module can be
- * written in a few lines and behave consistently.
+ * The browser talks ONLY to this app's own origin, and only through `callApi`
+ * (AD-19). Every 1health call goes to a same-origin `/api/...` path that the
+ * server proxies (the proxy, allowlist, CSRF header, refresh and session signals
+ * arrive in Stories 1.3–1.5). This story keeps the signature and the plain
+ * same-origin fetch; it adds no auth, headers or refresh.
  *
- * Two return conventions, both used across 1health apps:
- *   - `ApiResponse<T>`  — the default. Success/error is explicit and the UI can
- *                         always show `error`. Prefer this for anything a user
- *                         sees the result of (writes, submits, most reads).
- *   - `T | null`        — only for trivial internal reads where "failed" and
- *                         "not found" are equivalent to the caller.
- *
- * See docs/api/CONVENTIONS.md for the module-authoring recipe.
+ * `callApi` returns `ApiResponse<T>` and never throws on HTTP errors.
+ * `callApiRaw` returns the raw `Response` for blobs/downloads.
  * =============================================================================
  */
-
-import { authFetch, getOneHealthBaseUrl } from "@/lib/auth-client"
 
 /** Standard result envelope returned by every API module function. */
 export interface ApiResponse<T> {
@@ -41,21 +34,19 @@ export function ok<T>(data: T, statusCode?: number): ApiResponse<T> {
  */
 export function err(error: unknown, context: string, statusCode?: number): ApiResponse<never> {
   const message = error instanceof Error ? error.message : String(error)
-  console.error(`[1health API] ${context}:`, error)
+  console.error(`[pp API] ${context}:`, error)
   return { success: false, error: message, statusCode }
 }
 
 /**
- * The canonical JSON call. Resolves the base URL fresh (never cache it — it can
- * change at runtime with env/tenant), routes through `authFetch`, reads the body
- * defensively (some endpoints return an empty body on success), and wraps
- * everything in an `ApiResponse<T>`.
+ * The canonical JSON call. Issues a plain same-origin `fetch(path, init)` to the
+ * given `/api/...` path, reads the body defensively (some endpoints return an
+ * empty body on success), and wraps everything in an `ApiResponse<T>`.
  *
- * `path` must start at the API root, e.g. `/api/v2/query`. Do NOT pass a full
- * URL — the base URL is prepended for you.
+ * `path` must be a same-origin `/api/...` path, e.g. `/api/1h/v2/user/myself`.
  *
  * @example
- * const res = await callApi<UserInfo>("user/fetchMyself", "/api/v2/user/myself")
+ * const res = await callApi<UserInfo>("myself/fetch", "/api/1h/v2/user/myself")
  * if (res.success) use(res.data)
  */
 export async function callApi<T = unknown>(
@@ -64,12 +55,11 @@ export async function callApi<T = unknown>(
   init: RequestInit = {},
 ): Promise<ApiResponse<T>> {
   try {
-    const baseUrl = getOneHealthBaseUrl()
-    const response = await authFetch(`${baseUrl}${path}`, init)
+    const response = await fetch(path, init)
     const text = await response.text()
 
     if (!response.ok) {
-      console.error(`[1health API] ${context}:`, response.status, text)
+      console.error(`[pp API] ${context}:`, response.status, text)
       return { success: false, error: `${context} failed (${response.status})`, statusCode: response.status }
     }
 
@@ -90,10 +80,8 @@ export async function callApi<T = unknown>(
 
 /**
  * Escape hatch for non-JSON responses (file downloads / blobs) or when you need
- * the raw `Response` (custom header reads, streaming). Still resolves the base
- * URL and goes through `authFetch`; throws `SessionExpiredError` on auth failure.
+ * the raw `Response`. Issues the same plain same-origin fetch.
  */
 export async function callApiRaw(path: string, init: RequestInit = {}): Promise<Response> {
-  const baseUrl = getOneHealthBaseUrl()
-  return authFetch(`${baseUrl}${path}`, init)
+  return fetch(path, init)
 }
