@@ -180,7 +180,7 @@ export async function POST(req: Request) {
     let lpl: Buffer
     try {
       lpl = Buffer.from(body.lpl, "base64")
-    } catch (err) {
+    } catch {
       return NextResponse.json({ error: "Invalid LPL format: not valid base64" }, { status: 400 })
     }
 
@@ -203,7 +203,7 @@ export async function POST(req: Request) {
     let decryptedString: string
     try {
       decryptedString = decryptAesGcm({ iv, tag, encryptedData, key })
-    } catch (err) {
+    } catch {
       return NextResponse.json(
         { error: "Invalid LPL: decryption failed. The payload may be corrupted or encrypted with a different key." },
         { status: 400 },
@@ -213,7 +213,7 @@ export async function POST(req: Request) {
     let payload: DecryptedPayload
     try {
       payload = JSON.parse(decryptedString)
-    } catch (err) {
+    } catch {
       return NextResponse.json({ error: "Invalid payload format: decrypted data is not valid JSON" }, { status: 400 })
     }
 
@@ -324,16 +324,16 @@ export async function POST(req: Request) {
           })
         }
       }
-    } catch (tenantErr) {
+    } catch {
       // Non-fatal - continue with token response
     }
 
     return NextResponse.json(authData)
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json(
       {
         error: "Unable to process the request",
-        details: err.message || String(err),
+        details: err instanceof Error ? err.message : String(err),
       },
       { status: 500 },
     )

@@ -111,9 +111,13 @@ export function SettingsPage() {
   }, [])
 
   useEffect(() => {
-    updateTokenInfo()
+    // First read is deferred (not called synchronously in the effect body) to avoid a cascading render.
+    const initial = setTimeout(updateTokenInfo, 0)
     const interval = setInterval(updateTokenInfo, 1000)
-    return () => clearInterval(interval)
+    return () => {
+      clearTimeout(initial)
+      clearInterval(interval)
+    }
   }, [updateTokenInfo])
 
   const handleManualRefresh = async () => {
@@ -188,6 +192,8 @@ export function SettingsPage() {
             <CardHeader className="pb-3">
               <div className="flex items-center gap-3">
                 {logoUrl ? (
+                  // Tenant logo from an arbitrary 1health URL; images are unoptimized, so next/image adds nothing.
+                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={logoUrl}
                     alt={`${orgName ?? "Organization"} logo`}
