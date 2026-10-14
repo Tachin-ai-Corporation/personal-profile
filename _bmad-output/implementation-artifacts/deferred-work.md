@@ -25,3 +25,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/1-3-secure-1health-proxy-allowlist-normalization-csrf-no-store-a.md`
   summary: Dev-only redactBody (lib/server/log.ts) misses some secret field names (code, oneTimeCode, apiKey, authorization). Expand the field list when the debug logger is next touched.
   evidence: blind-hunter review of Story 1.3. Dev-only logging; low severity.
+- source_spec: `_bmad-output/implementation-artifacts/1-4-callapi-transport-swr-keys-and-usemyself.md`
+  summary: CLAUDE.md still describes `callApiRaw`, `authFetch` and the legacy client-side auth design; update it to the AD-19 `callApi` transport.
+  evidence: Story 1.4 removed `callApiRaw`; CLAUDE.md is an agent-context file, so its edit is deferred rather than patched.
+- source_spec: `_bmad-output/implementation-artifacts/1-4-callapi-transport-swr-keys-and-usemyself.md`
+  summary: Decide in Story 1.7 whether `session-events.subscribe` should replay an event already published before the subscriber registered.
+  evidence: Unverified (medium if true) — `publish` is once-per-lifetime, so a subscriber added after the first publish never hears it; today responses arrive after commit, so effect-time subscription likely wins. Settle with a test where a 409 resolves before SessionDialogs mounts.
