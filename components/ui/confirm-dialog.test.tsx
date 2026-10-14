@@ -112,13 +112,19 @@ describe("ConfirmDialog", () => {
     const { onConfirm, onCancel } = setup({ busy: true, extraAction: { label: "Discard", onClick: onDiscard } })
     const dialog = screen.getByRole("alertdialog")
     expect(dialog.getAttribute("aria-busy")).toBe("true")
-    expect(dialog.querySelector("svg.animate-spin")).not.toBeNull()
+    // The confirm button is the busy Button (spinner, "Saving…", aria-busy); Cancel and the extra action are only aria-disabled.
+    const confirm = screen.getByRole("button", { name: "Saving…" })
+    expect(confirm.getAttribute("aria-busy")).toBe("true")
+    expect(confirm.querySelector("svg.animate-spin")).not.toBeNull()
+    expect(dialog.querySelectorAll("svg.animate-spin")).toHaveLength(1)
+    expect(screen.getByRole("button", { name: "Cancel" }).getAttribute("aria-busy")).toBeNull()
+    confirm.focus()
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
     fireEvent.keyDown(dialog, { key: "Escape" })
     await nextTask()
     clickOverlay()
     fireEvent.click(screen.getByRole("button", { name: "Discard" }))
-    fireEvent.click(screen.getByRole("button", { name: "Remove signature" }))
+    fireEvent.click(confirm)
     expect(onCancel).not.toHaveBeenCalled()
     expect(onDiscard).not.toHaveBeenCalled()
     expect(onConfirm).not.toHaveBeenCalled()
@@ -126,9 +132,12 @@ describe("ConfirmDialog", () => {
     for (const button of screen.getAllByRole("button")) {
       expect(button.getAttribute("aria-disabled")).toBe("true")
       expect(button.className).toContain("aria-disabled:opacity-50")
-      expect(button.className).toContain("aria-disabled:cursor-not-allowed")
+      expect(button.className).toContain(button === confirm ? "cursor-progress" : "aria-disabled:cursor-not-allowed")
     }
+    // One status region (the busy Button's), no duplicate from the dialog.
+    expect(screen.getAllByRole("status")).toHaveLength(1)
     expect(screen.getByRole("status").textContent).toBe("Saving…")
+    expect(document.activeElement).toBe(confirm)
   })
 
   it("announces nothing busy while idle", () => {

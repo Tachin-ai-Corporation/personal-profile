@@ -63,6 +63,13 @@ describe("AppBar", () => {
     for (const link of screen.getAllByRole("link")) expect(link.className).toContain("min-h-11")
   })
 
+  it("uses the shared focus-ring on every page-nav link and on Return to 1health", () => {
+    setup()
+    const links = screen.getAllByRole("link")
+    expect(links.map((link) => link.textContent)).toEqual(["Personal Profile", "Account", "Return to 1health"])
+    for (const link of links) expect(link.className).toContain("focus-ring")
+  })
+
   it("orders focusable elements page nav → Return to 1health", () => {
     setup()
     const focusable = [...document.querySelectorAll<HTMLElement>("a[href], button")].map((el) => el.textContent)

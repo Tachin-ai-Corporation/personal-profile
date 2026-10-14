@@ -28,7 +28,7 @@ export function ReturnLink({ className }: { readonly className?: string }) {
       }}
       className={cn(
         "inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-body-sm font-medium text-link-text underline-offset-4 hover:underline",
-        "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card focus-visible:shadow-glow",
+        "outline-none focus-ring",
         className,
       )}
     >

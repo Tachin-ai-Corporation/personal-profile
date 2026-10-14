@@ -4,6 +4,7 @@ import { Suspense } from "react"
 import { Inter } from "next/font/google"
 import "./globals.css"
 import { ToasterWrapper } from "@/components/toaster-wrapper"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { SwrProvider } from "@/features/shell"
 
 // 1health design system typeface. `variable` feeds --font-inter, which
@@ -37,9 +38,11 @@ export default function RootLayout({
     <html lang="en" className={inter.variable} suppressHydrationWarning>
       <body className="font-sans antialiased">
         <SwrProvider>
-          <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
-            {children}
-          </Suspense>
+          <TooltipProvider>
+            <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+              {children}
+            </Suspense>
+          </TooltipProvider>
           <ToasterWrapper />
         </SwrProvider>
       </body>

@@ -57,11 +57,11 @@ describe("lint: updateAccount only in features/account (AD-9)", () => {
 })
 
 describe("lint: hooks/use-toast only in features/shell/toasts.ts", () => {
-  it.each(["features/shell/leave-guard.tsx", "features/account/x.ts", "components/x.tsx", "app/page.tsx", "lib/api/x.ts"])("rejects it in %s", async (filePath) => {
+  it.each(["features/shell/leave-guard.tsx", "features/shell/leave-guard.test.tsx", "features/account/x.ts", "components/x.tsx", "components/ui/toast.test.tsx", "app/page.tsx", "lib/api/x.ts"])("rejects it in %s", async (filePath) => {
     expect((await ruleHits(filePath, USE_TOAST)).join("\n")).toMatch(/no-restricted-imports: .*features\/shell \(toasts\.ts\)/)
   })
 
-  it.each(["features/shell/toasts.ts", "components/ui/toaster.tsx"])("allows %s", async (filePath) => {
+  it.each(["features/shell/toasts.ts", "features/shell/toasts.test.tsx", "components/ui/toaster.tsx"])("allows %s", async (filePath) => {
     expect(await ruleHits(filePath, USE_TOAST)).toEqual([])
   })
 })

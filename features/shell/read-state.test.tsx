@@ -32,12 +32,36 @@ describe("LoadError", () => {
     render(<LoadError onRetry={onRetry} />)
     const alert = screen.getByRole("alert")
     expect(alert.textContent).toBe(LOAD_ERROR)
+    // Built on the shared InlineBanner (error variant), same copy and behaviour.
+    expect(alert.parentElement?.getAttribute("data-slot")).toBe("inline-banner load-error")
+    expect(alert.parentElement?.getAttribute("data-variant")).toBe("error")
+    expect(alert.parentElement?.className).toContain("text-error-strong")
     const retry = screen.getByRole("button", { name: "Retry" })
     expect(alert.contains(retry)).toBe(false)
     expect(retry.className).toContain("h-11")
     expect(retry.className).toContain("text-link-text")
     fireEvent.click(retry)
     expect(onRetry).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("LoadError: repeated failures", () => {
+  it("re-announces the same sentence when the attempt changes (the alert is a new node)", () => {
+    const { rerender } = render(<LoadError onRetry={vi.fn()} attempt={1} />)
+    const first = screen.getByRole("alert")
+    rerender(<LoadError onRetry={vi.fn()} attempt={1} />)
+    expect(screen.getByRole("alert")).toBe(first)
+    rerender(<LoadError onRetry={vi.fn()} attempt={2} />)
+    const second = screen.getByRole("alert")
+    expect(second).not.toBe(first)
+    expect(second.textContent).toBe(LOAD_ERROR)
+  })
+
+  it("ReadStateFor passes the attempt through", () => {
+    const { rerender } = render(<ReadStateFor error={{ kind: "network" }} onRetry={vi.fn()} attempt={1} />)
+    const first = screen.getByRole("alert")
+    rerender(<ReadStateFor error={{ kind: "network" }} onRetry={vi.fn()} attempt={2} />)
+    expect(screen.getByRole("alert")).not.toBe(first)
   })
 })
 

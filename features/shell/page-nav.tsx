@@ -47,7 +47,7 @@ export function PageNav({ current, className }: PageNavProps) {
                 className={cn(
                   "inline-flex min-h-11 w-full items-center justify-center whitespace-nowrap px-3 text-body-sm font-medium text-muted-foreground",
                   "rounded-md transition-colors duration-150 ease-standard motion-reduce:transition-none hover:bg-accent hover:text-accent-foreground",
-                  "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card focus-visible:shadow-glow",
+                  "outline-none focus-ring",
                   // Desktop: 2 px primary bottom indicator; mobile: the selected segment is filled.
                   "md:rounded-b-none md:border-b-2 md:border-transparent",
                   active && "font-semibold text-foreground md:border-primary max-md:bg-accent max-md:text-accent-foreground",

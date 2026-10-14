@@ -171,8 +171,9 @@ const eslintConfig = [
     ignores: ["**/*.test.{ts,tsx}"],
     rules: { "no-restricted-syntax": syntax(...without("dynamicAccount")) },
   },
+  // toasts.ts owns hooks/use-toast; its test resets the shared queue between cases.
   {
-    files: ["features/shell/toasts.ts"],
+    files: ["features/shell/toasts.ts", "features/shell/toasts.test.tsx"],
     rules: { "no-restricted-imports": imports([SERVER_ONLY, APP, OTHER_FEATURES, ACCOUNT_MODULE, UPDATE_ACCOUNT]) },
   },
   {

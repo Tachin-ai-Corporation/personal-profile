@@ -278,6 +278,24 @@
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Focus ring (DESIGN.md {components.focus-ring}): 2 px ring outline, 2 px
+   offset and the aqua glow, on keyboard focus only. Applied to every interactive
+   control (Button, inputs, Select, page nav, Return to 1health, Retry, toasts).
+   Ported from main b005536 (F3-1). */
+@utility focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    box-shadow: var(--glow);
+  }
+}
+
+/* Toast viewport bottom offset (F3-1): 0 by default; the mobile Save all pill
+   raises it (e.g. `--toast-bottom-offset: 4.5rem`) so toasts sit above it. */
+:root {
+  --toast-bottom-offset: 0px;
+}
+
 /* Custom animations for auth flow */
 @keyframes pulse-subtle {
   0%, 100% { transform: scale(1); opacity: 1; }

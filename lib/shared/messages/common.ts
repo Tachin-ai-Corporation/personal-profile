@@ -4,4 +4,6 @@ export const COMMON_MESSAGES = {
   save: "Save",
   retry: "Retry",
   notProvided: "Not provided",
+  optionalSuffix: "(optional)", // DRAFT COPY (the muted suffix of EXPERIENCE.md "{Label} (optional)")
+  dismissNotification: "Dismiss notification", // DRAFT COPY (toast close button name, F3-1)
 } as const

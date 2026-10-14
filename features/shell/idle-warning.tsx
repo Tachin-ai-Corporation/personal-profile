@@ -153,8 +153,8 @@ export function IdleWarning({ idleTimeoutSec, lastSeen, absoluteExpiresAt, serve
           {busy ? IDLE_MESSAGES.staying : ""}
         </p>
         <div className="flex justify-end">
-          {/* aria-disabled, not disabled: focus stays on the button while the ping is pending. */}
-          <Button ref={buttonRef} type="button" size="touch" aria-disabled={busy} onClick={() => void stay()}>
+          {/* busy (aria-busy + aria-disabled), not disabled: focus stays on the button while the ping is pending. */}
+          <Button ref={buttonRef} type="button" size="touch" busy={busy} onClick={() => void stay()}>
             {IDLE_MESSAGES.stay}
           </Button>
         </div>

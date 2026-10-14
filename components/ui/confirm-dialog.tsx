@@ -2,15 +2,11 @@
 
 import * as React from "react"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
-import { Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DialogOverlay, DialogPortal } from "@/components/ui/dialog"
 import { COMMON_MESSAGES, SECTION_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
-
-/** `aria-disabled` buttons (while busy) look disabled but keep focus. */
-const BUSY_STYLES = "aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
 
 export interface ConfirmDialogExtraAction {
   readonly label: string
@@ -116,18 +112,14 @@ export function ConfirmDialog({
           <DialogPrimitive.Description asChild>
             <div className="text-body-sm text-muted-foreground">{body}</div>
           </DialogPrimitive.Description>
-          <span role="status" className="sr-only">
-            {busy ? SECTION_MESSAGES.saving : ""}
-          </span>
           <div className="flex flex-wrap justify-end gap-2">
             <Button
               ref={cancelRef}
               type="button"
               variant="secondary"
               size="touch"
-              className={BUSY_STYLES}
               aria-disabled={busy || undefined}
-              onClick={cancel}
+              onClick={onCancel}
             >
               {cancelLabel}
             </Button>
@@ -136,11 +128,8 @@ export function ConfirmDialog({
                 type="button"
                 variant="outline"
                 size="touch"
-                className={BUSY_STYLES}
                 aria-disabled={busy || undefined}
-                onClick={() => {
-                  if (!busy) extraAction.onClick()
-                }}
+                onClick={extraAction.onClick}
               >
                 {extraAction.label}
               </Button>
@@ -150,13 +139,10 @@ export function ConfirmDialog({
                 type="button"
                 variant={variant === "destructive" ? "destructive" : "default"}
                 size="touch"
-                className={BUSY_STYLES}
-                aria-disabled={busy || undefined}
-                onClick={() => {
-                  if (!busy) onConfirm()
-                }}
+                busy={busy}
+                busyLabel={SECTION_MESSAGES.saving}
+                onClick={onConfirm}
               >
-                {busy ? <Loader2 aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : null}
                 {confirmLabel}
               </Button>
             ) : null}

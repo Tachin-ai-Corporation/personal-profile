@@ -1,9 +1,10 @@
 "use client"
 
-import { AlertCircle, Lock } from "lucide-react"
+import { Lock } from "lucide-react"
 import type { JSX } from "react"
 
 import { Button } from "@/components/ui/button"
+import { InlineBanner } from "@/components/ui/inline-banner"
 import { recordUserActivity, type MappedError } from "@/lib/api"
 import { COMMON_MESSAGES, STATE_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
@@ -12,28 +13,40 @@ export interface LoadErrorProps {
   /** Revalidates only the failed tab's or Section's keys. */
   readonly onRetry: () => void
   readonly className?: string
+  /**
+   * The failed-load count (or any value that changes per failure): a new value
+   * re-announces the alert, so a retry that fails again is heard.
+   */
+  readonly attempt?: number
 }
 
 /** `inline-banner-error`: the load-error sentence plus a separate Retry button (Story 7.1, FR103). */
-export function LoadError({ onRetry, className }: LoadErrorProps): JSX.Element {
+export function LoadError({ onRetry, className, attempt }: LoadErrorProps): JSX.Element {
   return (
-    <div
+    <InlineBanner
+      variant="error"
       data-slot="load-error"
-      className={cn("bg-card text-error-strong flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-body-sm", className)}
+      className={className}
+      announceKey={attempt}
+      // Only the sentence is the live region; Retry sits outside it so it isn't re-announced.
+      action={
+        <Button
+          type="button"
+          variant="link"
+          size="touch"
+          className="px-2"
+          onClick={() => {
+            // Retrying is the user acting: record it, so reading alone isn't idled out (Story 1.6).
+            void recordUserActivity()
+            onRetry()
+          }}
+        >
+          {COMMON_MESSAGES.retry}
+        </Button>
+      }
     >
-      <AlertCircle aria-hidden="true" className="size-4 shrink-0" />
-      {/* Only the sentence is the live region; Retry sits outside it so it isn't re-announced. */}
-      <p role="alert" className="font-medium">
-        {STATE_MESSAGES.loadError}
-      </p>
-      <Button type="button" variant="link" size="touch" className="px-2" onClick={() => {
-          // Retrying is the user acting: record it, so reading alone isn't idled out (Story 1.6).
-          void recordUserActivity()
-          onRetry()
-        }}>
-        {COMMON_MESSAGES.retry}
-      </Button>
-    </div>
+      {STATE_MESSAGES.loadError}
+    </InlineBanner>
   )
 }
 
@@ -63,6 +76,8 @@ export interface ReadStateForProps {
   readonly error: MappedError
   readonly onRetry: () => void
   readonly className?: string
+  /** Passed to `LoadError`: changes per failure, so a repeated failure is re-announced. */
+  readonly attempt?: number
 }
 
 /**
@@ -70,7 +85,7 @@ export interface ReadStateForProps {
  * a session end shows nothing (the session dialog owns it); everything else,
  * proxy refusals included, shows the load error with Retry.
  */
-export function ReadStateFor({ error, onRetry, className }: ReadStateForProps): JSX.Element | null {
+export function ReadStateFor({ error, onRetry, className, attempt }: ReadStateForProps): JSX.Element | null {
   switch (error.kind) {
     case "session":
       return null
@@ -81,6 +96,6 @@ export function ReadStateFor({ error, onRetry, className }: ReadStateForProps): 
     case "network":
     case "field":
     case "coded":
-      return <LoadError onRetry={onRetry} className={className} />
+      return <LoadError onRetry={onRetry} className={className} attempt={attempt} />
   }
 }

@@ -272,9 +272,13 @@ describe("IdleWarning: ping in flight at the deadline", () => {
     fireEvent.click(stayButton())
     await settle()
     expect(isBusy()).toBe(true)
+    // The shared busy Button: aria-busy and its spinner while the ping is pending.
+    expect(stayButton().getAttribute("aria-busy")).toBe("true")
+    expect(stayButton().querySelector("[data-slot='button-spinner']")).not.toBeNull()
     await advance(IDLE_PING_TIMEOUT_MS)
     await settle()
     expect(isBusy()).toBe(false)
+    expect(stayButton().getAttribute("aria-busy")).toBeNull()
     expect(dialog()).not.toBeNull()
     expect(expired).not.toHaveBeenCalled()
     await advance(MIN)
