@@ -43,3 +43,12 @@
 - source_spec: `_bmad-output/implementation-artifacts/1-5-client-coordinated-token-refresh.md`
   summary: CLAUDE.md still says "Token refresh is not built yet (Story 1.5)"; describe `/api/session/refresh` and callApi's refresh/replay.
   evidence: Agent-context file, deferred per workflow.
+- source_spec: `_bmad-output/implementation-artifacts/1-6-idle-logoff-activity-ping-and-cross-tab-activity.md`
+  summary: A refresh re-seal writes back the `lastSeen` it read, so activity recorded during the IdP call (≤ 25 s) can be rolled back; the server may expire up to ~25 s before the client deadline.
+  evidence: Single-cookie last-write-wins (AD-1/AD-16); the client warning still shows first. Fix needs a merge-on-write design (e.g. separate activity cookie or max-merge).
+- source_spec: `_bmad-output/implementation-artifacts/1-6-idle-logoff-activity-ping-and-cross-tab-activity.md`
+  summary: `callApi` marks every non-GET as user activity; any future POST-based read polled by SWR (query/grid endpoints) would keep the session alive forever.
+  evidence: Spec/epic-mandated today and only `GET /myself` is allowlisted; stories adding POST reads must make them non-activity (e.g. a `userInitiated: false` override).
+- source_spec: `_bmad-output/implementation-artifacts/1-6-idle-logoff-activity-ping-and-cross-tab-activity.md`
+  summary: PM copy question — an idle/absolute logoff found on reload redirects to `/launch-error?reason=expired`, which reads "This link has expired".
+  evidence: `reason=expired` copy is locked in EXPERIENCE.md and launch-oriented; while the page is open Story 1.7's "Your session ended" dialog covers the case.
