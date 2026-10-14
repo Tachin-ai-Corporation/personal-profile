@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { createCipheriv, hkdfSync, randomBytes } from "node:crypto"
+import { freshCode, makeLpl } from "./fixtures"
 
 /**
  * AD-4 launch redirect chain, against the server-side upstream mock
@@ -10,37 +10,9 @@ import { createCipheriv, hkdfSync, randomBytes } from "node:crypto"
  * single-use (a re-launch with the same lpl → `reason=used`, proving no retry /
  * no second exchange).
  *
- * The webServer runs with the dummy secret/app-id below, so the fixture lpl is
- * built to decrypt against them.
+ * The webServer runs with dummy secret/app-id values, and `makeLpl` (in
+ * `./fixtures`) builds a payload that decrypts against them.
  */
-
-const SECRET = "dummy-onehealth-secret"
-const APP_ID = "dummy-app-id"
-const USER_ID = 42 // must match the mock `/myself` id
-
-/** Build a valid base64 lpl: base64( IV(12) ++ AES-256-GCM ciphertext ++ tag(16) ). */
-function makeLpl(code: string): string {
-  const key = Buffer.from(hkdfSync("sha256", Buffer.from(SECRET, "utf8"), Buffer.alloc(32, 0), Buffer.alloc(0), 32))
-  const payload = JSON.stringify({
-    required: {
-      apiKey: { name: APP_ID },
-      tenant: { id: 1 },
-      user: { id: USER_ID },
-      externalApplicationId: { id: 1 },
-      oneTimeCode: { value: code, issuedAt: "2026-10-13T00:00:00" },
-    },
-  })
-  const iv = randomBytes(12)
-  const cipher = createCipheriv("aes-256-gcm", key, iv)
-  const ct = Buffer.concat([cipher.update(payload, "utf8"), cipher.final()])
-  const tag = cipher.getAuthTag()
-  return Buffer.concat([iv, ct, tag]).toString("base64")
-}
-
-/** A fresh, unique one-time code per test (the mock tracks consumed codes for the run). */
-function freshCode(): string {
-  return `code-${randomBytes(8).toString("hex")}`
-}
 
 test("valid launch lands on /?tab=contacts#signature, lpl stripped, signed in", async ({ page }) => {
   const pageErrors: string[] = []

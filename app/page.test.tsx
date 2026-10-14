@@ -108,3 +108,20 @@ describe("home page idle-warning props (Story 1.6)", () => {
     expect(warning!.props.serverNow).toBeLessThanOrEqual(after)
   })
 })
+
+describe("home page session dialogs (Story 1.7)", () => {
+  it("mounts SessionDialogs inside ClientConfig with exactly portalUrl = PORTAL_URL", async () => {
+    const { SessionDialogs } = await import("@/features/shell/session-dialogs")
+    const { HomePage } = await loadPage()
+    const element = (await HomePage()) as { props: { children: unknown } }
+    const children = ([] as unknown[]).concat(element.props.children) as { type: unknown; props: Record<string, unknown> }[]
+    const dialogs = children.filter((child) => child && (child.type as { name?: string })?.name === SessionDialogs.name)
+    expect(dialogs).toHaveLength(1)
+    expect(dialogs[0].props).toEqual({ portalUrl: "https://portal.example/applications" })
+    // It must subscribe before any publisher mounts: first child, before IdleWarning.
+    const { IdleWarning } = await import("@/features/shell/idle-warning")
+    const names = children.map((child) => (child?.type as { name?: string } | undefined)?.name)
+    expect(names[0]).toBe(SessionDialogs.name)
+    expect(names.indexOf(SessionDialogs.name)).toBeLessThan(names.indexOf(IdleWarning.name))
+  })
+})

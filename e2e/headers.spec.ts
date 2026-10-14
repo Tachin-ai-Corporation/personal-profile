@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { createCipheriv, hkdfSync, randomBytes } from "node:crypto"
+import { freshCode, makeLpl } from "./fixtures"
 
 /**
  * AD-21: every response — app routes, 404s and static assets — carries the full
@@ -10,34 +10,6 @@ import { createCipheriv, hkdfSync, randomBytes } from "node:crypto"
  */
 
 const PORTAL_ORIGIN = "https://dev.1hdev.io"
-
-/** The webServer's dummy launch secret/app-id (see playwright.config.ts). */
-const LAUNCH_SECRET = "dummy-onehealth-secret"
-const LAUNCH_APP_ID = "dummy-app-id"
-const LAUNCH_USER_ID = 42 // must match the e2e `/myself` mock
-
-/** Build a valid base64 lpl: base64( IV(12) ++ AES-256-GCM ciphertext ++ tag(16) ). */
-function makeLpl(code: string): string {
-  const key = Buffer.from(
-    hkdfSync("sha256", Buffer.from(LAUNCH_SECRET, "utf8"), Buffer.alloc(32, 0), Buffer.alloc(0), 32),
-  )
-  const payload = JSON.stringify({
-    required: {
-      apiKey: { name: LAUNCH_APP_ID },
-      tenant: { id: 1 },
-      user: { id: LAUNCH_USER_ID },
-      oneTimeCode: { value: code, issuedAt: "2026-10-13T00:00:00" },
-    },
-  })
-  const iv = randomBytes(12)
-  const cipher = createCipheriv("aes-256-gcm", key, iv)
-  const ct = Buffer.concat([cipher.update(payload, "utf8"), cipher.final()])
-  return Buffer.concat([iv, ct, cipher.getAuthTag()]).toString("base64")
-}
-
-function freshCode(): string {
-  return `code-${randomBytes(8).toString("hex")}`
-}
 
 const TARGETS = [
   // `/` with no session redirects to the launch-error screen; follow it so we
@@ -207,6 +179,20 @@ test("POST /api/session/ping without CSRF headers → 403 with no-store + nosnif
   expect(await res.json()).toEqual({ code: "CSRF" })
   expect(res.headers()["set-cookie"]).toBeUndefined()
   expect(res.headers()["x-pp-activity-at"]).toBeUndefined()
+  assertSecurityHeaders(res.headers())
+  assertNoStore(res.headers())
+})
+
+/**
+ * Story 1.7 / AD-17 / AD-18: `POST /api/session/logout` without the CSRF headers
+ * → 403 `CSRF`, still carrying the no-store trio + `nosniff`, and the cookie is
+ * left untouched (no `Set-Cookie`).
+ */
+test("POST /api/session/logout without CSRF headers → 403 with no-store + nosniff", async ({ request }) => {
+  const res = await request.post("/api/session/logout")
+  expect(res.status()).toBe(403)
+  expect(await res.json()).toEqual({ code: "CSRF" })
+  expect(res.headers()["set-cookie"]).toBeUndefined()
   assertSecurityHeaders(res.headers())
   assertNoStore(res.headers())
 })

@@ -1,20 +1,8 @@
 "use client"
 
-import { useSyncExternalStore } from "react"
 import { Button } from "@/components/ui/button"
+import { useIsFramed } from "@/features/shell/use-is-framed"
 import type { LaunchErrorAction } from "@/lib/shared/messages"
-
-/** Framing never changes during a page's life, so the store has no updates. */
-const noopSubscribe = () => () => {}
-
-/** Client snapshot: a cross-origin frame throws on `window.top`, which we treat as framed. */
-function readFramed(): boolean {
-  try {
-    return window.self !== window.top
-  } catch {
-    return true
-  }
-}
 
 /**
  * The launch-error primary action (FR-1, AD-5).
@@ -24,8 +12,8 @@ function readFramed(): boolean {
  *   the sandboxed frame cannot navigate the top window, so it opens a new tab.
  *
  * The href is the constant `PORTAL_URL`, passed from the server component. No
- * `returnUrl`/`next` param is ever used. Framing is read with
- * `useSyncExternalStore` (server snapshot `false`) to avoid a hydration mismatch.
+ * `returnUrl`/`next` param is ever used. Framing is read with `useIsFramed()`
+ * (server snapshot `false`) to avoid a hydration mismatch.
  */
 export function ReturnAction({
   label,
@@ -36,7 +24,7 @@ export function ReturnAction({
   href: string
   action: LaunchErrorAction
 }) {
-  const framed = useSyncExternalStore(noopSubscribe, readFramed, () => false)
+  const framed = useIsFramed()
   const newTab = action === "new-tab" || framed
 
   return (
