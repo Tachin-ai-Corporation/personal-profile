@@ -29,7 +29,7 @@ FR numbers match the PRD's FR-N ids. Endpoints per FR are in `addendum.md` §A.
 
 **App Shell (PRD §4.1)**
 
-FR1: Launch and sign-in. A Launching user opening the app from the 1health portal arrives signed in with no login screen: a valid launch payload lands on the Contacts tab within one page load; an invalid, expired, already-used or unencrypted payload shows an explanatory full-page screen with "Return to 1health" (never a blank page or raw error); each payload is exchanged exactly once and `lpl` is removed from the URL and browser history so a reload never replays it. (Environment selection: see Ambiguities — architecture AD-3 pins one environment per deployment and removes the chooser/referrer detection the PRD describes.)
+FR1: Launch and sign-in. A Launching user opening the app from the 1health portal arrives signed in with no login screen: a valid launch payload lands on the Contacts tab within one page load; an invalid, expired, already-used or unencrypted payload ends, after the D9 retries, in the /auth error alert ("Authentication Failed" + user-safe message, with "Enter LPL Manually", "Switch Environment", "Go to 1health ({env})"); never a blank page or raw error; each payload is exchanged exactly once and `lpl` is removed from the URL and browser history so a reload never replays it. (Environment selection: see Ambiguities — architecture AD-3 pins one environment per deployment and removes the chooser/referrer detection the PRD describes.) *(Superseded 2026-10-14 by D1/D2: one deployment serves demo and prod; the server detects the environment from the key that decrypts the `lpl`; no chooser; referrer detection only picks the no-LPL screen's link. See "Launch and environment decisions" under the Epic List.)* *(Amended 2026-10-14 by D9: the server still exchanges each payload exactly once per request, but `/auth` retries a failed launch up to five times; with no `lpl`, `/auth` offers manual LPL entry.)*
 
 FR2: Session continuity and expiry. The access token is refreshed silently before expiry and on a 401; when refresh fails the user sees a session-expired message with a "Return to 1health to relaunch" action; unsaved edits in open Sections are kept in `localStorage`, keyed to the Launching user's id, expire after 24 h, exclude SSN and Signature drawings, are cleared on save, discard and app-bar "Return to 1health" but kept when leaving via the session-expired dialog, are offered only to the same user after relaunch on the same device, and when the server data changed since the draft the app shows both versions and the user chooses (never a silent overwrite).
 
@@ -111,7 +111,7 @@ FR32: Medical tab placeholder. The Medical tab is visible and shows a "Coming so
 
 ### NonFunctional Requirements
 
-NFR1: Security and privacy. Access and refresh tokens live only in `httpOnly`, `Secure`, `SameSite` cookies, are never readable by page JS and never returned in a response body; every 1health API call goes through the app's server-side proxy which attaches the token (the browser never sees the Bearer token); a Content Security Policy blocks inline and third-party scripts (address suggestions are server-proxied per AD-14, so no third-party script exception is needed); request/response debug logging is off in production and redacts tokens, SSN and secrets elsewhere; user-uploaded images are served only as raster images (PNG/JPEG/BMP), never rendered as documents; PHI/PII is never written to analytics or client storage, except FR2 drafts which exclude SSN and Signature.
+NFR1: Security and privacy. Access and refresh tokens live only in `httpOnly`, `Secure`, `SameSite` cookies, are never readable by page JS and never returned in a response body; every 1health API call goes through the app's server-side proxy which attaches the token (the browser never sees the Bearer token); a Content Security Policy blocks inline and third-party scripts (address suggestions are server-proxied per AD-14, so no third-party script exception is needed); request/response debug logging is off in production and redacts tokens, SSN and secrets elsewhere; user-uploaded images are served only as raster images (PNG/JPEG/BMP), never rendered as documents; PHI/PII is never written to analytics or client storage, except FR2 drafts which exclude SSN and Signature. *(2026-10-14, D6: the only body logger is the client `logApiCall` console logger, active only in local development and redacting SSN-shaped values, MFA codes, QR codes and tokens; server logs never contain bodies.)*
 
 NFR2: Accessibility. WCAG 2.1 AA, keyboard-only completion of every flow, visible focus, and reduced-motion support per 1health design-system rules.
 
@@ -121,11 +121,11 @@ NFR4: Performance. First meaningful content within 2.5 s on typical broadband af
 
 NFR5: Reliability. A failure in one Section's read or save never blocks the other Sections.
 
-NFR6: Environments. Works against each 1health environment with the environment derived from the deployment/launch and API base URLs never hard-coded per call. (Architecture AD-3 amends to three deployments — dev, demo, prod — each pinned to one environment.)
+NFR6: Environments. Works against each 1health environment with the environment derived from the deployment/launch and API base URLs never hard-coded per call. (Architecture AD-3 amends to three deployments — dev, demo, prod — each pinned to one environment.) *(Superseded 2026-10-14 by D1/D2/D4: one deployment serves both `demo` and `prod` (no `dev`); the environment comes from the decrypting key and is sealed in the session; API roots come from `lib/shared/environments.ts`.)*
 
 NFR7: Browser support. Latest two versions of Chrome, Edge, Safari and Firefox, plus iOS Safari and Android Chrome; the app must work both in a new tab and inside the portal iframe (AD-5). *(Superseded 2026-10-13: the app always runs top-level in its own tab and is never framed — `frame-ancestors 'none'`, `X-Frame-Options: DENY`, no framed branches (AD-5, PRC3); the browser list stands.)*
 
-NFR8: External Application registration (release dependency). The app is registered in each environment (demo, then production; plus dev per AD-20) with launch URL `<APP_ORIGIN>/launch`, icon and launch secret, set **Active** and **allowed for patients** so patients can see it. Owner: Daniel Garcia.
+NFR8: External Application registration (release dependency). The app is registered in each environment (demo, then production; plus dev per AD-20) with launch URL `<APP_ORIGIN>/launch`, icon and launch secret, set **Active** and **allowed for patients** so patients can see it. Owner: Daniel Garcia. *(Amended 2026-10-14 by D1: demo then production only (no dev); both registrations use the one deployment's launch URL `<app origin>/auth`.)*
 
 NFR9: 1health-fe cutover flag (external release dependency, separate repo). A flag in 1health-fe makes the sidebar "Personal Profile" item launch this app instead of routing to `/profile`; `/profile` stays reachable as the rollback path and for users who can't launch external apps (MTA, Customer Support); legacy `/profile?tab=N` links keep working; the flag ships independently. Owner: Daniel Garcia. *(Superseded 2026-10-13: no 1health-fe changes and no flag; entry is the portal Apps launcher tile "Personal Profile" or a direct URL; the 1health-fe sidebar, `/profile` and `/personal-settings` stay untouched as the fallback (AD-4, PRC1).)*
 
@@ -142,7 +142,7 @@ NFR14: Success-metric instrumentation constraints. Save outcomes must be observa
 ### Additional Requirements
 
 **Brownfield starting point (impacts Epic 1 Story 1).** There is no greenfield starter template. The repo is an existing fork of a 1health External Application template, already upgraded to Next.js 16.4.0, React 19.3, TypeScript 6.0.3, Tailwind 4.3.3, zod 4, SWR 2.5, react-hook-form 7.90 + @hookform/resolvers 5.9, libphonenumber-js, signature_pad 5.1.4, lucide-react, ESLint 10 flat config (`pnpm lint` = `eslint .`). Not yet installed: `iron-session` 9.0.1, Vitest 5.0.4, @testing-library/react 16.3.3, MSW 3.0.3, @playwright/test 1.64.0. No `proxy.ts` exists yet. `next.config.mjs` still has `typescript.ignoreBuildErrors: true`. The first story must remove the legacy auth and template code:
-- Delete `app/api/token/**` (sets non-httpOnly token cookies and returns tokens in the body), `app/auth/**`, `lib/auth-client.ts` (browser-side refresh), and `document.cookie` reads in `contexts/navigation-context.tsx` (AD-1, AD-4).
+- Delete `app/api/token/**` (sets non-httpOnly token cookies and returns tokens in the body), `app/auth/**`, `lib/auth-client.ts` (browser-side refresh), and `document.cookie` reads in `contexts/navigation-context.tsx` (AD-1, AD-4). *(2026-10-14, D1: the legacy versions are deleted, and Story 1.2 rebuilds `app/auth/page.tsx` and `app/api/token/route.ts` as the sealed-session launch entry.)*
 - Replace `contexts/navigation-context.tsx`, `contexts/session-context.tsx`, `hooks/use-session-expired.ts`, `components/auth-exit-dialog.tsx` with `features/shell` + `lib/api/session-events.ts` (AD-10, AD-19).
 - Replace `components/home-page-client.tsx`, `components/settings-page.tsx`, `components/workflow/` with the profile page and Sections.
 - Keep `lib/api/client.ts` `callApi` signature, extend per AD-19.
@@ -150,48 +150,48 @@ NFR14: Success-metric instrumentation constraints. Save outcomes must be observa
 - Remove `ignoreBuildErrors` (and `eslint.ignoreDuringBuilds`) from `next.config.mjs` (AD-20).
 - Note: several of these files currently have uncommitted local modifications in git.
 
-**Architecture paradigm and layering.** BFF + feature-sliced client. Only the Next.js server holds tokens and talks to 1health; the browser calls only same-origin `/api/...` through `callApi`. Layers and import rules: BFF (`app/launch/`, `app/api/1h/[...path]/`, `app/api/session/`, `app/api/places/`, `app/api/pp/`, `proxy.ts`, `lib/server/`) → `lib/server`, `lib/shared`; API client `lib/api/*` → `lib/shared`; Sections `features/<section-id>/` → `lib/api`, `features/shell`, `components/ui`, `lib/shared`; Shell `features/shell/` → `lib/api`, `components/ui`, `lib/shared`; UI kit `components/ui/` imports nothing app-specific. Target tree per Structural Seed (feature folders: shell, personal, phone, email, social, addresses, insurance, header, medical).
+**Architecture paradigm and layering.** BFF + feature-sliced client. Only the Next.js server holds tokens and talks to 1health; the browser calls only same-origin `/api/...` through `callApi`. Layers and import rules: BFF (`app/api/token/` and the `app/auth/` server wrapper (D1; replaces `app/launch/`), `app/api/1h/[...path]/`, `app/api/session/`, `app/api/places/`, `app/api/pp/`, `proxy.ts`, `lib/server/`) → `lib/server`, `lib/shared`; API client `lib/api/*` → `lib/shared`; Sections `features/<section-id>/` → `lib/api`, `features/shell`, `components/ui`, `lib/shared`; Shell `features/shell/` → `lib/api`, `components/ui`, `lib/shared`; UI kit `components/ui/` imports nothing app-specific. Target tree per Structural Seed (feature folders: shell, personal, phone, email, social, addresses, insurance, header, medical).
 
 **Architecture decisions as implementable requirements**
 
-- [AD-1] Implement one AEAD-sealed session cookie `__Host-pp_s` (iron-session, `SESSION_SECRET`) holding access token, refresh token, access expiry, `userId`, `personId`, `tenantId`, `sid` (random per launch), `gen` (refresh counter), plus `iat` and `lastSeen` (AD-16); attributes `HttpOnly; Secure; SameSite=None; Partitioned; Path=/`, no `Domain`, no `Max-Age`. Environment/API origin never in the cookie. Ids derived at launch from the token + `GET /v2/user/myself` (payload user id must equal token subject). Unsealable cookie = no session; never store `id_token`; unit test asserts `Set-Cookie` <= 3,800 bytes with the largest observed tokens. No response body contains a token. Every route handler and server component calls `requireSession()`; `proxy.ts` redirect is convenience only.
-- [AD-2] Implement `app/api/1h/[...path]/route.ts` + `lib/server/proxy-allowlist.ts`: allowlist entries `{method, template, query, body, maxBytes?, asImage?}` for exactly the addendum §A endpoints; no match → 403 `NOT_ALLOWED`, wrong method → 405; never honor HEAD/OPTIONS/TRACE/`X-HTTP-Method-Override`/`_method`; explicitly deny `/auth/**`, `/v2/public/external-application/**`, admin prefixes. Owner ids `{personId}`/`{userId}` filled from the session; client sends literal `me`, anything else → 403; other ids must match `^\d{1,19}$`. Query params allowlisted per entry (unknown → 400); server-fixed `isPublic=false` (Signature, insurance cards), `isPublic=true` (Profile Picture only), `hardDelete=true` (file deletes only). Path normalization rejects `//`, `%2F`, `%5C`, `%25`, empty/`.`/`..` segments and segments containing `/ \ ; % @ :`, whitespace or control chars (400 `BAD_PATH`); upstream URL built by `API_ORIGIN + "/api/" + segments.map(encodeURIComponent).join("/")`, re-asserted origin + template. Traversal test table (`..%2F`, `%2e%2e`, `%252F`, `//host`, `;x`, trailing `/`, mixed case) → 400/403. GraphQL never proxied: Profile Picture id via named server op `GET /api/pp/profile-picture-id`. Forward only allowlisted request/response headers; drop upstream `Set-Cookie`/CORS. `redirect: "manual"` (3xx → 502 `UPSTREAM_REDIRECT`), 25 s timeout (504 `UPSTREAM_TIMEOUT`), streaming bodies (except upload entries). On upstream 401 or token past expiry (30 s skew) return `401 {errorCode:"TOKEN_EXPIRED", source:"proxy"}` without refreshing (AD-19, amended 2026-10-13). Adding an endpoint = adding an allowlist entry in the same change.
-- [AD-3] Implement `lib/server/env.ts` as the only reader of server `process.env`, exporting `API_ORIGIN`, `APP_ORIGIN`, `PORTAL_ORIGIN`, `PORTAL_URL`, `APP_ID`, `DEFAULT_TENANT_ID`, failing boot if any is missing. Origins fixed per `APP_ENV`: dev → `https://dev.1hdev.io`, demo → `https://demo.1health.io`, prod → `https://app.1health.io`. Each deployment holds only its own `ONEHEALTH_SECRET_KEY`/`APP_ID`. Remove the manual environment chooser and referrer detection.
-- [AD-4] Implement `app/launch/route.ts` as a one-shot exchange: clear any existing `__Host-pp_s`; normalize `' '`→`'+'` in `lpl`; AES-GCM decrypt (12-byte IV), reject cleartext/malformed; reject app id ≠ `APP_ID`; exchange code exactly once via `POST /v2/public/external-application/auth/oauth2/user/token` (no retry); derive ids and check tenant; set sealed cookie with new `sid`; 303 → `/launch/verify?tab=<tab>` which re-reads the cookie and 303 → `/?tab=<tab>` or `/launch-error?reason=cookies`. `proxy.ts` 307-redirects `/` carrying `lpl` to `/launch` preserving query; `app/page.tsx` never reads `lpl`. `tab` validated against `contacts|insurance|medical` (default contacts); redirects are relative and fragment-free so `#signature` survives. Failures → `/launch-error?reason=<expired|used|invalid|tenant|cookies|config|disabled>`; unknown reasons render `invalid`; raw value never rendered/logged. No session and no `lpl` → launch-error screen (no login page).
-- [AD-5] Support both new-tab and portal-iframe hosting: every response (incl. `/api/**`, `/launch-error`, static assets) carries CSP `frame-ancestors <PORTAL_ORIGIN>` (one origin, no `'self'`), no `X-Frame-Options`; supported host is `ExternalAppFrame` (sandbox `allow-scripts allow-forms allow-popups allow-same-origin`, no top navigation). On `reason=cookies` the launch-error screen offers "Open in a new tab" (opens `PORTAL_URL`, `target=_blank`). When framed (`window.self !== window.top`) hide the app-bar "Return to 1health" and make the session-expired action "Close and reopen from 1health" (no navigation). When not framed "Return to 1health" targets constant `PORTAL_URL`; no `returnUrl`/`next` params; any `postMessage` listener checks `event.origin === PORTAL_ORIGIN` and never posts to `'*'`.
-- [AD-6] After exchange, compare the token tenant with `DEFAULT_TENANT_ID` (`1`); on mismatch set no cookie, fetch nothing, redirect to `/launch-error?reason=tenant` with copy "This is available in your personal account. Switch to it in 1health and open it again." (PA5)
+- [AD-1] Implement one AEAD-sealed session cookie `__Host-pp_s` (iron-session, `SESSION_SECRET`) holding access token, refresh token, access expiry, `userId`, `personId`, `tenantId`, `sid` (random per launch), `gen` (refresh counter), plus `iat` and `lastSeen` (AD-16); attributes `HttpOnly; Secure; SameSite=Lax; Path=/`, no `Partitioned`, no `Domain`, no `Max-Age`. *(Corrected 2026-10-14: the app opens in its own tab, never framed, per spine AD-1/AD-5; with D5, `SameSite=Lax` is also the only cross-site write protection.)* The API root is never in the cookie (only `environment`, D1). Ids derived at launch from the token + `GET /v2/user/myself` (payload user id must equal token subject). Unsealable cookie = no session; never store `id_token`; unit test asserts `Set-Cookie` <= 3,800 bytes with the largest observed tokens. No response body contains a token. Every route handler and server component calls `requireSession()`; `proxy.ts` redirect is convenience only. *(Amended 2026-10-14, D1: the cookie also holds `environment` (`demo|prod`); the API root is derived from it through `lib/shared/environments.ts` and is never stored. No JS-readable cookies; the only other cookie is the non-secret httpOnly `onehealth_environment` (D4).)*
+- [AD-2] Implement `app/api/1h/[...path]/route.ts` + `lib/server/proxy-allowlist.ts`: allowlist entries `{method, template, query, body, maxBytes?, asImage?}` for exactly the addendum §A endpoints; no match → 403 `NOT_ALLOWED`, wrong method → 405; never honor HEAD/OPTIONS/TRACE/`X-HTTP-Method-Override`/`_method`; explicitly deny `/auth/**`, `/v2/public/external-application/**`, admin prefixes. Owner ids `{personId}`/`{userId}` filled from the session; client sends literal `me`, anything else → 403; other ids must match `^\d{1,19}$`. Query params allowlisted per entry (unknown → 400); server-fixed `isPublic=false` (Signature, insurance cards), `isPublic=true` (Profile Picture only), `hardDelete=true` (file deletes only). Path normalization rejects `//`, `%2F`, `%5C`, `%25`, empty/`.`/`..` segments and segments containing `/ \ ; % @ :`, whitespace or control chars (400 `BAD_PATH`); upstream URL built by `apiBase + "/" + segments.map(encodeURIComponent).join("/")`, where `apiBase` = `<apiRoot>/api` of the session's `environment` from `lib/shared/environments.ts` (D4), re-asserted origin + template. Traversal test table (`..%2F`, `%2e%2e`, `%252F`, `//host`, `;x`, trailing `/`, mixed case) → 400/403. GraphQL never proxied: Profile Picture id via named server op `GET /api/pp/profile-picture-id`. Forward only allowlisted request/response headers; drop upstream `Set-Cookie`/CORS. `redirect: "manual"` (3xx → 502 `UPSTREAM_REDIRECT`), 25 s timeout (504 `UPSTREAM_TIMEOUT`), streaming bodies (except upload entries). On upstream 401 or token past expiry (30 s skew) return `401 {errorCode:"TOKEN_EXPIRED", source:"proxy"}` without refreshing (AD-19, amended 2026-10-13). Adding an endpoint = adding an allowlist entry in the same change.
+- [AD-3] Implement `lib/server/env.ts` as the only reader of server `process.env`, exporting `API_ORIGIN`, `APP_ORIGIN`, `PORTAL_ORIGIN`, `PORTAL_URL`, `APP_ID`, `DEFAULT_TENANT_ID`, failing boot if any is missing. Origins fixed per `APP_ENV`: dev → `https://dev.1hdev.io`, demo → `https://demo.1health.io`, prod → `https://app.1health.io`. Each deployment holds only its own `ONEHEALTH_SECRET_KEY`/`APP_ID`. Remove the manual environment chooser and referrer detection. *(Superseded 2026-10-14 by D1/D2/D4: `lib/server/env.ts` stays the only `process.env` reader but exports `ONEHEALTH_SECRET_KEY_DEMO`, `ONEHEALTH_SECRET_KEY_PROD`, `APP_ID_DEMO`, `APP_ID_PROD`, `SESSION_SECRET` (+ optional `SESSION_SECRET_PREVIOUS`), `PP_DISABLED`, `ACCOUNT_DISABLED` and the Places vars; there is no `APP_ENV`, `API_ORIGIN`, `APP_ORIGIN`, `PORTAL_URL`, `APP_ID` or `ONEHEALTH_SECRET_KEY` env var. Per-environment API root (`https://1health.demo.1health.io` / `https://1health.app.1health.io`, upstream API = `<root>/api`) and portal URL (same root) are constants in `lib/shared/environments.ts`. No chooser; referrer detection survives only on the `/auth` no-LPL screen.)*
+- [AD-4] Implement `app/launch/route.ts` as a one-shot exchange: clear any existing `__Host-pp_s`; normalize `' '`→`'+'` in `lpl`; AES-GCM decrypt (12-byte IV), reject cleartext/malformed; reject app id ≠ `APP_ID`; exchange code exactly once via `POST /v2/public/external-application/auth/oauth2/user/token` (no retry); derive ids and check tenant; set sealed cookie with new `sid`; 303 → `/launch/verify?tab=<tab>` which re-reads the cookie and 303 → `/?tab=<tab>` or `/launch-error?reason=cookies`. `proxy.ts` 307-redirects `/` carrying `lpl` to `/launch` preserving query; `app/page.tsx` never reads `lpl`. `tab` validated against `contacts|insurance|medical` (default contacts); redirects are relative and fragment-free so `#signature` survives. Failures → `/launch-error?reason=<expired|used|invalid|tenant|cookies|config|disabled>`; unknown reasons render `invalid`; raw value never rendered/logged. No session and no `lpl` → launch-error screen (no login page). *(Superseded 2026-10-14 by D1/D2: no `/launch`, `/launch/verify`, `/launch/dev`, `/launch-error` routes and no `proxy.ts` `?lpl` 307. The portal opens `/auth?lpl=…`; the client page POSTs only `{ lpl }` to `/api/token`, which detects the environment by key (prod, then demo, each also trimmed), runs the same one-shot exchange, answers `{ ok: true, environment }` and sets the sealed cookie; `/auth` then navigates to `/`. Failures render on `/auth`. No-session pages redirect to `/auth`. 2026-10-14, D8/D9: there is no `cookies` reason and no verify route; `/auth` retries a failed launch up to five times (the server still calls the exchange once per request) and offers manual LPL entry.)*
+- [AD-5] *(Superseded 2026-10-14: the portal opens the app in its own tab; it is never framed. Per spine AD-5, every response carries CSP `frame-ancestors 'none'` and `X-Frame-Options: DENY`, and no iframe or `ExternalAppFrame` support is built. The original text follows for history.)* Support both new-tab and portal-iframe hosting: every response (incl. `/api/**`, `/launch-error`, static assets) carries CSP `frame-ancestors <PORTAL_ORIGIN>` (one origin, no `'self'`), no `X-Frame-Options`; supported host is `ExternalAppFrame` (sandbox `allow-scripts allow-forms allow-popups allow-same-origin`, no top navigation). On `reason=cookies` the launch-error screen offers "Open in a new tab" (opens `PORTAL_URL`, `target=_blank`). When framed (`window.self !== window.top`) hide the app-bar "Return to 1health" and make the session-expired action "Close and reopen from 1health" (no navigation). When not framed "Return to 1health" targets constant `PORTAL_URL`; no `returnUrl`/`next` params; any `postMessage` listener checks `event.origin === PORTAL_ORIGIN` and never posts to `'*'`.
+- [AD-6] After exchange, compare the token tenant with `DEFAULT_TENANT_ID` (`1`); on mismatch set no cookie, fetch nothing, redirect to `/launch-error?reason=tenant` with copy "This is available in your personal account. Switch to it in 1health and open it again." (PA5) *(2026-10-14, D1: `/api/token` answers 403 `WRONG_TENANT` and `/auth` shows the same copy.)*
 - [AD-7] Implement `SectionRegistry` + `useRegisterSection({id, label, displayOrder, form, validate(), save(), discard(), draftFields})`; Save all, leave guard, dirty count and drafts talk only to the registry. `save()` resolves `{ok:true} | {ok:false, error}` and never throws; multi-step saves run in fixed order and on step failure refetch their SWR keys and rebase the form baseline so retry sends only the remaining diff (Personal: `PUT /v2/user/edit` then Signature upload-then-delete; Addresses: PUT new Primary first, then other PUT/POST, then DELETE; Insurance: policy, then demoted policy, then card images). Section ids = URL hash = folder = draft key = telemetry id: `personal` (1, sub-anchor `#signature`), `phone` (2), `email` (3), `social` (4), `addresses` (5). Unknown tab → Contacts; unknown hash → top of tab. Insurance registers as guard-only (`saveAll:false, draftFields:[]`).
-- [AD-8] Save all: validate every dirty Section first (any invalid → send nothing); then save sequentially in constant `SAVE_ORDER = personal → email → phone → social → addresses` (in `features/shell`, independent of displayOrder); a failure doesn't stop later Sections; `SESSION_EXPIRED`/`SESSION_CHANGED` stops the run; each Contact Point Section runs auto-verify right after its own successful save; toast "X saved, Y failed".
+- [AD-8] Save all: validate every dirty Section first (any invalid → send nothing); then save sequentially in constant `SAVE_ORDER = personal → email → phone → social → addresses` (in `features/shell`, independent of displayOrder); a failure doesn't stop later Sections; `SESSION_EXPIRED`/`SESSION_CHANGED` stops the run (2026-10-14, D5: `SESSION_EXPIRED` only); each Contact Point Section runs auto-verify right after its own successful save; toast "X saved, Y failed".
 - [AD-9] Implement one Contact Point engine in `lib/api/contact-points.ts` shared by Phone, Email, Social: `diffToManageDTO(before, after)` → `contactPointsToAdd/Update/Remove`; a Primary switch puts new Primary and old (relabeled `"Old"`) in the same `contactPointsToUpdate`; `newUnverified(before, after)` drives auto-verify (label ≠ Home) via `POST /v2/health/contact-point/verify`. Contact Label list defined once in `lib/shared/contact-labels.ts` = backend enum ∩ `/type/key/ContactPoint` minus "Partnership Organization". `PUT /v2/user/edit` never sends `email`/`phoneNumber`.
 - [AD-10] All reads via SWR with keys from `lib/api/keys.ts` (e.g. `["pp","myself"]`, `["pp","contact-points","Email"]`) and a shared `callApi` fetcher; after save a Section `mutate`s its own keys and affected keys (Personal also refreshes `myself` → header). No global client store besides `SectionRegistry`; `session-context` replaced by the `myself` key. Revealed SSN never in SWR/cache: `revealSsn()` → component state, cleared after 30 s, blur, `visibilitychange`, `pagehide`.
 - [AD-11] Each Section owns `features/<section-id>/schema.ts` (zod 4) + one `useForm` with `zodResolver`; error messages are keys into `lib/shared/messages.ts` whose copy is EXPERIENCE.md Voice and Tone verbatim; backend `errorCode` → field/message mapping only in `lib/api/errors.ts`; Social URL fields validate `^https://` or a handle pattern; data-derived links render only via `safeHref()` (allows only `https:`, `mailto:`, `tel:`); lint rule bans `dangerouslySetInnerHTML`.
-- [AD-12] Drafts in `localStorage`, key `pp:draft:v1:<userId>:<sectionId>`, value `{savedAt, baseHash, values}` with only the Section's `draftFields` (never SSN, Signature, Insurance); written only by the registry (debounced 500 ms on change, and immediately before the session-expired dialog opens); kept on session-expired "Return to 1health"; deleted on that Section's save/discard, on app-bar "Return to 1health" (after leave-guard confirm), and when older than 24 h (purge all expired `pp:draft:*` at app start); none written on `SESSION_CHANGED`; offered only when key userId equals current `myself` id; `baseHash` mismatch → per-Section conflict UI, never auto-merge.
+- [AD-12] Drafts in `localStorage`, key `pp:draft:v1:<userId>:<sectionId>`, value `{savedAt, baseHash, values}` with only the Section's `draftFields` (never SSN, Signature, Insurance); written only by the registry (debounced 500 ms on change, and immediately before the session-expired dialog opens); kept on session-expired "Return to 1health"; deleted on that Section's save/discard, on app-bar "Return to 1health" (after leave-guard confirm), and when older than 24 h (purge all expired `pp:draft:*` at app start); none written on `SESSION_CHANGED`; offered only when key userId equals current `myself` id; `baseHash` mismatch → per-Section conflict UI, never auto-merge. *(2026-10-14, D5: there is no `SESSION_CHANGED`, so its no-draft and purge rules are dropped.)*
 - [AD-13] Files/images via proxy URLs with uploads <= 4 MB: client downscales/re-encodes images on canvas to <= 4 MB while user-facing limits stay (Profile Picture JPG/PNG/BMP <= 6 MB; insurance cards PNG/JPEG <= 10 MB, 6000x4000; Signature drawn or uploaded PNG/JPEG always converted to PNG). Proxy upload entries: `maxBytes` 4 MB (Signature 1 MB) checked on `Content-Length` and while reading (413 `TOO_LARGE`); multipart with exactly one file part named `file` or `fileNewVersion`; leading bytes must match PNG/JPEG/BMP (Signature PNG only) else 415 `UNSUPPORTED_MEDIA`. Downloads stream; images render as `<img src="/api/1h/…">` on `asImage` entries; `inline` only for declared `image/png|jpeg|bmp` with matching magic bytes, else `Content-Disposition: attachment; filename="file"`; proxy always generates `Content-Disposition` and `X-Content-Type-Options: nosniff`. Replace-then-delete order; a failed delete doesn't fail the save.
-- [AD-14] Address suggestions server-proxied: `POST /api/places/autocomplete` and `POST /api/places/details` call Google Places (New) with `GOOGLE_PLACES_KEY`, require a session and AD-17 checks; input <= 120 chars; `placeId` matches `^[A-Za-z0-9_-]{10,300}$`; region codes fixed server-side to US/CA/AU; field mask is a server constant; Places session token server-generated and bound to `sid`; GCP key restricted to Places API (New) with daily quota cap + budget alert; routes return empty suggestions unless `PLACES_ENABLED=1` (manual entry always works); no Google script in the browser; typed text never logged.
-- [AD-15] Logging without PHI: server logs only method, upstream path template, status, duration, request id; global error wrapper logs `{requestId, routeTemplate, status, errorName}`; bodies never logged outside `APP_ENV=dev` (where the debug logger redacts tokens/SSN/secrets); 5xx to client never include upstream bodies; no PHI in any app URL except encrypted one-time `lpl` on `/launch`. Client telemetry only via `lib/shared/telemetry.ts` (no-op sink) with events `section_save {sectionId, ok, code}` and `save_all {saved, failed}` — no field values or user ids.
-- [AD-16] Client-coordinated refresh: on `401 TOKEN_EXPIRED`, `callApi` runs one `POST /api/session/refresh`, single-flighted within the tab (shared promise) and across tabs (`navigator.locks.request("pp-refresh")`), queues and replays other failed calls once. Refresh route returns 200 without calling the IdP if the access token is already valid; otherwise refreshes (`POST <base>/auth/oauth2/token`, `grant_type=refresh_token`), increments `gen`, re-seals with same `sid`. Only IdP rejection (`invalid_grant`/401) → `401 SESSION_EXPIRED` + cookie cleared; network/5xx → 503 `REFRESH_UNAVAILABLE` keeping the session; a replayed call getting `TOKEN_EXPIRED` again = `SESSION_EXPIRED`. Test: 10 concurrent calls across a simulated expiry → exactly 1 upstream refresh. Automatic logoff: cookie carries `iat` and `lastSeen`; server rejects with `401 SESSION_EXPIRED` after 15 min without a user-initiated request or 8 h after launch; client warns 60 s before the idle limit with "Stay signed in"; background polling doesn't count as activity. App-bar "Return to 1health" calls `POST /api/session/logout`, which clears the cookie and revokes tokens upstream (best effort).
-- [AD-17] CSRF + per-tab session binding: `app/page.tsx` embeds `sessionBinding = HMAC(SESSION_SECRET, sid)`; `callApi` sends it as `X-PP-Session` on every request (nothing else sets it). Every non-GET to `/api/1h/*`, `/api/places/*`, `/api/session/*`, `/api/pp/*` requires `Sec-Fetch-Site: same-origin` (or `Origin` = `APP_ORIGIN` when absent) and `X-PP-Session`, else 403 `CSRF`; requests with neither header rejected. `X-PP-Session` ≠ `HMAC(SESSION_SECRET, sid)` → 409 `SESSION_CHANGED`; GETs without the header allowed only on `asImage` entries. JSON entries reject non-`application/json` Content-Type; GET handlers have no side effects.
-- [AD-18] PHI never cached: every server fetch to 1health/Google uses `cache: "no-store"`; `app/api/**`, `app/launch/**`, `app/page.tsx` export `dynamic = "force-dynamic"`, `cacheComponents` off; proxy and every BFF route overwrite caching headers with `Cache-Control: private, no-store, max-age=0`, `Pragma: no-cache`, `Vary: Cookie` (incl. images and errors), dropping upstream `Cache-Control`, `Expires`, `ETag`, `Last-Modified`; CI test asserts headers on sample allowlisted routes; no `s-maxage` in config.
-- [AD-19] `callApi(context, path, init)` (signature kept) is the only browser transport: adds `X-PP-Session`, runs refresh, returns `ApiResponse<T> = {success, data?, error?, statusCode?, errorCode?, details?}`, parses error bodies once (backend codes like `SOCIAL_SECURITY_NUMBER_EXISTS`, `INVALID_ENUM_VALUE`, or proxy codes). On `SESSION_EXPIRED`/`SESSION_CHANGED` publishes once on `lib/api/session-events.ts`; shell handles `session-expired` (registry writes drafts, then non-dismissable "Your session ended" dialog) and `session-changed` (clear SWR cache, registry and in-memory SSN, write no draft, show "This profile was opened by another account in another tab" + Reload). SWR fetcher/`onError` reuse the same events; no other module opens these dialogs.
+- [AD-14] Address suggestions server-proxied: `POST /api/places/autocomplete` and `POST /api/places/details` call Google Places (New) with `GOOGLE_PLACES_KEY`, require a session and AD-17 checks (2026-10-14, D5: only the JSON `Content-Type` check remains); input <= 120 chars; `placeId` matches `^[A-Za-z0-9_-]{10,300}$`; region codes fixed server-side to US/CA/AU; field mask is a server constant; Places session token server-generated and bound to `sid`; GCP key restricted to Places API (New) with daily quota cap + budget alert; routes return empty suggestions unless `PLACES_ENABLED=1` (manual entry always works); no Google script in the browser; typed text never logged.
+- [AD-15] Logging without PHI: server logs only method, upstream path template, status, duration, request id; global error wrapper logs `{requestId, routeTemplate, status, errorName}`; bodies never logged outside `APP_ENV=dev` (where the debug logger redacts tokens/SSN/secrets); 5xx to client never include upstream bodies; no PHI in any app URL except encrypted one-time `lpl` on `/launch`. *(2026-10-14, D1: there is no `APP_ENV`; the debug body logger runs only under local `next dev` (`NODE_ENV=development`, read through `env.ts`), and the encrypted `lpl` appears only on `/auth`. Superseded by D6: server logs never contain bodies, also under `next dev`; the only body logger is the client `logApiCall` in `callApi`, active only when `NODE_ENV === "development"` (read through the shared app-env helper) and redacting SSN-shaped values, MFA `code`, `qrCode` and token-like fields; there is no in-app API Inspector.)* Client telemetry only via `lib/shared/telemetry.ts` (no-op sink) with events `section_save {sectionId, ok, code}` and `save_all {saved, failed}` — no field values or user ids.
+- [AD-16] Client-coordinated refresh: on `401 TOKEN_EXPIRED`, `callApi` runs one `POST /api/session/refresh`, single-flighted within the tab (shared promise) and across tabs (`navigator.locks.request("pp-refresh")`), queues and replays other failed calls once. Refresh route returns 200 without calling the IdP if the access token is already valid; otherwise refreshes (`POST <base>/auth/oauth2/token`, `grant_type=refresh_token`), increments `gen`, re-seals with same `sid`. Only IdP rejection (`invalid_grant`/401) → `401 SESSION_EXPIRED` + cookie cleared; network/5xx → 503 `REFRESH_UNAVAILABLE` keeping the session; a replayed call getting `TOKEN_EXPIRED` again = `SESSION_EXPIRED`. Test: 10 concurrent calls across a simulated expiry → exactly 1 upstream refresh. Automatic logoff: cookie carries `iat` and `lastSeen`; server rejects with `401 SESSION_EXPIRED` after 15 min without a user-initiated request or 8 h after launch; client warns 60 s before the idle limit with "Stay signed in"; background polling doesn't count as activity. App-bar "Return to 1health" calls `POST /api/session/logout`, which clears the cookie and revokes tokens upstream (best effort). *(2026-10-14, D3: revocation = server-to-server `POST <apiRoot>/auth/user/logout/all-devices` with the session's Bearer token, `no-store`, 5 s timeout, failures and 401 swallowed and logged without the token; then always 204 clearing `__Host-pp_s`. The refresh `<base>` is the session environment's root from `lib/shared/environments.ts`.)*
+- [AD-17] CSRF + per-tab session binding: `app/page.tsx` embeds `sessionBinding = HMAC(SESSION_SECRET, sid)`; `callApi` sends it as `X-PP-Session` on every request (nothing else sets it). Every non-GET to `/api/1h/*`, `/api/places/*`, `/api/session/*`, `/api/pp/*` requires `Sec-Fetch-Site: same-origin` (or `Origin` = `APP_ORIGIN` when absent; 2026-10-14, D1: no `APP_ORIGIN` env var, so this is the request's own origin) and `X-PP-Session`, else 403 `CSRF`; requests with neither header rejected. `X-PP-Session` ≠ `HMAC(SESSION_SECRET, sid)` → 409 `SESSION_CHANGED`; GETs without the header allowed only on `asImage` entries. JSON entries reject non-`application/json` Content-Type; GET handlers have no side effects. *(Superseded 2026-10-14 by D5: no CSRF or session-binding checks — no `Sec-Fetch-Site`/`Origin` check, no `sessionBinding`, no `X-PP-Session`, no 403 `CSRF`, no 409 `SESSION_CHANGED`. Only the 415 JSON `Content-Type` check stays, and `POST /api/session/logout` also accepts GET. Cross-site write protection relies only on `SameSite=Lax`.)*
+- [AD-18] PHI never cached: every server fetch to 1health/Google uses `cache: "no-store"`; `app/api/**`, `app/launch/**` (2026-10-14: `app/auth/**` instead, D1), `app/page.tsx` export `dynamic = "force-dynamic"`, `cacheComponents` off; proxy and every BFF route overwrite caching headers with `Cache-Control: private, no-store, max-age=0`, `Pragma: no-cache`, `Vary: Cookie` (incl. images and errors), dropping upstream `Cache-Control`, `Expires`, `ETag`, `Last-Modified`; CI test asserts headers on sample allowlisted routes; no `s-maxage` in config.
+- [AD-19] `callApi(context, path, init)` (signature kept) is the only browser transport: adds `X-PP-Session`, runs refresh, returns `ApiResponse<T> = {success, data?, error?, statusCode?, errorCode?, details?}`, parses error bodies once (backend codes like `SOCIAL_SECURITY_NUMBER_EXISTS`, `INVALID_ENUM_VALUE`, or proxy codes). On `SESSION_EXPIRED`/`SESSION_CHANGED` publishes once on `lib/api/session-events.ts`; shell handles `session-expired` (registry writes drafts, then non-dismissable "Your session ended" dialog) and `session-changed` (clear SWR cache, registry and in-memory SSN, write no draft, show "This profile was opened by another account in another tab" + Reload). SWR fetcher/`onError` reuse the same events; no other module opens these dialogs. *(2026-10-14, D5: `callApi` sends no `X-PP-Session`; there is no `SESSION_CHANGED`, `session-changed` event or session-changed dialog; `session-expired` stays.)*
 - [AD-20] Deployment/ops envelope (see dedicated block below).
-- [AD-21] `proxy.ts` sets on every response a per-request nonce CSP: `default-src 'self'; script-src 'self' 'nonce-<n>' 'strict-dynamic'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors <PORTAL_ORIGIN>; upgrade-insecure-requests`, plus `Strict-Transport-Security: max-age=63072000; includeSubDomains`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `Cross-Origin-Opener-Policy: same-origin-allow-popups`; a test asserts them on `/`, `/launch-error` and one `/api/1h` route.
+- [AD-21] `proxy.ts` sets on every response a per-request nonce CSP: `default-src 'self'; script-src 'self' 'nonce-<n>' 'strict-dynamic'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests` (corrected 2026-10-14: own tab, never framed; plus `X-Frame-Options: DENY` and COOP `same-origin` per spine AD-21), plus `Strict-Transport-Security: max-age=63072000; includeSubDomains`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `Cross-Origin-Opener-Policy: same-origin`; a test asserts them on `/`, `/launch-error` (2026-10-14: `/auth`, D1) and one `/api/1h` route.
 
-**Deployment, CI and test framework setup (AD-20)**
-- Three Vercel projects `personal-profile-dev`, `personal-profile-demo`, `personal-profile-prod`; each production domain is its `APP_ORIGIN` (default `https://personal-profile-<env>.vercel.app`), and `<APP_ORIGIN>/launch` is that environment's registered launch URL.
-- Promotion: dev auto-deploys `main`; demo and prod deploy only by promoting a commit verified on dev.
-- Secrets only in each project's Vercel env vars: `ONEHEALTH_SECRET_KEY`, `APP_ID`, `GOOGLE_PLACES_KEY`, `SESSION_SECRET` (+ `SESSION_SECRET_PREVIOUS` during rotation), non-secret `APP_ENV`, `PLACES_ENABLED`, `PP_DISABLED`; no `NEXT_PUBLIC_*` secrets, no `_DEMO`/`_PROD`-suffixed names. Client reads only `NEXT_PUBLIC_APP_ENV`.
-- Rotation procedure for `SESSION_SECRET` (overlap unseal), `ONEHEALTH_SECRET_KEY`/`APP_ID` (registration + Vercel together, redeploy), `GOOGLE_PLACES_KEY` (GCP); rotate on exposure/team change, at least yearly.
-- Previews only in the dev project with dev secrets; previews disabled on demo and prod.
-- Local dev: `pnpm dev` with `next dev --experimental-https`, `APP_ENV=dev`; dev-only `app/launch/dev/page.tsx` accepts a pasted `lpl` and submits to `/launch`, 404 unless `APP_ENV=dev`.
-- CI on every PR: `pnpm lint`, `tsc --noEmit`, Vitest, Playwright (mocked proxy), `next build`; remove `typescript.ignoreBuildErrors`/`eslint.ignoreDuringBuilds`; CI grep fails on `document.cookie`, `access_token` in client files, `NEXT_PUBLIC_*SECRET*`, `_DEMO`/`_PROD` secret names.
-- Test framework: install and configure Vitest + Testing Library + MSW at the `/api` boundary for unit/component tests; Playwright for UJ-1…UJ-5 end-to-end against a mocked proxy. Each Section ships tests for `validate`/`save`/diff; the proxy ships traversal, CSRF, cache-header and refresh-concurrency test tables (AD-2, AD-16–AD-18); header test (AD-21); cookie-size test (AD-1).
-- Rollback: Vercel instant rollback; incident stop `PP_DISABLED=1` + redeploy makes launch and proxy return 503 `SERVICE_DISABLED`; revoke live tokens via `isAllowedForPatients=false`.
+**Deployment, CI and test framework setup (AD-20)** *(amended 2026-10-14 by D1/D2/D4)*
+- One Vercel project `personal-profile` (replaces the three pinned `personal-profile-dev|demo|prod` projects), whose production deployment serves both `demo` and `prod` (no `dev` environment); its production domain (the app origin) + `/auth` is the launch URL registered in both 1health environments.
+- Promotion: PR previews build from the same project; production deploys only by promoting a commit that passed CI.
+- Secrets only in Vercel env vars: `ONEHEALTH_SECRET_KEY_DEMO`, `ONEHEALTH_SECRET_KEY_PROD`, `APP_ID_DEMO`, `APP_ID_PROD`, `SESSION_SECRET` (≥ 32 chars; + `SESSION_SECRET_PREVIOUS` during rotation), `GOOGLE_PLACES_KEY`, non-secret `PLACES_ENABLED`, `PP_DISABLED`, `ACCOUNT_DISABLED`; no `NEXT_PUBLIC_*` variables. No `APP_ENV`, `API_ORIGIN`, `APP_ORIGIN`, `PORTAL_URL`, `APP_ID` or `ONEHEALTH_SECRET_KEY`. `_DEMO`/`_PROD` names appear only in `lib/server/env.ts`, its tests, `.env.example` and CI/test fixtures.
+- Rotation procedure for `SESSION_SECRET` (overlap unseal), `ONEHEALTH_SECRET_KEY_<ENV>`/`APP_ID_<ENV>` (that environment's registration + Vercel together, redeploy), `GOOGLE_PLACES_KEY` (GCP); rotate on exposure/team change, at least yearly.
+- Preview deployments never receive `ONEHEALTH_SECRET_KEY_PROD`/`APP_ID_PROD` (Vercel Production scope only).
+- Local dev: `pnpm dev` with `next dev --experimental-https`; open `https://localhost:3000/auth?lpl=<payload>` directly; there is no `/launch/dev` page. *(2026-10-14, D9: the `/auth` manual-entry card also accepts a pasted LPL, in every environment.)*
+- CI on every PR: `pnpm lint`, `tsc --noEmit`, Vitest, Playwright (mocked proxy), `next build`; remove `typescript.ignoreBuildErrors`/`eslint.ignoreDuringBuilds`; CI grep fails on `document.cookie`, `access_token` in client files, `NEXT_PUBLIC_*SECRET*`, and `_DEMO`/`_PROD` secret names outside `lib/server/env.ts`, its tests, `.env.example` and CI/test fixtures.
+- Test framework: install and configure Vitest + Testing Library + MSW at the `/api` boundary for unit/component tests; Playwright for UJ-1…UJ-5 end-to-end against a mocked proxy. Each Section ships tests for `validate`/`save`/diff; the proxy ships traversal, CSRF, cache-header and refresh-concurrency test tables (AD-2, AD-16–AD-18; 2026-10-14, D5: no CSRF table, a 415 content-type row instead); header test (AD-21); cookie-size test (AD-1).
+- Rollback: Vercel instant rollback; incident stop `PP_DISABLED=1` + redeploy makes launch (`/auth`, `/api/token`) and proxy return 503 `SERVICE_DISABLED`; revoke live tokens via `isAllowedForPatients=false`.
 - Tooling versions per Stack table: Node 24.x, pnpm 12.x via corepack, iron-session 9.0.1, Vitest 5.0.4, @testing-library/react 16.3.3, MSW 3.0.3, @playwright/test 1.64.0; shadcn/Radix (dialog 1.3.1, label 2.1.17, slot 1.5.0, toast 1.3.1); `signature_pad` wrapped directly (replaces `react-signature-canvas`); TypeScript 7 deferred.
 
 **Conventions that affect every story**
 - Naming: hooks `use<Section>`, schemas `<section>Schema`, `lib/api` functions verb-first (`fetchX`, `saveX`, `verifyContactPoints`); owner-id path segments are literal `me`.
 - Data formats: dates on the wire `YYYY-MM-DD`, displayed `MM/DD/YYYY`; clearing an optional field sends `"n/a"`; ids are numbers; address request DTO uses `primary`/`validated` while responses use `isPrimary`/`isValidated`.
-- Errors: proxy passes upstream 4xx status/body through; proxy-originated codes 400 `BAD_PATH`/`BAD_QUERY`, 403 `NOT_ALLOWED`/`CSRF`, 405, 409 `SESSION_CHANGED`, 413 `TOO_LARGE`, 415 `UNSUPPORTED_MEDIA`, 401 `TOKEN_EXPIRED`/`SESSION_EXPIRED`, 502 `UPSTREAM_REDIRECT`/`UPSTREAM_ERROR`, 503 `REFRESH_UNAVAILABLE`/`SERVICE_DISABLED`, 504 `UPSTREAM_TIMEOUT`, all `{code}`; unknown codes fall back to a generic Section error with Retry.
+- Errors: proxy passes upstream 4xx status/body through; proxy-originated codes 400 `BAD_PATH`/`BAD_QUERY`, 403 `NOT_ALLOWED`, 405, 413 `TOO_LARGE`, 415 `UNSUPPORTED_MEDIA`, 401 `TOKEN_EXPIRED`/`SESSION_EXPIRED`, 502 `UPSTREAM_REDIRECT`/`UPSTREAM_ERROR`, 503 `REFRESH_UNAVAILABLE`/`SERVICE_DISABLED`, 504 `UPSTREAM_TIMEOUT`, all `{errorCode, source:"proxy"}` (PA2); unknown codes fall back to a generic Section error with Retry.
 - Styling: Tailwind v4 utilities on 1health tokens in `app/globals.css` with DESIGN.md overrides; no hex in components.
 - i18n: English only; all strings centralized in `lib/shared/messages.ts`.
 
@@ -209,7 +209,7 @@ NFR14: Success-metric instrumentation constraints. Save outcomes must be observa
 
 **Go-live preconditions**
 - BAA precondition (owner Daniel Garcia): no demo or prod deployment processes real PHI until BAAs are executed with Vercel (functions, logs, any log drain) and Google (Places). `PLACES_ENABLED=1` is set on demo/prod only after the Google BAA. Telemetry/log sinks are added only with a BAA.
-- External Application registration per environment (NFR8) and 1health-fe flag (NFR9) are release dependencies.
+- External Application registration per environment (NFR8) is the release dependency; there is no 1health-fe flag (PRC1).
 - Demo QA go/no-go by 2026-10-24 (NFR13); minimum alerting (proxy 5xx rate, `SESSION_EXPIRED` after refresh) and log retention to be decided before go/no-go.
 
 **Deferred (not in scope for stories unless re-opened)**
@@ -218,12 +218,13 @@ NFR14: Success-metric instrumentation constraints. Save outcomes must be observa
 **Open questions that may affect stories**
 - Does 1health rotate refresh tokens or detect reuse for `client_id=public-client`? (AD-16 assumes tolerated rotation.) — Daniel Garcia / backend.
 - Launch-code replay (no row lock): accept the 60 s window or get a backend fix? — Daniel Garcia / backend.
-- Does 1health-fe `?tab=contacts#signature` reach `/launch` with `tab` and fragment intact via the portal? — Daniel Garcia / 1health-fe.
-- Custom domains for the three projects. — Daniel Garcia.
-- Is the dev 1health environment synthetic-data only (no BAA needed for dev/previews)? — Daniel Garcia.
+- ~~Does 1health-fe `?tab=contacts#signature` reach `/launch` with `tab` and fragment intact via the portal?~~ Moot 2026-10-14 (D1: launch is `/auth?lpl=…` and always lands on `/`).
+- Custom domain for the `personal-profile` project. — Daniel Garcia.
+- ~~Is the dev 1health environment synthetic-data only?~~ Moot 2026-10-14 (D1: no `dev` environment). Is demo synthetic-data only (previews may then hold the `_DEMO` keys)? — Daniel Garcia.
+- Registered 1health app name for Personal Profile, needed for the portal login deep link `<portal root>/login?openApp=<app name>` on the `/auth` no-LPL screen (D4); until answered the link opens the portal root. — Daniel Garcia.
 - Minimum alerting before demo QA go/no-go; Vercel log retention. — Dev lead.
 - Is the 1health backend audit the system of record for SSN expose and Signature changes, or must the proxy emit audit lines to a BAA sink? — Daniel Garcia.
-- Whether an upstream token-revoke endpoint exists for `POST /api/session/logout` (best effort otherwise).
+- ~~Whether an upstream token-revoke endpoint exists for `POST /api/session/logout` (best effort otherwise).~~ Resolved 2026-10-14 (D3): `POST <apiRoot>/auth/user/logout/all-devices`, best effort.
 - PRD OQ 1 Medical content (Epic 2, PM); PRD OQ 3 Google Places privacy is resolved by AD-14 server proxy + BAA gate.
 
 ### UX Design Requirements
@@ -231,21 +232,21 @@ NFR14: Success-metric instrumentation constraints. Save outcomes must be observa
 **Design tokens and theme**
 
 UX-DR1: Wire all components to 1health Tier 3 tokens from `app/globals.css` via Tailwind utilities (`bg-card`, `text-muted-foreground`, …); no hex or Tailwind palette classes in components (add a lint/CI check), light theme default.
-UX-DR2: Link-text override: map all text links to `text-info-strong` (#256a8c, 5.97:1 on card) instead of `--link` #2f80a8 in light mode; dark mode keeps signal-aqua #8fd8e6.
-UX-DR3: Destructive-fill override: destructive buttons fill with `bg-error-strong` (#b23a31, white text 5.93:1) instead of `--destructive` #d84f45, in both light and dark mode.
+UX-DR2: Link-text override: map all text links to the dedicated `link-text` token (`text-link-text`; #256a8c = info-strong, 5.97:1 on card) instead of `--link` #2f80a8 in light mode; dark mode keeps signal-aqua #8fd8e6.
+UX-DR3: Destructive-fill override: destructive buttons fill with the dedicated `destructive-fill` token (`bg-destructive-fill`; #b23a31 = error-strong, white text 5.93:1) instead of `--destructive` #d84f45, in both light and dark mode.
 UX-DR4: Control-border override: inputs, selects, Jump to and Signature pad boundaries use #7a8696 (`--status-neutral`, 3.7:1 on card) in light and mist #aeb8c4 in dark, instead of `--input` #e1e8ef; table rules and card hairlines keep `--border`.
 UX-DR5: Add tooltip tokens: tooltip graphite #202833 / white text in light, inverted cloud #e6ebf0 / graphite in dark.
 UX-DR6: Dark theme via `.dark` class using every `-dark` token in DESIGN.md (background #202833, card #29333f, ring #8fd8e6, `-strong-dark` status variants, control-border-dark #aeb8c4, destructive-fill stays #b23a31); verify listed contrast ratios in both themes.
 UX-DR7: Status hues: status text uses `-strong` variants (success-strong Verified, warning-strong Not verified / Unsaved, error-strong errors); base hues only for fills/borders/icons; status always icon + word, never color alone; red only for errors and destructive actions.
 UX-DR8: Typography roles on the 1health scale with Inter: profile-name (text-h4, the single page `h1`), section-title (`h2`, text-body 600), cell (14 px), cell-strong (14/500), cell-number (14/600 tabular-nums), column-header (12/600 uppercase 0.06em — the only uppercase), caption, chip, mono-value (SSN), mono-index (index numbers and counts); all inputs 16 px; `tabular-nums` on every table.
 UX-DR9: Spacing/shape tokens: 8 px grid; touch-target 44 px, row-read 44, row-header 36, chip-height 22, cell-x 12, cell-edit-y 16, page-gutter 24 / mobile 16, section-gap 32, index-width 200, kv-key-edit 240, control-max 480, breakpoint 768, min-viewport 360; radius sm 6 / md 10 / lg 16 / full per DESIGN.md Shapes (chips square `rounded-sm`, not pill).
-UX-DR10: Elevation: page surfaces flat (no shadows on tables, header, insurance cards, Save all bar); `shadow-md` only for tooltip, row menu, Jump to listbox, Save all pill; `shadow-lg` for confirm/picture dialogs, toast, insurance drawer over a graphite 45 % scrim; `shadow-glow` only for focus.
+UX-DR10: Elevation: page surfaces flat (no shadows on tables, header, insurance cards, Save all bar); `shadow-md` only for tooltip, row menu, Jump to listbox, Save all pill; `shadow-lg` for confirm/picture dialogs, toast, insurance drawer over the `scrim` token (graphite 45 % light, black 60 % dark); `shadow-glow` only for focus.
 UX-DR11: Add shadcn primitives Tabs, Tooltip, DropdownMenu, Select, Sheet unchanged, alongside existing Button, Input, Label, Dialog, Toast, Skeleton, Alert in `components/ui/`.
 UX-DR12: Report the three design-system deviations (link, destructive, input border) upstream to design-system owners and keep overrides until `globals.css` changes.
 
 **Reusable components (DESIGN.md Components + EXPERIENCE.md Component Patterns)**
 
-UX-DR13: App bar — 52 px card bar with bottom border; "1health" wordmark (primary, bold), vertical rule, "Personal Profile" title; right "Return to 1health" link (link-text, external-link icon, 44 px target, underline on hover) that triggers the leave guard when dirty, clears drafts on confirm, calls logout, then navigates to `PORTAL_URL`; hidden when framed.
+UX-DR13: App bar — 52 px card bar with bottom border; "1health" wordmark (`primary-text`, bold; non-interactive `span`, not a tab stop), vertical rule, "Personal Profile" title; right "Return to 1health" link (link-text, external-link icon, 44 px target, underline on hover) that triggers the leave guard when dirty, clears drafts on confirm, calls logout, then navigates the same tab to the session environment's `portalUrl` (D4); always shown (D10).
 UX-DR14: Profile header — background band with bottom border; 40 px avatar (initials in primary 600 when no picture), name as `h1` (profile-name), right-aligned primary phone and primary email on desktop only; mobile shows avatar + name only; name refreshes immediately after Personal information save. ("Last updated" meta dropped per architecture Deferred.)
 UX-DR15: Avatar button + camera badge — whole avatar is a button with 44x44 hit area and focus ring; 18 px primary camera badge bottom-right with 2 px card ring, shown with and without a picture; click/Enter/Space opens the file picker.
 UX-DR16: Change profile picture dialog — 440 px (mobile full width minus 16 px gutters); opens after a file is chosen; title "Change profile picture"; 96 px circular preview + file name (ellipsis) + type · size; "Choose another file" (outline, reopens picker); rules line "JPG, PNG or BMP, up to 6 MB."; Cancel/Save; error state keeps current picture captioned "Current picture · Not changed", error line "{file name} is {size}. Choose a file up to 6 MB.", Save aria-disabled with `aria-describedby` to the error; Save uploads, replaces avatar at once, focus returns to avatar; Escape/Cancel closes without changes.
@@ -268,9 +269,9 @@ UX-DR32: Save all pill (mobile) — centered floating 44 px pill "Save all (N)" 
 UX-DR33: Inline banner — inside the table container replacing rows; error variant (alert icon, error-strong, "Couldn't load {section} · Retry" link that reloads only that Section); info variant (accent background, info icon) for draft restore and draft conflict.
 UX-DR34: Skeleton — three placeholder rows inside the real table container with real column headers, muted bars with shimmer (static under reduced motion); page shell, header frame, tabs and index render immediately.
 UX-DR35: Empty states — contact Sections: one row spanning all columns with copy + action link ("No phones yet · Add phone", "No social links yet · Add link") that opens edit with a new row; Insurance: dashed empty card "No insurance on file. Add a policy before your next visit." + primary "Add insurance" opening the editor; Medical: quiet centered muted panel "Coming soon: medications, allergies and conditions will appear here", no action, no API calls.
-UX-DR36: Confirm dialog — shadcn Dialog, `rounded-lg`, elevation-2, dimmed overlay, `ease-premium` 220–280 ms entrance; title, 1–2 lines body, right-aligned Cancel (secondary) + confirm; focus starts on Cancel, Escape cancels, focus returns to trigger; used for exactly three cases: primary phone/email change (primary button "Make primary"), Remove Signature (destructive "Remove signature"), Delete insurance (destructive "Delete policy").
-UX-DR37: Session expired dialog — confirm anatomy, non-dismissable (no close button, Escape and overlay click do nothing); title "Your session ended", body "Your changes are kept on this device. Relaunch from 1health to continue.", single primary "Return to 1health" with initial focus (framed: "Close and reopen from 1health", no navigation); edits visible behind the overlay; drafts written before it opens.
-UX-DR38: Session changed dialog — "This profile was opened by another account in another tab" with Reload; clears SWR cache, registry and in-memory SSN; no draft written (AD-19).
+UX-DR36: Confirm dialog — shadcn Dialog, `rounded-lg`, elevation-2, the `scrim` overlay (D13), `ease-premium` 220–280 ms entrance; title, 1–2 lines body, right-aligned Cancel (secondary) + confirm; focus starts on Cancel, Escape cancels, focus returns to trigger; used for exactly four cases: primary phone/email change (primary button "Make primary"), Remove Signature (destructive "Remove signature"), Delete insurance (destructive "Delete policy"), Turn off authenticator (UX-DR-P12).
+UX-DR37: Session expired dialog — confirm anatomy, non-dismissable (no close button, Escape and overlay click do nothing); title "Your session ended", body "Your changes are kept on this device. Relaunch from 1health to continue.", single primary "Return to 1health" with initial focus; edits visible behind the overlay; drafts written before it opens.
+UX-DR38: Session changed dialog — "This profile was opened by another account in another tab" with Reload; clears SWR cache, registry and in-memory SSN; no draft written (AD-19). *(Superseded 2026-10-14 by D5: no session binding, so there is no session-changed dialog.)*
 UX-DR39: Idle-logoff warning — 60 s before the 15-minute idle limit show "You'll be signed out in 1 minute" with "Stay signed in" (counts as user activity); session also ends 8 h after launch (AD-16 amendment).
 UX-DR40: Draft restore banner — per Section info banner "You have unsaved changes from your last visit." with Restore (opens edit with draft) / Discard; only same user, < 24 h.
 UX-DR41: Draft conflict compare — inside the conflicted Section under the info banner "This section changed since your draft. Choose which version to keep."; one row per changed field with field name (kv-key) and "Your version" / "Current" columns (column-header type); right-aligned "Use current" (secondary) and "Keep mine" (primary) applying to the whole Section; mobile stacks the two values under the field name, "Your version" first.
@@ -282,7 +283,7 @@ UX-DR46: Insurance editor — desktop right Sheet 480 px full height over scrim 
 UX-DR47: Signature pad — `signature_pad` wrapper, full value-column width capped at 480 px, 160 px tall, background surface, control-border, baseline rule, foreground ink; mouse/touch/pen; accessible name + instructions ("Draw your signature", help "Draw with a mouse, finger or pen, or upload a PNG or JPEG. Saved {date}."); "Clear" (ghost) empties the pad as a draft; "Upload image instead" (ghost, upload icon) accepts PNG/JPEG shown in the pad area; saving an empty pad over a saved Signature triggers the Remove Signature confirm; never drafted; read view shows 112x32 signature thumbnail + "Added {date}".
 UX-DR48: SSN reveal — masked value in mono + "Reveal" text button (eye icon, link-text, underlined, 44 px); revealed shows full value + 16 px countdown ring depleting over 30 s + "Hide"; reduced motion replaces the ring with "Hides in 30 s"; auto-hides at 30 s, blur, tab hidden; announces "Social Security number shown, hides in 30 seconds"; edit input auto-formats `XXX-XX-XXXX`, help copy for revealed vs masked states; "This SSN belongs to another person" error.
 UX-DR49: Stacked row card (mobile) — each Section table row becomes a block separated by hairlines inside the same container: line 1 value + status, line 2 label chip + type + notifications (muted), kebab right vertically centered; no hover actions; tapping the card body does nothing; edit mode stacks inputs full width in the same card (no bottom sheet); same accessible names as rows.
-UX-DR50: Full-page message — centered `rounded-lg` card on background with icon, title, one paragraph, one primary action; invalid launch copy "This link has expired" / "Open Personal Profile again from 1health." / "Return to 1health"; per-reason variants for tenant ("This is available in your personal account…", PA5) and cookies ("Open in a new tab"); no retry of a used payload.
+UX-DR50: Full-page message — centered `rounded-lg` card on background with icon, title, one paragraph, one primary action; invalid launch copy "This link has expired" / "Open Personal Profile again from 1health." / "Return to 1health"; per-reason variants for tenant ("This is available in your personal account…", PA5) and cookies ("Open in a new tab"); no retry of a used payload. *(Superseded 2026-10-14 by D8/D9: no `cookies` variant; `/auth` follows the patient-vault launch UX — client retry, manual LPL entry, "Success!", and an error alert with "Enter LPL Manually", "Switch Environment" and "Go to 1health"; see Story 1.2.)*
 UX-DR51: Focus ring — 2 px ring-color outline, 2 px offset, plus `shadow-glow`, on `:focus-visible` for every interactive element; never removed, never trapped outside dialogs.
 
 **Interaction primitives and behaviors**
@@ -292,9 +293,9 @@ UX-DR53: Verify flow — read-view action, no confirm; sends link; row shows "Li
 UX-DR54: Draft row removal — in edit mode Remove strikes a saved row and swaps to Restore until Save (no toast, undo or confirm); removing a new unsaved row deletes it outright.
 UX-DR55: Explain before failing — every unavailable action is aria-disabled with a tooltip reason (hover, focus, tap): unverified, landline, primary removal, last-entry removal, limit of 20; never hidden, never an error after Save.
 UX-DR56: Saving state — Save shows spinner + "Saving…", inputs read-only, Cancel disabled; other Sections stay usable; after save: read view, toast, focus to Section `h2`, draft cleared; failure keeps edit with field/Section error + Retry; network failure copy "Couldn't save {section}. Check your connection." + Retry; no offline queue.
-UX-DR57: Keyboard model — tab order app bar → header → tabs → index → Sections in order → Save all; Tab through cell controls in reading order; Escape in an edit table does not cancel; Enter in an input does not submit the Section.
+UX-DR57: Keyboard model — tab order page nav (Personal Profile → Account) → Return to 1health → header → tabs → index → Sections in order → Save all; the wordmark is not a tab stop; Tab through cell controls in reading order; Escape in an edit table does not cancel; Enter in an input does not submit the Section.
 UX-DR58: Deep links — `?tab={contacts|insurance|medical}#{personal|phone|email|social|addresses|signature}` opens the tab and scrolls to the Section/Signature row; unknown tab → Contacts, unknown hash → top; tab and hash survive refresh.
-UX-DR59: Banned patterns enforced in review — no hover-only affordances, bottom-sheet editors, drag-to-reorder, undo toasts for removals, confirm dialogs beyond the three named, or auto-save; Directions A/B not reintroduced.
+UX-DR59: Banned patterns enforced in review — no hover-only affordances, bottom-sheet editors, drag-to-reorder, undo toasts for removals, confirm dialogs beyond the four named, or auto-save; Directions A/B not reintroduced.
 
 **Accessibility floor**
 
@@ -312,20 +313,20 @@ UX-DR67: Mobile (< 768 px down to 360 px) layout — 16 px gutters; index → Ju
 
 **Microcopy**
 
-UX-DR68: Implement `lib/shared/messages.ts` containing every EXPERIENCE.md Voice and Tone string verbatim (disabled-action reasons, footnotes, the three confirm dialogs, locked-email copy, verify pending, validation messages, load error, empty states, Medical, Not provided, unsaved/Save all copy, success and partial toasts, network failure, SSN, Signature, card image failed, leave guard, session expired, draft restore/conflict, invalid launch, optional label suffix, Personal information/SSN/Signature/Address line 1 help, ZIP validation, removed/new row status, profile picture dialog and too-large error, Insurer search and "Add “{name}”", demotion, insurance dates help, Subscriber copy, card image copy), plus architecture-added strings (tenant mismatch, session changed, idle warning, framed session-expired action, open in new tab); voice rules: second person, no exclamation marks, no "contact point"/"precedence" in sentences; strings not from mocks/PRD flagged as draft copy for PM review.
+UX-DR68: Implement `lib/shared/messages.ts` containing every EXPERIENCE.md Voice and Tone string verbatim (disabled-action reasons, footnotes, the three confirm dialogs, locked-email copy, verify pending, validation messages, load error, empty states, Medical, Not provided, unsaved/Save all copy, success and partial toasts, network failure, SSN, Signature, card image failed, leave guard, session expired, draft restore/conflict, invalid launch, optional label suffix, Personal information/SSN/Signature/Address line 1 help, ZIP validation, removed/new row status, profile picture dialog and too-large error, Insurer search and "Add “{name}”", demotion, insurance dates help, Subscriber copy, card image copy), plus architecture-added strings (tenant mismatch, session changed, idle warning, framed session-expired action, open in new tab; 2026-10-14: session changed dropped by D5; framed session-expired action and "Open in a new tab" dropped by D8/D10; `/auth` launch strings added by D9); voice rules: second person, no exclamation marks, no "contact point"/"precedence" in sentences; strings not from mocks/PRD flagged as draft copy for PM review.
 
 **Architecture amendments to UX**
 
-UX-DR69: Framed mode — detect `window.self !== window.top`; hide the app-bar "Return to 1health"; session-expired action reads "Close and reopen from 1health" and performs no navigation; launch-error `reason=cookies` offers "Open in a new tab" to `PORTAL_URL`.
+UX-DR69: Framed mode — *(Superseded 2026-10-13/14 by AD-5, D10: never framed; no detection; the original text follows.)* detect `window.self !== window.top`; hide the app-bar "Return to 1health"; session-expired action reads "Close and reopen from 1health" and performs no navigation; launch-error `reason=cookies` offers "Open in a new tab" to `PORTAL_URL`.
 UX-DR70: Idle logoff — 15-minute idle / 8-hour absolute session limit surfaced via the UX-DR39 warning and then the session-expired dialog (with drafts written first).
 
 ### Resolved Clarifications (2026-10-13, approved by Daniel Garcia)
 
-- **RC1 Environments:** the architecture wins (AD-3). Dev, demo and prod, one environment per deployment, with no referrer detection and no chooser. PRD FR-1/NFR-6 to be amended.
+- **RC1 Environments:** the architecture wins (AD-3). Dev, demo and prod, one environment per deployment, with no referrer detection and no chooser. PRD FR-1/NFR-6 to be amended. *(Superseded 2026-10-14 by D1/D2: demo and prod only, one deployment, environment detected server-side by the decrypting key; still no chooser.)*
 - **RC2 Unverified mobile as Primary:** allowed only when no phone is Verified **and** none is Primary (matches today's app).
 - **RC3 Notifications toggle:** on the Primary phone and Primary email only. Other rows show "—".
 - **RC4 Social "edit":** the value can't change in place, so edit = remove + add in the same save.
-- **RC5 Logout:** add `app/api/session/logout`. Revoking upstream is best-effort.
+- **RC5 Logout:** add `app/api/session/logout`. Revoking upstream is best-effort. *(2026-10-14, D3: via `POST <apiRoot>/auth/user/logout/all-devices`.)*
 - **RC6 Idle activity:** user-triggered requests count, plus "Stay signed in" (`POST /api/session/ping`). Background or automatic refetches don't.
 - **RC7 Signature upload alternative:** adopted. Uploads are converted to PNG, at most 1 MB. Closes the PRD FR-14 assumption.
 - **RC8 "Last updated" header line:** dropped.
@@ -391,7 +392,7 @@ FR119: Epic 10 - Empty states
 FR120: Epic 10 - Enter portal (hand-off)
 Profile module cross-cutting: PNFR1–PNFR12 apply to Epics 7–10.
 
-Cross-cutting NFRs (apply to every epic): NFR4, NFR9, NFR10, NFR13, NFR14.
+Cross-cutting NFRs (apply to every epic): NFR4, NFR10, NFR13, NFR14 (NFR9 superseded 2026-10-13).
 
 ## Profile module (/account) — Requirements Inventory
 
@@ -405,9 +406,9 @@ FR numbers match the Profile PRD's FR-1NN ids. Endpoints per FR are in the Profi
 
 FR101: Route and deep-linkable tabs. The Profile module is the page `/account?tab=personal|provider|organizations`; a missing or unknown `tab` opens Personal Account and normalizes the URL; the active tab is in the URL and survives refresh; tabs use ARIA tab semantics (`tablist`/`tab`/`tabpanel`, `aria-selected`) and work with arrow keys; tab labels are "Personal Account", "Individual Provider Registration", "My Organizations"; switching tabs while Personal account settings is dirty opens the three-way leave guard (keep editing / discard / save, as PP-FR3); the page has no Save all bar or pill (Personal account settings is its only editable Section); hash anchors `#account` and `#authenticator` scroll to their Section, unknown hash → top of tab; launch never lands on `/account` (launch always lands on `/`, AM-1/AD-4) — `/account` is reached in-app or by direct URL with an existing session.
 
-FR102: Entry: portal Apps tile, app-bar navigation, direct URL (Δ D10). No 1health-fe change is made or assumed: the user opens the app from the 1health portal Apps launcher tile "Personal Profile", launch lands on `/`, and the app always runs top-level in its own browser tab; the app bar on both pages carries two destinations, "Personal Profile" (`/`) and "Account" (`/account`), the current one marked `aria-current="page"`; moving between them runs leave protection (PP-FR6) when the current page has unsaved changes, and selecting the current page does nothing; a direct URL `/account?tab=…` (bookmark, refresh, typed) works only with an existing session, otherwise the existing launch-error screen shows (no login page); a launch arriving in a non-default tenant shows the AD-6 error with module-neutral copy and the app never switches tenant; the 1health-fe user menu (Profile, Provider registration, My organizations) is not rewired and keeps opening legacy `/personal-settings` for every user, including MTA and Customer Support; there is no 1health-fe flag.
+FR102: Entry: portal Apps tile, app-bar navigation, direct URL (Δ D10). No 1health-fe change is made or assumed: the user opens the app from the 1health portal Apps launcher tile "Personal Profile", launch lands on `/`, and the app always runs top-level in its own browser tab; the app bar on both pages carries two destinations, "Personal Profile" (`/`) and "Account" (`/account`), the current one marked `aria-current="page"`; moving between them runs leave protection (PP-FR6) when the current page has unsaved changes, and selecting the current page does nothing; a direct URL `/account?tab=…` (bookmark, refresh, typed) works only with an existing session, otherwise the page redirects to /auth (no login page); a launch arriving in a non-default tenant shows the AD-6 error with module-neutral copy and the app never switches tenant; the 1health-fe user menu (Profile, Provider registration, My organizations) is not rewired and keeps opening legacy `/personal-settings` for every user, including MTA and Customer Support; there is no 1health-fe flag.
 
-FR103: Loading, load-error and no-access states (Δ D4). Each tab and card (Personal account settings, Authenticator app, Healthcare credentials, My Organizations) shows its own skeleton while loading (today the provider tab renders nothing); a non-403 load failure shows "Something went wrong while loading profile information" inline with "Retry" (copy §D) and never an empty form; an upstream 403 shows "You don't have access to this in your current account" (copy §D) on the affected tab or card only, with no raw error and no action, scoped per the AD-23 403 owner table, while other tabs and cards keep working; error rule: show the platform `message` for any 4xx/5xx that has one, otherwise the generic error; proxy-originated `NOT_ALLOWED`/`CSRF` are never shown as "no access" (generic error + Retry, AD-19).
+FR103: Loading, load-error and no-access states (Δ D4). Each tab and card (Personal account settings, Authenticator app, Healthcare credentials, My Organizations) shows its own skeleton while loading (today the provider tab renders nothing); a non-403 load failure shows "Something went wrong while loading profile information" inline with "Retry" (copy §D) and never an empty form; an upstream 403 shows "You don't have access to this in your current account" (copy §D) on the affected tab or card only, with no raw error and no action, scoped per the AD-23 403 owner table, while other tabs and cards keep working; error rule: show the platform `message` for any 4xx/5xx that has one, otherwise the generic error; proxy-originated `NOT_ALLOWED`/`CSRF` are never shown as "no access" (generic error + Retry, AD-19; 2026-10-14, D5: there is no `CSRF` code).
 
 **Personal account settings (PRD §4.2, tab Personal Account)**
 
@@ -421,7 +422,7 @@ FR107: Switch Primary Email and Primary Phone (parity transport, AM-4). Primary 
 
 FR108: Regional preferences. Options are constants: Language English (`en`); Time zone Hawaiian (`Pacific/Honolulu`), Alaska (`America/Anchorage`), Pacific (`America/Los_Angeles`), Mountain (`America/Denver`), Central (`America/Chicago`), Eastern (`America/New_York`) in `lib/shared/time-zones.ts`; Locale "English - United States" (`en-US`); a stored value not on the list shows its label when known, otherwise the raw code, passes the required check and is sent only if the user picks a new value; a blank language or time zone shows "Select a value" and must be picked before Save, with the field error "Select a preferred language" / "Select a time zone" / "Select a locale" (copy §D); Preferred locale shows "English - United States" when nothing is stored and is sent only when changed; language goes in `PUT user/edit`, time zone via `POST user/time-zone?timeZone=<IANA>`, locale via `POST user/locale?locale=en-US` (never `locale` in `/edit`, backend R2).
 
-FR109: Save and partial failure. Save with no changes shows "There are no changes" and stays in edit view; otherwise only changed fields are sent: names, birth date, language, email and phone in `PUT user/edit` first, then time zone and locale each in their own call, both attempted whatever the other results (AD-7 exception); on full success the toast "Personal account updated successfully" shows, the Section returns to read view, and `myself` and the Email/Mobile/Landline Contact Point keys are refetched (profile header refreshes name, primary phone, primary email); if any call fails the Section stays in edit view and names each failed part ("{Part} was not saved. {platform message}", e.g. "Time zone was not saved."), the parts that succeeded become the new baseline so Save again re-sends only what failed (never an email that already succeeded), and the Section never reports success for a partial save; `SESSION_EXPIRED`/`SESSION_CHANGED` stops the sequence; the Section's unsaved edits are drafted under `pp:draft:v1:<userId>:account` (PP-FR2 rules, UJ-105).
+FR109: Save and partial failure. Save with no changes shows "There are no changes" and stays in edit view; otherwise only changed fields are sent: names, birth date, language, email and phone in `PUT user/edit` first, then time zone and locale each in their own call, both attempted whatever the other results (AD-7 exception); on full success the toast "Personal account updated successfully" shows, the Section returns to read view, and `myself` and the Email/Mobile/Landline Contact Point keys are refetched (profile header refreshes name, primary phone, primary email); if any call fails the Section stays in edit view and names each failed part ("{Part} was not saved. {platform message}", e.g. "Time zone was not saved."), the parts that succeeded become the new baseline so Save again re-sends only what failed (never an email that already succeeded), and the Section never reports success for a partial save; `SESSION_EXPIRED`/`SESSION_CHANGED` stops the sequence (2026-10-14, D5: `SESSION_EXPIRED` only); the Section's unsaved edits are drafted under `pp:draft:v1:<userId>:account` (PP-FR2 rules, UJ-105).
 
 **Authenticator app (PRD §4.3, tab Personal Account)**
 
@@ -449,11 +450,11 @@ FR118: Organization card (Δ D6). Each card shows the logo (`/api/pp/org-logo/<t
 
 FR119: Empty states. With no organizations (no renderable items on page 0 and no search text — not today's `user.tenants.length <= 1` shortcut) the tab shows an empty card "You aren't managing any organizations yet" / "Register an organization with 1health to unlock the platform features listed below" with today's four feature rows (Lab "Add your tests offered and enable order management."; Healthcare "Order tests, get results, and manage your patients."; Supplier "Provide fulfillment and logistics for collection devices."; Go To Market "Create and sell test products."); "Register organization" opens `https://learnmore.1health.io/product-checkout` (see Ambiguities: new tab vs AD-5); users whose email ends in `@1health.io` or `@tachin.ai` instead get a Portal hand-off to organization creation, plus a "Create new organization" button next to search; search text with zero results shows "Sorry, no results were found" with no pagination.
 
-FR120: Enter portal (Portal hand-off). "Enter portal" ("Enter portal for {name}") opens the 1health portal in that Organization's context through `/handoff/portal?to=tenant&tenantId=<n>`; the URL is built only from the configured portal URL plus a numeric tenant id, never from response data such as `subdomain` (candidate `<PORTAL_URL>/?ctx=<tenantId>`, OQ1; fallback the portal root); the app never calls `v2/user/switch-tenant` (backend R7); the app is top-level, so the hand-off navigates the same tab after leave protection (no framed or new-tab branch), does not log out and keeps drafts; "Enter portal" is aria-disabled with "You're disabled in this organization" when `enabledInTenant` is false.
+FR120: Enter portal (Portal hand-off). "Enter portal" ("Enter portal for {name}") opens the 1health portal in that Organization's context through `/handoff/portal?to=tenant&tenantId=<n>`; the URL is built only from the configured portal URL plus a numeric tenant id, never from response data such as `subdomain` (candidate `<portalUrl>/?ctx=<tenantId>`, OQ1; fallback the portal root); the app never calls `v2/user/switch-tenant` (backend R7); the app is top-level, so the hand-off navigates the same tab after leave protection (no framed or new-tab branch), does not log out and keeps drafts; "Enter portal" is aria-disabled with "You're disabled in this organization" when `enabledInTenant` is false.
 
 ### NonFunctional Requirements
 
-PNFR1: Security and privacy. MFA QR codes, MFA verification codes and NPI selections are never stored in drafts, SWR or any cache, client storage, logs, URLs or telemetry; the QR data URI lives only in the dialog's component state and is dropped on close and `pagehide`; the MFA code travels only in a POST body to `/api/pp/mfa/validate` and the debug logger redacts `qrCode` and `code`; turning off the authenticator always asks for confirmation; `tenant/sys-config` is called only server-side with the practice tenant id from the user's own registration (AD-25); organization logos are fetched server-side without credentials and only from `PUBLIC_FILES_ORIGIN` (AD-24); the only app URLs carrying user-typed text are NPI/organization `searchText` (public directory names); all NFR1 rules (sealed cookie, proxy-only 1health access, CSP, no PHI in logs) apply unchanged to `/account`.
+PNFR1: Security and privacy. MFA QR codes, MFA verification codes and NPI selections are never stored in drafts, SWR or any cache, client storage, logs, URLs or telemetry; the QR data URI lives only in the dialog's component state and is dropped on close and `pagehide`; the MFA code travels only in a POST body to `/api/pp/mfa/validate` and the debug logger redacts `qrCode` and `code`; turning off the authenticator always asks for confirmation; `tenant/sys-config` is called only server-side with the practice tenant id from the user's own registration (AD-25); organization logos are fetched server-side without credentials and only from the session environment's `publicFilesOrigin` (`lib/shared/environments.ts`, D7; AD-24); the only app URLs carrying user-typed text are NPI/organization `searchText` (public directory names); all NFR1 rules (sealed cookie, proxy-only 1health access, CSP, no PHI in logs) apply unchanged to `/account`.
 
 PNFR2: Accessibility. WCAG 2.1 AA on every `/account` flow, each completable keyboard-only (axe + manual keyboard pass per flow); tabs, comboboxes, popovers and dialogs work with the keyboard; focus is trapped in dialogs and returned on close; icon-only controls have accessible names; reduced motion is respected; 44 × 44 px minimum targets.
 
@@ -471,7 +472,7 @@ PNFR8: Rollout and rollback. No 1health-fe changes and no 1health-fe flag: entry
 
 PNFR9: Entry, hosting and browsers. Users reach `/account` via the portal Apps tile → `/` → app-bar "Account", or by direct URL with a session; the app always runs top-level in its own tab and is never framed (no framed detection or branches); latest two Chrome, Edge, Safari, Firefox, plus iOS Safari and Android Chrome.
 
-PNFR10: Platform dependencies. OQ1 (portal URL that opens tenant X, candidate `<PORTAL_URL>/?ctx=<tenantId>`) answered by 2026-10-17, otherwise Enter portal opens the `PORTAL_URL` root (R-A, known degradation); OQ2 (every launching user holds Patient functionality in the default tenant, and whether all users have base MFA) verified on demo by 2026-10-20, otherwise the FR103 no-access and FR111 base-MFA-off messages carry it; `PUBLIC_FILES_ORIGIN` is set per environment (dev/demo/prod origin of `tenantLogo.publicUrl`; until set, logos 404 and cards show initials); verify on demo that changing the login email via `PUT user/edit` keeps current tokens valid (else the success path ends in `SESSION_EXPIRED`).
+PNFR10: Platform dependencies. OQ1 (portal URL that opens tenant X, candidate `<portalUrl>/?ctx=<tenantId>`) answered by 2026-10-17, otherwise Enter portal opens the resolved environment's `portalUrl` root (D4) (R-A, known degradation); OQ2 (every launching user holds Patient functionality in the default tenant, and whether all users have base MFA) verified on demo by 2026-10-20, otherwise the FR103 no-access and FR111 base-MFA-off messages carry it; each environment's `publicFilesOrigin` (demo/prod origin of `tenantLogo.publicUrl`) is filled in `lib/shared/environments.ts`; until then logos 404 and cards show initials; verify on demo that changing the login email via `PUT user/edit` keeps current tokens valid (else the success path ends in `SESSION_EXPIRED`).
 
 PNFR11: Reliability. A load or save failure in one `/account` tab or card never blocks the others (403 and load errors are scoped per FR103 / AD-23 owner table); Personal account settings partial failure is honest (FR109).
 
@@ -479,39 +480,39 @@ PNFR12: Success-metric and test constraints. SM-101 parity checklist (addendum �
 
 ### Additional Requirements (Architecture)
 
-**Structural seed (AM-1).** Add `app/account/page.tsx` (server component: `requireSession()`, embeds `sessionBinding`, `dynamic = "force-dynamic"`), `app/handoff/portal/route.ts`, `app/api/pp/mfa/validate/route.ts`, `app/api/pp/org-logo/[tenantId]/route.ts`, `app/api/pp/practice-support/route.ts`; feature folders `features/account`, `features/mfa`, `features/provider`, `features/organizations`; client modules `lib/api/{account,mfa,npi,organizations,myself}.ts`; shared `lib/shared/{person-rules,time-zones,profile-constants}.ts`; `app/layout.tsx` holds the single root `SWRConfig` and the shared app bar.
+**Structural seed (AM-1).** Add `app/account/page.tsx` (server component: `requireSession()`, embeds `sessionBinding` (2026-10-14: dropped by D5), `dynamic = "force-dynamic"`), `app/handoff/portal/route.ts`, `app/api/pp/mfa/validate/route.ts`, `app/api/pp/org-logo/[tenantId]/route.ts`, `app/api/pp/practice-support/route.ts`; feature folders `features/account`, `features/mfa`, `features/provider`, `features/organizations`; client modules `lib/api/{account,mfa,npi,organizations,myself}.ts`; shared `lib/shared/{person-rules,time-zones,profile-constants}.ts`; `app/layout.tsx` holds the single root `SWRConfig` and the shared app bar.
 
 - [AD-2 allowlist] Add passthrough entries (METHOD + template) exactly for: `GET v2/user/myself` (exists); `GET v2/user/contact-point/list` (exists; `type` repeatable, each ∈ `Email|Mobile|Landline` plus the PP types); `PUT v2/user/edit` (exists; body schema accepts `email`, `phoneNumber`, `phoneNumberRegion`, rejects `locale`); `POST v2/user/time-zone` (`timeZone` ∈ the six IANA ids in `lib/shared/time-zones.ts`); `POST v2/user/locale` (`locale` = `en-US` only); `POST v2/mfa/enable/totp`; `POST v2/mfa/disable/totp`; `GET v2/user/npi`; `GET v2/public/npi/list` (`entityTypeCode` `1|2`, `searchText` ≤ 100 chars, `page` `^\d{1,4}$`, `limit` ≤ 10); `GET v2/health/npi/{n}/is-registered`; `POST v2/user/register/npi` (JSON `{providerNpiId, practiceNpiId?}` numeric); `GET v2/user/organization/portal` (`name` ≤ 100 chars, `page` `^\d{1,4}$`, `size` ≤ 12); `GET v2/file/{n}/download` (exists, `asImage`, `preview=true` forced) for the registered-view signature. Each entry lands in the story that first uses it.
 - [AD-2 denies] Exact `METHOD + template` denies (prefix only for `/**`; `<n>` = `^\d{1,19}$`; `*` = any method): `* /auth/**`, `* v2/public/external-application/**`, admin prefixes, `POST v2/mfa/enable`, `POST v2/mfa/disable`, `* v2/mfa/enable/<n>`, `* v2/mfa/disable/<n>`, `* v2/mfa/validate/<n>`, `* v2/user/switch-tenant/**`, `* v2/user/update-password`, `* v2/tenant/sys-config`; `v2/mfa/validate` and `tenant/sys-config` are not passthrough entries. Proxy test rows: `POST v2/mfa/enable/totp` and `POST v2/mfa/disable/totp` → allowed; `POST v2/mfa/enable` → 403; `POST v2/mfa/enable/123` → 403; `GET v2/mfa/validate/123` → 403.
-- [AD-2 named op] `POST /api/pp/mfa/validate`: session required, AD-17 CSRF + `X-PP-Session`, JSON body `{ "code": "<6 digits>" }` matching `^\d{6}$` (else 400), server moves it into upstream `v2/mfa/validate?code=`; returns the upstream boolean; no code in any app URL or log.
-- [AD-24 named op] `GET /api/pp/org-logo/{tenantId}`: session required, `tenantId` `^\d{1,19}$`; server reads the user's org list (`GET v2/user/organization/portal`, server paging, stop at match, ≤ 5 pages of 50), not a member → 404; requires `new URL(tenantLogo.publicUrl).origin === PUBLIC_FILES_ORIGIN`; fetch with no credentials/cookies, `redirect: "manual"` (3xx → 404), 5 s timeout, 512 KB cap (Content-Length and while reading), `cache: "no-store"`; serves only PNG/JPEG/WebP with matching magic bytes (SVG/other → 404), `Content-Type` from bytes, `Content-Disposition: inline`, `nosniff`, AD-18 headers; any failure → 404 `{errorCode:"NO_LOGO", source:"proxy"}`; `<img onError>` → initials tile; CSP `img-src` stays `'self'`; `v2/file/{id}/download` never used for logos; GET without `X-PP-Session` allowed. Tests: host, redirect, size and magic-byte rows.
+- [AD-2 named op] `POST /api/pp/mfa/validate`: session required, AD-17 CSRF + `X-PP-Session` (2026-10-14, D5: dropped; only the JSON `Content-Type` check), JSON body `{ "code": "<6 digits>" }` matching `^\d{6}$` (else 400), server moves it into upstream `v2/mfa/validate?code=`; returns the upstream boolean; no code in any app URL or log.
+- [AD-24 named op] `GET /api/pp/org-logo/{tenantId}`: session required, `tenantId` `^\d{1,19}$`; server reads the user's org list (`GET v2/user/organization/portal`, server paging, stop at match, ≤ 5 pages of 50), not a member → 404; requires `new URL(tenantLogo.publicUrl).origin` to equal the session environment's `publicFilesOrigin` (`lib/shared/environments.ts`, D7); fetch with no credentials/cookies, `redirect: "manual"` (3xx → 404), 5 s timeout, 512 KB cap (Content-Length and while reading), `cache: "no-store"`; serves only PNG/JPEG/WebP with matching magic bytes (SVG/other → 404), `Content-Type` from bytes, `Content-Disposition: inline`, `nosniff`, AD-18 headers; any failure → 404 `{errorCode:"NO_LOGO", source:"proxy"}`; `<img onError>` → initials tile; CSP `img-src` stays `'self' blob: data:` (the AD-21 value, unchanged; D7); `v2/file/{id}/download` never used for logos; GET without `X-PP-Session` allowed (2026-10-14, D5: no `X-PP-Session` exists). Tests: host, redirect, size and magic-byte rows.
 - [AD-25 named op] `GET /api/pp/practice-support`: session required, reads `v2/user/npi` server-side, takes `practiceNpi.organization.tenantId` (absent → 404), calls `v2/tenant/sys-config` with exactly `Tenant%20IDs=<id>&includeAllRelations=true`, returns only `{ name?, phone?, phoneRegion?, email? }`; SWR key `["pp","practice-support"]`; its 403 scopes only the Practice-name popover.
-- [AD-22 hand-off] `GET /handoff/portal?to=tenant&tenantId=<n>` | `?to=create-org`: validates `to` enum and `tenantId` `^\d{1,19}$` (else 303 to `PORTAL_URL`); answers `seeOther()` (303, absolute) to `<PORTAL_URL>/?ctx=<n>` (candidate, OQ1) or `<PORTAL_URL origin>/organizations/create`; no other query param ever (never `assume`); session-less by design (no `requireSession()`; `proxy.ts` exempts `/handoff/**` from the no-session redirect), no side effects; no logout, drafts kept; triggered only via the shell `navigate()`; Enter portal is a link only when `enabledInTenant = true`, else aria-disabled.
-- [AD-3] `lib/server/env.ts` exports `PORTAL_URL` and `PUBLIC_FILES_ORIGIN` (per-environment env var; boot fails if missing); `PORTAL_ORIGIN` no longer exists; client code reads only `NEXT_PUBLIC_APP_ENV`.
-- [AD-4] Launch always lands on `/` (no `view` param); `proxy.ts` 307-redirects any path carrying `lpl` (incl. `/account`) to `/launch`; `/account` with no session renders the launch-error screen; redirects use `lib/server/http.ts#seeOther()` with absolute `Location` from `APP_ORIGIN` + enum path/query; `NextResponse.redirect` banned in `app/launch/**` and `app/handoff/**` (lint).
+- [AD-22 hand-off] `GET /handoff/portal?to=tenant&tenantId=<n>` | `?to=create-org`: validates `to` enum and `tenantId` `^\d{1,19}$` (else 303 to `portalUrl`, resolved per D4: the session's environment if it unseals, else the `onehealth_environment` cookie, else `prod`, from `lib/shared/environments.ts`, never an env var or URL parameter); answers `seeOther()` (303, absolute) to `<portalUrl>/?ctx=<n>` (candidate, OQ1) or `<portalUrl origin>/organizations/create`; no other query param ever (never `assume`); session-less by design (no `requireSession()`; `proxy.ts` exempts `/handoff/**` from the no-session redirect), no side effects; no logout, drafts kept; triggered only via the shell `navigate()`; Enter portal is a link only when `enabledInTenant = true`, else aria-disabled.
+- [AD-3] `lib/server/env.ts` exports `PORTAL_URL` and `PUBLIC_FILES_ORIGIN` (per-environment env var; boot fails if missing); `PORTAL_ORIGIN` no longer exists; client code reads only `NEXT_PUBLIC_APP_ENV`. *(Superseded 2026-10-14 by D1/D4: no `PORTAL_URL` env var and no `NEXT_PUBLIC_APP_ENV`; the portal URL per environment is a constant in `lib/shared/environments.ts`. Because one deployment serves both environments, `PUBLIC_FILES_ORIGIN` also moves into that map as a per-environment `publicFilesOrigin` (values still open).)*
+- [AD-4] Launch always lands on `/` (no `view` param); `proxy.ts` 307-redirects any path carrying `lpl` (incl. `/account`) to `/launch`; `/account` with no session renders the launch-error screen; redirects use `lib/server/http.ts#seeOther()` with absolute `Location` from `APP_ORIGIN` + enum path/query; `NextResponse.redirect` banned in `app/launch/**` and `app/handoff/**` (lint). *(Superseded 2026-10-14 by D1: the launch is `/auth?lpl=…` → `POST /api/token` → `/`; no `proxy.ts` `lpl` redirect, no `/launch*` routes; `/account` with no session redirects to `/auth`; `seeOther()` stays for `/handoff/**` (absolute portal `Location`), and the lint ban covers `app/handoff/**`.)*
 - [AD-5] Top-level only: `frame-ancestors 'none'` + `X-Frame-Options: DENY` on every response incl. `/account` and `/handoff/portal`; no framed detection, no `postMessage`, no `target=_blank` anywhere; hand-offs and Return to 1health are same-tab.
-- [AD-6] Tenant mismatch → `/launch-error?reason=tenant` with one module-neutral copy on both pages.
-- [AD-7] One `SectionRegistry` per page; `/account` registers only `account` (displayOrder 1); Authenticator app (anchor `authenticator`), Healthcare credentials and My Organizations are not registry Sections (no dirty state, no drafts); typed enums `ProfileTab` (`contacts|insurance|medical`), `AccountTab` (`personal|provider|organizations`), `SectionId`; account `save()` runs `PUT user/edit` (dirty only) then `POST user/time-zone` and `POST user/locale` (each only if dirty), both attempted regardless, resolving `{ ok:false, error:{ failedParts: ("details"|"timeZone"|"locale")[] } }` on any failure and re-baselining each succeeded part; `SESSION_EXPIRED`/`SESSION_CHANGED` stops the sequence; `save()` never throws.
+- [AD-6] Tenant mismatch → `/launch-error?reason=tenant` with one module-neutral copy on both pages. *(2026-10-14, D1: shown on `/auth` after `/api/token` answers `WRONG_TENANT`.)*
+- [AD-7] One `SectionRegistry` per page; `/account` registers only `account` (displayOrder 1); Authenticator app (anchor `authenticator`), Healthcare credentials and My Organizations are not registry Sections (no dirty state, no drafts); typed enums `ProfileTab` (`contacts|insurance|medical`), `AccountTab` (`personal|provider|organizations`), `SectionId`; account `save()` runs `PUT user/edit` (dirty only) then `POST user/time-zone` and `POST user/locale` (each only if dirty), both attempted regardless, resolving `{ ok:false, error:{ failedParts: ("details"|"timeZone"|"locale")[] } }` on any failure and re-baselining each succeeded part; `SESSION_EXPIRED`/`SESSION_CHANGED` stops the sequence (2026-10-14, D5: `SESSION_EXPIRED` only); `save()` never throws.
 - [AD-8] Save all and `SAVE_ORDER` exist only on `/`; `/account` has no Save all bar/pill.
 - [AD-9 exception] `lib/api/account.ts#updateAccount()` is the sole builder of `email`, `phoneNumber`, `phoneNumberRegion` for `PUT v2/user/edit`: only when changed, only values from Verified Email / Mobile / Landline Contact Points, `phoneNumberRegion` always with `phoneNumber`; the Personal-information payload type omits the three fields; ESLint `no-restricted-imports` allows `updateAccount` only in `features/account`.
 - [AD-10] Keys from `lib/api/keys.ts`, all prefixed `"pp"`: `keys.myself()` = `["pp","myself"]`; `keys.contactPoints(type)` = `["pp","contact-points",type]` per single type (`Email`, `Mobile`, `Landline`, …), shared by Contacts and the `/account` pickers (multi-type reads compose per-type keys); `["pp","npi"]`, `["pp","orgs",name,page]`, `["pp","practice-support"]`; one root `SWRConfig` so `/` and `/account` share one cache; Account settings save mutates `myself` and `contactPoints("Email"|"Mobile"|"Landline")`; tab keys load only when the tab opens; MFA QR/codes never in SWR.
 - [AD-11] `lib/shared/person-rules.ts` holds the shared first/last name (1–24 chars after trim) and birth-date age (18–120, 21–120 for Proctor via `myself.roles`) rules, imported by `features/personal` and `features/account`; no schema redefines them; `features/account/schema.ts` (zod 4) + one `useForm`; messages are `messages.ts` keys; backend error → field mapping only in `lib/api/errors.ts`.
-- [AD-12] Draft key `pp:draft:v1:<userId>:account`, `draftFields` = the account form fields only (never MFA codes, QR or NPI selections); `baseHash` = hash of the server values of exactly the Section's `draftFields` (from `myself` / contact-point keys), so an edit on either page invalidates the other page's draft of shared fields; purge is user-wide via `drafts.purgeUser(userId)` (`pp:draft:v1:<userId>:*`) on app-bar Return to 1health (after guard) and on `SESSION_CHANGED`; drafts kept on session-expired Return and on portal hand-offs.
-- [AD-15] Server logs carry method, upstream path template, status, duration, request id only — never query strings; debug logger (dev only) redacts at least `qrCode`, `code`, `ssn`, tokens, file bodies; telemetry adds `mfa_link {ok, attempt}` (no values, no ids).
+- [AD-12] Draft key `pp:draft:v1:<userId>:account`, `draftFields` = the account form fields only (never MFA codes, QR or NPI selections); `baseHash` = hash of the server values of exactly the Section's `draftFields` (from `myself` / contact-point keys), so an edit on either page invalidates the other page's draft of shared fields; purge is user-wide via `drafts.purgeUser(userId)` (`pp:draft:v1:<userId>:*`) on app-bar Return to 1health (after guard) and on `SESSION_CHANGED` (2026-10-14: dropped by D5); drafts kept on session-expired Return and on portal hand-offs.
+- [AD-15] Server logs carry method, upstream path template, status, duration, request id only — never query strings; debug logger (dev only) redacts at least `qrCode`, `code`, `ssn`, tokens, file bodies (2026-10-14, D6: this is the client `logApiCall`; server logs never contain bodies); telemetry adds `mfa_link {ok, attempt}` (no values, no ids).
 - [AD-16] Non-GETs (`register/npi`, `mfa/*`, `user/edit`, `time-zone`, `locale`) are replayed only after a proxy-originated `TOKEN_EXPIRED`, never after a 5xx or timeout; hand-offs do not call logout.
-- [AD-17] `app/account/page.tsx` embeds `sessionBinding`; all `/api/pp/*` non-GETs require same-origin + `X-PP-Session`; GETs without the header allowed only on `asImage` entries and `GET /api/pp/org-logo/*`; `/handoff/portal` GET has no side effects.
-- [AD-18] `app/account/page.tsx`, `app/handoff/**`, `app/api/pp/**` export `force-dynamic`; every fetch to 1health and `PUBLIC_FILES_ORIGIN` is `no-store`; CI asserts no-store headers on `/account`, `/handoff/portal`, `/api/pp/org-logo/1`.
-- [AD-19] `ApiResponse<T>` gains `upstreamCode`; BFF errors are `{errorCode:"<STRING>", source:"proxy"}`, upstream errors pass through as `{message, code:<int>}` (integer → `upstreamCode`, `errors.ts` derives `errorCode`); session signals branch on `errorCode` only; `FORBIDDEN` = status 403 without `source:"proxy"` (upstream only) → no-access panel; proxy `NOT_ALLOWED`/`CSRF` → generic error + Retry, never "no access"; `errors.ts` exact-message table: "Mfa is not enabled for this user." / "Mfa config is missing." → `MFA_NOT_ENABLED`; "Totp is already enabled." → `TOTP_ALREADY_ENABLED` (refetch `myself`, linked state); `PERSONAL_NPI_IS_ALREADY_REGISTERED` / `PRACTICE_NPI_IS_ALREADY_REGISTERED` prefixes → `NPI_ALREADY_REGISTERED`; nothing else matches message text.
-- [AD-20] `ACCOUNT_DISABLED=1` makes `/account`, `/handoff/**`, `/api/pp/{mfa,org-logo,practice-support}/**` and the Profile allowlist entries return 503 `SERVICE_DISABLED`; Vercel env per project adds non-secret `PORTAL_URL`, `PUBLIC_FILES_ORIGIN`, `ACCOUNT_DISABLED`.
+- [AD-17] `app/account/page.tsx` embeds `sessionBinding`; all `/api/pp/*` non-GETs require same-origin + `X-PP-Session`; GETs without the header allowed only on `asImage` entries and `GET /api/pp/org-logo/*`; `/handoff/portal` GET has no side effects. *(Superseded 2026-10-14 by D5: no `sessionBinding`, same-origin or `X-PP-Session` checks; `/api/pp/*` JSON routes keep the 415 `Content-Type` check; `/handoff/portal` GET still has no side effects.)*
+- [AD-18] `app/account/page.tsx`, `app/handoff/**`, `app/api/pp/**` export `force-dynamic`; every fetch to 1health and to the session environment's `publicFilesOrigin` (`lib/shared/environments.ts`, D7) is `no-store`; CI asserts no-store headers on `/account`, `/handoff/portal`, `/api/pp/org-logo/1`.
+- [AD-19] `ApiResponse<T>` gains `upstreamCode`; BFF errors are `{errorCode:"<STRING>", source:"proxy"}`, upstream errors pass through as `{message, code:<int>}` (integer → `upstreamCode`, `errors.ts` derives `errorCode`); session signals branch on `errorCode` only; `FORBIDDEN` = status 403 without `source:"proxy"` (upstream only) → no-access panel; proxy `NOT_ALLOWED`/`CSRF` → generic error + Retry, never "no access" (2026-10-14, D5: no `CSRF` code); `errors.ts` exact-message table: "Mfa is not enabled for this user." / "Mfa config is missing." → `MFA_NOT_ENABLED`; "Totp is already enabled." → `TOTP_ALREADY_ENABLED` (refetch `myself`, linked state); `PERSONAL_NPI_IS_ALREADY_REGISTERED` / `PRACTICE_NPI_IS_ALREADY_REGISTERED` prefixes → `NPI_ALREADY_REGISTERED`; nothing else matches message text.
+- [AD-20] `ACCOUNT_DISABLED=1` makes `/account`, `/handoff/**`, `/api/pp/{mfa,org-logo,practice-support}/**` and the Profile allowlist entries return 503 `SERVICE_DISABLED`; Vercel env per project adds non-secret `PORTAL_URL`, `PUBLIC_FILES_ORIGIN`, `ACCOUNT_DISABLED`. *(2026-10-14, D1/D4: only `ACCOUNT_DISABLED` is added; portal URL and public-files origin are per-environment constants in `lib/shared/environments.ts`.)*
 - [AD-21] Header test also covers `/account` and `/handoff/portal`: CSP with `frame-ancestors 'none'`, `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy: same-origin`, HSTS, nosniff, Referrer-Policy, Permissions-Policy.
 - [AD-23 MFA] Linking calls only `POST mfa/enable/totp` then `POST /api/pp/mfa/validate`; disabling only `POST mfa/disable/totp`; validate 200 `false` = invalid code, not an error; status from `myself.mfaEnabled`/`totpEnabled`, refetched after close; `enable/totp` called once per dialog open from the tile's click handler (never a mount effect), guarded by an in-flight ref (double-click no-op), dialog renders only the latest QR, no automatic retry or Retry button re-issues it while open.
 - [AD-23 NPI] `lib/api/npi.ts` exposes `searchPersonalNpi()` (`entityTypeCode=1`) and `searchPracticeNpi()` (`2`); components never pass the type; register sends record ids after `is-registered` on both; Register disabled in flight; "Register your practice" check uses `practiceNpi.id` from `user/npi`.
 - [AD-23 membership] Practice membership single source = `myself.tenants`, computed only by `lib/api/myself.ts#isTenantMember(myself, tenantId)`; `features/provider` calls it with `practiceNpi.organization.tenantId`; the org list is never used for membership; support contact only from AD-25.
 - [AD-23 organizations] Fetch `size=12`; drop `organization == null`; sort by `shortOrganizationName ?? name` within the page; empty state = no renderable items on page 0 with no search text; pager uses server `totalPages`; internal domains (`@1health.io`, `@tachin.ai`) and checkout URL in `lib/shared/profile-constants.ts`.
 - [AD-23 403 owner table] Upstream `FORBIDDEN` only: `contact-point/list` → Account Section's email/phone pickers only; `mfa/*`, `/api/pp/mfa/validate` → Authenticator app card; `user/npi`, `public/npi/list`, `user/register/npi` → Provider tab; `user/organization/portal` → Organizations tab; `/api/pp/practice-support` → Practice-name popover only; other tabs and cards keep working.
-- [AD-26] `features/shell/navigate.ts` exports `navigate(target)` with `target` = `{page:"profile", tab?, hash?} | {page:"account", tab?, hash?} | {external:"portal"|"handoff", href}`; runs the current page's leave guard (three-way dialog), then `/` ↔ `/account` via `router.push` (shared SWR cache kept) or external via same-tab `location.assign` (Return also does AD-12 purge + AD-16 logout); app bar has two destinations "Personal Profile" and "Account"; `next/link` and raw `<a href>` to `/`, `/account`, `/handoff/**` or `PORTAL_URL` are banned outside `features/shell` (lint); `beforeunload` covers only browser-initiated unloads.
+- [AD-26] `features/shell/navigate.ts` exports `navigate(target)` with `target` = `{page:"profile", tab?, hash?} | {page:"account", tab?, hash?} | {external:"portal"|"handoff", href}`; runs the current page's leave guard (three-way dialog), then `/` ↔ `/account` via `router.push` (shared SWR cache kept) or external via same-tab `location.assign` (Return also does AD-12 purge + AD-16 logout); app bar has two destinations "Personal Profile" and "Account"; `next/link` and raw `<a href>` to `/`, `/account`, `/handoff/**` or `PORTAL_URL` (2026-10-14: any portal URL from `lib/shared/environments.ts`, D4) are banned outside `features/shell` (lint); `beforeunload` covers only browser-initiated unloads.
 - [Testing] Vitest + MSW for `features/account` validate/save/diff (incl. partial-failure rebase and never re-sending a succeeded email), MFA single-flight, NPI type locking; proxy denylist table rows above; `/api/pp/org-logo` host/redirect/size/magic-byte rows; Playwright UJ-101..UJ-105 + addendum §E parity checklist against a mocked proxy, top-level only; E2E fixtures may reuse `1health-fe/e2e/fixtures/account-settings-data.ts` payloads.
-- [Open questions] Portal URL per tenant (platform, 2026-10-17); Patient functionality in default tenant (2026-10-20); `PUBLIC_FILES_ORIGIN` values (dev lead); token validity after login-email change (dev lead, verify on demo).
+- [Open questions] Portal URL per tenant (platform, 2026-10-17); Patient functionality in default tenant (2026-10-20); `publicFilesOrigin` values per environment for the `lib/shared/environments.ts` map (dev lead); token validity after login-email change (dev lead, verify on demo).
 
 ### UX Design Requirements
 
@@ -557,7 +558,7 @@ UX-DR-P25: Portal hand-off presentation: Enter portal, Register your practice to
 UX-DR-P26: `no-access-panel` (card, border, `rounded-md`, 20 px lock icon muted-foreground, cell type, 24/16 px padding): tab level — centered bordered panel replacing the tab content with "You don't have access to this in your current account", no action; Section level (Account settings, Authenticator app, Healthcare credentials) — same icon + line as a single `empty-row`-layout row inside the Section's container; scoped per AD-23 owner table (e.g. a `contact-point/list` 403 disables only the pickers).
 UX-DR-P27: Skeletons per tab: shell, header and tab strip render immediately; a tab loads only when opened; Account settings key/value skeleton (4 rows); Authenticator five 112 px tile placeholders; Healthcare credentials two input-height bars; My Organizations 12 card placeholders; shimmer static under reduced motion.
 UX-DR-P28: Load error: `inline-banner-error` "Something went wrong while loading profile information · Retry" in the affected tab or Section, Retry reloads only it, never an empty form; Partial save (Account settings): edit mode kept, banner names each failed part ("{Part} was not saved. {platform message}"), succeeded parts rebased; No changes: "There are no changes", Section stays in edit.
-UX-DR-P29: `/account` keyboard model: app bar (wordmark, page nav Personal Profile → Account, Return to 1health) → header → tabs → active tab content in reading order (Personal Account: Account settings then Authenticator app; Provider: (i), comboboxes, Register / registered view; My Organizations: search, Create new organization, cards row by row, pagination); same order on `/` with the page nav inserted after the wordmark.
+UX-DR-P29: `/account` keyboard model: app bar (page nav Personal Profile → Account, Return to 1health; the wordmark is plain text, not a tab stop) → header → tabs → active tab content in reading order (Personal Account: Account settings then Authenticator app; Provider: (i), comboboxes, Register / registered view; My Organizations: search, Create new organization, cards row by row, pagination); same order on `/` with the page nav inserted after the wordmark.
 UX-DR-P30: `/account` deep links: `/account?tab={personal|provider|organizations}#{account|authenticator}`; unknown tab → Personal Account; in-app links only via `navigate()` with leave guard: Account settings helper → `/?tab=contacts#email` (or `#phone`), registered-view Signature → `/?tab=contacts#signature`.
 UX-DR-P31: Responsive `/account`: ≥ 768 px — tab strip one row, Account settings read 4 columns, MFA tiles one row of five, comboboxes up to 720 px, org grid 4/3/2, Create new organization beside search, dialogs centered; < 768 px to 360 px — page nav segmented control (wraps < 400 px), tab strip scrolls, header avatar + name only, Account settings one pair per row / label above control in edit, MFA tiles 3-column grid (min 96 px), comboboxes full width with Register right-aligned, org grid 2 columns from 640 px and 1 below, QR dialog full-screen, confirms centered with 16 px gutters, popovers/tooltips open on tap; no horizontal scroll at 360 px (automated check).
 UX-DR-P32: Profile copy: add every EXPERIENCE.md Voice and Tone Profile row (Account settings heading/locked/picker/notice/validation/save, Birth date help + "About birth date", Authenticator intro/dialog/disable/base-MFA-off, Provider registration, Provider (i), Account settings labels, Registered view labels and copy, My Organizations, feature rows, No access, Load error, Account settings success toast, module-neutral wrong-tenant copy) and addendum §D new copy verbatim to `lib/shared/messages.ts`; the V&T verbatim test covers them.
@@ -568,22 +569,22 @@ UX-DR-P34: Decisions D-UX1–D-UX9 (approved 2026-10-13) are binding: D-UX1 Birt
 
 These existing stories carry acceptance criteria that the updated spine (and the 2026-10-13 user overrides: no 1health-fe changes, never framed, app-bar nav) now contradicts. The stories were amended in place on 2026-10-13 (each carries an "Amended 2026-10-13" note under its title); each line says what changed in its ACs. The spine wins on conflict. The existing NFR7 (iframe), NFR9 (1health-fe flag), NFR11/NFR12 (flag-based rollout/rollback), RC1-era UX-DR13 (hidden when framed), UX-DR36/UX-DR59 ("three" confirms → four), UX-DR37 (framed action), UX-DR50 (cookies "Open in a new tab") and UX-DR69 (framed mode) are superseded the same way.
 
-- **Story 1.1 Foundation:** `env.ts` exports `PORTAL_URL` and `PUBLIC_FILES_ORIGIN` (no `PORTAL_ORIGIN`) plus `ACCOUNT_DISABLED`; CSP `frame-ancestors 'none'`, `X-Frame-Options: DENY` is sent (not omitted), COOP `same-origin` (not `same-origin-allow-popups`); header spec adds `/account`, `/handoff/portal`; lint bans `NextResponse.redirect` in `app/launch/**`/`app/handoff/**` and raw links/`next/link` to `/`, `/account`, `/handoff/**`, `PORTAL_URL` outside `features/shell` (AD-26). — applied
-- **Story 1.2 Launch:** cookie `SameSite=Lax`, no `Partitioned` (AD-1); `proxy.ts` 307s any path carrying `lpl` (incl. `/account`) to `/launch`; redirects via `seeOther()` with absolute `Location` built from `APP_ORIGIN` (not relative); no `view` param; launch-error copy module-neutral (tenant "This is available in your personal account…", PA5); `reason=cookies` shows a plain message with Retry relaunching through `PORTAL_URL` same tab (no "Open in a new tab"/`target=_blank`); framed Return-to-1health AC removed; `/account` without session → launch-error. — applied
-- **Story 1.3 Proxy:** BFF error bodies become `{errorCode, source:"proxy"}` (not `{code}`); denies are exact `METHOD + template` (prefix only for `/**`) and add `POST v2/mfa/enable|disable`, `* v2/mfa/{enable,disable,validate}/<n>`, `* v2/user/switch-tenant/**`, `* v2/user/update-password`, `* v2/tenant/sys-config` with the AD-2 test rows; `TOKEN_EXPIRED` body `{errorCode:"TOKEN_EXPIRED", source:"proxy"}`; `preview=true` server-forced on every `asImage` file-download entry; GET-without-`X-PP-Session` exemption extends to `GET /api/pp/org-logo/*`; `ACCOUNT_DISABLED` handling for Profile entries. — applied
-- **Story 1.4 callApi/SWR:** `ApiResponse` adds `upstreamCode`; parse BFF `{errorCode, source}` vs upstream `{message, code:int}` (integer → `upstreamCode`, `errors.ts` derives `errorCode`), session events branch on `errorCode` only; one root `SWRConfig` in `app/layout.tsx` shared by `/` and `/account`; `app/account/page.tsx` also embeds `sessionBinding`. — applied
+- **Story 1.1 Foundation:** `env.ts` exports `PORTAL_URL` and `PUBLIC_FILES_ORIGIN` (no `PORTAL_ORIGIN`) plus `ACCOUNT_DISABLED`; CSP `frame-ancestors 'none'`, `X-Frame-Options: DENY` is sent (not omitted), COOP `same-origin` (not `same-origin-allow-popups`); header spec adds `/account`, `/handoff/portal`; lint bans `NextResponse.redirect` in `app/launch/**`/`app/handoff/**` and raw links/`next/link` to `/`, `/account`, `/handoff/**`, `PORTAL_URL` outside `features/shell` (AD-26). — applied *(2026-10-14: every item naming PORTAL_URL, PUBLIC_FILES_ORIGIN, APP_ORIGIN, /launch*, reason=cookies, X-PP-Session, sessionBinding or session-changed is superseded by D1/D4/D5/D7/D8; the story text is authoritative.)*
+- **Story 1.2 Launch:** cookie `SameSite=Lax`, no `Partitioned` (AD-1); `proxy.ts` 307s any path carrying `lpl` (incl. `/account`) to `/launch`; redirects via `seeOther()` with absolute `Location` built from `APP_ORIGIN` (not relative); no `view` param; launch-error copy module-neutral (tenant "This is available in your personal account…", PA5); `reason=cookies` shows a plain message with Retry relaunching through `PORTAL_URL` same tab (no "Open in a new tab"/`target=_blank`); framed Return-to-1health AC removed; `/account` without session → launch-error. — applied *(2026-10-14: every item naming PORTAL_URL, PUBLIC_FILES_ORIGIN, APP_ORIGIN, /launch*, reason=cookies, X-PP-Session, sessionBinding or session-changed is superseded by D1/D4/D5/D7/D8; the story text is authoritative.)*
+- **Story 1.3 Proxy:** BFF error bodies become `{errorCode, source:"proxy"}` (not `{code}`); denies are exact `METHOD + template` (prefix only for `/**`) and add `POST v2/mfa/enable|disable`, `* v2/mfa/{enable,disable,validate}/<n>`, `* v2/user/switch-tenant/**`, `* v2/user/update-password`, `* v2/tenant/sys-config` with the AD-2 test rows; `TOKEN_EXPIRED` body `{errorCode:"TOKEN_EXPIRED", source:"proxy"}`; `preview=true` server-forced on every `asImage` file-download entry; GET-without-`X-PP-Session` exemption extends to `GET /api/pp/org-logo/*`; `ACCOUNT_DISABLED` handling for Profile entries. — applied *(2026-10-14: every item naming PORTAL_URL, PUBLIC_FILES_ORIGIN, APP_ORIGIN, /launch*, reason=cookies, X-PP-Session, sessionBinding or session-changed is superseded by D1/D4/D5/D7/D8; the story text is authoritative.)*
+- **Story 1.4 callApi/SWR:** `ApiResponse` adds `upstreamCode`; parse BFF `{errorCode, source}` vs upstream `{message, code:int}` (integer → `upstreamCode`, `errors.ts` derives `errorCode`), session events branch on `errorCode` only; one root `SWRConfig` in `app/layout.tsx` shared by `/` and `/account`; `app/account/page.tsx` also embeds `sessionBinding`. — applied *(2026-10-14: every item naming PORTAL_URL, PUBLIC_FILES_ORIGIN, APP_ORIGIN, /launch*, reason=cookies, X-PP-Session, sessionBinding or session-changed is superseded by D1/D4/D5/D7/D8; the story text is authoritative.)*
 - **Story 1.5 Refresh:** a non-GET is replayed only after a proxy-originated `TOKEN_EXPIRED`, never after a 5xx or timeout (AD-16); error bodies use `{errorCode, source:"proxy"}`. — applied
 - **Story 1.6 Idle logoff:** `SESSION_EXPIRED` and ping error bodies use `{errorCode, source:"proxy"}`; activity rules apply equally on `/account`. — applied
-- **Story 1.7 Logout and session dialogs:** remove framed mode (`useIsFramed()`, "Close and reopen from 1health" and its Playwright case); `session-changed` also runs `drafts.purgeUser` for the in-memory user (AD-12/AD-19); `returnToPortal()` becomes the `navigate({external:"portal"})` path of AD-26 (guard → purge → logout → same-tab `location.assign`). — applied
+- **Story 1.7 Logout and session dialogs:** remove framed mode (`useIsFramed()`, "Close and reopen from 1health" and its Playwright case); `session-changed` also runs `drafts.purgeUser` for the in-memory user (AD-12/AD-19); `returnToPortal()` becomes the `navigate({external:"portal"})` path of AD-26 (guard → purge → logout → same-tab `location.assign`). — applied *(2026-10-14: every item naming PORTAL_URL, PUBLIC_FILES_ORIGIN, APP_ORIGIN, /launch*, reason=cookies, X-PP-Session, sessionBinding or session-changed is superseded by D1/D4/D5/D7/D8; the story text is authoritative.)*
 - **Story 1.8 Page shell / app bar:** app bar replaces the "Personal Profile" title with the two-item page nav (Personal Profile | Account, `aria-current="page"`, mobile segmented control wrapping < 400 px) on both pages; "Return to 1health" always rendered (framed AC removed); tab changes and page switches go through `navigate()`/leave guard; tab ids typed as `ProfileTab`. — applied
 - **Story 1.9 Header:** `keys.contactPoints(type)` is per single type (`Mobile`, `Landline`, `Email`) — the composite `["pp","contact-points","Phone"]` key becomes composed per-type keys; `/api/pp/profile-picture-id` errors use `{errorCode, source:"proxy"}`; header also refreshes after an Account settings save (it reads the shared keys). — applied
 - **Story 1.10 Profile Picture:** upload-entry error bodies (`TOO_LARGE`, `UNSUPPORTED_MEDIA`) use `{errorCode, source:"proxy"}`. — applied
 - **Story 1.11 Section framework:** one `SectionRegistry` per page (`/` and `/account` each mount their own); typed `ProfileTab`/`AccountTab`/`SectionId` enums; anchor table adds `account` and `authenticator`; `save()` error shape allows `{failedParts}` for the account Section. — applied
-- **Story 1.12 Errors/messages:** `errors.ts` maps upstream 403 (no `source:"proxy"`) → `FORBIDDEN`, proxy `NOT_ALLOWED`/`CSRF` → generic error + Retry (never "no access"), integer `upstreamCode` handling, and the exact-message table (`MFA_NOT_ENABLED`, `TOTP_ALREADY_ENABLED`, `NPI_ALREADY_REGISTERED`) as the only message-text matching; the V&T verbatim test now spans the Profile rows. — applied
+- **Story 1.12 Errors/messages:** `errors.ts` maps upstream 403 (no `source:"proxy"`) → `FORBIDDEN`, proxy `NOT_ALLOWED`/`CSRF` → generic error + Retry (never "no access"), integer `upstreamCode` handling, and the exact-message table (`MFA_NOT_ENABLED`, `TOTP_ALREADY_ENABLED`, `NPI_ALREADY_REGISTERED`) as the only message-text matching; the V&T verbatim test now spans the Profile rows. — applied *(2026-10-14, D5: no `CSRF` or `SESSION_CHANGED` codes.)*
 - **Story 1.13 Leave guard:** guard is invoked by `navigate()` for tab switch, app-bar page switch (Personal Profile ↔ Account), Return to 1health and portal hand-offs; `beforeunload` only for browser-initiated unloads; Discard + Return path purges user-wide. — applied
 - **Story 1.14 Save all:** Save all bar/pill and `SAVE_ORDER` exist only on `/` (per-page registry); `/account` mounts none. — applied
-- **Story 1.15 Drafts:** purge on app-bar Return is user-wide via `drafts.purgeUser(userId)` (shell helper, not the registry) and also runs on `SESSION_CHANGED`; `baseHash` = hash of the server values of exactly the Section's `draftFields`; drafts kept on portal hand-offs; draft denylist adds MFA codes/QR and NPI selections; framed "Close and reopen" path removed. — applied
-- **Story 1.16 Deployments/runbooks:** env/test asserts `PORTAL_URL`/`PUBLIC_FILES_ORIGIN` (no `PORTAL_ORIGIN`); Vercel env adds `PORTAL_URL`, `PUBLIC_FILES_ORIGIN`, `ACCOUNT_DISABLED`; runbook adds `ACCOUNT_DISABLED` partial stop; verification expects `frame-ancestors 'none'` + `X-Frame-Options: DENY` (not `frame-ancestors <PORTAL_ORIGIN>`); no 1health-fe flag step; disabled error bodies `{errorCode, source:"proxy"}`. — applied
+- **Story 1.15 Drafts:** purge on app-bar Return is user-wide via `drafts.purgeUser(userId)` (shell helper, not the registry) and also runs on `SESSION_CHANGED`; `baseHash` = hash of the server values of exactly the Section's `draftFields`; drafts kept on portal hand-offs; draft denylist adds MFA codes/QR and NPI selections; framed "Close and reopen" path removed. — applied *(2026-10-14, D5: no `SESSION_CHANGED` purge.)*
+- **Story 1.16 Deployments/runbooks:** env/test asserts `PORTAL_URL`/`PUBLIC_FILES_ORIGIN` (no `PORTAL_ORIGIN`); Vercel env adds `PORTAL_URL`, `PUBLIC_FILES_ORIGIN`, `ACCOUNT_DISABLED`; runbook adds `ACCOUNT_DISABLED` partial stop; verification expects `frame-ancestors 'none'` + `X-Frame-Options: DENY` (not `frame-ancestors <PORTAL_ORIGIN>`); no 1health-fe flag step; disabled error bodies `{errorCode, source:"proxy"}`. — applied *(2026-10-14: every item naming PORTAL_URL, PUBLIC_FILES_ORIGIN, APP_ORIGIN, /launch*, reason=cookies, X-PP-Session, sessionBinding or session-changed is superseded by D1/D4/D5/D7/D8; the story text is authoritative.)*
 - **Story 2.1 View Personal Information:** the Signature `GET v2/file/{id}/download` `asImage` entry gets server-forced `preview=true` (AD-2), not "no server-forced params". — applied
 - **Story 2.2 Edit Personal Information:** first/last name and birth-date age rules come from shared `lib/shared/person-rules.ts` (names 1–24 chars after trim — a new max for Personal information; Proctor 21–120); the payload type omits `email`/`phoneNumber`/`phoneNumberRegion` and only `updateAccount()` may build them (lint); save mutates `myself`, which also invalidates an `/account` draft via `baseHash`. — applied
 - **Stories 3.1, 3.2, 3.4, 3.5 Contact Points:** Phone reads/mutates per-type keys `contactPoints("Mobile")` + `contactPoints("Landline")` (not `["pp","contact-points","Phone"]`); Email keeps `contactPoints("Email")`; these keys are shared with the `/account` pickers, so Contacts saves refresh them. — applied
@@ -602,7 +603,7 @@ These existing stories carry acceptance criteria that the updated spine (and the
 - **PRC6 (2026-10-13) MFA parity.** Only `enable/totp`, validate, `disable/totp`; never base MFA; no recovery codes, manual secret or re-auth; confirm before disable added (Δ D2); tiles presentational.
 - **PRC7 (2026-10-13) No Register confirm.** Register NPI sends directly after the already-registered checks (confirm rejected in PRD §6.3).
 - **PRC8 (2026-10-13) Primary switch 1:1 parity.** Verified Email / Mobile / Landline (landlines allowed, unlike Contacts), inline first-change notice, no confirm, sent only when changed via `PUT user/edit` (AM-4 / AD-9 exception).
-- **PRC9 (2026-10-13) Org logos via named op.** `GET /api/pp/org-logo/{tenantId}` with `PUBLIC_FILES_ORIGIN` host check; CSP `img-src` unchanged; initials fallback (AM-5 resolved).
+- **PRC9 (2026-10-13) Org logos via named op.** `GET /api/pp/org-logo/{tenantId}` with a host check against the session environment's `publicFilesOrigin` (`lib/shared/environments.ts`, D7); CSP `img-src` unchanged; initials fallback (AM-5 resolved).
 - **PRC10 (2026-10-13) Practice support via named op.** `GET /api/pp/practice-support`; `tenant/sys-config` denied in the proxy.
 - **PRC11 (2026-10-13) MFA code in POST body.** `POST /api/pp/mfa/validate`; `mfa/validate` not passthrough (AM-6 redaction resolved by design).
 - **PRC12 (2026-10-13) Portal hand-off.** Session-less `/handoff/portal` 303, same tab after leave guard, no logout and drafts kept (adversarial A4 "logout + purge on hand-off" rejected by the user).
@@ -624,8 +625,32 @@ These existing stories carry acceptance criteria that the updated spine (and the
 
 ## Epic List
 
+### Launch and environment decisions (2026-10-14, human decisions — override the spine)
+
+D1–D4 follow the sibling app `Tachin-ai-Corporation/patient-vault-official` (`app/api/token/route.tsx`, `app/auth/page.tsx`, `app/api/logout/route.tsx`). They override the launch and env details of architecture AD-1, AD-3, AD-4 and AD-20 (and the RC1 / AD-22 bits that depend on them). The spine itself is not edited; the stories below are.
+
+- **D1 Launch entry kept from the 1health App Starter.** Env vars: `ONEHEALTH_SECRET_KEY_DEMO`, `ONEHEALTH_SECRET_KEY_PROD`, `APP_ID_DEMO`, `APP_ID_PROD`, required `SESSION_SECRET` (≥ 32 chars), optional `SESSION_SECRET_PREVIOUS`, `PP_DISABLED`, `ACCOUNT_DISABLED`. There is no `APP_ENV`, `API_ORIGIN`, `APP_ORIGIN`, `PORTAL_URL`, `APP_ID` or `ONEHEALTH_SECRET_KEY` env var, no `/launch`, `/launch/verify`, `/launch/dev` or `/launch-error` route, and no `proxy.ts` `?lpl` → `/launch` 307. The portal opens `/auth?lpl=…`; `/auth` (client page) POSTs to `/api/token`; on success it navigates to `/`. Only `demo` and `prod` exist (no `dev`); one deployment serves both. Tokens + `environment` are sealed in the httpOnly `__Host-pp_s`; no JS-readable cookies; no tokens in any response body. No-session pages redirect to `/auth`.
+- **D2 Environment detected by key, never by the client.** `/auth` sends only `{ lpl }`. `/api/token` tries `ONEHEALTH_SECRET_KEY_PROD` then `ONEHEALTH_SECRET_KEY_DEMO`, each also `.trim()`-ed (a warning without the value is logged when only the trimmed variant matches); the key that decrypts sets `environment`; neither → invalid launch. Response `{ ok: true, environment }`. `/auth` keeps referrer detection (`demo.1health` → demo, `app.1health` → prod), falling back to the `onehealth_environment` cookie, only to pick the link shown on the no-LPL screen.
+- **D3 Logout revokes on the platform.** `POST /api/session/logout` first calls, best effort and server-to-server, `POST <apiRoot>/auth/user/logout/all-devices` with the session's Bearer token, `cache: "no-store"`, 5 s timeout; any failure or 401 is swallowed and logged without the token; it always answers 204 clearing `__Host-pp_s`.
+- **D4 Environment map and remembered environment.** `lib/shared/environments.ts` holds per environment the API root (`https://1health.demo.1health.io` / `https://1health.app.1health.io`; upstream API = `<root>/api`) and the portal URL (the same root; used by Return to 1health and hand-offs). `/api/token` also sets non-secret `onehealth_environment=<demo|prod>` (`HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`). Session-less routes (`/handoff/portal`) and post-expiry Return to 1health resolve the environment from the session if it unseals, else that cookie, else `prod`; never from a URL parameter. **Open:** the portal login deep link `<root>/login?openApp=<app name>` needs Personal Profile's registered app name (owner Daniel Garcia); until then links go to the portal root.
+
+D5–D9 (human, 2026-10-14) also follow `patient-vault-official` (`app/auth/page.tsx`, `app/api/token/route.tsx`, `app/api/logout/route.tsx`, `lib/login-intent.ts`). They override AD-15 (body logging), AD-17, the `SESSION_CHANGED` parts of AD-8, AD-12 and AD-19, UX-DR38, and the launch-screen parts of AD-4 and UX-DR50.
+
+- **D5 No CSRF or session-binding checks.** There is no `Sec-Fetch-Site`/`Origin` check, no `X-PP-Session` header, no HMAC session binding (`lib/server/csrf.ts`, `lib/server/session-binding.ts` and the `sessionBinding` embedded in pages are removed), no 403 `CSRF` and no 409 `SESSION_CHANGED`/`session-changed` event, so the Story 1.7 session-changed dialog is dropped; `SESSION_EXPIRED`/`session-expired` stays. The 415 `UNSUPPORTED_MEDIA` check on JSON entries stays. `POST /api/session/logout` also accepts GET. The cookie stays `__Host-pp_s` `HttpOnly; Secure; SameSite=Lax; Path=/`. Accepted knowingly: cross-site write protection relies only on `SameSite=Lax`, a cross-site GET can log the user out, and a launch by another account in another tab is no longer detected (open tabs keep showing the previous user's cached data until they reload).
+- **D6 Dev-only client API logger.** `callApi` calls `logApiCall`, which writes one `console.groupCollapsed` per call (method, path, status, duration, request body, response body), only when `process.env.NODE_ENV === "development"`, read through the shared app-env helper `lib/shared/app-env.ts` (the only lint-allowed `process.env` read outside `lib/server/env.ts`). It redacts SSN-shaped values, MFA `code`, `qrCode` and any token-like field. There is no in-app API Inspector. Server logs never contain bodies, also under local `next dev` (replaces the earlier server-side dev body logging).
+- **D7 Public files.** Story 10.2's hardened `GET /api/pp/org-logo/{tenantId}` route and the strict CSP `img-src 'self' blob: data:` stay. The public-files origin is the per-environment `publicFilesOrigin` in `lib/shared/environments.ts` (D4), never an env var.
+- **D8 No blocked-cookie detection.** There is no blocked-cookie screen, no `cookies` reason and no verify route (already true since D1).
+- **D9 `/auth` launch UX as patient-vault `app/auth/page.tsx`.** The client makes at most `MAX_AUTH_ATTEMPTS = 5` attempts with a fixed `AUTH_RETRY_DELAY_MS = 1500` (no backoff). It retries on any non-OK response unless the body has `retryable: false`, on an OK response without success, and on a network error. `/api/token` returns `retryable: false` for a missing `lpl`, bad base64, a payload too short, decryption failed with both keys, a non-JSON payload, missing required fields, an `APP_ID` mismatch and a tenant mismatch; it calls the exchange once per request (no server retry). Attempt 1 shows "Authenticating..." / "Connecting to {Demo|Production} environment"; from attempt 2 it shows "Confirming your login..." / "This can take a moment. Please wait while we finish confirming your login." Manual entry shows when there is no `lpl` but an environment is known (referrer or `onehealth_environment` cookie), and from the error screen through "Enter LPL Manually": card "Authentication Required", "Connected to {Demo|Production} environment. No launch payload detected.", one field "Launch Payload (LPL)" (placeholder "Paste encrypted LPL here..."), Submit disabled while empty, then under an "Or" divider "Go to 1health ({env})" and "Switch Environment". Submit runs the same flow with `trim()` and space → `+`. It is available in every environment (it replaces the dev-only paste page). Success shows "Success!" / "Loading app...", then after 1200 ms a hard `window.location.assign(target)`, where `target = consumeLoginIntent("/")` reads and removes sessionStorage `pp:login-intent` and accepts it only if it is a same-origin relative path not starting with `/auth` or `/api`. The error UI is a destructive Alert with the last attempt's title and message — "Authentication Failed" + the server's user-safe message, or the fallback "Unable to authenticate. Please return to 1health and try again."; or "Connection Error" / "Unable to connect to the authentication service. Please check your connection and try again." — and the buttons "Enter LPL Manually", "Switch Environment" and "Go to 1health ({Demo|Production})". "Switch Environment" opens patient-vault's "Choose Environment" card (Demo / Production), which, like the referrer, only picks the displayed labels and link; no request ever carries an environment (D2 stands). The server never returns upstream details or exception strings to the client.
+
+D10–D13 (human, 2026-10-14) settle follow-up questions:
+
+- **D10 Never framed.** The portal opens the app in its own tab; the app is never framed. `__Host-pp_s` is `HttpOnly; Secure; SameSite=Lax; Path=/`, with no `Partitioned`, no `Domain` and no `Max-Age`. Every response sends CSP `frame-ancestors 'none'`, `X-Frame-Options: DENY` and COOP `same-origin` (not `same-origin-allow-popups`). There is no iframe / `ExternalAppFrame` / framed-mode support, no "Close and reopen" framed copy and no `window.self !== window.top` detection.
+- **D11 Non-interactive wordmark.** The "1health" wordmark is plain text (a `span`: no href, no click, no focus, not a tab stop) in the `primary-text` token. Tab order: page nav (Personal Profile → Account) → Return to 1health → header → tabs → content.
+- **D12 Deny list and kill-switch ownership.** Story 1.3 is the single owner of the full deny list, the `profile: true` allowlist-entry tag and the proxy-level `ACCOUNT_DISABLED=1` 503 for tagged entries. Story 7.2 owns only the page/route-level kill switch (`/account`, `/handoff/**`, `/api/pp/{mfa,org-logo,practice-support}/**`) and the test rows verifying the 1.3 deny list against Profile templates. Stories 7.5–10.3 tag their Profile-only entries.
+- **D13 Design tokens.** Dedicated `link-text` (`text-link-text`) and `destructive-fill` (`bg-destructive-fill`) tokens, never `text-info-strong` / `bg-error-strong` for those roles; a new `primary-text` token (#246b8f light, #6fb6d8 dark) for text in the primary hue; a new `scrim` token (graphite 45 % light, black 60 % dark) for every dialog and the drawer, replacing `bg-black/50`.
+
 ### Epic 1: Launch, session and profile shell
-Users open Personal Profile from the 1health portal, arrive signed in and safe, see their name and picture, and move between tabs. Unsaved work is protected and the session expires safely. Includes the foundation: proxy, sealed session, CI and tests, three Vercel projects, design tokens, and the shell building blocks (Section registry, Save all, drafts, leave guard, session dialogs, idle logoff).
+Users open Personal Profile from the 1health portal, arrive signed in and safe, see their name and picture, and move between tabs. Unsaved work is protected and the session expires safely. Includes the foundation: proxy, sealed session, CI and tests, one Vercel deployment serving demo and prod (D1), design tokens, and the shell building blocks (Section registry, Save all, drafts, leave guard, session-expired dialog, idle logoff).
 **FRs covered:** FR1, FR2, FR3, FR4, FR5, FR6, FR7, FR8, FR9, FR10, FR32
 **NFRs:** NFR1, NFR2, NFR3, NFR5, NFR6, NFR7, NFR8, NFR11, NFR12 · **Jira:** NG-9027, NG-9020, NG-9021
 
@@ -650,7 +675,7 @@ Defined later by the PM. No stories yet. Epic 1 delivers only the FR32 "Coming s
 **FRs covered:** none yet
 
 ### Epic 7: Account page and personal account settings
-Users go to **Account** from the app bar and keep their name, sign-in email and phone, birth date, language, time zone and locale correct. A partial save tells them exactly which part wasn't saved. Includes the `/account` foundation: route and tabs, app-bar navigation through `navigate()` (AD-26), skeleton, load-error and 403 states, the `/handoff/portal` route (AD-22) the Profile denies and the `ACCOUNT_DISABLED` kill switch (AD-2, AD-20); each Profile allowlist entry lands in the story that first uses it.
+Users go to **Account** from the app bar and keep their name, sign-in email and phone, birth date, language, time zone and locale correct. A partial save tells them exactly which part wasn't saved. Includes the `/account` foundation: route and tabs, app-bar navigation through `navigate()` (AD-26), skeleton, load-error and 403 states, the `/handoff/portal` route (AD-22) and the page/route-level `ACCOUNT_DISABLED` kill switch (AD-20); the deny list, the `profile: true` tag and the proxy-level 503 belong to Story 1.3 (D12); each Profile allowlist entry lands in the story that first uses it.
 **FRs covered:** FR101, FR102, FR103, FR104, FR105, FR106, FR107, FR108, FR109 · **Jira:** NG-9019 › NG-9030–NG-9035
 
 ### Epic 8: Authenticator app (MFA)
@@ -669,39 +694,47 @@ Users search and page through their organizations, recognize them by logo and ty
 
 ## Epic 1: Launch, session and profile shell
 
-Users open Personal Profile from the 1health portal, arrive signed in and safe, see their name and picture, and move between tabs. Unsaved work is protected and the session expires safely. Includes the foundation: proxy, sealed session, CI and tests, three Vercel projects, design tokens, and the shell building blocks (Section registry, Save all, drafts, leave guard, session dialogs, idle logoff).
+Users open Personal Profile from the 1health portal, arrive signed in and safe, see their name and picture, and move between tabs. Unsaved work is protected and the session expires safely. Includes the foundation: proxy, sealed session, CI and tests, one Vercel deployment serving demo and prod (D1), design tokens, and the shell building blocks (Section registry, Save all, drafts, leave guard, session-expired dialog, idle logoff).
 
-**Stories (dependency order):** 1.1 Foundation · 1.2 Launch · 1.3 Proxy · 1.4 `callApi` + SWR · 1.5 Token refresh · 1.6 Idle logoff · 1.7 Logout + session dialogs · 1.8 Page shell · 1.9 Header view · 1.10 Change picture · 1.11 Section framework · 1.12 Errors, messages and toasts · 1.13 Leave guard · 1.14 Save all · 1.15 Drafts · 1.16 Deployments. Each story depends only on earlier stories.
+**Stories (dependency order):** 1.1 Foundation · 1.2 Launch · 1.3 Proxy · 1.4 `callApi` + SWR · 1.5 Token refresh · 1.6 Idle logoff · 1.7 Logout + session-expired dialog · 1.8 Page shell · 1.9 Header view · 1.10 Change picture · 1.11 Section framework · 1.12 Errors, messages and toasts · 1.13 Leave guard · 1.14 Save all · 1.15 Drafts · 1.16 Deployments. Each story depends only on earlier stories.
 
 ### Story 1.1: Foundation — environment config, security headers, test tooling, CI and legacy removal
 
 *Amended 2026-10-13 (architecture update: AD-3, AD-4, AD-5, AD-20, AD-21, AD-26).*
+*Amended 2026-10-14 (launch decisions D1, D2, D4: `_DEMO`/`_PROD` env vars, environment map, no `APP_ENV`/`PORTAL_URL`).*
+*Amended 2026-10-14 (decisions D6, D7): the shared app-env helper is the one `process.env` exception; `publicFilesOrigin` stays in the environment map.*
 
 As a developer on the Personal Profile team,
-I want one validated server config per deployment, security headers on every response, a working test stack, a CI gate on every PR, and the legacy auth code gone,
-So that every later story builds on a deployment that is pinned to one 1health environment, cannot be framed or script-injected, holds no token in browser code, and cannot merge untested or untyped code.
+I want one validated server config, a constant per-environment map, security headers on every response, a working test stack, a CI gate on every PR, and the legacy auth code gone,
+So that every later story builds on a deployment that serves demo and prod without trusting the client for the environment, cannot be framed or script-injected, holds no token in browser code, and cannot merge untested or untyped code.
 
 **Acceptance Criteria:**
 
-**Given** the server boots with `APP_ENV` set to `dev`, `demo` or `prod`
+**Given** the server boots
 **When** `lib/server/env.ts` is first imported (it is imported from `instrumentation.ts` `register()` so the check runs at boot)
-**Then** it exports `APP_ENV`, `API_ORIGIN`, `APP_ORIGIN`, `PORTAL_URL`, `PUBLIC_FILES_ORIGIN`, `APP_ID`, `DEFAULT_TENANT_ID`, `ONEHEALTH_SECRET_KEY`, `SESSION_SECRET`, `SESSION_SECRET_PREVIOUS` (optional), `PLACES_ENABLED`, `GOOGLE_PLACES_KEY`, `PP_DISABLED` and `ACCOUNT_DISABLED`; there is no `PORTAL_ORIGIN`
-**And** `API_ORIGIN` is a constant fixed by `APP_ENV`: `dev` → `https://dev.1hdev.io`, `demo` → `https://demo.1health.io`, `prod` → `https://app.1health.io`; `PORTAL_URL` (the portal entry URL for this environment) and `PUBLIC_FILES_ORIGIN` (the origin of organization `tenantLogo.publicUrl`, AD-24) are per-environment env vars; `DEFAULT_TENANT_ID` is `1`
+**Then** it exports `ONEHEALTH_SECRET_KEY_DEMO`, `ONEHEALTH_SECRET_KEY_PROD`, `APP_ID_DEMO`, `APP_ID_PROD`, `SESSION_SECRET`, `SESSION_SECRET_PREVIOUS` (optional), `PLACES_ENABLED`, `GOOGLE_PLACES_KEY`, `PP_DISABLED`, `ACCOUNT_DISABLED`, `IS_LOCAL_DEV` (`NODE_ENV === "development"`) and the constant `DEFAULT_TENANT_ID` = `1`, plus `getSecretKey(env)` and `getAppId(env)` for `env` ∈ `demo|prod`
+**And** there is no `APP_ENV`, `API_ORIGIN`, `APP_ORIGIN`, `PORTAL_URL`, `PORTAL_ORIGIN`, `PUBLIC_FILES_ORIGIN`, `APP_ID`, `ONEHEALTH_SECRET_KEY` or `NEXT_PUBLIC_*` variable (D1)
 **And** `PLACES_ENABLED`, `PP_DISABLED` and `ACCOUNT_DISABLED` are booleans that are `true` only for the exact string `"1"`.
 
-**Given** a deployment is missing `APP_ENV`, `APP_ORIGIN`, `PORTAL_URL`, `PUBLIC_FILES_ORIGIN`, `APP_ID`, `ONEHEALTH_SECRET_KEY` or `SESSION_SECRET`, or `APP_ENV` is not one of `dev|demo|prod`, or `APP_ORIGIN` or `PUBLIC_FILES_ORIGIN` is not an `https://` origin without a path, or `PORTAL_URL` is not an `https://` URL, or `SESSION_SECRET` is shorter than 32 characters, or `PLACES_ENABLED=1` without `GOOGLE_PLACES_KEY`
+**Given** `lib/shared/environments.ts` (no secrets; importable by server and client)
+**When** it is read
+**Then** it exports `type Environment = "demo" | "prod"` and a constant map with, per environment, `apiRoot` (`demo` → `https://1health.demo.1health.io`, `prod` → `https://1health.app.1health.io`), `apiBase` = `<apiRoot>/api`, `portalUrl` = the same root, and `publicFilesOrigin` (the origin of organization `tenantLogo.publicUrl`, AD-24; values open, unset = logos 404)
+**And** no other module hard-codes a 1health origin, and a Vitest asserts the map values (D4).
+
+**Given** a deployment is missing `ONEHEALTH_SECRET_KEY_DEMO`, `ONEHEALTH_SECRET_KEY_PROD`, `APP_ID_DEMO`, `APP_ID_PROD` or `SESSION_SECRET`, or `SESSION_SECRET` is shorter than 32 characters, or `PLACES_ENABLED=1` without `GOOGLE_PLACES_KEY`
 **When** the server boots
 **Then** boot fails with an error that names the offending variable and never prints its value
-**And** a Vitest table test in `lib/server/env.test.ts` covers each of these cases plus one valid case per `APP_ENV`.
+**And** surrounding whitespace in a secret key is not a boot error (Story 1.2 tries the trimmed variant and warns)
+**And** a Vitest table test in `lib/server/env.test.ts` covers each of these cases plus one valid case.
 
 **Given** the codebase after this story
 **When** `pnpm lint` runs
-**Then** an ESLint rule fails any `process.env` access outside `lib/server/env.ts`, except `process.env.NEXT_PUBLIC_APP_ENV` in `lib/shared/app-env.ts`
+**Then** an ESLint rule fails any `process.env` access outside `lib/server/env.ts`, with one exception: `lib/shared/app-env.ts`, which reads only `process.env.NODE_ENV` and exports `isLocalDev()` for the client `logApiCall` (D6)
 **And** `lib/server/env.ts` starts with `import "server-only"` so importing it from a client component fails the build
 **And** an ESLint rule bans `dangerouslySetInnerHTML` everywhere (AD-11)
-**And** an ESLint rule bans `NextResponse.redirect` in `app/launch/**` and `app/handoff/**` (redirects use `lib/server/http.ts#seeOther()`, AD-4)
-**And** an ESLint rule bans `next/link` and raw `<a href>` targeting `/`, `/account`, `/handoff/**` or `PORTAL_URL` outside `features/shell` (cross-page and external navigation go through `navigate()`, AD-26)
-**And** no manual environment chooser, `getOneHealthBaseUrl()` environment switch or `document.referrer` environment detection is referenced by any file in the repo.
+**And** an ESLint rule bans `NextResponse.redirect` in `app/handoff/**` (redirects use `lib/server/http.ts#seeOther()`, AD-4)
+**And** an ESLint rule bans `next/link` and raw `<a href>` targeting `/`, `/account`, `/handoff/**` or a `portalUrl` from `lib/shared/environments.ts` outside `features/shell` and the `/auth` screen (cross-page and external navigation go through `navigate()`, AD-26)
+**And** no manual environment chooser or `getOneHealthBaseUrl()` environment switch is referenced by any file in the repo, and `document.referrer` environment detection appears only in `app/auth/**` (D2: it picks the no-LPL screen's link, never a request's environment).
 
 **Given** any request to the app, including `/`, an unknown path that returns 404, and a static asset such as `/favicon.png` or a `/_next/static/*` file
 **When** the response is produced
@@ -726,7 +759,7 @@ So that every later story builds on a deployment that is pinned to one 1health e
 
 **Given** the legacy auth code (AD-1, RC12)
 **When** this story is done
-**Then** `app/api/token/**`, `app/auth/**`, `lib/auth-client.ts`, `contexts/navigation-context.tsx`, `contexts/session-context.tsx`, `hooks/use-session-expired.ts` and `components/auth-exit-dialog.tsx` are deleted, even with uncommitted local modifications, and `app/layout.tsx` no longer wraps children in `NavigationProvider` or a session provider
+**Then** `app/api/token/**`, `app/auth/**`, `lib/auth-client.ts`, `contexts/navigation-context.tsx`, `contexts/session-context.tsx`, `hooks/use-session-expired.ts` and `components/auth-exit-dialog.tsx` are deleted (Story 1.2 rebuilds `app/auth/page.tsx` and `app/api/token/route.ts` under D1/D2), even with uncommitted local modifications, and `app/layout.tsx` no longer wraps children in `NavigationProvider` or a session provider
 **And** every remaining importer of a deleted module is deleted or updated so `pnpm typecheck` stays green; `hooks/use-toast.ts` and `components/ui/*` are kept
 **And** `lib/api/client.ts` no longer imports `lib/auth-client` and keeps the `callApi(context, path, init)` signature, issuing a plain same-origin `fetch` to the given `/api/...` path
 **And** `app/page.tsx` renders a minimal placeholder `<main>` (no data and no session check)
@@ -741,20 +774,23 @@ So that every later story builds on a deployment that is pinned to one 1health e
 
 **Given** `playwright.config.ts`
 **When** `pnpm test:e2e` runs
-**Then** Playwright starts the app with a `webServer` using test values for every required env var (`APP_ENV=dev`, dummy secrets) and runs a desktop Chromium project and a 360 × 740 mobile project
-**And** a header spec asserts every AD-21 header above (exact CSP directive list with `frame-ancestors 'none'`, `X-Frame-Options: DENY`, HSTS, nosniff, Referrer-Policy, Permissions-Policy, COOP `same-origin`) on `/`, `/account`, `/handoff/portal`, on a 404 path and on one static asset (paths not built yet are asserted on whatever they return).
+**Then** Playwright starts the app with a `webServer` using test values for every required env var (dummy `ONEHEALTH_SECRET_KEY_DEMO|PROD`, `APP_ID_DEMO|PROD`, `SESSION_SECRET`) and runs a desktop Chromium project and a 360 × 740 mobile project
+**And** a header spec asserts every AD-21 header above (exact CSP directive list with `frame-ancestors 'none'`, `X-Frame-Options: DENY`, HSTS, nosniff, Referrer-Policy, Permissions-Policy, COOP `same-origin`) on `/`, `/auth`, `/account`, `/handoff/portal`, on a 404 path and on one static asset (paths not built yet are asserted on whatever they return).
 
 **Given** a pull request is opened or updated
 **When** `.github/workflows/ci.yml` runs on Node 24 with pnpm via corepack and `pnpm install --frozen-lockfile`
 **Then** the job runs, in order, `pnpm lint`, `pnpm typecheck`, `pnpm test`, Playwright browser install + `pnpm test:e2e`, and `pnpm build`, and any failing step fails the check
-**And** a forbidden-pattern step (`scripts/check-forbidden.sh`) fails the job when any file other than the script itself contains a `NEXT_PUBLIC_*SECRET*` name or a secret name ending in `_DEMO` or `_PROD`, or when any client file (outside `lib/server/`) contains `document.cookie` or `access_token`
+**And** a forbidden-pattern step (`scripts/check-forbidden.sh`) fails the job when any file other than the script itself contains a `NEXT_PUBLIC_*SECRET*` name, or when a secret name ending in `_DEMO` or `_PROD` appears anywhere other than `lib/server/env.ts`, its tests, `.env.example` and CI/test fixtures (`.github/workflows/ci.yml`, `playwright.config.ts`, test setup files) (D1), or when any client file (outside `lib/server/`) contains `document.cookie` or `access_token`
+**And** the forbidden-pattern step also fails on `APP_ENV`, `API_ORIGIN`, `APP_ORIGIN`, `PORTAL_URL`, `PORTAL_ORIGIN`, `PUBLIC_FILES_ORIGIN`, `X-PP-Session`, `sessionBinding`, `SameSite=None`, `Partitioned`, `window.top` and `bg-black/50` in app code (D1, D5, D10, D13)
 **And** CI never needs real 1health credentials (every secret is a dummy value scoped to the workflow).
 
-**Covers:** NFR1, NFR6, AD-1 (legacy auth deleted), AD-3, AD-4 (`seeOther` lint), AD-5 (`frame-ancestors 'none'`, `X-Frame-Options: DENY`), AD-11 (lint rule), AD-18 (config), AD-20 (CI, CI grep, test framework, local dev, remove ignoreBuildErrors), AD-21, AD-26 (navigation lint), RC1, RC12 · **Jira:** NG-9027
+**Covers:** NFR1, NFR6, AD-1 (legacy auth deleted), AD-3, AD-4 (`seeOther` lint), AD-5 (`frame-ancestors 'none'`, `X-Frame-Options: DENY`), AD-11 (lint rule), AD-18 (config), AD-20 (CI, CI grep, test framework, local dev, remove ignoreBuildErrors), AD-21, AD-26 (navigation lint), RC1 (as superseded), RC12, D1, D2 (referrer scope), D4 (environment map) · **Jira:** NG-9027
 
 ### Story 1.2: Launch from the portal and arrive signed in
 
 *Amended 2026-10-13 (architecture update: AD-1, AD-4, AD-5, AD-6, AD-21).*
+*Amended 2026-10-14 (launch decisions D1, D2, D4): `/auth` + `POST /api/token` replace `/launch`, `/launch/verify`, `/launch/dev`, `/launch-error` and the `proxy.ts` `lpl` 307; the environment is detected by the decrypting key and sealed in the session.*
+*Amended 2026-10-14 (decisions D5, D8, D9): no CSRF check on `/api/token`; no blocked-cookie screen; `/auth` follows the patient-vault launch UX (client retry, manual LPL entry, login-intent redirect, error alert).*
 
 As a Launching user (patient or provider) in the 1health portal,
 I want clicking the Personal Profile tile in the portal Apps launcher to open the app, in its own tab, already signed in on my Contacts tab,
@@ -762,103 +798,119 @@ So that I can manage my profile without a login screen and without my launch lin
 
 **Acceptance Criteria:**
 
-**Given** a request to any path carrying `lpl`, e.g. `<APP_ORIGIN>/?lpl=<payload>&tab=<tab>` or `<APP_ORIGIN>/account?lpl=<payload>` (old or misconfigured launch URL)
-**When** `proxy.ts` handles the request
-**Then** it answers 307 to `/launch` with the full query string preserved and the response carries the AD-21 headers
-**And** no page (`app/page.tsx`, `app/account/page.tsx` or any other) ever reads `lpl`
-**And** the launch accepts no `view` param; a `view` value is ignored and launch always lands on `/`.
+**Given** the portal opens the registered launch URL `<app origin>/auth?lpl=<payload>`
+**When** `app/auth/page.tsx` renders (a server component exporting `dynamic = "force-dynamic"` that reads only the `onehealth_environment` cookie and passes it to the client screen `features/shell/auth-screen.tsx`)
+**Then** the client reads `lpl`, replaces every `' '` with `'+'`, removes `lpl` from the address bar with `history.replaceState` before sending anything, and runs the launch flow below, where each attempt is one `POST /api/token` with `Content-Type: application/json` and body `{ "lpl": "<payload>" }` and nothing else (no environment)
+**And** on `200 { ok: true, environment }` it shows "Success!" / "Loading app..." and after 1200 ms does a hard `window.location.assign(target)`, where `target = consumeLoginIntent("/")` (`lib/shared/login-intent.ts`, written by Story 1.7) reads and removes sessionStorage key `pp:login-intent` and returns it only if it is a same-origin relative path (starts with `/`, not `//`) that does not start with `/auth` or `/api`, else `/` (D9); because `lpl` was already removed with `replaceState`, no history entry holds the payload; there is no `view` or `tab` launch param
+**And** no other page (`app/page.tsx`, `app/account/page.tsx` or any other) ever reads `lpl`; there is no `/launch`, `/launch/verify`, `/launch/dev` or `/launch-error` route and `proxy.ts` does not redirect or rewrite requests that carry `lpl` (D1).
 
-**Given** a GET to `/launch?lpl=<payload>` with an optional `tab`
-**When** `app/launch/route.ts` (exporting `dynamic = "force-dynamic"`) runs
-**Then** before anything else it schedules clearing of any existing `__Host-pp_s` cookie, so a failed launch never leaves the previous user's session
-**And** it replaces every `' '` in `lpl` with `'+'`, base64-decodes it, and decrypts it as AES-256-GCM with the first 12 bytes as IV and the last 16 bytes as tag, using the key derived from `ONEHEALTH_SECRET_KEY` (HKDF-SHA256, matching the platform's `KeyDerivationUtil`)
-**And** it parses the plaintext as the launch payload (`required.apiKey.name`, `required.tenant.id`, `required.user.id`, `required.oneTimeCode.value`, `required.oneTimeCode.issuedAt`).
+**Given** the launch flow in `features/shell/auth-screen.tsx` (D9, as patient-vault `app/auth/page.tsx`)
+**When** an attempt does not succeed
+**Then** it makes at most `MAX_AUTH_ATTEMPTS = 5` attempts with a fixed `AUTH_RETRY_DELAY_MS = 1500` between them (no backoff), retrying on any non-OK response unless its body has `retryable: false`, on an OK response without `ok: true`, and on a network error
+**And** attempt 1 shows "Authenticating..." / "Connecting to {Demo|Production} environment" (the shown environment below); from attempt 2 it shows "Confirming your login..." / "This can take a moment. Please wait while we finish confirming your login."
+**And** a Vitest (fake timers, MSW) covers: success on attempt 1 → one POST; two 502s then success → three POSTs 1,500 ms apart; a `retryable: false` body → one POST, then the error state; five failures → five POSTs, then the error state with the last attempt's title and message.
 
-**Given** the payload is missing, not base64, shorter than 28 bytes, fails GCM authentication, is cleartext JSON (unencrypted), is not valid JSON, or lacks a required field
-**When** the launch route runs
-**Then** it makes no upstream call, sets no session cookie, and answers 303 to `/launch-error?reason=invalid`.
+**Given** a request to `/api/token`
+**When** `app/api/token/route.ts` (POST only, other methods 405; `dynamic = "force-dynamic"`) runs
+**Then** it requires `Content-Type: application/json` (else 415 `UNSUPPORTED_MEDIA`); there is no `Sec-Fetch-Site`/`Origin` or `X-PP-Session` check (D5)
+**And** before anything else it schedules clearing of any existing `__Host-pp_s` cookie, so a failed launch never leaves the previous user's session
+**And** it reads only `lpl` from the body; any other field, including `environment`, is ignored.
 
-**Given** a decrypted payload whose app identifier (`required.apiKey.name`) is not equal to `APP_ID`
-**When** the launch route runs
-**Then** it makes no upstream call and answers 303 to `/launch-error?reason=invalid`.
+**Given** the `lpl`
+**When** `lib/server/launch.ts` detects the environment (D2)
+**Then** it base64-decodes the payload and tries AES-256-GCM decryption (first 12 bytes IV, last 16 bytes tag, key = HKDF-SHA256 of the secret, matching the platform's `KeyDerivationUtil`) with `ONEHEALTH_SECRET_KEY_PROD`, then `ONEHEALTH_SECRET_KEY_DEMO`, each first as stored and then `.trim()`-ed; the first key that authenticates decides `environment` (`prod` or `demo`)
+**And** when only the trimmed variant decrypts, it logs one warning naming the environment variable (never its value) and continues with that variant
+**And** a Vitest covers: a prod-key payload → `prod`; a demo-key payload → `demo`; a payload that only a whitespace-padded key's trimmed variant decrypts → that environment plus one warning without the value; a payload neither key decrypts → invalid.
+
+**Given** the payload is missing, not base64, shorter than 28 bytes, decrypted by neither key, cleartext JSON (unencrypted), not valid JSON, or lacks a required field (`required.apiKey.name`, `required.tenant.id`, `required.user.id`, `required.oneTimeCode.value`, `required.oneTimeCode.issuedAt`)
+**When** the route runs
+**Then** it makes no upstream call, sets no session cookie, and answers 400 `{ "ok": false, "errorCode": "LAUNCH_INVALID", "source": "proxy", "retryable": false }` (D9).
+
+**Given** a decrypted payload whose app identifier (`required.apiKey.name`) is not equal to `APP_ID_<ENV>` of the detected environment (`APP_ID_PROD` for `prod`, `APP_ID_DEMO` for `demo`)
+**When** the route runs
+**Then** it makes no upstream call and answers 400 `LAUNCH_INVALID` with `retryable: false` (D9).
 
 **Given** a valid payload
 **When** the route exchanges the code
-**Then** it calls `POST <API_ORIGIN>/api/v2/public/external-application/auth/oauth2/user/token` exactly once with `{ securityCode, signature }` (signature = base64 HMAC-SHA256 of the code keyed with `ONEHEALTH_SECRET_KEY`), `cache: "no-store"`, `redirect: "manual"` and a 25 s timeout, and never retries
-**And** an upstream rejection identifying an already-consumed code maps to `reason=used`, an expired code maps to `reason=expired`, and any other failure (other 4xx, 5xx, 3xx, timeout, network error) maps to `reason=invalid`; the mapping lives in `lib/server/launch.ts` and is unit-tested against recorded upstream error bodies.
+**Then** it calls `POST <apiRoot>/api/v2/public/external-application/auth/oauth2/user/token` (`apiRoot` of the detected environment from `lib/shared/environments.ts`) exactly once with `{ securityCode, signature }` (signature = base64 HMAC-SHA256 of the code keyed with the key variant that decrypted the payload), `cache: "no-store"`, `redirect: "manual"` and a 25 s timeout, and never retries within the request (the client may send up to five requests, D9); exchange failures carry no `retryable: false`
+**And** an upstream rejection identifying an already-consumed code maps to 400 `LAUNCH_USED`, an expired code maps to 400 `LAUNCH_EXPIRED`, and any other failure (other 4xx, 5xx, 3xx, timeout, network error) maps to `LAUNCH_INVALID` (502 for 5xx/timeout/network); the mapping lives in `lib/server/launch.ts` and is unit-tested against recorded upstream error bodies.
 
 **Given** a successful exchange
 **When** the route checks the tenant (AD-6)
 **Then** it reads only the plaintext `tenantId` claim of the access token (other identity claims are encrypted and are never decoded)
-**And** if `tenantId` ≠ `DEFAULT_TENANT_ID` (`1`), it sets no session cookie, calls no other upstream endpoint, and answers 303 to `/launch-error?reason=tenant`.
+**And** if `tenantId` ≠ `DEFAULT_TENANT_ID` (`1`), it sets no session cookie, calls no other upstream endpoint, and answers 403 `{ "ok": false, "errorCode": "WRONG_TENANT", "source": "proxy", "retryable": false }` (D9).
 
 **Given** the tenant is `1`
 **When** the route derives ids
-**Then** it calls `GET <API_ORIGIN>/api/v2/user/myself` once with the new Bearer token and takes `userId` and `personId` from that response (never from the JWT, never from the payload alone)
-**And** if the call fails or its user id ≠ the payload's `required.user.id`, it sets no cookie and answers 303 to `/launch-error?reason=invalid`.
+**Then** it calls `GET <apiRoot>/api/v2/user/myself` once with the new Bearer token and takes `userId` and `personId` from that response (never from the JWT, never from the payload alone)
+**And** if the call fails or its user id ≠ the payload's `required.user.id`, it sets no cookie and answers 502 `{ "ok": false, "errorCode": "LAUNCH_INVALID", "source": "proxy" }` (no `retryable: false`; D9).
 
 **Given** ids are derived
 **When** the route creates the session
-**Then** `lib/server/session.ts` seals one cookie `__Host-pp_s` with iron-session (password map: `SESSION_SECRET` current, `SESSION_SECRET_PREVIOUS` accepted for unseal only) holding access token, refresh token, access expiry, `userId`, `personId`, `tenantId`, a new random `sid` (≥ 128 bits), `gen = 0`, `iat = now` and `lastSeen = now`
+**Then** `lib/server/session.ts` seals one cookie `__Host-pp_s` with iron-session (password map: `SESSION_SECRET` current, `SESSION_SECRET_PREVIOUS` accepted for unseal only) holding access token, refresh token, access expiry, `environment` (`demo|prod`), `userId`, `personId`, `tenantId`, a new random `sid` (≥ 128 bits), `gen = 0`, `iat = now` and `lastSeen = now`
 **And** the cookie attributes are exactly `HttpOnly; Secure; SameSite=Lax; Path=/` with no `Partitioned` (the app is top-level only, AD-5), no `Domain`, no `Max-Age` and no `Expires`
-**And** `id_token`, the environment and the API origin are never stored in the cookie
+**And** `id_token` and the API root are never stored in the cookie (the API root is always derived from `environment` through `lib/shared/environments.ts`)
 **And** a Vitest test asserts the serialized `Set-Cookie` is ≤ 3,800 bytes using the largest observed token fixtures (≥ 1,224-byte access token)
 **And** a Vitest proves a cookie sealed under the previous secret is unsealed while `SESSION_SECRET_PREVIOUS` is set, that new cookies are always sealed with `SESSION_SECRET`, and that the old cookie is rejected (no session) once the variable is removed (AD-20 rotation).
 
 **Given** the session cookie is set
-**When** the launch route responds
-**Then** it answers 303 through `lib/server/http.ts#seeOther()` with an absolute, fragment-free `Location: <APP_ORIGIN>/launch/verify?tab=<tab>` built only from `APP_ORIGIN` + an enum path + enum query values, where `tab` is `contacts|insurance|medical` and anything else (or absent) becomes `contacts`; every failure redirect in this story is built the same way
-**And** `GET /launch/verify` unseals the cookie and answers `seeOther()` to `<APP_ORIGIN>/?tab=<tab>` when it is present, or to `<APP_ORIGIN>/launch-error?reason=cookies` when it is missing or fails to unseal
-**And** a Vitest asserts every `Location` from `/launch` and `/launch/verify` is absolute on `APP_ORIGIN`, and `NextResponse.redirect` appears nowhere in `app/launch/**` (Story 1.1 lint rule)
-**And** no response body from `/launch` or `/launch/verify` contains a token, and both carry `Cache-Control: private, no-store, max-age=0`, `Pragma: no-cache` and `Vary: Cookie` (from `lib/server/cache-headers.ts`).
+**When** the route responds
+**Then** it answers 200 `{ "ok": true, "environment": "<demo|prod>" }` and nothing else
+**And** it also sets the non-secret `onehealth_environment=<demo|prod>` cookie with `HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000` (30 days; D4); a failed launch leaves it unchanged
+**And** no `/api/token` response body, success or failure, contains a token, the one-time code, a user id or any payload field, and every response carries `Cache-Control: private, no-store, max-age=0`, `Pragma: no-cache` and `Vary: Cookie` (from `lib/server/cache-headers.ts`); a Vitest asserts both
+**And** every error body also carries `message`, a user-safe string from `lib/shared/messages.ts` chosen by `errorCode` (`WRONG_TENANT` → the module-neutral tenant copy; `LAUNCH_CONFIG` and `SERVICE_DISABLED` → "Personal Profile is unavailable right now. Use your profile in 1health for now."; `LAUNCH_EXPIRED`, `LAUNCH_USED`, `LAUNCH_INVALID` → "This link has expired. Open Personal Profile again from 1health."), and never upstream bodies, upstream messages or exception strings (D9).
 
-**Given** the browser opened `/launch?lpl=…&tab=contacts#signature`
-**When** the redirect chain completes (Playwright, mocked upstream)
-**Then** the final URL is `/?tab=contacts#signature` with the fragment intact
-**And** `lpl` appears neither in the final URL nor in any reachable history entry, and reloading the page performs no second exchange (the mocked exchange endpoint is called exactly once).
+**Given** the browser opened `/auth?lpl=…`
+**When** the launch completes (Playwright, mocked upstream)
+**Then** the final URL is `/`
+**And** `lpl` appears neither in the final URL nor in any reachable history entry, and reloading `/` performs no second exchange (on a first-attempt success the mocked endpoint is called exactly once; a `retryable: false` failure is also called exactly once, D9).
 
-**Given** `ONEHEALTH_SECRET_KEY` cannot be turned into a valid AES key at request time
-**When** `/launch` is requested
-**Then** the route answers 303 to `/launch-error?reason=config`.
+**Given** a secret key cannot be turned into a valid AES key at request time
+**When** `/api/token` is called
+**Then** it answers 503 `{ "ok": false, "errorCode": "LAUNCH_CONFIG", "source": "proxy" }`.
 
 **Given** any launch outcome
 **When** the server logs it
-**Then** the log line holds only request id, route template `/launch`, outcome reason and duration; `lpl`, the code, tokens, user ids and upstream bodies are never logged.
+**Then** the log line holds only request id, route template `/api/token`, outcome code, detected environment (if any) and duration; `lpl`, the code, tokens, user ids, secret values and upstream bodies are never logged.
 
-**Given** a request to `/` or `/account` with no valid session and no `lpl`
+**Given** a request to `/` or `/account` with no valid session (no cookie, or a cookie that fails to unseal)
 **When** the page (`app/page.tsx`, or `app/account/page.tsx` once Epic 7 builds it; both export `dynamic = "force-dynamic"`) calls `requireSession()`
-**Then** it redirects to `/launch-error?reason=expired`; there is no login page and no `/auth` route
+**Then** it redirects to `/auth` (no query); there is no login form
 **And** `/account` is reached only by in-app navigation or a direct URL with an existing session; launch never lands on it (AD-4).
 
-**Given** `/launch-error?reason=<r>`
-**When** the page renders the full-page message (centered `rounded-lg` card on the background, icon, title, one paragraph, one primary action)
-**Then** `expired`, `used` and `invalid` show title "This link has expired", body "Open Personal Profile again from 1health." and action "Return to 1health" linking to `PORTAL_URL` in the same tab
-**And** `tenant` shows the module-neutral body "This is available in your personal account. Switch to it in 1health and open it again." with action "Return to 1health" (AD-6, PA5; one wording, no `/account` variant)
-**And** `cookies` shows a plain message with a "Retry" action that relaunches through `PORTAL_URL` in the same tab; there is no "Open in a new tab" action and no `target="_blank"` (AD-5)
-**And** `config` and `disabled` show title "Personal Profile is unavailable right now", body "Use your profile in 1health for now." and "Return to 1health"
-**And** any other or missing value renders exactly the `invalid` variant, and the raw `reason` value is never rendered or logged
-**And** apart from the `cookies` Retry (which only navigates to `PORTAL_URL`), there is no retry button and no way to resubmit a launch payload
-**And** every string lives in `lib/shared/messages.ts`; titles/bodies not quoted in EXPERIENCE.md (tenant title, cookies title and body, config/disabled copy) are marked as draft copy for PM review.
+**Given** `/auth` without `lpl` (the no-LPL screen)
+**When** an environment is known for display: `document.referrer` hostname containing `demo.1health` → demo, `app.1health` → prod, else the `onehealth_environment` value passed by the server wrapper (the cookie is httpOnly; the client never reads `document.cookie`)
+**Then** it shows the manual-entry card (D9): title "Authentication Required", description "Connected to {Demo|Production} environment. No launch payload detected.", one text field labelled "Launch Payload (LPL)" with placeholder "Paste encrypted LPL here...", and Submit, disabled while the trimmed value is empty; then, under an "Or" divider, "Go to 1health ({Demo|Production})" (same tab, to that environment's `portalUrl` from `lib/shared/environments.ts`) and "Switch Environment"
+**And** Submit runs the same launch flow with the value `trim()`-ed and every `' '` replaced by `'+'`; the field is available in every environment, including production (it replaces the dev-only paste page), and its value is never stored, logged or put in a URL
+**And** with no known environment, and after "Switch Environment", it shows the patient-vault "Choose Environment" card ("Select which 1health environment to connect to.", Demo / Production); like the referrer, the choice only picks the displayed labels and link and is never sent with a request: `/api/token` still detects the environment by key (D2)
+**And** the login deep link `<portalUrl>/login?openApp=<app name>` is used only once the registered app name is confirmed (open question, D4).
 
-**Given** `/launch-error` is requested
+**Given** the launch flow ended without success (after the fifth attempt, or at once on `retryable: false`)
+**When** `/auth` renders the error state (D9)
+**Then** it shows a destructive Alert whose title and message come from the last attempt: an HTTP failure → "Authentication Failed" + the body's `message` (e.g. the module-neutral `WRONG_TENANT` copy, AD-6, PA5), or the fallback "Unable to authenticate. Please return to 1health and try again." when there is none; a network error → "Connection Error" / "Unable to connect to the authentication service. Please check your connection and try again."
+**And** below it the buttons "Enter LPL Manually" (opens the manual-entry card), "Switch Environment" and "Go to 1health ({Demo|Production})" (same tab, the shown environment's `portalUrl`, else the environment resolved per D4)
+**And** the raw `errorCode`, upstream text and exception strings are never rendered
+**And** every string lives in `lib/shared/messages.ts`; strings not quoted in EXPERIENCE.md (the patient-vault launch strings, tenant title, config/disabled copy) are marked as draft copy for PM review.
+
+**Given** `/auth` or `/api/token` is requested
 **When** the response is produced
-**Then** it carries the AD-21 headers, including `frame-ancestors 'none'` and `X-Frame-Options: DENY` (the Story 1.1 header spec is extended to cover it)
-**And** the page has no framed detection, no `postMessage` and no framed-only branch; every action navigates the same tab (AD-5).
+**Then** it carries the AD-21 headers, including `frame-ancestors 'none'` and `X-Frame-Options: DENY` (the Story 1.1 header spec covers `/auth`)
+**And** the screen has no framed detection, no `postMessage` and no framed-only branch; every action navigates the same tab (AD-5).
 
-**Given** `APP_ENV=dev`
-**When** a developer opens `/launch/dev`
-**Then** `app/launch/dev/page.tsx` shows a labelled textarea "Launch payload (lpl)" and a tab select (`contacts|insurance|medical`), and submits them with a GET form to `/launch`; the page never logs, stores or echoes the payload
-**And** with `APP_ENV` = `demo` or `prod` the route calls `notFound()` before rendering anything and responds 404; a Vitest asserts 404 for `demo` and `prod`.
+**Given** local development
+**When** a developer has a launch payload
+**Then** they open `https://localhost:3000/auth?lpl=<payload>` directly or paste it into the manual-entry card (D9); there is no dev-only launch page.
 
 **Given** the story is done
 **When** CI runs
 **Then** `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:e2e` and `pnpm build` pass, and the Story 1.1 forbidden-pattern step stays green.
 
-**Covers:** FR1, NFR1, NFR6, NFR7 (browsers; iframe clause superseded), AD-1, AD-3, AD-4 (any-path `lpl`, `seeOther`, no `view`), AD-5 (top-level only), AD-6 (module-neutral copy), AD-15, AD-18 (launch routes), AD-20 (dev launch page, `SESSION_SECRET_PREVIOUS` unseal), AD-21, RC1, PA5 · UX-DR50 (as amended: cookies Retry, same tab), UX-DR68 (launch strings) · **Jira:** NG-9027
+**Covers:** FR1, NFR1, NFR6 (as superseded), NFR7 (browsers; iframe clause superseded), AD-1 (+ `environment` in the seal), AD-3/AD-4 (as superseded by D1/D2), AD-5 (top-level only), AD-6 (module-neutral copy), AD-15, AD-18 (launch routes), AD-20 (`SESSION_SECRET_PREVIOUS` unseal), AD-21, D1, D2, D4, D5, D8, D9, PA5 · UX-DR50 (as amended; the `cookies` variant is dropped, D8; launch screens per D9), UX-DR68 (launch strings) · **Jira:** NG-9027
 
-### Story 1.3: Secure 1health proxy — allowlist, normalization, CSRF, no-store and logging
+### Story 1.3: Secure 1health proxy — allowlist, deny list, normalization, content-type check, kill switches, no-store and logging
 
 *Amended 2026-10-13 (architecture update: AD-2, AD-17, AD-19, AD-20).*
+*Amended 2026-10-14 (decisions D5, D6): no CSRF or `X-PP-Session` checks (the 415 check stays); server logs never contain bodies.*
 
 As a Launching user,
 I want every request the app makes on my behalf to go through a locked-down server proxy that acts only on my own record,
@@ -874,7 +926,7 @@ So that my token never reaches the browser and no page bug or malicious site can
 
 **Given** a browser request to `/api/1h/<path>`
 **When** `app/api/1h/[...path]/route.ts` (exporting `dynamic = "force-dynamic"`) handles it
-**Then** it forwards to `API_ORIGIN + "/api/" + segments.map(encodeURIComponent).join("/")` (never `new URL(input, base)`), asserts the built URL's origin equals `API_ORIGIN` and that it re-matches the same template, and uses `cache: "no-store"`, `redirect: "manual"` and a 25 s timeout.
+**Then** it forwards to `apiBase + "/" + segments.map(encodeURIComponent).join("/")`, where `apiBase` = `<apiRoot>/api` of the session's `environment` from `lib/shared/environments.ts` (D4; never `new URL(input, base)`, never a client-supplied environment), asserts the built URL's origin equals that `apiRoot` and that it re-matches the same template, and uses `cache: "no-store"`, `redirect: "manual"` and a 25 s timeout.
 
 **Given** a path that is not allowlisted, or that matches a deny
 **When** the proxy handles it
@@ -903,15 +955,10 @@ So that my token never reaches the browser and no page bug or malicious site can
 **And** server-fixed params defined by an entry (e.g. `isPublic`, `hardDelete`) are set by the server and any client-sent value for them is ignored (fixture-entry test)
 **And** every `asImage` file-download entry has `preview=true` forced server-side on the upstream request, whatever the client sends (fixture-entry test, AD-2/AD-13).
 
-**Given** a non-GET request to `/api/1h/*` (CSRF helper in `lib/server/csrf.ts`, reused by `/api/session/*`, `/api/places/*`, `/api/pp/*`)
-**When** it lacks `Sec-Fetch-Site: same-origin` (or, when `Sec-Fetch-Site` is absent, `Origin` equal to `APP_ORIGIN`), or lacks `X-PP-Session`, or has neither `Sec-Fetch-Site` nor `Origin`
-**Then** the proxy answers 403 `{ "errorCode": "CSRF", "source": "proxy" }` without calling upstream
+**Given** a non-GET request to `/api/1h/*` (or to `/api/session/*`, `/api/places/*`, `/api/pp/*`)
+**When** the route checks it
+**Then** there is no CSRF or session-binding check: no `Sec-Fetch-Site`/`Origin` check, no `X-PP-Session` header, no `lib/server/csrf.ts` or `lib/server/session-binding.ts`, and no 403 `CSRF` or 409 `SESSION_CHANGED` code (D5; cross-site write protection relies only on the `SameSite=Lax` cookie)
 **And** a JSON entry receiving a `Content-Type` other than `application/json` answers 415 `{ "errorCode": "UNSUPPORTED_MEDIA", "source": "proxy" }`.
-
-**Given** any request carrying `X-PP-Session`
-**When** the header does not equal `HMAC-SHA256(SESSION_SECRET, sid)` (base64url, computed by `lib/server/session-binding.ts`) of the current cookie (constant-time compare)
-**Then** the proxy answers 409 `{ "errorCode": "SESSION_CHANGED", "source": "proxy" }` without calling upstream
-**And** a GET without `X-PP-Session` is allowed only on `asImage` entries and on `GET /api/pp/org-logo/*` (Epic 10); on any other entry it answers 403 `{ "errorCode": "CSRF", "source": "proxy" }`.
 
 **Given** no session cookie, or one that fails to unseal
 **When** any `/api/1h` request arrives
@@ -926,51 +973,54 @@ So that my token never reaches the browser and no page bug or malicious site can
 **Then** 2xx and 4xx (other than 401) pass through with their status and body, streamed without buffering
 **And** an upstream 3xx answers 502 `{ "errorCode": "UPSTREAM_REDIRECT", "source": "proxy" }`, a 5xx or network error answers 502 `{ "errorCode": "UPSTREAM_ERROR", "source": "proxy" }` without the upstream body, and a timeout answers 504 `{ "errorCode": "UPSTREAM_TIMEOUT", "source": "proxy" }`
 **And** `PP_DISABLED=1` makes every proxy request answer 503 `{ "errorCode": "SERVICE_DISABLED", "source": "proxy" }`
-**And** `ACCOUNT_DISABLED=1` makes requests matching an allowlist entry flagged as a Profile-module entry (added by Epics 7–10) answer 503 `{ "errorCode": "SERVICE_DISABLED", "source": "proxy" }` without calling upstream, while every other entry keeps working; a fixture-entry test covers both (AD-20).
+**And** the allowlist entry type carries an optional `profile: true` tag (Stories 7.5–10.3 set it on each Profile-only entry); this story is the single owner of the deny list, the tag and the proxy-level kill switch *(ownership decided 2026-10-14)*
+**And** `ACCOUNT_DISABLED=1` makes requests matching an allowlist entry tagged `profile: true` (added by Epics 7–10) answer 503 `{ "errorCode": "SERVICE_DISABLED", "source": "proxy" }` without calling upstream, while every other entry keeps working; a fixture-entry test covers both (AD-20).
 
 **Given** headers in either direction
 **When** the proxy forwards a request
-**Then** only `Content-Type`, `Content-Length`, `Accept`, `Accept-Language` are forwarded, plus server-added `Authorization: Bearer <token>` and a generated `X-Request-Id`; the browser's `Cookie` and `X-PP-Session` are never forwarded
+**Then** only `Content-Type`, `Content-Length`, `Accept`, `Accept-Language` are forwarded, plus server-added `Authorization: Bearer <token>` and a generated `X-Request-Id`; the browser's `Cookie` is never forwarded
 **And** only upstream `Content-Type`, `Content-Length` and `X-Request-Id` are returned; upstream `Set-Cookie`, `Access-Control-*`, `Cache-Control`, `Expires`, `ETag` and `Last-Modified` are dropped
 **And** every proxy response, including errors, carries `Cache-Control: private, no-store, max-age=0`, `Pragma: no-cache`, `Vary: Cookie` and `X-Content-Type-Options: nosniff`
-**And** a CI test asserts these headers on `GET /api/1h/v2/user/myself` and on a 403/409 error response, and the Story 1.1 AD-21 header spec is extended to one `/api/1h` route.
+**And** a CI test asserts these headers on `GET /api/1h/v2/user/myself` and on a 403 error response, and the Story 1.1 AD-21 header spec is extended to one `/api/1h` route.
 
 **Given** any proxied request
 **When** it is logged
 **Then** the log line (`lib/server/log.ts`) contains only `{ requestId, method, template, status, durationMs }` with the template (e.g. `/v2/person/{personId}/ssn/expose`), never the concrete path, ids, query values, tokens or bodies
-**And** request/response bodies are logged only when `APP_ENV=dev`, with tokens, SSN-shaped values and secrets redacted
+**And** request and response bodies are never logged on the server, also under local `next dev` (D6; the only body logger is the client `logApiCall`, Story 1.4)
 **And** an unhandled error answers 500 with no upstream data and logs only `{ requestId, routeTemplate, status, errorName }`
 **And** a unit test asserts a proxied call for `me` logs the template and not the substituted `personId`.
 
-**Covers:** NFR1, NFR6, AD-2 (exact denies, `preview=true`), AD-15, AD-17 (org-logo GET exemption), AD-18, AD-19 (error envelope), AD-20 (`PP_DISABLED`, `ACCOUNT_DISABLED`), PA2 · **Jira:** NG-9027
+**Covers:** NFR1, NFR6, AD-2 (exact denies, `preview=true`), AD-15 (as amended by D6), AD-17 (as superseded by D5: 415 check only), AD-18, AD-19 (error envelope), AD-20 (`PP_DISABLED`, `ACCOUNT_DISABLED`), D5, D6, PA2, D12 (single owner of deny list, profile tag, proxy-level ACCOUNT_DISABLED) · **Jira:** NG-9027
 
 ### Story 1.4: `callApi` transport, SWR keys and `useMyself`
 
 *Amended 2026-10-13 (architecture update: AD-10, AD-17, AD-19).*
+*Amended 2026-10-14 (decisions D5, D6): no `sessionBinding`/`X-PP-Session` and no `session-changed`; dev-only `logApiCall` console logger.*
 
 As a Launching user,
 I want every screen to load and save my data through one transport that detects session problems the same way everywhere,
-So that a session that ended or changed in another tab is noticed on any read or save, and no part of the page talks to anything but the app's own server.
+So that a session that ended is noticed on any read or save, and no part of the page talks to anything but the app's own server.
 
 **Acceptance Criteria:**
 
 **Given** `app/page.tsx` (and, once Epic 7 builds it, `app/account/page.tsx`) renders for a valid session
 **When** the server component builds the page
-**Then** it embeds `sessionBinding` (from `lib/server/session-binding.ts`, Story 1.3) and the constant `PORTAL_URL` in the page and registers them with `lib/api/client.ts` on the client; the embedding lives in one shared server helper so both pages use it; nothing but `callApi` ever sets `X-PP-Session`.
+**Then** it embeds `portalUrl` (from `lib/shared/environments.ts` for the session's `environment`, D4; there is no `PORTAL_URL` env var) in the page and registers it with `lib/api/client.ts` on the client; the embedding lives in one shared server helper so both pages use it; there is no `sessionBinding` and no `X-PP-Session` header (D5).
 
 **Given** any browser code needs data
 **When** it calls `callApi(context, path, init)`
 **Then** `callApi` is the only browser transport (lint rule: `fetch(` is banned in `features/`, `components/` and `lib/api/` outside `client.ts`)
 **And** a `path` that does not start with `/api/` (absolute URLs included) resolves `{ success: false, errorCode: "BAD_PATH" }` without a network call
-**And** it sends `credentials: "same-origin"` and `X-PP-Session`, and resolves `ApiResponse<T> = { success, data?, error?, statusCode?, errorCode?, upstreamCode?, details? }` — it never throws
+**And** it sends `credentials: "same-origin"` (no `X-PP-Session`, D5), and resolves `ApiResponse<T> = { success, data?, error?, statusCode?, errorCode?, upstreamCode?, details? }` — it never throws
 **And** on a non-2xx it parses the body once, recognizing two envelopes that are never mixed: a BFF body `{ errorCode: "<STRING>", source: "proxy" }` sets `errorCode` to that string; an upstream body `{ message, code }` sets `upstreamCode` to an integer `code`, keeps `message` as `error`, and `lib/api/errors.ts` derives `errorCode` from it (e.g. `SOCIAL_SECURITY_NUMBER_EXISTS`, `INVALID_ENUM_VALUE`); `details` carries backend field details; a non-JSON or empty body yields `errorCode: undefined` with a generic `error`
 **And** an empty 2xx body yields `success: true` with `data: undefined`
 **And** a network failure resolves `{ success: false, errorCode: "NETWORK_ERROR" }` with no `statusCode`
-**And** `callApi` never logs response bodies to the console.
+**And** `callApi` writes to the console only through `logApiCall` (`lib/api/log-api-call.ts`, D6): active only when `isLocalDev()` from `lib/shared/app-env.ts` (`process.env.NODE_ENV === "development"`) is true, so never in a Vercel build or under test; one `console.groupCollapsed` per call with method, path, status, duration, request body and response body, with SSN-shaped values, MFA `code`, `qrCode` and any token-like field (e.g. `access_token`, `refresh_token`, `authorization`, `*token*`) redacted
+**And** a Vitest proves `logApiCall` is silent outside development and redacts each listed value; there is no in-app API Inspector.
 
-**Given** `callApi` receives `401 SESSION_EXPIRED` or `409 SESSION_CHANGED`
+**Given** `callApi` receives `401 SESSION_EXPIRED`
 **When** it resolves
-**Then** it branches on `errorCode` only, never on status alone (an upstream 409 is not `SESSION_CHANGED`), and publishes `session-expired` or `session-changed` on `lib/api/session-events.ts` exactly once per page lifetime (repeat occurrences are not republished) and still returns the error `ApiResponse`
+**Then** it branches on `errorCode` only, never on status alone (there is no `SESSION_CHANGED`, D5), and publishes `session-expired` on `lib/api/session-events.ts` exactly once per page lifetime (repeat occurrences are not republished) and still returns the error `ApiResponse`
 **And** `TOKEN_EXPIRED` is returned to the caller unchanged (refresh is outside this story)
 **And** `session-events.ts` exposes `publish(event)` (idempotent per page lifetime) and `subscribe(event, cb)` returning an unsubscribe function.
 
@@ -981,13 +1031,14 @@ So that a session that ended or changed in another tab is noticed on any read or
 **And** every SWR key in the app is built by a function in `lib/api/keys.ts` with the shape `["pp", resource, ...params]`; a lint rule or test fails on inline array keys passed to `useSWR`/`mutate` outside `keys.ts`
 **And** exactly one `SWRConfig` (with the shared fetcher) sits in the root `app/layout.tsx`, so `/` and `/account` share one cache; no page or feature mounts its own `SWRConfig` provider (AD-10)
 **And** the placeholder page renders the Launching user's first and last name from `useMyself()`
-**And** a Testing Library + MSW test covers success, a 502 `UPSTREAM_ERROR`, a proxy 409 `{ errorCode: "SESSION_CHANGED", source: "proxy" }` that publishes `session-changed` once, and an upstream 409 `{ message, code: <int> }` that sets `upstreamCode` and publishes nothing.
+**And** a Testing Library + MSW test covers success, a 502 `UPSTREAM_ERROR`, a proxy 401 `{ errorCode: "SESSION_EXPIRED", source: "proxy" }` that publishes `session-expired` once, and an upstream 409 `{ message, code: <int> }` that sets `upstreamCode` and publishes nothing.
 
-**Covers:** NFR4, NFR5, AD-10 (keys, fetcher, one root SWR cache), AD-17 (session binding header, both pages), AD-19 (`errorCode`/`upstreamCode`/`source`), PA2 · **Jira:** NG-9027
+**Covers:** NFR4, NFR5, AD-10 (keys, fetcher, one root SWR cache), AD-17 (as superseded by D5: no session binding header), AD-19 (`errorCode`/`upstreamCode`/`source`), D5, D6, PA2 · **Jira:** NG-9027
 
 ### Story 1.5: Client-coordinated token refresh
 
 *Amended 2026-10-13 (architecture update: AD-16, AD-19).*
+*Amended 2026-10-14 (decision D5): no CSRF or `X-PP-Session` check on the refresh route.*
 
 As a Launching user,
 I want my session to stay alive silently while I work, even with several tabs open,
@@ -995,14 +1046,14 @@ So that I never lose work to a silent logout caused by an expired access token.
 
 **Acceptance Criteria:**
 
-**Given** `POST /api/session/refresh` (exporting `dynamic = "force-dynamic"`, CSRF and `X-PP-Session` checks from `lib/server/csrf.ts`, AD-18 no-store headers)
+**Given** `POST /api/session/refresh` (exporting `dynamic = "force-dynamic"`, no CSRF or session-binding check (D5), AD-18 no-store headers)
 **When** the cookie's access token is still valid for more than 30 s (another tab already refreshed)
 **Then** it answers 200 without calling the IdP and without changing the cookie
 **And** no response body ever contains a token.
 
 **Given** the access token is expired or within 30 s of expiry
 **When** the refresh route runs
-**Then** it calls `POST <base>/auth/oauth2/token` once with `grant_type=refresh_token` and the stored refresh token, `cache: "no-store"`, 25 s timeout
+**Then** it calls `POST <base>/auth/oauth2/token` (`<base>` from `lib/shared/environments.ts` for the session's `environment`, D4) once with `grant_type=refresh_token` and the stored refresh token, `cache: "no-store"`, 25 s timeout
 **And** on success it stores the new access token, refresh token (if returned) and expiry, increments `gen`, keeps the same `sid`, re-seals `__Host-pp_s`, and answers 200
 **And** on an IdP rejection (`invalid_grant` or 401) it clears the cookie and answers 401 `{ "errorCode": "SESSION_EXPIRED", "source": "proxy" }`
 **And** on a network error, timeout or upstream 5xx it keeps the cookie unchanged and answers 503 `{ "errorCode": "REFRESH_UNAVAILABLE", "source": "proxy" }`
@@ -1024,11 +1075,12 @@ So that I never lose work to a silent logout caused by an expired access token.
 **And** a second test with two simulated tabs sharing a mocked `navigator.locks` also produces exactly 1 refresh
 **And** a third test proves a `PUT` answered by 502 `UPSTREAM_ERROR` or 504 `UPSTREAM_TIMEOUT` is sent exactly once (no replay), while a `PUT` answered by proxy `TOKEN_EXPIRED` is replayed once after refresh.
 
-**Covers:** FR2 (silent refresh), NFR1, NFR4, AD-16 (refresh, non-GET replay rule), AD-17, AD-18, AD-19 · **Jira:** NG-9027
+**Covers:** FR2 (silent refresh), NFR1, NFR4, AD-16 (refresh, non-GET replay rule), AD-17 (as superseded by D5), AD-18, AD-19, D5 · **Jira:** NG-9027
 
 ### Story 1.6: Idle logoff, activity ping and cross-tab activity
 
 *Amended 2026-10-13 (architecture update: AD-16, AD-19, AD-26).*
+*Amended 2026-10-14 (decision D5): no CSRF or `X-PP-Session` check on the ping; no `sessionBinding`.*
 
 As a Launching user on a shared or unattended device,
 I want my session to end after 15 minutes without activity or 8 hours after launch, with a one-minute warning I can dismiss,
@@ -1038,7 +1090,7 @@ So that nobody can pick up my session, while I am never signed out in the middle
 
 **Given** the sealed cookie's `iat` and `lastSeen` (set at launch in Story 1.2)
 **When** `requireSession()` runs for the page, the proxy, `/api/session/*` or any BFF route
-**Then** if `now − lastSeen > 15 min` or `now − iat > 8 h`, it clears the cookie and the route answers 401 `{ "errorCode": "SESSION_EXPIRED", "source": "proxy" }` (`app/page.tsx` redirects to `/launch-error?reason=expired`)
+**Then** if `now − lastSeen > 15 min` or `now − iat > 8 h`, it clears the cookie and the route answers 401 `{ "errorCode": "SESSION_EXPIRED", "source": "proxy" }` (`app/page.tsx` redirects to `/auth`, D1)
 **And** unit tests cover 14:59 (allowed), 15:01 idle (rejected), and 8 h + 1 s since launch with recent activity (rejected).
 
 **Given** the RC6 activity rule
@@ -1048,11 +1100,11 @@ So that nobody can pick up my session, while I am never signed out in the middle
 **And** a test proves 15 min of SWR revalidations alone still expire the session.
 
 **Given** `POST /api/session/ping`
-**When** it is called with a valid session (CSRF and `X-PP-Session` checked, AD-18 headers)
+**When** it is called with a valid session (AD-18 headers; no CSRF or session-binding check, D5)
 **Then** it answers 204 and updates `lastSeen`; without a valid session it answers 401 `{ "errorCode": "SESSION_EXPIRED", "source": "proxy" }`.
 
 **Given** the page is open
-**When** 14 min have passed since the last user-initiated request (the page receives `idleTimeoutSec = 900` and the server's `lastSeen` with `sessionBinding`; the same idle timer and warning run on `/` and `/account`, mounted once in the shared shell)
+**When** 14 min have passed since the last user-initiated request (the page receives `idleTimeoutSec = 900` and the server's `lastSeen` with `portalUrl`; the same idle timer and warning run on `/` and `/account`, mounted once in the shared shell)
 **Then** a warning dialog (`features/shell/idle-warning.tsx`, shadcn Dialog, `role="alertdialog"`) shows "You'll be signed out in 1 minute" with a primary "Stay signed in" button that has initial focus
 **And** activating "Stay signed in" calls `POST /api/session/ping`, closes the warning and restarts the timer
 **And** if the ping answers 401 `SESSION_EXPIRED`, the warning closes and `session-expired` is published on `lib/api/session-events.ts`
@@ -1070,12 +1122,14 @@ So that nobody can pick up my session, while I am never signed out in the middle
 
 **Covers:** FR2 (expiry), NFR1, AD-16 (automatic logoff), AD-19 (error envelope), RC6, PA2 · UX-DR39, UX-DR68 (idle strings), UX-DR70 · **Jira:** NG-9027
 
-### Story 1.7: Logout and session-expired / session-changed dialogs
+### Story 1.7: Logout, platform revocation and the session-expired dialog
 
 *Amended 2026-10-13 (architecture update: AD-5, AD-12, AD-16, AD-19, AD-26).*
+*Amended 2026-10-14 (decisions D3, D4: platform logout `all-devices`; portal URL from the environment map).*
+*Amended 2026-10-14 (decision D5): the session-changed dialog is dropped (no session binding, so `session-changed` never exists); logout has no CSRF check and also accepts GET.*
 
 As a Launching user,
-I want a clear, safe ending when my session expires, when another account opens in another tab, or when I go back to 1health,
+I want a clear, safe ending when my session expires or when I go back to 1health,
 So that I know what happened, my edits are not silently lost, and leaving really signs me out.
 
 **Acceptance Criteria:**
@@ -1084,37 +1138,39 @@ So that I know what happened, my edits are not silently lost, and leaving really
 **When** the shell's `SessionDialogs` (`features/shell/session-dialogs.tsx`, the only module that opens these dialogs) handles it
 **Then** it first runs every callback registered through `onBeforeSessionExpired(cb)` synchronously (errors caught, so a failing callback never blocks the dialog), which is where the draft writer will hook in
 **And** then opens a non-dismissable dialog — no close button; Escape and overlay click do nothing — titled "Your session ended" with body "Your changes are kept on this device. Relaunch from 1health to continue." and a single primary "Return to 1health" with initial focus
-**And** "Return to 1health" navigates the same tab to `PORTAL_URL` (received from the server with `sessionBinding`) without calling logout and without deleting drafts
+**And** "Return to 1health" navigates the same tab to the `portalUrl` embedded by the server page (Story 1.4; the server page always embeds a `portalUrl`, resolved from the session's `environment`, else the `onehealth_environment` cookie, else `prod` (D4); the client never reads cookies) without calling logout and without deleting drafts
 **And** page content stays visible behind the overlay
 **And** there is no framed mode: no `useIsFramed()`, no "Close and reopen from 1health" variant and no `postMessage`; the app is always top-level (AD-5).
 
-**Given** `session-changed` is published
-**When** the shell handles it
-**Then** it runs every callback registered through `onSessionChanged(cb)` (where in-memory SSN, the page's registry and the user-wide draft purge `drafts.purgeUser(userId)` for the in-memory `myself` user are hooked in; the purge callback is wired by Story 1.15), clears the SWR cache without revalidating, runs no `onBeforeSessionExpired` callback (no draft is written) (AD-12, AD-19)
-**And** opens a non-dismissable dialog "This profile was opened by another account in another tab" with a primary "Reload" that reloads the page.
+**Given** the session-expired dialog is already open
+**When** `session-expired` is published again
+**Then** the dialog stays and no second dialog opens; there is no session-changed dialog, `session-changed` event or `onSessionChanged` hook (D5).
 
-**Given** one session dialog is already open
-**When** the other event is published
-**Then** the first dialog stays and no second dialog opens.
+**Given** the session-expired path (the session-expired dialog's action, or a client-detected `SESSION_EXPIRED`)
+**When** the app sends the user back to sign in
+**Then** it first saves `lib/shared/login-intent.ts#saveLoginIntent(location.pathname + location.search)` in sessionStorage `pp:login-intent`, validated like patient-vault: must start with `/` and not `//`, pathname not `/auth` or `/api` (or under them), stored as pathname + search only; `consumeLoginIntent(fallback)` reads and removes it and falls back when invalid (D9).
 
-**Given** `POST /api/session/logout` (CSRF-checked, AD-18 headers)
+**Given** `POST /api/session/logout` (also accepts `GET`, as patient-vault; no CSRF check, D5; AD-18 headers)
 **When** it is called
-**Then** it answers 204 with a `Set-Cookie` that clears `__Host-pp_s` (same attributes, `Max-Age=0`) whether or not a session exists
-**And** it attempts upstream token revocation best-effort (RC5): when no revoke endpoint is configured it skips the call, and a revoke failure or 5 s timeout never changes the 204
-**And** `features/shell/navigate.ts` exports `navigate(target)` (AD-26); this story implements its `{ external: "portal" }` path used by app-bar "Return to 1health": `requestLeave()` → if it resolves `true`, run the registered before-exit callbacks (where Story 1.15 hooks `drafts.purgeUser`) → `POST /api/session/logout` (waiting at most 3 s, ignoring failures) → same-tab `location.assign(PORTAL_URL)`; there is no separate `returnToPortal()` and no `returnUrl` or `next` parameter is read anywhere
+**Then** when a session unseals it first calls, server-to-server and best effort, `POST <apiRoot>/auth/user/logout/all-devices` (`apiRoot` of the session's `environment`, D4) with `Authorization: Bearer <access token from the session>`, `cache: "no-store"` and a 5 s timeout (D3, RC5)
+**And** any failure, timeout or 401 from that call is swallowed and logged only as `{ requestId, routeTemplate, status | errorName }`, never with the token
+**And** it then always answers 204 with a `Set-Cookie` that clears `__Host-pp_s` (same attributes, `Max-Age=0`), whether or not a session existed or the platform call succeeded; with no session it makes no upstream call
+**And** a Vitest (MSW) covers: platform 200 → 204 + cleared cookie; platform 401, 500 and timeout → still 204 + cleared cookie; no session → no upstream call, 204; the logged line never contains the token; a GET to /api/session/logout behaves identically (same 204, cleared cookie, same upstream call)
+**And** `features/shell/navigate.ts` exports `navigate(target)` (AD-26); this story implements its `{ external: "portal" }` path used by app-bar "Return to 1health": `requestLeave()` → if it resolves `true`, run the registered before-exit callbacks (where Story 1.15 hooks `drafts.purgeUser`) → `POST /api/session/logout` (waiting at most 3 s, ignoring failures) → same-tab `location.assign(portalUrl)`; there is no separate `returnToPortal()` and no `returnUrl` or `next` parameter is read anywhere
 **And** `requestLeave()` in `features/shell/leave.ts` exists as the single entry point for leaving actions, is called only by `navigate()` and `beforeunload`, and resolves `true` immediately while no leave guard is registered (`setLeaveGuard(fn)` lets a later guard intercept it).
 
 **Given** the session copy
-**When** the dialogs render
-**Then** every string comes from `lib/shared/messages.ts`, and "This profile was opened by another account in another tab" and "Reload" are marked as architecture-added copy for PM review
-**And** each dialog uses the confirm-dialog anatomy (shadcn Dialog, `rounded-lg`, elevation-2, dimmed overlay), shows the focus ring on its button, and passes an axe check in a component test
-**And** a Playwright spec (mocked proxy, top-level only) covers: a mocked `401 {errorCode:"SESSION_EXPIRED", source:"proxy"}` → dialog with initial focus on "Return to 1health" → same-tab navigation to `PORTAL_URL`; a proxy 409 `SESSION_CHANGED` → session-changed dialog → Reload; app-bar Return path → logout called then same-tab navigation.
+**When** the dialog renders
+**Then** every string comes from `lib/shared/messages.ts`
+**And** the dialog uses the confirm-dialog anatomy (shadcn Dialog, `rounded-lg`, elevation-2, `scrim` overlay, D13), shows the focus ring on its button, and passes an axe check in a component test
+**And** a Playwright spec (mocked proxy, top-level only) covers: a mocked `401 {errorCode:"SESSION_EXPIRED", source:"proxy"}` → dialog with initial focus on "Return to 1health" → same-tab navigation to the embedded `portalUrl`; app-bar Return path → logout called then same-tab navigation.
 
-**Covers:** FR2 (session-expired message), NFR1, AD-5 (no framed mode), AD-12 (purge on `SESSION_CHANGED`), AD-16 (logout), AD-17, AD-19, AD-26 (`navigate({external:"portal"})`), RC5 · UX-DR37 (framed action superseded), UX-DR38, UX-DR68 (session strings) · **Jira:** NG-9027
+**Covers:** FR2 (session-expired message), NFR1, AD-5 (no framed mode), AD-12 (`SESSION_CHANGED` purge dropped by D5), AD-16 (logout), AD-17 (as superseded by D5), AD-19, AD-26 (`navigate({external:"portal"})`), RC5, D3, D4, D5 · UX-DR37 (framed action superseded), UX-DR38 (superseded by D5), UX-DR68 (session strings) · **Jira:** NG-9027
 
 ### Story 1.8: Profile page shell — tokens, app bar, tabs and Section navigation
 
 *Amended 2026-10-13 (architecture update: AD-5, AD-7, AD-26).*
+*Amended 2026-10-14 (decisions D11, D13): non-interactive wordmark; link-text, destructive-fill, primary-text and scrim tokens.*
 
 As a Launching user on any device,
 I want a profile page with an app bar, Contacts / Insurance / Medical tabs and a numbered Section menu I can deep-link into,
@@ -1124,22 +1180,26 @@ So that I can find any part of my profile quickly, by mouse, touch or keyboard, 
 
 **Given** `app/globals.css`
 **When** the 1health tokens are wired with the DESIGN.md overrides
-**Then** text links use `text-info-strong` (#256a8c) in light mode and signal-aqua #8fd8e6 in dark mode
-**And** the destructive button variant fills with `bg-error-strong` (#b23a31, white text) in both light and dark mode
+**Then** text links use the `link-text` token (`text-link-text`: #256a8c in light, signal-aqua #8fd8e6 in dark)
+**And** the destructive button variant fills with the `destructive-fill` token (`bg-destructive-fill`: #b23a31, white text, in both light and dark mode)
+**And** a `primary-text` token (#246b8f light, #6fb6d8 dark) styles text in the primary hue, including the wordmark, while primary fills keep `primary` *(2026-10-14)*
+**And** a `scrim` token (graphite at 45 % light, black at 60 % dark) is the overlay of every dialog and the drawer, replacing the template's `bg-black/50` *(2026-10-14)*
 **And** a `control-border` token is #7a8696 in light and mist #aeb8c4 in dark, used by Input, Select and the Jump to control, while table rules and card hairlines keep `--border`
 **And** tooltip tokens are graphite #202833 / white in light and #e6ebf0 / #202833 in dark
 **And** adding `class="dark"` to `<html>` switches every token to its DESIGN.md `-dark` value (background #202833, card #29333f, ring #8fd8e6); light is the default
-**And** a comment block in `globals.css` lists the three design-system deviations (link, destructive fill, control border) to be reported upstream and kept until `globals.css` changes
-**And** a lint/CI check fails on hex colors or Tailwind palette color classes (e.g. `bg-red-500`) in `components/`, `features/` and `app/` outside `globals.css`.
+**And** a comment block in `globals.css` lists the design-system deviations and additions (link-text, destructive-fill, control-border, primary-text, scrim) to be reported upstream and kept until globals.css changes
+**And** a lint/CI check fails on hex colors or Tailwind palette color classes (e.g. `bg-red-500`) in `components/`, `features/` and `app/` outside `globals.css`
+**And** the same check fails on `text-info-strong` in links and on `bg-error-strong` anywhere (use `text-link-text` / `bg-destructive-fill`, D13).
 
 **Given** the page at ≥ 768 px
 **When** it renders
 **Then** the order is app bar → header slot → tab strip → two-column body (sticky 200 px Section menu with right hairline + fluid main column, 24 px padding, 32 px between Sections)
-**And** the app bar is a 52 px card bar with bottom border showing the "1health" wordmark (primary, bold), a vertical rule, and, in place of a page title, a two-item page nav (`<nav aria-label="Pages">`) with the destinations "Personal Profile" (`/`) and "Account" (`/account`); the item for the current page carries `aria-current="page"` and the active styling, and the same app bar is used on both pages
+**And** the app bar is a 52 px card bar with bottom border showing the "1health" wordmark (`primary-text`, bold), a vertical rule, and, in place of a page title, a two-item page nav (`<nav aria-label="Pages">`) with the destinations "Personal Profile" (`/`) and "Account" (`/account`); the item for the current page carries `aria-current="page"` and the active styling, and the same app bar is used on both pages
+**And** the "1health" wordmark is non-interactive text (a `span`, not a link or button): it receives no focus, has no `href` and no click handler *(2026-10-14)*
 **And** activating a page-nav item calls the shell's `navigate({ page: "profile" })` or `navigate({ page: "account" })` (AD-26), which runs the current page's leave guard (`requestLeave()`) and then does a client navigation (`router.push`) that keeps the shared SWR cache; activating the current page's item does nothing; the `/account` page itself is built in Epic 7
 **And** `navigate()` in `features/shell/navigate.ts` gains the page targets `{ page: "profile" | "account", tab?, hash? }` in this story (the external portal target is from Story 1.7); `next/link` and raw `<a href>` to `/` or `/account` are not used anywhere outside `features/shell` (Story 1.1 lint rule)
 **And** below 768 px the page nav renders as a segmented control that wraps onto its own row under the wordmark below 400 px, with every item keeping a 44 px hit area
-**And** the right side always shows a "Return to 1health" link (link-text color, external-link icon, 44 px target, underline on hover) that calls `navigate({ external: "portal" })` (Story 1.7: leave guard, then logout, then same-tab navigation to `PORTAL_URL`); there is no framed variant and it is never hidden (AD-5).
+**And** the right side always shows a "Return to 1health" link (link-text color, external-link icon, 44 px target, underline on hover) that calls `navigate({ external: "portal" })` (Story 1.7: leave guard, then logout, then same-tab navigation to the embedded `portalUrl`, D4); there is no framed variant and it is never hidden (AD-5).
 
 **Given** the tab strip (shadcn Tabs added to `components/ui/tabs.tsx`, plus shadcn Select in `components/ui/select.tsx`, each at a pinned exact version)
 **When** it renders
@@ -1202,7 +1262,7 @@ So that I can find any part of my profile quickly, by mouse, touch or keyboard, 
 
 **Given** keyboard-only use
 **When** the user tabs through the page
-**Then** the order is app bar (wordmark, page nav Personal Profile → Account, Return to 1health) → header slot → tabs → Section menu (or Jump to) → Sections in order
+**Then** the order is app bar (page nav Personal Profile → Account, Return to 1health) → header slot → tabs → Section menu (or Jump to) → Sections in order
 **And** every interactive element shows the focus ring (2 px ring-color outline, 2 px offset, `shadow-glow`) on `:focus-visible`, and focus is never removed or trapped
 **And** an `@axe-core/playwright` scan (pinned version) of each tab in light and dark themes, at desktop and 360 px, reports no WCAG 2.1 AA violations.
 
@@ -1212,7 +1272,7 @@ So that I can find any part of my profile quickly, by mouse, touch or keyboard, 
 
 **Note:** Accepted 2026-10-13: the Account item may point to /account before Epic 7 lands (same release).
 
-**Covers:** FR3, FR8, FR32, FR101 (app-bar entry to `/account`), NFR2, NFR3, NFR4, NFR5, NFR7 (browsers; iframe clause superseded), AD-5 (Return always rendered, same tab), AD-7 (Section ids, typed `ProfileTab`, unknown tab/hash), AD-26 (app-bar page nav, `navigate()`), RC9, PRC4 · UX-DR1, UX-DR2, UX-DR3, UX-DR4, UX-DR5, UX-DR6, UX-DR8, UX-DR9, UX-DR11, UX-DR12, UX-DR13 (framed-hide clause superseded), UX-DR17, UX-DR18, UX-DR19, UX-DR33, UX-DR34, UX-DR35, UX-DR51, UX-DR57, UX-DR58, UX-DR60, UX-DR62, UX-DR63, UX-DR64, UX-DR66, UX-DR67, UX-DR68 · **Jira:** NG-9020
+**Covers:** FR3, FR8, FR32, FR101 (app-bar entry to `/account`), NFR2, NFR3, NFR4, NFR5, NFR7 (browsers; iframe clause superseded), AD-5 (Return always rendered, same tab), AD-7 (Section ids, typed `ProfileTab`, unknown tab/hash), AD-26 (app-bar page nav, `navigate()`), RC9, PRC4, D10 (never framed), D11 (wordmark, tab order), D13 (tokens) · UX-DR1, UX-DR2, UX-DR3, UX-DR4, UX-DR5, UX-DR6, UX-DR8, UX-DR9, UX-DR11, UX-DR12, UX-DR13 (framed-hide clause superseded), UX-DR17, UX-DR18, UX-DR19, UX-DR33, UX-DR34, UX-DR35, UX-DR51, UX-DR57, UX-DR58, UX-DR60, UX-DR62, UX-DR63, UX-DR64, UX-DR66, UX-DR67, UX-DR68 · **Jira:** NG-9020
 
 ### Story 1.9: Profile header view — name, picture and primary contacts
 
@@ -1251,12 +1311,12 @@ So that I can confirm whose profile I am editing at a glance.
 **When** the client calls `GET /api/pp/profile-picture-id` (via `callApi`, key `["pp","profile-picture-id"]`)
 **Then** `app/api/pp/profile-picture-id/route.ts` (exporting `dynamic = "force-dynamic"`) calls `requireSession()`, runs a GraphQL query document stored on the server (`Person(userId){PersonHasProfilePictureFile}`) with variables taken only from the session (no client-supplied ids or query text), with `cache: "no-store"`
 **And** it responds `200 {"fileId": <number>}` or `200 {"fileId": null}` with `Cache-Control: private, no-store, max-age=0`, `Pragma: no-cache`, `Vary: Cookie`
-**And** without a session it responds `401 {"errorCode":"SESSION_EXPIRED","source":"proxy"}`, it checks `X-PP-Session` like the proxy (409 `{"errorCode":"SESSION_CHANGED","source":"proxy"}` on mismatch), with `PP_DISABLED=1` it answers 503 `{"errorCode":"SERVICE_DISABLED","source":"proxy"}`, and it is the only GraphQL path in the app (`/api/1h/**` still returns 403 `NOT_ALLOWED` for any GraphQL path)
+**And** without a session it responds `401 {"errorCode":"SESSION_EXPIRED","source":"proxy"}`, it has no `X-PP-Session` or session-binding check (D5), with `PP_DISABLED=1` it answers 503 `{"errorCode":"SERVICE_DISABLED","source":"proxy"}`, and it is the only GraphQL path in the app (`/api/1h/**` still returns 403 `NOT_ALLOWED` for any GraphQL path)
 **And** an upstream error returns `502 {"errorCode":"UPSTREAM_ERROR","source":"proxy"}` without the upstream body, and the server log line carries only `{requestId, routeTemplate, status, errorName}`.
 
 **Given** `profile-picture-id` returns a `fileId`
 **When** the avatar renders
-**Then** it is an `<img src="/api/1h/v2/user/profile-picture/preview?v={fileId}" alt="">`, and the proxy allowlist entry `GET /v2/user/profile-picture/preview` is added in this change as the first `asImage` entry (allowed query: `v` matching `^\d{1,19}$`; GET without `X-PP-Session` allowed only on `asImage` entries, AD-17)
+**Then** it is an `<img src="/api/1h/v2/user/profile-picture/preview?v={fileId}" alt="">`, and the proxy allowlist entry `GET /v2/user/profile-picture/preview` is added in this change as the first `asImage` entry (allowed query: `v` matching `^\d{1,19}$`; there is no `X-PP-Session` header, D5)
 **And** this story implements the proxy's `asImage` handling used by every later image entry: the response carries `Content-Disposition: inline` only when the declared type is `image/png|jpeg|bmp` and the leading bytes match, otherwise `attachment; filename="file"`, plus `X-Content-Type-Options: nosniff` and `Cache-Control: private, no-store, max-age=0` (upstream `ETag`, `Last-Modified`, `Expires`, `Cache-Control` dropped); a table test covers PNG, JPEG, BMP, SVG and HTML bodies
 **And** if the image fails to load (`onerror`) the avatar falls back to the initials placeholder.
 
@@ -1268,7 +1328,7 @@ So that I can confirm whose profile I am editing at a glance.
 **When** axe runs (Playwright, mocked proxy)
 **Then** there are no axe violations and there is no horizontal scroll at 360 px.
 
-**Covers:** FR9, NFR1, NFR2, NFR4, AD-2, AD-10 (per-type contact-point keys, shared cache), AD-13 (asImage downloads), AD-17, AD-18, AD-19 (error envelope), PA2, PA3 · UX-DR8, UX-DR9, UX-DR14, UX-DR67, UX-DR68 · **Jira:** NG-9021
+**Covers:** FR9, NFR1, NFR2, NFR4, AD-2, AD-10 (per-type contact-point keys, shared cache), AD-13 (asImage downloads), AD-17 (as superseded by D5), AD-18, AD-19 (error envelope), PA2, PA3 · UX-DR8, UX-DR9, UX-DR14, UX-DR67, UX-DR68 · **Jira:** NG-9021
 
 ### Story 1.10: Change Profile Picture
 
@@ -1339,13 +1399,13 @@ So that I can keep my photo current without leaving the app.
 **Given** the upload fails
 **When** the response is `413 TOO_LARGE`, `415 UNSUPPORTED_MEDIA`, another 4xx/5xx, or a network failure
 **Then** the dialog stays open with the chosen preview, the current avatar is unchanged, no delete is sent, and an error line appears above the footer: for 413/415 "{file name} couldn't be used. Choose another file." (draft copy); for network failure or 5xx "Couldn't save your profile picture. Check your connection." with a "Retry" button that re-runs the upload with the same re-encoded blob (draft copy)
-**And** on `SESSION_EXPIRED` or `SESSION_CHANGED` the dialog closes and the Story 1.7 session dialog takes over (no error line, no toast).
+**And** on `SESSION_EXPIRED` the dialog closes and the Story 1.7 session dialog takes over (no error line, no toast; there is no `SESSION_CHANGED`, D5).
 
 **Given** the dialog and header in light and dark theme at 360 px and 1280 px
 **When** axe and the keyboard pass run (Playwright, mocked proxy)
 **Then** there are no axe violations, the full flow (open picker via keyboard, preview, Save, focus back to avatar) is keyboard-only completable, and there is no horizontal scroll at 360 px.
 
-**Covers:** FR10, NFR1, NFR2, AD-2, AD-13, AD-17, AD-19 (upload-entry errors `{errorCode, source:"proxy"}`), RC11, PA2 · UX-DR10, UX-DR15, UX-DR16, UX-DR51, UX-DR61, UX-DR64, UX-DR67, UX-DR68 · **Jira:** NG-9021
+**Covers:** FR10, NFR1, NFR2, AD-2, AD-13, AD-17 (as superseded by D5), AD-19 (upload-entry errors `{errorCode, source:"proxy"}`), RC11, PA2 · UX-DR10, UX-DR15, UX-DR16, UX-DR51, UX-DR61, UX-DR64, UX-DR67, UX-DR68 · **Jira:** NG-9021
 
 ### Story 1.11: Section framework — registry, edit model, inline validation and shared primitives
 
@@ -1427,8 +1487,8 @@ So that I can edit several parts of my profile with confidence that nothing is s
 
 **Given** `components/ui/confirm-dialog.tsx` created in this story
 **When** it is opened with `{ title, body, confirmLabel, variant: "standard" | "destructive", onConfirm, onCancel, extraAction?, busy? }`
-**Then** it is a shadcn Dialog with `role="alertdialog"`, `aria-labelledby` (title) and `aria-describedby` (body), `rounded-lg`, elevation-2 (`shadow-lg`) over a dimmed overlay, and an `ease-premium` 220–280 ms entrance (none under reduced motion)
-**And** the footer is right-aligned: Cancel (secondary) then the confirm button — primary fill for `standard`, `bg-error-strong` fill with white text for `destructive`; an optional `extraAction` renders as an outline button between them (used by the leave guard)
+**Then** it is a shadcn Dialog with `role="alertdialog"`, `aria-labelledby` (title) and `aria-describedby` (body), `rounded-lg`, elevation-2 (`shadow-lg`) over the `scrim` token overlay (D13; never `bg-black/50`), and an `ease-premium` 220–280 ms entrance (none under reduced motion)
+**And** the footer is right-aligned: Cancel (secondary) then the confirm button — primary fill for `standard`, `bg-destructive-fill` fill with white text for `destructive`; an optional `extraAction` renders as an outline button between them (used by the leave guard)
 **And** focus starts on Cancel; Escape and an overlay click behave exactly like Cancel (call `onCancel`, never `onConfirm`); on close, focus returns to the element that was focused when the dialog opened
 **And** while `busy` is true the confirm button shows a spinner and Cancel, Escape and overlay click do nothing
 **And** a component test covers both variants, focus start and return, Escape/overlay = Cancel semantics and `busy`, with an axe check
@@ -1458,12 +1518,12 @@ So that I always know what happened and can recover without reloading the page.
 **Given** `lib/api/errors.ts`
 **When** `mapApiError(sectionId, response)` receives an `ApiResponse`
 **Then** `errors.ts` derives `errorCode` for upstream errors (`{ message, code: <int> }`, integer kept as `upstreamCode`) and never confuses it with a BFF `errorCode` (`source: "proxy"`) (AD-19)
-**And** an upstream 403 (no `source: "proxy"`) maps to `FORBIDDEN`, which drives the no-access panel scoped per the AD-23 owner table; a proxy `NOT_ALLOWED` or `CSRF` maps to the generic Section error with Retry (logged by request id) and never to "no access"
+**And** an upstream 403 (no `source: "proxy"`) maps to `FORBIDDEN`, which drives the no-access panel scoped per the AD-23 owner table; a proxy `NOT_ALLOWED` maps to the generic Section error with Retry (logged by request id) and never to "no access" (there is no `CSRF` code, D5)
 **And** the exact-message table is the only place that matches message text: `"Mfa is not enabled for this user."` and `"Mfa config is missing."` → `MFA_NOT_ENABLED`; `"Totp is already enabled."` → `TOTP_ALREADY_ENABLED`; messages starting `PERSONAL_NPI_IS_ALREADY_REGISTERED` or `PRACTICE_NPI_IS_ALREADY_REGISTERED` → `NPI_ALREADY_REGISTERED`; a unit test covers each row and asserts no other module matches message text
 **And** known backend codes map to `{ field, messageKey }` from a per-Section table (unit-tested with `SOCIAL_SECURITY_NUMBER_EXISTS` → field `ssn`, "This SSN belongs to another person", and `INVALID_ENUM_VALUE` → Section level), the message is shown at the field when a field is mapped and at Section level otherwise
 **And** network failures (no `statusCode`), `502 UPSTREAM_ERROR|UPSTREAM_REDIRECT`, `503 REFRESH_UNAVAILABLE|SERVICE_DISABLED` and `504 UPSTREAM_TIMEOUT` map to `{ kind: "network" }`
 **And** any unknown code maps to a generic Section-level error "Couldn't save {section}." (draft copy) with Retry
-**And** `SESSION_EXPIRED` and `SESSION_CHANGED` (proxy-originated only) map to `{ kind: "session" }` and the Section shows no error or toast (the Story 1.7 dialogs handle them); no module other than `errors.ts` (and the `callApi` session branch) inspects `errorCode` or `upstreamCode`.
+**And** `SESSION_EXPIRED` (proxy-originated only) maps to `{ kind: "session" }` and the Section shows no error or toast (the Story 1.7 dialog handles it; there is no `SESSION_CHANGED`, D5); no module other than `errors.ts` (and the `callApi` session branch) inspects `errorCode` or `upstreamCode`.
 
 **Given** `features/shell/toasts.ts`, the single toast API built on the existing `hooks/use-toast` and shadcn Toast
 **When** a toast is shown
@@ -1512,7 +1572,7 @@ So that I never lose edits by accident and can save them on the way out.
 **When** `navigate()` (AD-26) is called while any Section on the current page is dirty, for: a tab switch (Story 1.8 tabs, and the `/account` tabs in Epic 7), an app-bar page switch (Personal Profile ↔ Account), the app-bar "Return to 1health" (`navigate({ external: "portal" })`, Story 1.7), or a portal hand-off (`navigate({ external: "handoff", href })` to `/handoff/portal`, Epic 10)
 **Then** the leave guard opens using `components/ui/confirm-dialog.tsx` (Story 1.11): title "You have unsaved changes", buttons "Keep editing" (secondary, initial focus), "Discard" (outline, the `extraAction`), "Save" (primary); Escape equals "Keep editing" and focus returns to the trigger
 **And** "Keep editing" cancels the navigation
-**And** "Discard" calls `discard()` on every dirty Section and guard-only participant, then completes the navigation: tab or page switch by client navigation; Return to 1health by the user-wide draft purge `drafts.purgeUser(userId)` (Story 1.15), logout and same-tab navigation to `PORTAL_URL`; a portal hand-off by same-tab navigation to `/handoff/portal` with no logout and drafts of other Sections kept (AD-12, AD-22)
+**And** "Discard" calls `discard()` on every dirty Section and guard-only participant, then completes the navigation: tab or page switch by client navigation; Return to 1health by the user-wide draft purge `drafts.purgeUser(userId)` (Story 1.15), logout and same-tab navigation to `portalUrl` (D4); a portal hand-off by same-tab navigation to `/handoff/portal` with no logout and drafts of other Sections kept (AD-12, AD-22)
 **And** with no dirty Section, every `navigate()` target proceeds with no dialog (FR6, UX-DR42)
 **And** no feature wires its own leave guard for these navigations; `navigate()` is the single entry point (AD-26).
 
@@ -1579,7 +1639,7 @@ So that I can finish a multi-Section update in one step without being misled abo
 **When** the runner continues
 **Then** later Sections in `SAVE_ORDER` are still saved; the failed Section stays in edit view with its field/Section error and Retry.
 
-**Given** a Section's save returns `SESSION_EXPIRED` or `SESSION_CHANGED`
+**Given** a Section's save returns `SESSION_EXPIRED` (there is no `SESSION_CHANGED`, D5)
 **When** the runner receives it
 **Then** the run stops, no later Section is attempted, no summary toast is shown, and the Story 1.7 session dialog takes over.
 
@@ -1631,11 +1691,6 @@ So that I never lose work to a timeout and never silently overwrite newer data.
 **Then** pending debounced writes are flushed and a draft is written for every dirty draftable Section before the "Your session ended" dialog opens (test asserts write-before-open order)
 **And** choosing "Return to 1health" in that dialog keeps the drafts (UJ-5, UX-DR70); there is no framed variant (AD-5).
 
-**Given** the `session-changed` event
-**When** the shell receives it
-**Then** pending debounced writes are cancelled and no draft key is written or updated
-**And** `drafts.purgeUser(userId)` runs for the in-memory `myself` user (registered through the Story 1.7 `onSessionChanged` hook), deleting every `pp:draft:v1:<thatUserId>:*` key (AD-12, AD-19).
-
 **Given** a dirty Section with a draft
 **When** the Section saves with `{ ok: true }` (alone, via Save all or via the leave guard), or is discarded (Cancel, "Discard all", leave-guard "Discard")
 **Then** that Section's draft key is deleted
@@ -1676,68 +1731,70 @@ So that I never lose work to a timeout and never silently overwrite newer data.
 ### Story 1.16: Deployments, environments and operations runbooks
 
 *Amended 2026-10-13 (architecture update: AD-3, AD-5, AD-19, AD-20, AD-21).*
+*Amended 2026-10-14 (decisions D1, D4): one Vercel deployment serves demo and prod; `_DEMO`/`_PROD` secrets; no `APP_ENV`, `APP_ORIGIN`, `PORTAL_URL` or `PUBLIC_FILES_ORIGIN` env vars; launch URL `/auth`.*
+*Amended 2026-10-14 (decisions D5, D9): logout also answers GET; a failed launch shows the D9 error alert.*
 
 As a release owner (Daniel Garcia),
-I want three pinned Vercel deployments with per-environment secrets, a kill switch, and written registration and go-live runbooks,
-So that each 1health environment reaches only its own deployment, releases are promoted from verified builds, and a bad release can be stopped in minutes.
+I want one Vercel deployment with per-environment secrets, a kill switch, and written registration and go-live runbooks,
+So that both 1health environments reach the same verified build, releases are promoted from verified builds, and a bad release can be stopped in minutes.
 
 **Acceptance Criteria:**
 
 **Given** the Vercel team
-**When** the projects are configured
-**Then** three projects exist, `personal-profile-dev`, `personal-profile-demo`, `personal-profile-prod`, each linked to this repo, each with `APP_ENV` set to `dev`, `demo` and `prod` respectively in its Production scope, Node 24.x, and pnpm via corepack
-**And** each project's production domain is its `APP_ORIGIN` (default `https://personal-profile-<env>.vercel.app`), recorded in `docs/ops/deployments.md`
-**And** `lib/server/env.ts` fails the build and boot when `APP_ENV` is missing or not one of `dev|demo|prod`, and a Vitest asserts `API_ORIGIN` resolves to `https://dev.1hdev.io`, `https://demo.1health.io`, `https://app.1health.io` per `APP_ENV`, that `PORTAL_URL` and `PUBLIC_FILES_ORIGIN` are required per deployment, and that no `PORTAL_ORIGIN` exists (AD-3).
+**When** the project is configured
+**Then** one project `personal-profile` exists, linked to this repo, with Node 24.x and pnpm via corepack; its production deployment serves both `demo` and `prod` (there is no `dev` environment and no per-environment project)
+**And** its production domain (the app origin) is recorded in `docs/ops/deployments.md`
+**And** a Vitest asserts the `lib/shared/environments.ts` map: `apiRoot` `https://1health.demo.1health.io` / `https://1health.app.1health.io`, `apiBase` = `<apiRoot>/api`, `portalUrl` = the same root, and that no `APP_ENV`, `API_ORIGIN`, `APP_ORIGIN`, `PORTAL_URL`, `PORTAL_ORIGIN` or `PUBLIC_FILES_ORIGIN` env var is read (D1, D4).
 
-**Given** each project's environment variables
-**When** they are reviewed against `docs/ops/deployments.md`
-**Then** each project holds its own `ONEHEALTH_SECRET_KEY`, `APP_ID`, `SESSION_SECRET` (>= 32 random bytes, distinct per project), `GOOGLE_PLACES_KEY`, and non-secret `APP_ENV`, `PORTAL_URL`, `PUBLIC_FILES_ORIGIN`, `PLACES_ENABLED` (default `0`), `PP_DISABLED` (default unset), `ACCOUNT_DISABLED` (default unset)
-**And** no variable is named `NEXT_PUBLIC_*` except `NEXT_PUBLIC_APP_ENV`, and no name carries a `_DEMO`/`_PROD` suffix (Story 1.1 CI grep stays green)
-**And** `docs/ops/deployments.md` contains an environment table (project, `APP_ENV`, `APP_ORIGIN`, API origin, `PORTAL_URL`, `PUBLIC_FILES_ORIGIN`, owner) with no secret values.
+**Given** the project's environment variables
+**When** they are reviewed against `docs/ops/deployments.md` and `.env.example`
+**Then** the Production scope holds `ONEHEALTH_SECRET_KEY_DEMO`, `ONEHEALTH_SECRET_KEY_PROD`, `APP_ID_DEMO`, `APP_ID_PROD`, `SESSION_SECRET` (>= 32 random characters), `GOOGLE_PLACES_KEY`, and non-secret `PLACES_ENABLED` (default `0`), `PP_DISABLED` (default unset), `ACCOUNT_DISABLED` (default unset); `SESSION_SECRET_PREVIOUS` exists only during a rotation
+**And** no variable is named `NEXT_PUBLIC_*`, and `_DEMO`/`_PROD` names appear in the repo only where the Story 1.1 forbidden-pattern step allows them (`lib/server/env.ts`, its tests, `.env.example`, CI/test fixtures)
+**And** `docs/ops/deployments.md` contains an environment table (environment, API root, portal URL, `publicFilesOrigin`, registration status, owner) with no secret values.
 
-**Given** the dev project
-**When** a commit lands on `main`
-**Then** it auto-deploys to `personal-profile-dev`, and PR preview deployments are built only in the dev project using only dev-scoped secrets
-**And** on the demo and prod projects Git auto-deploy and preview deployments are disabled (`git.deploymentEnabled: false` / project setting), so no preview build ever receives demo or prod secrets.
+**Given** a pull request
+**When** Vercel builds its preview deployment
+**Then** the preview never receives `ONEHEALTH_SECRET_KEY_PROD` or `APP_ID_PROD` (Production scope only) and uses its own `SESSION_SECRET`; whether previews may hold the `_DEMO` pair depends on the open demo-data question
+**And** Git auto-deploy to production is disabled, so production is never deployed except through the `promote` workflow.
 
-**Given** a commit SHA that passed CI and was smoke-tested on dev
-**When** the release owner runs the `promote` GitHub Actions workflow (`workflow_dispatch` inputs `env: demo|prod`, `sha`)
-**Then** the workflow refuses a SHA that is not on `main` or whose CI checks did not pass, deploys that exact SHA to the target project with `vercel deploy --prod`, requires the `production` GitHub environment approval for `prod`, and prints the deployment URL; demo and prod are never deployed any other way (AD-20, NFR11).
+**Given** a commit SHA that passed CI and was smoke-tested on its preview
+**When** the release owner runs the `promote` GitHub Actions workflow (`workflow_dispatch` input `sha`)
+**Then** the workflow refuses a SHA that is not on `main` or whose CI checks did not pass, deploys that exact SHA to production with `vercel deploy --prod`, requires the `production` GitHub environment approval, and prints the deployment URL; production is never deployed any other way (AD-20)
+**And** because one deployment serves both environments, the demo-first rollout (NFR11) is enforced by registration order: demo QA runs against the production deployment through the demo registration before the prod registration is set Active.
 
 **Given** `docs/ops/secrets-rotation.md`
 **When** the release owner reads it
-**Then** it gives step-by-step procedures: `SESSION_SECRET` (set `SESSION_SECRET_PREVIOUS` = old, new `SESSION_SECRET`, redeploy, wait >= 8 h absolute session limit, remove previous, redeploy); `ONEHEALTH_SECRET_KEY`/`APP_ID` (change in the External Application registration and Vercel together, redeploy immediately, expect in-flight launches to fail with `/launch-error`); `GOOGLE_PLACES_KEY` (new key in GCP restricted to Places API (New) with daily quota cap and budget alert, update Vercel, redeploy, delete old key)
+**Then** it gives step-by-step procedures: `SESSION_SECRET` (set `SESSION_SECRET_PREVIOUS` = old, new `SESSION_SECRET`, redeploy, wait >= 8 h absolute session limit, remove previous, redeploy); `ONEHEALTH_SECRET_KEY_<ENV>`/`APP_ID_<ENV>` (change in that environment's External Application registration and Vercel together, redeploy immediately, expect in-flight launches of that environment to fail on `/auth` with the "Authentication Failed" error alert (D9); the other environment is unaffected); `GOOGLE_PLACES_KEY` (new key in GCP restricted to Places API (New) with daily quota cap and budget alert, update Vercel, redeploy, delete old key)
 **And** states rotation triggers: suspected exposure, team change, and at least yearly, with owner Daniel Garcia.
 
-**Given** `PP_DISABLED=1` on a deployment (then redeployed)
-**When** any request reaches `/launch`, `/api/1h/**`, `/api/pp/**`, `/api/session/refresh`, `/api/session/ping` or `/`
-**Then** API routes return `503 {"errorCode":"SERVICE_DISABLED","source":"proxy"}` with the AD-18 no-store headers and make no upstream call (AD-20)
-**And** `/launch` answers status 503 and renders the Story 1.2 `disabled` full-page message (title "Personal Profile is unavailable right now", body "Use your profile in 1health for now.", action "Return to 1health"; draft copy) directly, with no redirect, without decrypting or exchanging the `lpl` and without touching the session cookie; `/` renders the same page with status 503
+**Given** `PP_DISABLED=1` on the deployment (then redeployed)
+**When** any request reaches `/auth`, `/api/token`, `/api/1h/**`, `/api/pp/**`, `/api/session/refresh`, `/api/session/ping` or `/`
+**Then** API routes (incl. `/api/token`) return `503 {"errorCode":"SERVICE_DISABLED","source":"proxy"}` with the AD-18 no-store headers and make no upstream call; `/api/token` neither decrypts nor exchanges the `lpl` and does not touch the session cookie (AD-20)
+**And** `/auth` and `/` answer status 503 and render a full-page disabled message (`features/shell/disabled-screen.tsx`; title "Personal Profile is unavailable right now", body "Use your profile in 1health for now.", action "Go to 1health" to the D4-resolved `portalUrl`; draft copy) directly, with no redirect
+**And** `/api/session/logout` (POST or GET, D5) keeps working so users can still sign out
 **And** with `PP_DISABLED` unset or any value other than `1` behavior is unchanged
 **And** a Vitest table covers each route family with the flag on and off (AD-20).
 
-**Given** `ACCOUNT_DISABLED=1` on a deployment (then redeployed)
-**When** any request reaches `/account`, `/handoff/**`, `/api/pp/mfa/**`, `/api/pp/org-logo/**`, `/api/pp/practice-support` or a Profile-module allowlist entry
-**Then** API routes return `503 {"errorCode":"SERVICE_DISABLED","source":"proxy"}` with the AD-18 headers and no upstream call, and `/account` and `/handoff/**` render the `disabled` full-page message with status 503
-**And** `/`, launch and every Personal Profile route keep working
-**And** the Vitest table covers each of these route families with the flag on and off (AD-20).
+**Given** `ACCOUNT_DISABLED=1`
+**When** the rollback runbook is followed
+**Then** `docs/ops/rollback.md` records that Story 1.3 owns the proxy-level 503 for `profile: true` entries and Story 7.2 owns the page/route-level 503 (`/account`, `/handoff/**`, `/api/pp/{mfa,org-logo,practice-support}/**`) (D12), and that `/`, `/auth`, `/api/token` and every Personal Profile route keep working.
 
 **Given** a bad production release
 **When** the release owner follows `docs/ops/rollback.md`
-**Then** the runbook lists, in order: (1) Vercel instant rollback to the previous production deployment of the affected project; (2) partial stop of the Profile module only with `ACCOUNT_DISABLED=1` + redeploy; (3) incident stop with `PP_DISABLED=1` + redeploy; (4) ending live sessions by setting `isAllowedForPatients=false` on the External Application (disabling the app alone does not revoke tokens); there is no 1health-fe flag step (no 1health-fe changes; the legacy `/profile` and `/personal-settings` screens stay reachable in 1health as the fallback); each step names who runs it and how to verify it (e.g. `curl -sI <APP_ORIGIN>/launch` shows 503)
-**And** the rollback and kill switch are rehearsed once on demo before the go/no-go, with the date recorded in the checklist.
+**Then** the runbook lists, in order: (1) Vercel instant rollback to the previous production deployment (affects demo and prod together); (2) partial stop of the Profile module only with `ACCOUNT_DISABLED=1` + redeploy; (3) incident stop with `PP_DISABLED=1` + redeploy; (4) ending live sessions by setting `isAllowedForPatients=false` on the affected environment's External Application (disabling the app alone does not revoke tokens); there is no 1health-fe flag step (no 1health-fe changes; the legacy `/profile` and `/personal-settings` screens stay reachable in 1health as the fallback); each step names who runs it and how to verify it (e.g. `curl -si -X POST <app origin>/api/token` shows 503)
+**And** the rollback and kill switch are rehearsed once through the demo registration before the go/no-go, with the date recorded in the checklist.
 
 **Given** `docs/ops/external-application-registration.md`
-**When** an environment (dev, demo, then prod) is registered
-**Then** the runbook specifies: application name "Personal Profile", launch URL exactly `<APP_ORIGIN>/launch` for that environment, icon file path, launch secret generated in 1health and copied into that project's `ONEHEALTH_SECRET_KEY` and `APP_ID`, status **Active**, **isAllowedForPatients = true**
-**And** verification steps: `curl -sI <APP_ORIGIN>/` shows `Content-Security-Policy` containing `frame-ancestors 'none'` and `X-Frame-Options: DENY`; a test patient sees the "Personal Profile" tile in the portal Apps launcher and launching lands signed in on Contacts in the app's own tab (top-level; the app is never framed)
+**When** an environment (demo, then prod) is registered
+**Then** the runbook specifies: application name "Personal Profile" (record the exact registered name; it is the `openApp` value for the portal login deep link, D4 open question), launch URL exactly `<app origin>/auth` (the same for both environments), icon file path, launch secret generated in 1health and copied into `ONEHEALTH_SECRET_KEY_DEMO`/`APP_ID_DEMO` or `ONEHEALTH_SECRET_KEY_PROD`/`APP_ID_PROD`, status **Active**, **isAllowedForPatients = true**
+**And** verification steps: `curl -sI <app origin>/auth` shows `Content-Security-Policy` containing `frame-ancestors 'none'` and `X-Frame-Options: DENY`; a test patient sees the "Personal Profile" tile in the portal Apps launcher and launching lands signed in on Contacts in the app's own tab (top-level; the app is never framed), and the `/api/token` log line shows the expected environment
 **And** owner Daniel Garcia and the per-environment registration date are recorded (NFR8).
 
 **Given** `docs/ops/go-live-checklist.md`
 **When** the release owner prepares demo and then prod
-**Then** the checklist includes, each with owner and status: BAA executed with Vercel (functions, logs, any log drain) before any demo or prod deployment processes real PHI; BAA executed with Google before `PLACES_ENABLED=1` is set on demo/prod; no telemetry or log sink added without a BAA; External Application registered and Active per environment; CI green on the promoted SHA; demo QA of UJ-1 to UJ-5 passed by 2026-10-24 (otherwise production cutover is no-go and moves to the next release); rollback, `ACCOUNT_DISABLED` partial stop and `PP_DISABLED` kill switch rehearsed on demo; minimum alerting (proxy 5xx rate, `SESSION_EXPIRED` after refresh) and Vercel log retention decided; production go-live (External Application Active and allowed for patients in prod) on 2026-10-29 (release 2026.07.01 "Conduit"); no 1health-fe flag item (NFR11 as amended, NFR13).
+**Then** the checklist includes, each with owner and status: BAA executed with Vercel (functions, logs, any log drain) before the deployment processes real PHI (it serves prod, so this gates the prod registration); BAA executed with Google before `PLACES_ENABLED=1` is set; no telemetry or log sink added without a BAA; External Application registered and Active per environment; CI green on the promoted SHA; demo QA of UJ-1 to UJ-5 passed by 2026-10-24 (otherwise production cutover is no-go and moves to the next release); rollback, `ACCOUNT_DISABLED` partial stop and `PP_DISABLED` kill switch rehearsed through demo; minimum alerting (proxy 5xx rate, `SESSION_EXPIRED` after refresh) and Vercel log retention decided; production go-live (External Application Active and allowed for patients in prod) on 2026-10-29 (release 2026.07.01 "Conduit"); no 1health-fe flag item (NFR11 as amended, NFR13).
 
-**Covers:** AD-3 (`PORTAL_URL`, `PUBLIC_FILES_ORIGIN`), AD-5, AD-19 (error envelope), AD-20 (projects, secrets, promotion, `PP_DISABLED`, `ACCOUNT_DISABLED`, runbooks), AD-21, NFR6, NFR8, NFR11 and NFR12 (as amended: no 1health-fe flag), NFR13 · UX-DR50 (as amended) · **Jira:** NG-9027
+**Covers:** AD-3 (as superseded: environment map), AD-5, AD-19 (error envelope), AD-20 (as amended: one project, secrets, promotion, `PP_DISABLED`, `ACCOUNT_DISABLED`, runbooks), AD-21, D1, D4, D10 (verification of frame headers), D12 (runbook references only), NFR6, NFR8, NFR11 and NFR12 (as amended: no 1health-fe flag), NFR13 · UX-DR50 (as amended) · **Jira:** NG-9027
 
 ## Epic 2: Identity — Personal Information, SSN and Signature
 
@@ -1829,7 +1886,7 @@ So that I can check that my identity record is correct at a glance.
 **Given** the endpoints this story reads
 **When** it is done
 **Then** the proxy allowlist entries for these exact endpoints are added in this change (method + path template + allowed query; server-forced params), each with a proxy test:
-- `GET /v2/type/key/Person` — no query params allowed (any → 400 `BAD_QUERY`), no body, JSON response, `X-PP-Session` required; no server-forced params;
+- `GET /v2/type/key/Person` — no query params allowed (any → 400 `BAD_QUERY`), no body, JSON response, no `X-PP-Session` (D5); no server-forced params;
 - `GET /v2/file/{id}/download` as an `asImage` entry for the Signature preview (reused unchanged if Story 9.3 already added it) — `{id}` matching `^\d{1,19}$`, no client query params allowed, `preview=true` forced server-side on the upstream request (client value ignored, AD-2); served `inline` only for PNG/JPEG/BMP with matching leading bytes, otherwise `attachment`, with the Story 1.9 `asImage` headers (`nosniff`, `Cache-Control: private, no-store, max-age=0`)
 **And** another method on either template answers 405.
 
@@ -1838,7 +1895,7 @@ So that I can check that my identity record is correct at a glance.
 **Then** they cover: the F1 order, "Not provided" for null/empty/`"n/a"`/`[]`, the date format, array joining, Masked SSN only, signature present/absent/broken, option-list sort and `"n/a"` removal, fallback on a 500 from `/type/key/Person`, skeleton, and the error banner plus Retry
 **And** an axe check passes on the read view in light and dark themes.
 
-**Covers:** FR11, NFR1, NFR4, NFR5, NFR10, AD-2 (`preview=true` on `asImage`), AD-10, AD-13 (image via proxy URL), AD-17, AD-18 · UX-DR8, UX-DR24, UX-DR33, UX-DR34, UX-DR58 (anchor target), UX-DR67 · **Jira:** NG-9022
+**Covers:** FR11, NFR1, NFR4, NFR5, NFR10, AD-2 (`preview=true` on `asImage`), AD-10, AD-13 (image via proxy URL), AD-17 (as superseded by D5: 415 JSON check only), AD-18 · UX-DR8, UX-DR24, UX-DR33, UX-DR34, UX-DR58 (anchor target), UX-DR67 · **Jira:** NG-9022
 
 ---
 
@@ -1942,8 +1999,8 @@ So that my legal identity is correct on the platform without guessing what is ac
 
 **Given** the endpoint this story writes
 **When** it is done
-**Then** the proxy allowlist entry for `PUT /v2/user/edit` is added in this change (method + path template + allowed query; server-forced params): no query params allowed (any → 400 `BAD_QUERY`), JSON body only (`Content-Type` other than `application/json` → 415 `UNSUPPORTED_MEDIA`), body schema rejects `locale` (accepts `email`, `phoneNumber`, `phoneNumberRegion` only because `updateAccount()` needs them; AD-9 restricts the caller), CSRF and `X-PP-Session` required as a non-GET, no server-forced params
-**And** a proxy test covers the happy path, a foreign `Content-Type`, a missing `X-PP-Session` (403 `CSRF`) and another method (405).
+**Then** the proxy allowlist entry for `PUT /v2/user/edit` is added in this change (method + path template + allowed query; server-forced params): no query params allowed (any → 400 `BAD_QUERY`), JSON body only (`Content-Type` other than `application/json` → 415 `UNSUPPORTED_MEDIA`), body schema rejects `locale` (accepts `email`, `phoneNumber`, `phoneNumberRegion` only because `updateAccount()` needs them; AD-9 restricts the caller), no CSRF or `X-PP-Session` check (D5), no server-forced params
+**And** a proxy test covers the happy path, a foreign `Content-Type` (415) and another method (405).
 
 **Given** the zod schema `personalSchema` in `features/personal/schema.ts`
 **When** unit tests run
@@ -1975,7 +2032,7 @@ So that my SSN is correct while it stays hidden from anyone looking at my screen
 **And** focus moves to "Hide".
 
 **Given** the SSN is revealed
-**When** 30 s pass, I press "Hide", the window loses focus (`blur`), `document.visibilityState` becomes `hidden`, `pagehide` fires, the Section saves or cancels, the component unmounts, or the shell publishes `session-changed`
+**When** 30 s pass, I press "Hide", the window loses focus (`blur`), `document.visibilityState` becomes `hidden`, `pagehide` fires, the Section saves or cancels, the component unmounts, or the shell publishes `session-expired` (there is no `session-changed`, D5)
 **Then** the full value is removed from component state at once and the Masked SSN returns
 **And** if focus was on "Hide", it moves to "Reveal"
 **And** a fake-timer test covers each trigger.
@@ -2020,14 +2077,14 @@ So that my SSN is correct while it stays hidden from anyone looking at my screen
 
 **Given** the endpoint this story reads
 **When** it is done
-**Then** the proxy allowlist entry for `GET /v2/person/{personId}/ssn/expose` is added in this change (method + path template + allowed query; server-forced params): `{personId}` accepts only the literal `me`, which the proxy substitutes with the session's `personId` (any other value, including the user's own numeric id → 403 `NOT_ALLOWED`); no query params allowed (any → 400 `BAD_QUERY`); not an `asImage` entry, so `X-PP-Session` is required; no server-forced params
-**And** proxy tests cover `me`, a numeric id, an extra query param and a missing `X-PP-Session`.
+**Then** the proxy allowlist entry for `GET /v2/person/{personId}/ssn/expose` is added in this change (method + path template + allowed query; server-forced params): `{personId}` accepts only the literal `me`, which the proxy substitutes with the session's `personId` (any other value, including the user's own numeric id → 403 `NOT_ALLOWED`); no query params allowed (any → 400 `BAD_QUERY`); no `X-PP-Session` (D5); no server-forced params
+**And** proxy tests cover `me`, a numeric id and an extra query param.
 
 **Given** drafts and logging
 **When** the Section is dirty or the session expires
 **Then** the SSN is never written to a draft (not in `draftFields`), and the server/proxy logs of `ssn/expose` and `user/edit` contain only method, path template, status, duration and request id (AD-15). A proxy test asserts that the `ssn/expose` response carries `Cache-Control: private, no-store, max-age=0`.
 
-**Covers:** FR13, NFR1, NFR2, AD-2, AD-10, AD-17, AD-11, AD-12, AD-15, AD-18, AD-19 · UX-DR48, UX-DR29, UX-DR63, UX-DR64, UX-DR62, UX-DR68 · **Jira:** NG-9022
+**Covers:** FR13, NFR1, NFR2, AD-2, AD-10, AD-17 (as superseded by D5: 415 JSON check only), AD-11, AD-12, AD-15, AD-18, AD-19 · UX-DR48, UX-DR29, UX-DR63, UX-DR64, UX-DR62, UX-DR68 · **Jira:** NG-9022
 
 ---
 
@@ -2091,7 +2148,7 @@ So that the documents I sign carry the right signature.
 
 **Given** a saved Signature and an empty pad
 **When** I press Save (on the Section or via Save all)
-**Then** the shared `components/ui/confirm-dialog.tsx` (Story 1.11) opens in its destructive variant: title "Remove your signature?", body "Documents you sign will no longer carry it.", buttons "Cancel" (secondary, initial focus) and "Remove signature" (destructive, `error-strong` fill)
+**Then** the shared `components/ui/confirm-dialog.tsx` (Story 1.11) opens in its destructive variant: title "Remove your signature?", body "Documents you sign will no longer carry it.", buttons "Cancel" (secondary, initial focus) and "Remove signature" (destructive, `bg-destructive-fill`, white text)
 **And** "Remove signature" deletes the file, and the Section saves
 **And** "Cancel" or Escape sends nothing for this Section, returns focus to the trigger, keeps the Section in edit with the pad empty, and resolves `save()` as `{ok:false, error:{code:"CANCELLED"}}` (Save all counts it as not saved and continues with the other Sections).
 
@@ -2114,7 +2171,7 @@ So that the documents I sign carry the right signature.
 **Then** the page is scrolled so the Signature row (`id="signature"`) is in view, re-scrolling once after data loads so the skeleton-to-content height change doesn't leave it off screen (no smooth scroll under reduced motion)
 **And** a Playwright test against the mocked proxy covers UJ-3: deep link → Edit → draw → Save → toast → thumbnail with "Added {today}", plus the Clear → Save → "Remove your signature?" → Cancel and confirm branches.
 
-**Covers:** FR14, NFR1, NFR2, AD-2, AD-7, AD-12, AD-13, AD-17, AD-18, RC7, RC11 · UX-DR4, UX-DR36, UX-DR47, UX-DR58, UX-DR61, UX-DR64, UX-DR65, UX-DR68 · **Jira:** NG-9022
+**Covers:** FR14, NFR1, NFR2, AD-2, AD-7, AD-12, AD-13, AD-17 (as superseded by D5: 415 JSON check only), AD-18, RC7, RC11 · UX-DR4, UX-DR36, UX-DR47, UX-DR58, UX-DR61, UX-DR64, UX-DR65, UX-DR68 · **Jira:** NG-9022
 
 ## Epic 3: Contact methods — Phone, Email and Social Media
 
@@ -2194,13 +2251,13 @@ So that I can check at a glance how 1health reaches me and which number I sign i
 
 **Given** the user has no phones
 **When** the Section loads
-**Then** a single row spanning all columns reads "No phones yet · Add phone", where "Add phone" is a link-styled action (it opens edit mode with one new row once Story 3.2 lands)
+**Then** a single row spanning all columns reads "No phones yet · Add phone", where "Add phone" is a `link-text` action (it opens edit mode with one new row once Story 3.2 lands)
 
 **Given** the list request fails (network, 5xx, or unknown error code)
 **When** the Section renders
 **Then** an inline error banner replaces the rows: "Couldn't load phones · Retry"; Retry re-fetches only the Phone keys (`Mobile` and `Landline`)
 **And** Email, Social media and every other Section load and work normally (NFR5)
-**And** a `SESSION_EXPIRED`/`SESSION_CHANGED` result is left to the Epic 1 session-events handler (no Section-level banner)
+**And** a `SESSION_EXPIRED` result (there is no `SESSION_CHANGED`, D5) is left to the Epic 1 session-events handler (no Section-level banner)
 
 **Given** the engine and Phone read view
 **When** CI runs
@@ -2263,7 +2320,7 @@ So that my phone list stays current without calling support.
 
 **Given** the endpoint this story writes
 **When** it is done
-**Then** the proxy allowlist entry for `POST /v2/health/contact-point` is added in this change (method + path template + allowed query; server-forced params): no query params allowed, JSON body (`ContactPointManageDTO`) only (`Content-Type` other than `application/json` → 415 `UNSUPPORTED_MEDIA`), CSRF and `X-PP-Session` required, no server-forced params; a proxy test covers it (AD-2).
+**Then** the proxy allowlist entry for `POST /v2/health/contact-point` is added in this change (method + path template + allowed query; server-forced params): no query params allowed, JSON body (`ContactPointManageDTO`) only (`Content-Type` other than `application/json` → 415 `UNSUPPORTED_MEDIA`), no CSRF or `X-PP-Session` check (D5), no server-forced params; a proxy test covers it (AD-2).
 
 **Given** valid edits
 **When** the user activates Save (or Save all reaches Phone)
@@ -2306,7 +2363,7 @@ So that my numbers become Verified and can be used for sign-in and notifications
 **Given** `verifyContactPoints(ids)` added to `lib/api/contact-points.ts` in this story
 **When** it is called
 **Then** it sends `POST /api/1h/v2/health/contact-point/verify` `{contactPointIds: ids}` through `callApi` and returns `ApiResponse<{success, contactPointIdsWithSendError: number[]}>`; it sends nothing for an empty list
-**And** the proxy allowlist entry for `POST /v2/health/contact-point/verify` is added in this change (method + path template + allowed query; server-forced params): no query params allowed, JSON body `{contactPointIds: number[]}` only (`Content-Type` other than `application/json` → 415 `UNSUPPORTED_MEDIA`), CSRF and `X-PP-Session` required, no server-forced params; a proxy test covers it (AD-2).
+**And** the proxy allowlist entry for `POST /v2/health/contact-point/verify` is added in this change (method + path template + allowed query; server-forced params): no query params allowed, JSON body `{contactPointIds: number[]}` only (`Content-Type` other than `application/json` → 415 `UNSUPPORTED_MEDIA`), no CSRF or `X-PP-Session` check (D5), no server-forced params; a proxy test covers it (AD-2).
 
 **Given** the Phone Section saved successfully (its own Save or as part of Save all)
 **When** the Section refetches its list
@@ -2735,7 +2792,7 @@ So that I can fill an address quickly and have it marked Verified.
 
 **Given** the server is deployed
 **When** `app/api/places/autocomplete/route.ts` and `app/api/places/details/route.ts` are added
-**Then** both accept only `POST` with `Content-Type: application/json` (other methods 405, other content types 415 `{"errorCode":"UNSUPPORTED_MEDIA","source":"proxy"}`), export `dynamic = "force-dynamic"`, call `requireSession()` (no session → 401 `{"errorCode":"SESSION_EXPIRED","source":"proxy"}`) and pass the AD-17 checks (`Sec-Fetch-Site: same-origin` or `Origin = APP_ORIGIN`, plus `X-PP-Session`; else 403 `{"errorCode":"CSRF","source":"proxy"}`; `X-PP-Session` ≠ `HMAC-SHA256(SESSION_SECRET, sid)` via `lib/server/session-binding.ts` from Story 1.3 → 409 `{"errorCode":"SESSION_CHANGED","source":"proxy"}`)
+**Then** both accept only `POST` with `Content-Type: application/json` (other methods 405, other content types 415 `{"errorCode":"UNSUPPORTED_MEDIA","source":"proxy"}`), export `dynamic = "force-dynamic"`, call `requireSession()` (no session → 401 `{"errorCode":"SESSION_EXPIRED","source":"proxy"}`) and run no CSRF or session-binding check (D5: no `Sec-Fetch-Site`/`Origin`, no `X-PP-Session`, no `CSRF` or `SESSION_CHANGED` code)
 **And** every error these routes originate (including 400 for bad input and 502/504 for Google failures) uses the BFF body `{"errorCode":"<STRING>","source":"proxy"}`, never `{code}` (AD-19)
 **And** every response carries `Cache-Control: private, no-store, max-age=0`, `Pragma: no-cache`, `Vary: Cookie`, and every Google fetch uses `cache: "no-store"`.
 
@@ -2757,7 +2814,7 @@ So that I can fill an address quickly and have it marked Verified.
 
 **Given** `PP_DISABLED=1` on the deployment (AD-20 kill switch)
 **When** either `/api/places/*` route is called
-**Then** it answers `503 {"errorCode":"SERVICE_DISABLED","source":"proxy"}` with the AD-18 no-store headers before any session, CSRF or Google work, and makes no Google call
+**Then** it answers `503 {"errorCode":"SERVICE_DISABLED","source":"proxy"}` with the AD-18 no-store headers before any session or Google work (there is no CSRF check, D5), and makes no Google call
 **And** a Vitest covers both routes with the flag on and off.
 
 **Given** Google errors, times out or the quota cap is hit
@@ -2766,7 +2823,7 @@ So that I can fill an address quickly and have it marked Verified.
 
 **Given** any request to these routes
 **When** the server logs it
-**Then** only method, route template, status, duration and request id are logged; the typed text, `placeId` and returned address are never logged (no exception in `APP_ENV=dev`)
+**Then** only method, route template, status, duration and request id are logged; the typed text, `placeId` and returned address are never logged (no exception in local development)
 **And** no Google script, key or Places URL is ever sent to the browser; CSP `connect-src 'self'` and `script-src` stay unchanged.
 
 **Given** an expanded address row whose country is United States, Canada or Australia and `enabled=true`
@@ -2795,9 +2852,9 @@ So that I can fill an address quickly and have it marked Verified.
 
 **Given** the routes and client are implemented
 **When** CI runs
-**Then** tests cover: 401 without session, 403 `CSRF`, 415 for a non-JSON content type, 503 with `PP_DISABLED=1`, 400 for input > 120 chars and bad `placeId`, `PLACES_ENABLED` off → empty without upstream call, cache headers, no typed text in logs, and client fill/`validated` behaviour with MSW.
+**Then** tests cover: 401 without session, 415 for a non-JSON content type, 503 with `PP_DISABLED=1`, 400 for input > 120 chars and bad `placeId`, `PLACES_ENABLED` off → empty without upstream call, cache headers, no typed text in logs, and client fill/`validated` behaviour with MSW.
 
-**Covers:** FR26, NFR1, AD-3, AD-14, AD-15, AD-17, AD-18, AD-19 (error envelope), AD-20 (kill switch), AD-21, PA2, UX-DR23, UX-DR29, UX-DR32, UX-DR57, UX-DR62, UX-DR68 · **Jira:** NG-9026
+**Covers:** FR26, NFR1, AD-3, AD-14, AD-15, AD-17 (as superseded by D5: 415 JSON check only), AD-18, AD-19 (error envelope), AD-20 (kill switch), AD-21, PA2, UX-DR23, UX-DR29, UX-DR32, UX-DR57, UX-DR62, UX-DR68 · **Jira:** NG-9026
 
 ### Story 4.4: Primary address and removal
 
@@ -2923,7 +2980,7 @@ So that my coverage details, including who holds the policy, are right on file.
 
 **Given** the Insurance tab
 **When** the user activates "Add insurance" (header or empty state) or a non-Deleted card's kebab "Edit"
-**Then** on desktop a shadcn Sheet opens from the right, 480 px wide, full height over a graphite 45 % scrim, with a sticky header (title "Add insurance" or "Edit insurance" (draft copy) + close button), a scrolling body and a sticky footer with "Cancel" (secondary) + "Save" (primary)
+**Then** on desktop a shadcn Sheet opens from the right, 480 px wide, full height over the `scrim` token (graphite 45 % light, black 60 % dark; never `bg-black/50`), with a sticky header (title "Add insurance" or "Edit insurance" (draft copy) + close button), a scrolling body and a sticky footer with "Cancel" (secondary) + "Save" (primary)
 **And** on mobile (< 768 px) it is a full-screen page with a back control in place of close, paired fields stacked one per row, Cancel/Save pinned to the bottom
 **And** Edit pre-fills every field from the policy.
 
@@ -3028,10 +3085,10 @@ So that my clinic has my card on file without me losing the policy I just saved.
 
 **Given** the policy saved but an image upload fails
 **When** the save flow ends
-**Then** the policy stays saved, the drawer closes, the card shows that side as a dashed placeholder "Image not uploaded" with a "Retry upload" link, and a warning toast names the problem (e.g. "Insurance saved. Back image not uploaded." — draft copy)
+**Then** the policy stays saved, the drawer closes, the card shows that side as a dashed placeholder "Image not uploaded" with a "Retry upload" button in `link-text`, and a warning toast names the problem (e.g. "Insurance saved. Back image not uploaded." — draft copy)
 **And** the re-encoded image is kept only in memory (never in storage) keyed by policy id + side.
 
-**Given** a "Retry upload" link
+**Given** the "Retry upload" button (`link-text`)
 **When** the user activates it and the image is still in memory
 **Then** only that upload is retried; success replaces the placeholder with the thumbnail; failure keeps the placeholder and shows an error toast with Retry
 **And** when the image is no longer in memory (e.g. after reload), "Retry upload" opens the file picker for that side and uploads the chosen file directly after the same checks.
@@ -3101,7 +3158,7 @@ So that outdated coverage doesn't stay on my profile.
 
 **Given** the user activates "Delete"
 **When** the shared `components/ui/confirm-dialog.tsx` (Story 1.11) opens in its destructive variant
-**Then** it shows title "Delete this insurance policy?", body "{Insurer} {Type} Insurance will be removed from your profile.", and right-aligned "Cancel" (secondary) + "Delete policy" (destructive fill `bg-error-strong`, white text)
+**Then** it shows title "Delete this insurance policy?", body "{Insurer} {Type} Insurance will be removed from your profile.", and right-aligned "Cancel" (secondary) + "Delete policy" (destructive fill `bg-destructive-fill`, white text)
 **And** focus starts on Cancel; Escape or Cancel closes with no request and focus returns to the kebab.
 
 **Given** the user confirms "Delete policy"
@@ -3128,7 +3185,7 @@ Defined later by the PM. No stories yet. Story 1.8 delivers the FR32 "Coming soo
 
 ## Epic 7: Account page and personal account settings
 
-Users go to **Account** from the app bar and keep their name, sign-in email and phone, birth date, language, time zone and locale correct. A partial save tells them exactly which part wasn't saved. Includes the `/account` foundation: route and tabs, app-bar navigation through `navigate()` (AD-26), skeleton, load-error and 403 states, the `/handoff/portal` route (AD-22) the Profile denies and the `ACCOUNT_DISABLED` kill switch (AD-2, AD-20); each Profile allowlist entry lands in the story that first uses it.
+Users go to **Account** from the app bar and keep their name, sign-in email and phone, birth date, language, time zone and locale correct. A partial save tells them exactly which part wasn't saved. Includes the `/account` foundation: route and tabs, app-bar navigation through `navigate()` (AD-26), skeleton, load-error and 403 states, the `/handoff/portal` route (AD-22), the page/route-level `ACCOUNT_DISABLED` kill switch (AD-20) and test rows verifying the Story 1.3 deny list against Profile templates (AD-2); each Profile allowlist entry lands in the story that first uses it.
 
 **FRs covered:** FR101, FR102, FR103, FR104, FR105, FR106, FR107, FR108, FR109 · **Jira:** NG-9019
 
@@ -3140,6 +3197,9 @@ Users go to **Account** from the app bar and keep their name, sign-in email and 
 
 **Jira:** [NG-9030](https://1hio.atlassian.net/browse/NG-9030)
 
+*Amended 2026-10-14 (decisions D1, D4): no-session redirect goes to `/auth`; no `proxy.ts` `lpl` redirect; portal URL from the environment map.*
+*Amended 2026-10-14 (decisions D5, D9): no session-binding embed and no `CSRF` code; the no-session screen is the `/auth` manual-entry card.*
+
 As a Launching user who wants to manage my account, provider registration or organizations,
 I want an **Account** page I can reach from the app bar or a bookmark, with three deep-linkable tabs that each load only when opened and show loading, error and no-access states on their own,
 So that I can find account settings without leaving the app, and one failing part never blocks the rest.
@@ -3148,22 +3208,22 @@ So that I can find account settings without leaving the app, and one failing par
 
 **Given** `app/account/page.tsx` (server component)
 **When** it is requested
-**Then** it calls `requireSession()` itself and renders the client page `features/account/account-page.tsx` inside the root layout's single `SWRConfig` (AD-10); the session-binding embed and no-store export are added by Story 7.2
-**And** with no session (no cookie, or a cookie that fails to unseal) it redirects to `/launch-error?reason=expired` exactly as `/` does (Story 1.2); there is no login page (FR102, AD-4)
-**And** a Playwright test opens `/account?tab=organizations` with a session and lands on that tab, and opens the same URL without a cookie and sees the launch-error screen with the module-neutral copy (parity row 1).
+**Then** it calls `requireSession()` itself and renders the client page `features/account/account-page.tsx` inside the root layout's single `SWRConfig` (AD-10); the no-store export is added by Story 7.2 (there is no session-binding embed, D5)
+**And** with no session (no cookie, or a cookie that fails to unseal) it redirects to `/auth` exactly as `/` does (Story 1.2); there is no login form (FR102, AD-4, D1)
+**And** a Playwright test opens `/account?tab=organizations` with a session and lands on that tab, and opens the same URL without a cookie and sees the `/auth` no-LPL screen (the D9 manual-entry card, or the Choose Environment card when no environment is known) (parity row 1).
 
 **Given** a request to `/account` (any `tab`, any hash) whose query carries `lpl`
-**When** `proxy.ts` sees it
-**Then** it answers 307 to `/launch` with the query preserved and no page reads `lpl` (AD-4)
-**And** the launch then always lands on `/` (`/launch/verify` → `/?tab=contacts`), never on `/account`; a launch in a non-default tenant ends on `/launch-error?reason=tenant` with "This is available in your personal account. Switch to it in 1health and open it again." (AD-6, PA5)
-**And** a proxy test covers `/account?lpl=x` → 307 `/launch?lpl=x` and `/account?tab=provider&lpl=x` → 307 with both params.
+**When** the page handles it
+**Then** `app/account/page.tsx` ignores `lpl` (no page but `/auth` reads it), `proxy.ts` does not redirect it, and no exchange happens (D1)
+**And** a launch always lands on `/` (`/auth?lpl=…` → `POST /api/token` → `/`), never on `/account`; a launch in a non-default tenant ends on the `/auth` `WRONG_TENANT` screen with "This is available in your personal account. Switch to it in 1health and open it again." (AD-6, PA5)
+**And** a test covers `/account?lpl=x` with a session (renders the account page, no `/api/token` call) and without one (redirects to `/auth` with no query, so the `lpl` is dropped).
 
 **Given** the shell module `features/shell/navigate.ts` (portal path from Story 1.7, page targets from Story 1.8; this story adds `AccountTab` typing and the `external: "handoff"` target)
 **When** a caller runs `navigate(target)` with `target` = `{ page: "profile", tab?: ProfileTab, hash? } | { page: "account", tab?: AccountTab, hash? } | { external: "portal" | "handoff", href }`
 **Then** it first runs the current page's leave guard (Story 1.13 three-way dialog "You have unsaved changes" · "Keep editing" / "Discard" / "Save") when the page's registry is dirty, and does nothing more if the user keeps editing
-**And** then `/` ↔ `/account` uses `router.push` with the URL built from the typed target (shared SWR cache kept, no full reload), `external: "portal"` runs the Return-to-1health path (AD-12 `drafts.purgeUser`, AD-16 logout, same-tab `location.assign(PORTAL_URL)`), and `external: "handoff"` runs only same-tab `location.assign(href)` (no logout, drafts kept; Story 7.3)
+**And** then `/` ↔ `/account` uses `router.push` with the URL built from the typed target (shared SWR cache kept, no full reload), `external: "portal"` runs the Return-to-1health path (AD-12 `drafts.purgeUser`, AD-16/D3 logout, same-tab `location.assign(portalUrl)` with the `portalUrl` embedded for the session's environment, D4), and `external: "handoff"` runs only same-tab `location.assign(href)` (no logout, drafts kept; Story 7.3)
 **And** `ProfileTab` = `contacts|insurance|medical` and `AccountTab` = `personal|provider|organizations` are exported typed enums (AD-7)
-**And** the Story 1.1 ESLint rules fail on `next/link` or a raw `<a href>` targeting `/`, `/account`, `/handoff/**` or `PORTAL_URL` outside `features/shell`, and on `NextResponse.redirect` in `app/launch/**` and `app/handoff/**` (AD-26, AD-4); a lint fixture test proves each rule fires for the `/account` and `/handoff/**` targets
+**And** the Story 1.1 ESLint rules fail on `next/link` or a raw `<a href>` targeting `/`, `/account`, `/handoff/**` or a `portalUrl` from `lib/shared/environments.ts` outside `features/shell`, and on `NextResponse.redirect` in `app/handoff/**` (AD-26, AD-4, D1); a lint fixture test proves each rule fires for the `/account` and `/handoff/**` targets
 **And** unit tests cover: guard cancel stops navigation, Discard then navigate, Save then navigate, Save with `{ok:false}` stays on the page, and `external:"handoff"` never calls `/api/session/logout` or `drafts.purgeUser`.
 
 **Given** the app bar page nav built in Story 1.8, on `/` and on `/account` (this story verifies it against the real `/account` page)
@@ -3210,7 +3270,7 @@ So that I can find account settings without leaving the app, and one failing par
 **When** the state frame renders the error
 **Then** it shows `inline-banner-error` "Something went wrong while loading profile information" with a "Retry" button in that tab or Section only, never an empty form (copy §D, FR103)
 **And** Retry revalidates only that tab's or Section's keys; a component test proves an error in one frame leaves the others unchanged (PNFR11)
-**And** proxy-originated `NOT_ALLOWED` or `CSRF` (body `source:"proxy"`) shows this generic error with Retry, never "no access" (AD-19)
+**And** proxy-originated `NOT_ALLOWED` (body `source:"proxy"`) shows this generic error with Retry, never "no access" (AD-19; there is no `CSRF` code, D5)
 **And** for action errors (saves) `lib/api/errors.ts` exposes the error rule: show the platform `message` for any 4xx/5xx that has one, otherwise the generic error.
 
 **Given** a read answers an upstream 403 (status 403 without `source:"proxy"`, mapped to `FORBIDDEN`)
@@ -3237,24 +3297,25 @@ So that my account stays safe and I can use the page whatever device or assistiv
 
 **Depends on:** Story 7.1 only.
 
+*Amended 2026-10-14 (decision D5): no session-binding embed.*
+
 **Acceptance Criteria:**
 
 **Given** `app/account/page.tsx` from Story 7.1
 **When** it is requested
-**Then** it embeds `sessionBinding = HMAC(SESSION_SECRET, sid)` in the page exactly like `app/page.tsx` (AD-17) and exports `dynamic = "force-dynamic"` (AD-18)
-**And** a test asserts the binding is present and matches the session, and that the page response is never cached (AD-17, AD-18).
+**Then** it embeds `portalUrl` exactly like `app/page.tsx` (Story 1.4; no `sessionBinding`, D5) and exports `dynamic = "force-dynamic"` (AD-18)
+**And** a test asserts that the page response is never cached (AD-18).
 
-**Given** `lib/server/proxy-allowlist.ts`
-**When** the Profile denies are added (AD-2; PRD addendum §A)
-**Then** these exact denies are present (prefix match only for `/**`, `<n>` = `^\d{1,19}$`, `*` = any method): `* /auth/**`, `* v2/public/external-application/**`, admin prefixes, `POST v2/mfa/enable`, `POST v2/mfa/disable`, `* v2/mfa/enable/<n>`, `* v2/mfa/disable/<n>`, `* v2/mfa/validate/<n>`, `* v2/user/switch-tenant/**`, `* v2/user/update-password`, `* v2/tenant/sys-config`; `v2/mfa/validate` and `v2/tenant/sys-config` have no passthrough entry
+**Given** the deny list, the `profile: true` tag and the proxy-level `ACCOUNT_DISABLED` rule owned by Story 1.3 *(ownership decided 2026-10-14; this story does not redefine them)*
+**When** the proxy table test runs against the Profile templates
+**Then** the Story 1.3 deny list blocks the AD-2 deny rows and traversal rows listed below
 **And** the Profile passthrough entries are **not** added here: each lands, with its query/body rules and proxy table rows, in the story that first uses it (AD-2): `POST v2/user/time-zone`, `POST v2/user/locale` and the `PUT v2/user/edit` `locale` rejection in Story 7.5; the `PUT v2/user/edit` `email`/`phoneNumber`/`phoneNumberRegion` acceptance in Story 7.6 (`contact-point/list` with `type` `Email|Mobile|Landline` already exists from Story 1.9); `POST v2/mfa/enable/totp` in Story 8.2; `POST v2/mfa/disable/totp` in Story 8.3; `GET v2/user/npi` and `GET v2/public/npi/list` in Story 9.1; `GET v2/health/npi/<n>/is-registered` and `POST v2/user/register/npi` in Story 9.2; `GET v2/user/organization/portal` in Story 10.1; the existing `GET v2/file/<n>/download` `asImage` entry is reused as is (Story 1.3 forces `preview=true`)
-**And** the allowlist entry type gains a `profile: true` tag that later stories set on each Profile-only entry, so the kill switch below applies to them without further work
 **And** the proxy table test includes the AD-2 deny rows (`POST v2/mfa/enable` → 403; `POST v2/mfa/enable/123` → 403; `GET v2/mfa/validate/123` → 403), plus: `GET v2/mfa/validate?code=123456` → 403 `NOT_ALLOWED`; `GET v2/user/switch-tenant/5` → 403; `POST v2/user/update-password` → 403; `GET v2/tenant/sys-config` → 403 (the allow rows for `POST v2/mfa/enable/totp` and `POST v2/mfa/disable/totp` land in Stories 8.2 and 8.3)
 **And** the traversal rows run against the Profile templates and all return 400/403: `v2/user/..%2Fmfa/enable`, `v2/mfa/enable/totp/..`, `v2/mfa/%2e%2e/validate/1`, `v2/user/%252Fswitch-tenant/1`, `//evil.example/v2/user/npi`, `v2/user/npi;x`, `v2/user/npi/`, `v2/MFA/enable/totp`.
 
 **Given** `ACCOUNT_DISABLED=1` in the deployment env (read only via `lib/server/env.ts`)
-**When** a request hits `/account`, `/handoff/**`, `/api/pp/mfa/**`, `/api/pp/org-logo/**`, `/api/pp/practice-support/**` or any allowlist entry tagged `profile: true` (added by Stories 7.5–10.3; a fixture entry proves the rule here)
-**Then** it answers 503 `{errorCode:"SERVICE_DISABLED", source:"proxy"}` (pages render the `/launch-error` `disabled` copy with status 503) before any upstream call, enforced centrally in `proxy.ts`/the proxy so routes added later inherit it (AD-20, PNFR8)
+**When** a request hits `/account`, `/handoff/**`, `/api/pp/mfa/**`, `/api/pp/org-logo/**` or `/api/pp/practice-support/**` (the page- and route-level part of the kill switch; the proxy-level part for `profile: true` entries is Story 1.3's)
+**Then** it answers 503 `{errorCode:"SERVICE_DISABLED", source:"proxy"}` (pages render the Story 1.16 disabled screen (`features/shell/disabled-screen.tsx`) with status 503; there is no `/launch-error`, D1) before any upstream call, enforced centrally in `proxy.ts` so routes added later inherit it (AD-20, PNFR8)
 **And** `/`, `GET v2/user/myself`, `contact-point/list`, `user/edit` and the Contacts entries keep working
 **And** a test runs the matrix with the flag on and off.
 
@@ -3268,15 +3329,17 @@ So that my account stays safe and I can use the page whatever device or assistiv
 
 **Given** keyboard-only use
 **When** the user tabs through `/account`
-**Then** the order is wordmark → page nav (Personal Profile, Account) → Return to 1health → header → tabs → active tab content in reading order (UX-DR-P29), every control shows the focus ring, and an `@axe-core/playwright` scan of each tab and of the error and no-access states, light and dark, desktop and 360 px, reports no WCAG 2.1 AA violations (PNFR2).
+**Then** the order is page nav (Personal Profile, Account) → Return to 1health → header → tabs → active tab content in reading order (UX-DR-P29); the "1health" wordmark is a non-interactive `span` in `primary-text` and is never focused (the Playwright Tab-sequence test asserts it is skipped); every control shows the focus ring, and an `@axe-core/playwright` scan of each tab and of the error and no-access states, light and dark, desktop and 360 px, reports no WCAG 2.1 AA violations (PNFR2).
 
-**Covers:** PNFR1, PNFR2, PNFR4, PNFR8, PNFR9, AD-2 (denies, `profile: true` tag), AD-17, AD-18, AD-20, AD-21, PRC3 · UX-DR-P3 (mobile), UX-DR-P29, UX-DR-P31 · **Jira:** NG-9019
+**Covers:** PNFR1, PNFR2, PNFR4, PNFR8, PNFR9, AD-2 (deny rows verified against Profile templates; definition in Story 1.3), AD-17 (as superseded by D5: 415 JSON check only), AD-18, AD-20, AD-21, PRC3 · UX-DR-P3 (mobile), UX-DR-P29, UX-DR-P31 · **Jira:** NG-9019
 
 ---
 
 ### Story 7.3: Portal hand-off route
 
 **Jira:** [NG-9032](https://1hio.atlassian.net/browse/NG-9032)
+
+*Amended 2026-10-14 (decision D4): the portal URL comes from `lib/shared/environments.ts` for an environment resolved from the session, else the `onehealth_environment` cookie, else `prod`; there is no `PORTAL_URL` env var.*
 
 As a 1health user who works in several organizations,
 I want every "go to the portal" action in the app to go through one safe server route,
@@ -3286,23 +3349,24 @@ So that leaving to an organization's portal always works the same way and safely
 
 **Given** `app/handoff/portal/route.ts` (GET only, `dynamic = "force-dynamic"`)
 **When** it receives `?to=tenant&tenantId=<n>` with `n` matching `^\d{1,19}$`
-**Then** it answers `seeOther()` (303, absolute `Location`, from `lib/server/http.ts`) to the tenant URL built by `buildTenantPortalUrl(n)` in `lib/server/handoff.ts`, from `PORTAL_URL` (via `lib/server/env.ts`) plus the numeric id only (AD-22)
-**And** the tenant URL shape lives only in that module behind the constant `TENANT_HANDOFF_SHAPE`: `"root"` → `PORTAL_URL` and `"ctx"` → `<PORTAL_URL>/?ctx=<n>` (candidate A4). Decided 2026-10-13: the default is `"root"` (tenant hand-off goes to the `PORTAL_URL` root, fallback R-A) until OQ1 is answered; switching to `?ctx=<tenantId>` changes only this one constant, and both shapes are unit tested (PNFR10)
+**Then** it answers `seeOther()` (303, absolute `Location`, from `lib/server/http.ts`) to the tenant URL built by `buildTenantPortalUrl(env, n)` in `lib/server/handoff.ts`, from the resolved environment's `portalUrl` (`lib/shared/environments.ts`) plus the numeric id only (AD-22)
+**And** `lib/server/handoff.ts#resolveHandoffEnvironment(request)` picks the environment from the session's `environment` when `__Host-pp_s` unseals (read-only: no refresh, no `lastSeen` update, no `Set-Cookie`), else the `onehealth_environment` cookie when it is exactly `demo` or `prod`, else `prod`; it never reads the environment from a query parameter or header (D4)
+**And** the tenant URL shape lives only in that module behind the constant `TENANT_HANDOFF_SHAPE`: `"root"` → `portalUrl` and `"ctx"` → `<portalUrl>/?ctx=<n>` (candidate A4). Decided 2026-10-13: the default is `"root"` (tenant hand-off goes to the `portalUrl` root, fallback R-A) until OQ1 is answered; switching to `?ctx=<tenantId>` changes only this one constant, and both shapes are unit tested (PNFR10)
 **And** the URL is never built from response data (`subdomain`, `tenantLogo`, org names) or from any other request input.
 
 **Given** `?to=create-org`
 **When** the route handles it
-**Then** it answers 303 to `<PORTAL_URL origin>/organizations/create` (addendum §C).
+**Then** it answers 303 to `<portalUrl origin>/organizations/create` for the resolved environment (addendum §C).
 
 **Given** invalid input
 **When** the request is any of: no `to`; `to` not in `tenant|create-org` (case-sensitive); `to=tenant` with `tenantId` missing, empty, non-digit, negative, signed (`+5`), decimal, 20+ digits, percent-encoded or repeated; `tenantId=1@evil.example`, `tenantId=//evil.example`, CR/LF in a value; or a repeated `to`
-**Then** it answers 303 to `PORTAL_URL` and nothing else (no error page, no echo of the input)
+**Then** it answers 303 to the resolved environment's `portalUrl` and nothing else (no error page, no echo of the input)
 **And** extra query params are ignored and never forwarded; the emitted `Location` carries no query other than the shape's own `ctx`, never `assume`, and no fragment (AD-22).
 
 **Given** the route is session-less by design
 **When** it is called with no cookie, an expired cookie or a valid one
-**Then** it behaves the same, does not call `requireSession()`, makes no upstream or `/api/session/*` call, sets no cookie and leaves `__Host-pp_s` untouched (no logout, AD-16; drafts kept, AD-12)
-**And** `proxy.ts` exempts `/handoff/**` from the no-session redirect, and a test proves a cookie-less request gets the 303 and not `/launch-error`.
+**Then** it behaves the same apart from the environment resolution above, does not call `requireSession()`, makes no upstream or `/api/session/*` call, sets no cookie and leaves `__Host-pp_s` untouched (no logout, AD-16; drafts kept, AD-12)
+**And** `proxy.ts` exempts `/handoff/**` from the no-session redirect, and a test proves a cookie-less request gets the 303 and not a redirect to `/auth`.
 
 **Given** other methods
 **When** `POST`, `PUT`, `DELETE` or `HEAD` hits `/handoff/portal`
@@ -3315,19 +3379,20 @@ So that leaving to an organization's portal always works the same way and safely
 
 **Given** the client helper `features/shell/handoff.ts`
 **When** a feature calls `handoffHref({ to: "tenant", tenantId })` or `handoffHref({ to: "create-org" })`
-**Then** it returns `/handoff/portal?to=tenant&tenantId=<n>` (tenantId must be a safe positive integer, else it throws in development and returns plain `/handoff/portal` in production, which the route sends to `PORTAL_URL`) or `/handoff/portal?to=create-org`
+**Then** it returns `/handoff/portal?to=tenant&tenantId=<n>` (tenantId must be a safe positive integer, else it throws in development and returns plain `/handoff/portal` in production, which the route sends to the resolved `portalUrl`) or `/handoff/portal?to=create-org`
 **And** callers pass the result to `navigate({ external: "handoff", href })`, which runs the leave guard and then a same-tab `location.assign(href)`; there is no `window.open`, `target=_blank` or framed branch (AD-5, AD-26, PM11)
 **And** a component test with a dirty `account` Section shows the leave guard before navigating, and "Keep editing" cancels the hand-off.
 
 **Given** the switch-tenant rule
 **When** the codebase is checked
-**Then** no module references `v2/user/switch-tenant` (CI grep), and the proxy deny from Story 7.2 stays in place (AD-22, R7).
+**Then** no module references `v2/user/switch-tenant` (CI grep), and the Story 1.3 proxy deny (verified by the Story 7.2 test rows) stays in place (AD-22, R7).
 
 **Given** route unit tests (Vitest, request objects against the handler)
 **When** they run
-**Then** they cover both tenant shapes, create-org, every invalid row above, open-redirect attempts, cookie-less and cookied requests, 405, and that `NextResponse.redirect` is not used (lint).
+**Then** they cover both tenant shapes, create-org, every invalid row above, open-redirect attempts, cookie-less and cookied requests, 405, and that `NextResponse.redirect` is not used (lint)
+**And** environment rows: demo session → demo portal; prod session → prod portal; no session + `onehealth_environment=demo` → demo portal; no session + no cookie or an invalid cookie value → prod portal; a `?env=demo` (or any) query param never changes the target (D4).
 
-**Covers:** FR120 (route), FR116/FR119 (hand-off transport), PNFR8, PNFR10, AD-4 (`seeOther`), AD-5, AD-15, AD-16, AD-17, AD-18, AD-20, AD-21, AD-22, AD-26, PRC12 · UX-DR-P25 (transport) · **Jira:** NG-9019
+**Covers:** FR120 (route), FR116/FR119 (hand-off transport), PNFR8, PNFR10, AD-4 (`seeOther`), AD-5, AD-15, AD-16, AD-17 (as superseded by D5: 415 JSON check only), AD-18, AD-20, AD-21, AD-22, AD-26, PRC12, D4 · UX-DR-P25 (transport) · **Jira:** NG-9019
 
 ---
 
@@ -3407,7 +3472,7 @@ So that my account is correct without guessing what was saved.
 
 **Given** the endpoints this story first uses
 **When** it is done
-**Then** the proxy allowlist gains, tagged `profile: true` (Story 7.2 kill switch), `POST v2/user/time-zone` (`timeZone` ∈ the six ids of `lib/shared/time-zones.ts`, required) and `POST v2/user/locale` (`locale` = `en-US` only, required), and the existing `PUT v2/user/edit` body schema rejects `locale` → 400 (AD-2, backend R2)
+**Then** the proxy allowlist gains, tagged `profile: true` (Story 1.3 tag and proxy-level `ACCOUNT_DISABLED` 503), `POST v2/user/time-zone` (`timeZone` ∈ the six ids of `lib/shared/time-zones.ts`, required) and `POST v2/user/locale` (`locale` = `en-US` only, required), and the existing `PUT v2/user/edit` body schema rejects `locale` → 400 (AD-2, backend R2)
 **And** the proxy table test adds: `POST v2/user/time-zone?timeZone=Europe/Paris` → 400; `POST v2/user/locale?locale=en-us` → 400; `PUT v2/user/edit` with `locale` in the body → 400; both new entries → 503 with `ACCOUNT_DISABLED=1`.
 
 **Given** the read view from Story 7.4
@@ -3466,7 +3531,7 @@ So that my account is correct without guessing what was saved.
 **Then** Save shows a spinner and "Saving…", is disabled (a double click sends once), inputs become read-only and Cancel is disabled
 **And** `save()` runs in this order (AD-7 exception): (1) `updateAccount(diff)` in `lib/api/account.ts` sends `PUT /api/1h/v2/user/edit` with only the changed fields among `firstName`, `lastName`, `birthDate`, `preferredLanguage`, and only when any is dirty; (2) `setTimeZone(id)` sends `POST v2/user/time-zone?timeZone=<IANA>` only if time zone is dirty; (3) `setLocale()` sends `POST v2/user/locale?locale=en-US` only if locale is dirty
 **And** (2) and (3) are both attempted whatever the earlier results; `locale`, `timeZone`, `username` and `password` never appear in the `/edit` body (backend R2)
-**And** a `SESSION_EXPIRED` or `SESSION_CHANGED` from any step stops the sequence (no later call), and the session flow from Story 1.7/1.15 takes over
+**And** a `SESSION_EXPIRED` from any step stops the sequence (no later call), and the session flow from Story 1.7/1.15 takes over (there is no `SESSION_CHANGED`, D5)
 **And** a non-GET is replayed only after a proxy-originated `TOKEN_EXPIRED`, never after a 5xx or timeout (AD-16).
 
 **Given** every step succeeds
@@ -3582,7 +3647,7 @@ So that I sign in and get notifications with the address and number I use now.
 
 Users link an authenticator app by scanning a QR code and entering a code, see that it's enabled, and turn it off with a confirmation. MFA parity: base MFA is never turned on.
 
-**FRs covered:** FR110, FR111, FR112 · **Depends on:** Epics 1 and 7 (the `/account` page, Personal Account tab, `#authenticator` anchor, `lib/api/errors.ts` exact-message table and `FORBIDDEN` mapping, no-access panel, load-error banner, toasts, AD-2 deny rows) · **Jira:** NG-9019
+**FRs covered:** FR110, FR111, FR112 · **Depends on:** Epics 1 and 7 (the `/account` page, Personal Account tab, `#authenticator` anchor, `lib/api/errors.ts` exact-message table and `FORBIDDEN` mapping, no-access panel, load-error banner, toasts, the Story 1.3 AD-2 deny list as verified against Profile templates in Story 7.2) · **Jira:** NG-9019
 
 ---
 
@@ -3638,7 +3703,7 @@ So that I know if my sign-in is protected by a code and where to start if it isn
 **When** the card renders
 **Then** its body is replaced by the Section-level `no-access-panel` row (20 px lock icon, muted-foreground, "You don't have access to this in your current account"), with no status, no "Disable", no tiles and no action
 **And** the Personal account settings Section and the other tabs keep working (AD-23 403 owner table, PNFR11)
-**And** a proxy-originated 403 (`NOT_ALLOWED` / `CSRF`) never sets this state.
+**And** a proxy-originated 403 (`NOT_ALLOWED`; there is no `CSRF`, D5) never sets this state.
 *(This story builds the state and its rendering; Stories 8.2 and 8.3 set it from their calls.)*
 
 **Given** the viewport
@@ -3671,9 +3736,9 @@ So that my account asks for a code from my phone when I sign in.
 
 **Given** the endpoints this story uses
 **When** it is done
-**Then** the proxy allowlist gains `POST v2/mfa/enable/totp` (no query, no body, `X-PP-Session` required, no server-forced params, tagged `profile: true`) and the named op `POST /api/pp/mfa/validate` exists in `app/api/pp/mfa/validate/route.ts` (`force-dynamic`): session required, same-origin + `X-PP-Session` (AD-17), JSON body `{ "code": "<6 digits>" }` matching `^\d{6}$` (else 400 `{errorCode:"BAD_BODY", source:"proxy"}` without calling upstream), the server calls upstream `POST v2/mfa/validate?code=<code>` and returns the upstream boolean as JSON with `Cache-Control: private, no-store, max-age=0` (AD-2, AD-18)
+**Then** the proxy allowlist gains `POST v2/mfa/enable/totp` (no query, no body, no server-forced params, tagged `profile: true`) and the named op `POST /api/pp/mfa/validate` exists in `app/api/pp/mfa/validate/route.ts` (`force-dynamic`): session required, `Content-Type: application/json` (else 415), no CSRF or `X-PP-Session` check (D5), JSON body `{ "code": "<6 digits>" }` matching `^\d{6}$` (else 400 `{errorCode:"BAD_BODY", source:"proxy"}` without calling upstream), the server calls upstream `POST v2/mfa/validate?code=<code>` and returns the upstream boolean as JSON with `Cache-Control: private, no-store, max-age=0` (AD-2, AD-18)
 **And** `v2/mfa/validate` is not a passthrough entry, and the AD-2 deny rows still pass (`POST v2/mfa/enable` → 403, `POST v2/mfa/enable/123` → 403, `GET v2/mfa/validate/123` → 403) with the new allow row `POST v2/mfa/enable/totp` → allowed
-**And** the dev debug logger's redaction list gains `qrCode` and `code` (AD-15; Story 1.3 already redacts tokens and SSN), and `app/globals.css` gains the `qr-surface` token = #ffffff in both light and dark (UX-DR-P1).
+**And** the dev-only `logApiCall` (Story 1.4, D6) already redacts `qrCode`, `code`, tokens and SSN-shaped values, and a test asserts it for these responses (AD-15), and `app/globals.css` gains the `qr-surface` token = #ffffff in both light and dark (UX-DR-P1).
 **And** `lib/api/mfa.ts` exports `enableTotp(): Promise<ApiResponse<{ qrCode: string }>>` and `validateTotp(code): Promise<ApiResponse<boolean>>`, both through `callApi` with contexts `"mfa/enableTotp"` / `"mfa/validateTotp"`, bypassing the SWR fetcher; nothing in the app calls `mfa/enable` (base MFA) (AD-23 MFA, PRC6).
 
 **Given** the card shows "Not set up" (Story 8.1)
@@ -3684,7 +3749,7 @@ So that my account asks for a code from my phone when I sign in.
 
 **Given** `enable/totp` returns `{ qrCode }`
 **When** the response arrives
-**Then** the dialog "Link your Microsoft authenticator" opens (shadcn Dialog, `qr-dialog`: 440 px, popover background, `rounded-lg`, elevation-2) with the instruction "Use the Microsoft authenticator app installed on your device to scan this QR, then provide the code generated by the app in the field below."
+**Then** the dialog "Link your Microsoft authenticator" opens (shadcn Dialog, `qr-dialog`: 440 px, popover background, `rounded-lg`, elevation-2, over the `scrim` token) with the instruction "Use the Microsoft authenticator app installed on your device to scan this QR, then provide the code generated by the app in the field below."
 **And** the QR is a 184 px `<img src={qrCode} alt="QR code to link your authenticator app">` on the `qr-surface` white token inside a 1 px border frame, centered (white in both themes)
 **And** below it the label "6-digit code" and one `otp-input` (44 px tall, 200 px wide, mono-value, 0.3em tracking, no placeholder, `inputmode="numeric"`, `autocomplete="one-time-code"`, digits only, max 6 — non-digits typed or pasted are dropped)
 **And** the footer has "Cancel" (secondary) and "Submit" (primary, always enabled)
@@ -3702,7 +3767,7 @@ So that my account asks for a code from my phone when I sign in.
 **Given** `enable/totp` fails otherwise
 **When** the response arrives
 **Then** an upstream `FORBIDDEN` sets the card's no-access state (Story 8.1); any other error shows an `inline-banner-error` above the tiles with the platform `message` when present, otherwise "Couldn't start linking your authenticator app. Try again." *(DRAFT COPY)*; the spinner stops and tiles are enabled again; nothing is retried automatically (AD-16, AD-19)
-**And** `SESSION_EXPIRED` / `SESSION_CHANGED` show no card error (the shell dialogs handle them).
+**And** `SESSION_EXPIRED` shows no card error (the shell dialog handles it; there is no `SESSION_CHANGED`, D5).
 
 **Given** the dialog is open
 **When** I press Submit with fewer than 6 digits (including empty)
@@ -3751,10 +3816,10 @@ So that my account asks for a code from my phone when I sign in.
 **Tests:**
 - Vitest + MSW (`features/mfa`): double-click and Enter+click on a tile → one `enable/totp` call; rendering the dialog under `<React.StrictMode>` → one call; reopening after Cancel → a second call with a new QR; no `enable/totp` call while the dialog is open (including after a wrong code); short code → no request; wrong code → cleared + message + focus; correct code → toast, `myself` revalidated, focus to `h2`; `MFA_NOT_ENABLED` → notice focused, no dialog, tiles enabled; `TOTP_ALREADY_ENABLED` → refetch; upstream 403 → no-access; `mfa_link` payload has only `ok` and `attempt`.
 - Privacy: after a full link flow, the SWR cache, both storages and `console` spies contain neither the `qrCode` value nor the 6-digit code.
-- Route tests (`/api/pp/mfa/validate`): valid body → upstream `?code=` and boolean passthrough; `12345`, `abcdef`, missing body → 400 with no upstream call; missing `X-PP-Session` or cross-origin → 403 `CSRF`; no session → 401; logs contain method, path template, status, duration, request id and no code; `no-store` header.
+- Route tests (`/api/pp/mfa/validate`): valid body → upstream `?code=` and boolean passthrough; `12345`, `abcdef`, missing body → 400 with no upstream call; non-JSON `Content-Type` → 415 `UNSUPPORTED_MEDIA`; no session → 401; logs contain method, path template, status, duration, request id and no code; `no-store` header.
 - Playwright (mocked proxy, UJ-102 / addendum §E row 7): link with a wrong then a correct code; base MFA off; dialog full-screen at 360 px; axe clean in light and dark.
 
-**Covers:** FR111, PNFR1, PNFR2, PNFR4, PNFR6, PNFR12 (SM-103), AD-2 (allowlist, named op, denies), AD-10, AD-12, AD-15, AD-16, AD-17, AD-18, AD-19, AD-23 (MFA parity, single-flight, 403 owner) · UX-DR-P1, UX-DR-P9, UX-DR-P10, UX-DR-P11, UX-DR-P31, UX-DR-P32, UX-DR-P34 (D-UX8) · PRC6, PRC11 · **Jira:** NG-9019
+**Covers:** FR111, PNFR1, PNFR2, PNFR4, PNFR6, PNFR12 (SM-103), AD-2 (allowlist, named op, denies), AD-10, AD-12, AD-15, AD-16, AD-17 (as superseded by D5: 415 JSON check only), AD-18, AD-19, AD-23 (MFA parity, single-flight, 403 owner) · UX-DR-P1, UX-DR-P9, UX-DR-P10, UX-DR-P11, UX-DR-P31, UX-DR-P32, UX-DR-P34 (D-UX8) · PRC6, PRC11 · **Jira:** NG-9019
 
 ---
 
@@ -3770,11 +3835,11 @@ So that I can stop using that app (for example after changing phones) without ac
 
 **Given** the endpoint this story uses
 **When** it is done
-**Then** the proxy allowlist gains `POST v2/mfa/disable/totp` (no query, no body, `X-PP-Session` required, no server-forced params, tagged `profile: true`), `lib/api/mfa.ts` exports `disableTotp()` through `callApi` (context `"mfa/disableTotp"`), and the deny rows `POST v2/mfa/disable` → 403 and `POST v2/mfa/disable/123` → 403 pass (AD-2).
+**Then** the proxy allowlist gains `POST v2/mfa/disable/totp` (no query, no body, no server-forced params, tagged `profile: true`), `lib/api/mfa.ts` exports `disableTotp()` through `callApi` (context `"mfa/disableTotp"`), and the deny rows `POST v2/mfa/disable` → 403 and `POST v2/mfa/disable/123` → 403 pass (AD-2).
 
 **Given** the card shows "Enabled" (Story 8.1)
 **When** I activate "Disable"
-**Then** a confirm dialog opens titled "Turn off authenticator app?" with body "You'll no longer be asked for a code from your authenticator app when you sign in." and buttons "Cancel" (secondary) and "Turn off" (`button-destructive`, `destructive-fill`, white text)
+**Then** a confirm dialog opens over the `scrim` token, titled "Turn off authenticator app?" with body "You'll no longer be asked for a code from your authenticator app when you sign in." and buttons "Cancel" (secondary) and "Turn off" (`button-destructive`, `destructive-fill`, white text)
 **And** focus starts on "Cancel" and is trapped in the dialog; no request has been sent yet (FR112, UX-DR-P12).
 
 **Given** the confirm is open
@@ -3795,7 +3860,7 @@ So that I can stop using that app (for example after changing phones) without ac
 **When** the response arrives
 **Then** an upstream `FORBIDDEN` closes the dialog and sets the card's no-access state (Story 8.1)
 **And** any other error closes the dialog, shows an `inline-banner-error` in the card with the platform `message` when present, otherwise "Couldn't turn off the authenticator app. Try again." *(DRAFT COPY)*, revalidates `["pp","myself"]`, and returns focus to "Disable" if it is still shown (else the `h2`); the card keeps showing the status from `myself`
-**And** the request is never replayed automatically after a 5xx or timeout (AD-16); `SESSION_EXPIRED` / `SESSION_CHANGED` show no card error.
+**And** the request is never replayed automatically after a 5xx or timeout (AD-16); `SESSION_EXPIRED` shows no card error (there is no `SESSION_CHANGED`, D5).
 
 **Given** a viewport below 768 px
 **When** the confirm opens
@@ -3835,7 +3900,7 @@ So that I can find the right NPI records before I register.
 **Then** the proxy allowlist gains these exact entries (METHOD + template + allowed query), each with proxy tests (AD-2):
 - `GET v2/user/npi`: no query params (any → 400 `BAD_QUERY`);
 - `GET v2/public/npi/list`: `entityTypeCode` exactly `1` or `2`, `searchText` ≤ 100 chars (may be empty), `page` matching `^\d{1,4}$`, `limit` an integer 1–10. Any other param, a missing `entityTypeCode`, `entityTypeCode=3`, `limit=11` or `page=12345` → 400 `BAD_QUERY`
-**And** both entries are tagged `profile: true`, so they return 503 `SERVICE_DISABLED` when `ACCOUNT_DISABLED=1` (Story 7.2, AD-20)
+**And** both entries are tagged `profile: true`, so they return 503 `SERVICE_DISABLED` when `ACCOUNT_DISABLED=1` (Story 1.3 proxy-level kill switch, AD-20)
 **And** server logs for both carry only method, path template, status, duration and request id, never `searchText` (AD-15).
 
 **Given** `lib/api/npi.ts`
@@ -3862,7 +3927,7 @@ So that I can find the right NPI records before I register.
 **Given** `user/npi` fails with an upstream 403 (`FORBIDDEN`, no `source:"proxy"`)
 **When** the tab renders
 **Then** the whole Provider tab content is replaced by the tab-level `no-access-panel` "You don't have access to this in your current account" with no action, and the Personal Account and My Organizations tabs keep working (FR103, AD-23 owner table, UX-DR-P26)
-**And** a proxy `NOT_ALLOWED` or `CSRF` 403 is not shown as no access. It shows the generic load error with Retry (AD-19).
+**And** a proxy `NOT_ALLOWED` 403 is not shown as no access (there is no `CSRF`, D5). It shows the generic load error with Retry (AD-19).
 
 **Given** `user/npi` fails with any other error
 **When** the Section renders
@@ -3961,8 +4026,8 @@ So that I'm recognized as a provider without accidentally claiming someone else'
 **When** this story is done
 **Then** the proxy allowlist gains these exact entries, each with proxy tests (AD-2):
 - `GET v2/health/npi/{n}/is-registered`: `{n}` matching `^\d{1,19}$`, no query params;
-- `POST v2/user/register/npi`: JSON body schema `{ providerNpiId: integer, practiceNpiId?: integer }`, no other keys (an extra key or a non-integer value → 400), no query params; it requires AD-17 same-origin + `X-PP-Session`
-**And** both entries are tagged `profile: true`, so they return 503 `SERVICE_DISABLED` when `ACCOUNT_DISABLED=1` (Story 7.2)
+- `POST v2/user/register/npi`: JSON body schema `{ providerNpiId: integer, practiceNpiId?: integer }`, no other keys (an extra key or a non-integer value → 400), no query params; non-JSON `Content-Type` → 415; no CSRF or `X-PP-Session` check (D5)
+**And** both entries are tagged `profile: true`, so they return 503 `SERVICE_DISABLED` when `ACCOUNT_DISABLED=1` (Story 1.3 proxy-level kill switch, AD-20)
 **And** `lib/api/npi.ts` adds `isNpiRegistered(recordId)` and `registerNpi({ providerNpiId, practiceNpiId? })`, both through `callApi`.
 
 **Given** the personal combobox has no selection (empty, or text typed but no option picked)
@@ -4017,7 +4082,7 @@ So that I'm recognized as a provider without accidentally claiming someone else'
 **Given** any Register call returns an upstream 403 (`FORBIDDEN`)
 **When** it is handled
 **Then** the Provider tab shows the tab-level `no-access-panel` (AD-23 owner table)
-**And** `SESSION_EXPIRED` / `SESSION_CHANGED` hands off to the session dialogs (Epic 1). The selections are not drafted and are gone after re-launch (PNFR1, UJ-105).
+**And** `SESSION_EXPIRED` hands off to the session dialog (Epic 1; there is no `SESSION_CHANGED`, D5). The selections are not drafted and are gone after re-launch (PNFR1, UJ-105).
 
 **Given** accessibility
 **When** a keyboard or screen-reader user registers
@@ -4026,10 +4091,10 @@ So that I'm recognized as a provider without accidentally claiming someone else'
 **Given** the story is implemented
 **When** CI runs
 **Then** Vitest + MSW cover: required on blur and on Register; is-registered called with record ids (never the NPI); personal-taken, practice-taken and both-taken, each sending no POST; personal-only and personal+practice bodies and toasts; double click → one POST; platform-message banner and 1-888 fallback banner, cleared only on the next Register; race `NPI_ALREADY_REGISTERED` mapping to the field; no replay after 5xx; 403 → tab no-access; focus to `h2` on success
-**And** the proxy tests cover the two entries (bad id, extra body key, non-integer id, missing `X-PP-Session` → 403 `CSRF`)
+**And** the proxy tests cover the two entries (bad id, extra body key, non-integer id, non-JSON `Content-Type` → 415)
 **And** Playwright (mocked proxy) covers UJ-103 steps 4–5 (Register → "Registering…" → registered body with focus on the `h2`), the "personal NPI already taken" edge, and parity checklist row 8 (register personal only, personal + practice, the already-registered checks, the error fallback).
 
-**Covers:** FR115, PNFR1, PNFR2, PNFR6, PNFR12 (SM-C101), AD-2, AD-16, AD-17, AD-19, AD-23, PRC7 · UX-DR-P13, UX-DR-P16, UX-DR-P26, UX-DR-P32, UX-DR-P34 (D-UX6) · **Jira:** NG-9019
+**Covers:** FR115, PNFR1, PNFR2, PNFR6, PNFR12 (SM-C101), AD-2, AD-16, AD-17 (as superseded by D5: 415 JSON check only), AD-19, AD-23, PRC7 · UX-DR-P13, UX-DR-P16, UX-DR-P26, UX-DR-P32, UX-DR-P34 (D-UX6) · **Jira:** NG-9019
 
 ### Story 9.3: Registered view
 
@@ -4064,7 +4129,7 @@ So that I can confirm what 1health has on file and know my next step for my prac
 **And** while it loads, the popover shows a spinner + "Loading…" *(draft copy)*
 **And** on success the popover shows the organization name (600), the support phone (tabular, via `formatPhoneDisplay()` from Story 7.4 using `phoneRegion`) and the support email as a `mailto:` link in `link-text`, built only through `safeHref()` (plain text when it returns `undefined`). Missing fields are omitted, and with none of the three it shows "-" (PM8)
 **And** on an upstream 403 only the popover shows "You don't have access to this in your current account". The rest of the view is unaffected (AD-23 owner table)
-**And** on any other failure the popover shows "Couldn't load the support contact." *(draft copy)* with a "Try again." link-styled button that refetches only that key.
+**And** on any other failure the popover shows "Couldn't load the support contact." *(draft copy)* with a "Try again." button in `link-text` that refetches only that key.
 
 **Given** `lib/shared/safe-href.ts`
 **When** this story needs it for the support email
@@ -4150,7 +4215,7 @@ So that I can find the organization I need in a few keystrokes, or learn how to 
 
 **Given** the allowlist (AD-2) and the client module
 **When** this story lands
-**Then** the passthrough entry `GET v2/user/organization/portal` is added (tagged `profile: true`, Story 7.2 kill switch) with exactly `name` (string ≤ 100 chars, may be empty), `page` (`^\d{1,4}$`) and `size` (≤ 12); a request outside those bounds gets 400 from the proxy and is never forwarded (proxy table rows: `size=13` → 400, `page=12345` → 400, 101-char `name` → 400, valid request → forwarded)
+**Then** the passthrough entry `GET v2/user/organization/portal` is added (tagged `profile: true`; Story 1.3 proxy-level `ACCOUNT_DISABLED` 503) with exactly `name` (string ≤ 100 chars, may be empty), `page` (`^\d{1,4}$`) and `size` (≤ 12); a request outside those bounds gets 400 from the proxy and is never forwarded (proxy table rows: `size=13` → 400, `page=12345` → 400, 101-char `name` → 400, valid request → forwarded)
 **And** `lib/api/organizations.ts#listOrganizations({name, page})` calls it through `callApi("organizations/list", …)` with `size=12` and 0-based `page`, maps the wire DTO to a domain type `{ tenantId, enabledInTenant, name, shortName, types: string[], personContacts }`, drops items whose `organization` is `null`, and sorts the rest by `shortOrganizationName ?? name` (case-insensitive, `localeCompare`) within the page (AD-23, R6)
 **And** the SWR key is `keys.orgs(name, page)` = `["pp","orgs",name,page]` (AD-10), where `name` is the trimmed search text
 **And** `features/organizations` is the only consumer; `subdomain`, `tenantLogo.publicUrl` and every other unused DTO field are not exposed by the domain type.
@@ -4206,7 +4271,7 @@ So that I can find the organization I need in a few keystrokes, or learn how to 
 
 **Given** the list request fails with anything other than an upstream 403
 **When** the tab renders
-**Then** an `inline-banner-error` "Something went wrong while loading profile information · Retry" replaces the grid; Retry reloads only this list for the current search and page (FR103, UX-DR-P28); a platform `message`, when present, is shown per the AD-19 error rule; proxy `NOT_ALLOWED` / `CSRF` show this generic banner, never "no access".
+**Then** an `inline-banner-error` "Something went wrong while loading profile information · Retry" replaces the grid; Retry reloads only this list for the current search and page (FR103, UX-DR-P28); a platform `message`, when present, is shown per the AD-19 error rule; proxy `NOT_ALLOWED` shows this generic banner, never "no access" (there is no `CSRF`, D5).
 
 **Given** the list request returns an upstream 403 (`FORBIDDEN`, no `source:"proxy"`)
 **When** the tab renders
@@ -4228,6 +4293,9 @@ So that I can find the organization I need in a few keystrokes, or learn how to 
 
 **Jira:** [NG-9043](https://1hio.atlassian.net/browse/NG-9043)
 
+*Amended 2026-10-14 (decisions D1, D4): the logo host check uses the per-environment `publicFilesOrigin` from `lib/shared/environments.ts`, not a `PUBLIC_FILES_ORIGIN` env var.*
+*Amended 2026-10-14 (decisions D5, D7): no `X-PP-Session` exists; the hardened route and CSP `img-src 'self' blob: data:` stay.*
+
 As Mónica, who manages a lab and a supplier on 1health,
 I want each organization card to show its logo, name, what kind of organization it is and who its primary contact is,
 So that I recognize the right organization at a glance and know whom to call.
@@ -4236,14 +4304,14 @@ So that I recognize the right organization at a glance and know whom to call.
 
 **Given** the named operation `GET /api/pp/org-logo/{tenantId}` (`app/api/pp/org-logo/[tenantId]/route.ts`, AD-24)
 **When** it is called
-**Then** it requires a session (`requireSession()`), allows GET without `X-PP-Session` (AD-17), exports `force-dynamic` (AD-18) and returns 503 `SERVICE_DISABLED` when `ACCOUNT_DISABLED=1` (AD-20)
+**Then** it requires a session (`requireSession()`), has no `X-PP-Session` or CSRF check (D5), exports `force-dynamic` (AD-18) and returns 503 `SERVICE_DISABLED` when `ACCOUNT_DISABLED=1` (AD-20)
 **And** it validates `tenantId` against `^\d{1,19}$`
 **And** it finds the tenant by reading `GET v2/user/organization/portal` server-side with the session token (`size=50`, page 0 upward, stop at the match, at most 5 pages); not found → not a member
-**And** it requires `new URL(item.tenantLogo.publicUrl).origin === PUBLIC_FILES_ORIGIN` (AD-3; unset, null or unparsable URL fails)
+**And** it requires `new URL(item.tenantLogo.publicUrl).origin === publicFilesOrigin` of the session's `environment` from `lib/shared/environments.ts` (AD-3 as superseded by D1/D4; one deployment serves both environments, so this is not an env var; unset, null or unparsable URL fails)
 **And** it fetches the logo with no credentials or cookies, `redirect: "manual"` (any 3xx fails), a 5 s timeout, `cache: "no-store"` and a 512 KB cap checked on `Content-Length` and while streaming
 **And** it serves only PNG, JPEG or WebP whose leading bytes match (`89 50 4E 47`, `FF D8 FF`, `RIFF….WEBP`), with `Content-Type` from the matched bytes, `Content-Disposition: inline`, `X-Content-Type-Options: nosniff` and the AD-18 no-store headers; SVG and any other type fail
 **And** every failure (bad id, not a member, host mismatch, redirect, timeout, too large, wrong bytes, upstream error) returns 404 `{errorCode:"NO_LOGO", source:"proxy"}` and is logged per AD-15 (no URL or query string)
-**And** `v2/file/{id}/download` is never used for logos, and CSP `img-src` stays `'self'`.
+**And** `v2/file/{id}/download` is never used for logos, and CSP `img-src` stays `'self' blob: data:` (the AD-21 value, unchanged; D7).
 
 **Given** a card renders (the component from Story 10.1)
 **When** the logo slot renders
@@ -4283,15 +4351,17 @@ So that I recognize the right organization at a glance and know whom to call.
 
 **Given** the story is implemented
 **When** CI runs
-**Then** route tests (MSW for upstream and files host) cover rows: non-numeric id → 404; not a member after 5 pages → 404; member found on page 3 → served; host mismatch → 404; `PUBLIC_FILES_ORIGIN` unset → 404; 302 → 404; timeout → 404; `Content-Length` 600 KB → 404; streamed body over 512 KB → 404; SVG declared and SVG bytes → 404; PNG declared with JPEG bytes → served as `image/jpeg`; no cookie or `Authorization` sent to the files host; response headers asserted (nosniff, inline, no-store)
+**Then** route tests (MSW for upstream and files host) cover rows: non-numeric id → 404; not a member after 5 pages → 404; member found on page 3 → served; host mismatch → 404; `publicFilesOrigin` unset for the session's environment → 404; a demo-environment logo URL on a prod session → 404; 302 → 404; timeout → 404; `Content-Length` 600 KB → 404; streamed body over 512 KB → 404; SVG declared and SVG bytes → 404; PNG declared with JPEG bytes → served as `image/jpeg`; no cookie or `Authorization` sent to the files host; response headers asserted (nosniff, inline, no-store)
 **And** component tests cover icon ordering and capping, "+N" accessible name, every mapped type, unknown type no-crash, n/a and empty types, initials fallback on `onError`, Primary contact selection and "-" fallback, `safeHref` rejecting `javascript:` emails, and popover Escape focus return
 **And** Playwright covers addendum §E row 10 (logo fallback, 4 icons plus "+N", every type, primary-contact popover) with an axe scan in light and dark.
 
-**Covers:** FR118, PNFR1 (logos server-side, no credentials), PNFR2, PNFR5, AD-3, AD-15, AD-17, AD-18, AD-20, AD-24, PRC9 · UX-DR-P1, UX-DR-P5, UX-DR-P18, UX-DR-P20, UX-DR-P21, UX-DR-P22, UX-DR-P31, UX-DR-P33 (PM9, PM10), UX-DR-P34 (D-UX9) · **Jira:** NG-9019
+**Covers:** FR118, PNFR1 (logos server-side, no credentials), PNFR2, PNFR5, AD-3, AD-15, AD-17 (as superseded by D5: 415 JSON check only), AD-18, AD-20, AD-24, PRC9 · UX-DR-P1, UX-DR-P5, UX-DR-P18, UX-DR-P20, UX-DR-P21, UX-DR-P22, UX-DR-P31, UX-DR-P33 (PM9, PM10), UX-DR-P34 (D-UX9) · **Jira:** NG-9019
 
 ### Story 10.3: Enter portal
 
 **Jira:** [NG-9044](https://1hio.atlassian.net/browse/NG-9044)
+
+*Amended 2026-10-14 (decision D4): the hand-off target is the session environment's `portalUrl`, not `PORTAL_URL`.*
 
 As Mónica, who needs to work inside one of her organizations,
 I want an "Enter portal" button on each organization card,
@@ -4311,7 +4381,7 @@ So that I land in the 1health portal in that organization's context without losi
 
 **Given** the hand-off navigates
 **When** `/handoff/portal?to=tenant&tenantId=<n>` answers
-**Then** the browser follows the 303 in the same tab to `<PORTAL_URL>/?ctx=<n>` (or the `PORTAL_URL` root while OQ1 is open, PNFR10) (AD-22)
+**Then** the browser follows the 303 in the same tab to `<portalUrl>/?ctx=<n>` (or the `portalUrl` root while OQ1 is open, PNFR10) of the environment resolved by Story 7.3 (session if it unseals, else the `onehealth_environment` cookie, else `prod`; AD-22, D4)
 **And** no `/api/session/logout` call is made, drafts in `pp:draft:v1:<userId>:*` are kept, and no `window.open` or `target=_blank` is used (AD-5, PRC12)
 **And** no request to `v2/user/switch-tenant/**` is ever made by the app (an MSW assertion fails the test on any such request; the proxy denies it per AD-2).
 

@@ -57,7 +57,7 @@ note: Read-only reconciliation. Spines and mocks were not modified. Severity: Hi
 | F13 | Low | FR-119: the four feature-row descriptions (addendum §B) | They're in the mock only, not in the Voice table | Add them to the Voice "My Organizations" row |
 | F14 | Low | FR-119: the empty state uses `totalElements === 0` with no search text. With search text, the result is the No results state | The two states are listed but the rule isn't | Add a one-line rule in State Patterns |
 | F15 | Low | FR-117: 12 cards per page | No page size given. The skeleton shows 8 cards | State 12 per page. The skeleton can stay at 8 |
-| F16 | Medium | FR-102/AM-3: a launch that arrives in a non-default tenant shows the AD-6 error with module-neutral copy ("Profile is available in your personal account…") | There is no /account wrong-tenant state. The Invalid-launch copy says "Open Personal Profile again from 1health." | Add a "Wrong tenant" row to IA, State Patterns and Voice with the neutral copy |
+| F16 | Medium | FR-102/AM-3: a launch that arrives in a non-default tenant shows the AD-6 error with module-neutral copy ("Profile is available in your personal account…") | There is no /account wrong-tenant state. The Invalid-launch copy says "Open Personal Profile again from 1health." | Add a "Wrong tenant" row to IA, State Patterns and Voice with the neutral copy (Superseded 2026-10-14: shown as the /auth error Alert message, D9.) |
 | F17 | Medium | FR-109: on success, re-fetch the user and Contact Points. Name and Primary email/phone can change | The profile header refresh is defined only for Personal information saves (FR-9). On /account the header shows name, primary phone and primary email | State that the header updates after an Account settings save |
 | F18 | Low | FR-114: the option format is a single string `"<NPI>, <First> <Last>, <City>, <State>"` (practice: with address line 1) | The options are two lines. The selected value is the full string | Keep the two-line visual, but give each option the full PRD string as its accessible name |
 | F19 | Low | FR-114: an empty field shows the first page; there are 10 per page | Covered. There's no zero-results copy for an NPI search | Add a "No NPIs found" listbox row (draft copy) |
@@ -132,7 +132,7 @@ D1 (OK), D2 (OK), D3 (partial: C1–C5), D4 (OK), D5 (OK), D6 (partial: F9–F11
 ### key-organizations.html
 | # | Sev | Mock | Spine | Fix |
 |---|---|---|---|---|
-| K9 | Medium | Frame D is labeled "framed" but shows "Return to 1health" in the app bar | PM11 / AD-5: hidden when framed | Hide it in frame D |
+| K9 | Medium | Frame D is labeled "framed" but shows "Return to 1health" in the app bar | PM11 / AD-5: hidden when framed | Hide it in frame D (Superseded 2026-10-13: never framed; Return to 1health always shows.) |
 | K10 | Medium | Type tooltips use native `title`, which isn't focusable or tappable | The Tooltip opens on hover, focus and tap | Use the Tooltip component. Icons need to be focusable (32 px target per `type-icon`) |
 | K11 | Medium | The type tooltip reads "Health Provider" | §B label: "Healthcare" | Fix after F11 |
 | K12 | Low | On mobile, the "+2" chip has no tooltip or accessible name | F10 | Add one |

@@ -43,9 +43,10 @@ One page per tab; each tab is one long page of Sections. No per-Section pages.
 
 | Surface | Reached from | Contents / purpose | PRD |
 |---|---|---|---|
-| Launch | Portal **Apps** launcher tile **Personal Profile** (opens the app top-level in its own tab) | Exchanges launch payload, always lands on `/` (Personal Profile, Contacts tab) | FR-1, PRD FR-102 |
-| Invalid launch | Bad / expired / reused / unencrypted payload, on `/` or `/account` | Full-page message + "Return to 1health" | FR-1 |
-| Wrong tenant | Launch that arrives in a non-default tenant, on `/` or `/account` (`/launch-error?reason=tenant`, AD-6) | Full-page message with module-neutral copy + "Return to 1health" | FR-1, PRD FR-102, AM-3 |
+| Launch | Portal **Apps** launcher tile **Personal Profile** (opens the app top-level in its own tab) | Portal opens `/auth?lpl=…`; `/auth` POSTs `{ lpl }` to `/api/token`, then lands on the stored login intent (same-origin path), else `/` (Personal Profile, Contacts tab) | FR-1, PRD FR-102 |
+| Sign-in (/auth) | Portal launch, or any page without a session | "Authenticating..." → from attempt 2 "Confirming your login..."; "Success!" / "Loading app..."; manual LPL entry ("Authentication Required"); "Choose Environment"; error Alert (copy in Voice and Tone) | FR-1 |
+| Launch failed | /auth, after the last attempt (or at once when retryable:false) | Destructive Alert "Authentication Failed" + server's user-safe message, or "Connection Error"; buttons "Enter LPL Manually", "Switch Environment", "Go to 1health ({Demo|Production})" | FR-1 |
+| Wrong tenant | Launch in a non-default tenant (/api/token tenant mismatch, retryable:false) | /auth error Alert whose message is the module-neutral copy | FR-1, PRD FR-102, AM-3 |
 | App bar | Always, on `/` and `/account` | Wordmark + page nav **Personal Profile** (`/`) · **Account** (`/account`), current one `aria-current="page"` + "Return to 1health" | FR-6, PRD FR-102 |
 | Profile header | Above tabs, every tab | Profile Picture / initials, full name, primary phone + email (desktop), change picture | FR-9, FR-10 |
 | Change profile picture dialog | Avatar button → file chosen | Preview of the chosen file, rules, Cancel / Save | FR-10 |
@@ -56,7 +57,7 @@ One page per tab; each tab is one long page of Sections. No per-Section pages.
 | Medical tab `?tab=medical` | Tab strip | Quiet "Coming soon" panel, no API calls | FR-32 |
 | Session expired | Failed refresh | Non-dismissable dialog + Return to 1health; draft kept | FR-2 |
 | Draft restore | Relaunch with a stored draft | In-Section banner: restore or discard | FR-2 |
-| **Account page `/account`** | App-bar **Account** item; or direct URL `/account?tab=…` with an existing session (no session → launch-error screen). The 1health-fe user menu is not wired here (it keeps opening legacy `/personal-settings`) | Same app bar (Account active) and profile header; tab strip of three; no section index | FR-101, FR-102 |
+| **Account page `/account`** | App-bar **Account** item; or direct URL `/account?tab=…` with an existing session (no session → redirect to /auth). The 1health-fe user menu is not wired here (it keeps opening legacy `/personal-settings`) | Same app bar (Account active) and profile header; tab strip of three; no section index | FR-101, FR-102 |
 | Personal Account `?tab=personal` (default) | Menu "Profile", tab strip | Sections: Personal Account Settings (heading "Personal account settings") `#account` · Authenticator app `#authenticator` | FR-104–FR-112 |
 | Link authenticator dialog | Authenticator tile | QR + 6-digit code | FR-111 |
 | Disable authenticator confirm | "Disable" | Confirm dialog | FR-112 |
@@ -69,7 +70,7 @@ One page per tab; each tab is one long page of Sections. No per-Section pages.
 
 **Section index.** Desktop: sticky numbered left index (01–05) with entry counts; clicking scrolls to the Section and updates the hash; the item for the Section in view is `aria-current="location"` (scroll-spy). Mobile: "Jump to" select with the same numbers and targets. The Insurance tab has a single Section and shows no index or Jump to; its cards use the full main-column width.
 
-**Deep links.** `?tab={contacts|insurance|medical}#{section}` opens the tab and scrolls to the Section (e.g. `?tab=contacts#signature`). Direct URLs work only with an existing session; otherwise the launch-error screen shows. 1health-fe adds no deep links (no 1health-fe changes). Unknown tab → Contacts; unknown hash → top of tab. Tab and hash survive refresh (FR-3). Legacy `/profile?tab=N` links stay in 1health-fe (out of scope).
+**Deep links.** `?tab={contacts|insurance|medical}#{section}` opens the tab and scrolls to the Section (e.g. `?tab=contacts#signature`). Direct URLs work only with an existing session; otherwise the app redirects to /auth. 1health-fe adds no deep links (no 1health-fe changes). Unknown tab → Contacts; unknown hash → top of tab. Tab and hash survive refresh (FR-3). Legacy `/profile?tab=N` links stay in 1health-fe (out of scope).
 
 **`/account` deep links.** `/account?tab={personal|provider|organizations}#{account|authenticator}`; unknown tab → Personal Account. In-app links between pages: the Account settings helper "personal profile" → `/?tab=contacts#email` (or `#phone`); the registered-view signature help → `/?tab=contacts#signature`. These are plain in-app navigations (leave guard applies), not new launches. Pages are switched with the app-bar nav (**Personal Profile** / **Account**); each page keeps its own tabs. A direct `/account` URL needs an existing session; there are no 1health-fe user-menu deep links (the menu keeps opening legacy `/personal-settings`).
 
@@ -129,8 +130,10 @@ Plain, precise, second person ("your primary phone"). No exclamation marks. No p
 | Session expired | Title "Your session ended" · body "Your changes are kept on this device. Relaunch from 1health to continue." · "Return to 1health" |
 | Draft restore | "You have unsaved changes from your last visit." · "Restore" / "Discard" |
 | Draft conflict | "This section changed since your draft. Choose which version to keep." · column headers "Your version" / "Current" · "Keep mine" / "Use current" |
-| Invalid launch | Title "This link has expired" · body "Open Personal Profile again from 1health." · "Return to 1health" |
-| Wrong tenant | "This is available in your personal account. Switch to it in 1health and open it again." (module-neutral, both pages; PRD AM-3) · "Return to 1health" |
+| Launch failed (/auth) | "Authentication Failed" + server message, fallback "Unable to authenticate. Please return to 1health and try again." · "Connection Error" / "Unable to connect to the authentication service. Please check your connection and try again." · "Enter LPL Manually" · "Switch Environment" · "Go to 1health ({Demo|Production})" |
+| Launch progress (/auth) | "Authenticating..." / "Connecting to {Demo|Production} environment" · retry: "Confirming your login..." / "This can take a moment. Please wait while we finish confirming your login." · "Success!" / "Loading app..." |
+| Manual entry (/auth) | "Authentication Required" · "Connected to {Demo|Production} environment. No launch payload detected." · "Launch Payload (LPL)" · placeholder "Paste encrypted LPL here..." · "Submit" · "Or" · "Go to 1health ({env})" · "Switch Environment" · "Choose Environment" (Demo / Production) |
+| Wrong tenant | /api/token's user-safe message for a tenant mismatch, shown in the /auth error Alert: "This is available in your personal account. Switch to it in 1health and open it again." (PRD AM-3) |
 | Optional field label | "{Label} (optional)" — required fields carry no marker |
 | Personal information help | Other names: "Former or other legal names." · Gender identity: "Choose from the list or type your own." · Sexual orientation: "Up to 128 characters." |
 | SSN help (edit) | Revealed: "Format XXX-XX-XXXX. Hides in 30 s. Clear it to remove your SSN." · Masked: "Type a new number to replace it." |
@@ -155,7 +158,7 @@ Behavioral. Visual specs live in DESIGN.md Components under the same names. Key-
 
 | Component | Behavioral rules |
 |---|---|
-| **App bar** | Page nav: **Personal Profile** → `/`, **Account** → `/account` (default tab; each page keeps its own tab state in its URL). Selecting the other page runs the leave guard when the current page has a dirty Section; selecting the current page does nothing. Items are links in a `nav` labeled "Pages", current one `aria-current="page"`. "Return to 1health" triggers the leave guard when any Section is dirty (FR-6), clears drafts on confirm (FR-2), then navigates to the portal. |
+| **App bar** | Page nav: **Personal Profile** → `/`, **Account** → `/account` (default tab; each page keeps its own tab state in its URL). Selecting the other page runs the leave guard when the current page has a dirty Section; selecting the current page does nothing. Items are links in a `nav` labeled "Pages", current one `aria-current="page"`. "Return to 1health" triggers the leave guard when any Section is dirty (FR-6), clears drafts on confirm (FR-2), then navigates to the portal root of the session's environment (lib/shared/environments.ts; after expiry: onehealth_environment cookie, else prod; never a URL parameter or env var). |
 | **Profile header** | Name updates immediately after Personal information saves (FR-9) and after Account settings saves (PRD FR-109). Avatar is a button ([`mockups/key-profile-picture.html`](mockups/key-profile-picture.html)): selecting it (click, Enter, Space) opens the file picker; the "Change profile picture" dialog opens once a file is chosen and previews it. Wrong type or size (JPG/PNG/BMP ≤ 6 MB) is caught before upload: the preview keeps the current picture, the error line names the file and its size, and Save is aria-disabled and points at the error (`aria-describedby`); "Choose another file" reopens the picker. "Save" uploads the picture; it replaces the avatar at once and focus returns to the avatar (FR-10). Escape or Cancel closes without changes. The dialog is the FR-10 preview step, not one of the four data confirms; focus and Escape behave as in Confirm dialog. On `/account` the header is the same component; it refreshes after an Account settings save. |
 | **Tabs** | shadcn Tabs: arrow keys move, Enter/Space activates, `?tab=` updated (FR-3). Switching away from a tab with dirty Sections opens the leave guard. Medical is a normal selectable tab with a "Coming soon" tag. |
 | **Section index / Jump to** | Activating an item scrolls (smooth unless reduced motion), moves focus to the Section `h2`, updates the hash. Counts reflect saved entries. |
@@ -184,7 +187,7 @@ Behavioral. Visual specs live in DESIGN.md Components under the same names. Key-
 | **Stacked row card** | Mobile form of a Section table row; same actions via kebab; tap on the card body does nothing (no hidden affordance). |
 | **Card image viewer** | Dialog with the full-size image (front/back toggle), fetched via the session only; Escape closes, focus returns to the thumbnail. |
 | **Focus** | Every interactive element shows `{components.focus-ring}` on `:focus-visible`; focus is never removed or trapped outside dialogs. |
-| **Full-page message** | Single action; no retry of a used launch payload. |
+| **/auth launch screen** | Up to 5 attempts 1500 ms apart; stops at once on retryable:false; error Alert offers Enter LPL Manually, Switch Environment, Go to 1health. Switch Environment changes only the labels and link; no request carries an environment. |
 | **Session expired dialog** | Non-dismissable: no close button, Escape and overlay click do nothing. Focus starts on "Return to 1health". The draft is written before the dialog opens. |
 | **Draft conflict compare** | Per Section. For each changed field, "Your version" and "Current" side by side; then one choice for the whole Section: "Keep mine" (edit view with the draft) or "Use current" (draft dropped for this Section). |
 
@@ -208,7 +211,7 @@ Same names as DESIGN.md Profile module (/account) components. Shared shell rules
 | **Organization card** | Shows the short name, falling back to the name; the full name is in the DOM (CSS ellipsis), so screen readers read it whole, and a Tooltip shows it on hover. Type icons: at most 4, ordered Lab, Health Provider, Supplier, Go To Market, then the rest alphabetically; each icon is focusable and opens its Tooltip label (DESIGN.md Organization Type map) on hover, focus or tap. The "+N" chip is focusable; its Tooltip and accessible name list the hidden types alphabetically (e.g. "2 more types: Insurance, Population Health"). An unknown type gets the generic icon and never breaks the card. (i) opens the Primary contact Info popover. Disabled organization: Enter portal is aria-disabled with "You're disabled in this organization". |
 | **Pagination** | 12 cards per page, sorted by name within the page. Shown whenever there are results, even with a single page. "Previous" is aria-disabled on page 1 and "Next" on the last page (both on a single page). Changing page scrolls to the top of the grid and moves focus to the first card's name. |
 | **Organizations empty state** | "No organizations" shows only when the list returns `totalElements === 0` with no search text. With search text, zero results show "Sorry, no results were found" with no pagination. Regular users: "Register organization" opens `https://learnmore.1health.io/product-checkout` in a new tab (no leave guard; the app stays open). Internal users: the same button is a Portal hand-off to organization creation, and "Create new organization" also shows next to search. |
-| **Portal hand-off** | Applies to Enter portal, Register your practice to enable ordering, Create new organization and the internal Register organization. The app always runs top-level in its own tab: the leave guard runs if Account settings is dirty, then the same tab navigates. No new-tab branch. The URL is built from the configured portal origin plus a numeric tenant id. The app never calls the platform tenant switch. |
+| **Portal hand-off** | Applies to Enter portal, Register your practice to enable ordering, Create new organization and the internal Register organization. The app always runs top-level in its own tab: the leave guard runs if Account settings is dirty, then the same tab navigates. No new-tab branch. The URL is built from the session environment's portal root (lib/shared/environments.ts, never an env var) plus a numeric tenant id. The app never calls the platform tenant switch. |
 | **No-access panel** | On a 403, it replaces the content of the affected tab or Section with "You don't have access to this in your current account"; no action, no raw error. Other tabs and Sections keep working. |
 | **Skeletons (/account)** | A tab loads only when it's opened; its skeletons show until its own data arrives. Shell, header and tab strip render immediately. |
 
@@ -238,8 +241,8 @@ Same names as DESIGN.md Profile module (/account) components. Shared shell rules
 | SSN revealed | SSN cell | Full value + `{components.countdown-ring}`; hides at 30 s / blur / tab hidden. |
 | Image upload failed | Insurance card | Policy saved; thumbnail placeholder "Image not uploaded · Retry upload" (FR-29). |
 | Deleted insurance | Insurance card | Muted card, `{components.chip-deleted}` "Deleted" chip, no actions; or removed from list, whichever the platform returns (FR-30). |
-| Invalid launch | Page | Full-page message, "Return to 1health" (FR-1). |
-| Wrong tenant | Page (`/` or `/account`) | Full-page message with the module-neutral copy; no session, no data fetched (AD-6, PRD AM-3). |
+| Launch failed | /auth | Destructive Alert with the last attempt's title and message + Enter LPL Manually / Switch Environment / Go to 1health (FR-1). |
+| Wrong tenant | /auth | Error Alert with the module-neutral message; retryable:false, no session sealed, no data fetched (AD-6, PRD AM-3). |
 | Offline / network failure | Section save or load | Error with Retry (FR-7); no offline queue. |
 | Focus | All interactive | 2 px ring + glow (DESIGN.md `{components.focus-ring}`). |
 | Cold load | `/account` tab | Skeletons (/account); a tab loads only when opened. |
@@ -267,7 +270,7 @@ Same names as DESIGN.md Profile module (/account) components. Shared shell rules
 - **Explain before failing.** Every unavailable action is aria-disabled with a tooltip reason (hover, focus, tap); never a hidden action and never an error after Save.
 - **Save all.** One action across dirty Sections; validate all → send per Section → honest summary.
 - **Leave protection.** beforeunload on close/reload; in-app guard on tab switch, app-bar page switch and Return to 1health.
-- **Keyboard.** Tab order on `/`: app bar (wordmark, page nav Personal Profile → Account, Return to 1health) → header → tabs → index → Sections in order → Save all. On `/account` (no index, no Save all): app bar (same order) → header → tabs → the active tab's content in reading order (Personal Account: Account settings, then Authenticator app; My Organizations: search, cards row by row, pagination). Within a table, Tab moves through cells' controls in reading order; Escape in an edit table doesn't cancel (prevents accidental loss). Enter in an input doesn't submit the Section.
+- **Keyboard.** Tab order on `/`: app bar (page nav Personal Profile → Account, Return to 1health; the "1health" wordmark is plain text, not a link or tab stop) → header → tabs → index → Sections in order → Save all. On `/account` (no index, no Save all): app bar (same order) → header → tabs → the active tab's content in reading order (Personal Account: Account settings, then Authenticator app; My Organizations: search, cards row by row, pagination). Within a table, Tab moves through cells' controls in reading order; Escape in an edit table doesn't cancel (prevents accidental loss). Enter in an input doesn't submit the Section.
 - **Pointer.** Hover reveals row actions on desktop only; touch relies on the kebab.
 - **Banned:** hover-only affordances, bottom-sheet editors (edit stays in place), drag to reorder, toasts with undo for removals, confirm dialogs beyond the four named, auto-save.
 

@@ -37,10 +37,10 @@ Extracted the new component names from both spines. DESIGN has Account settings 
 
 ## 4. State coverage — adequate
 
-Walked the `/account` surfaces. Covered: cold load, load error, 403, partial save, base MFA off, TOTP linked, QR loading, search loading/error/end, registered, no orgs, no results, disabled org, and framed host.
+Walked the `/account` surfaces. Covered: cold load, load error, 403, partial save, base MFA off, TOTP linked, QR loading, search loading/error/end, registered, no orgs, no results, disabled org, and framed host. (Superseded 2026-10-13/14: the app is never framed; "framed host" no longer applies.)
 
 ### Findings
-- **medium** The wrong-tenant launch is missing. FR-102 and AM-3 require the AD-6 error with module-neutral copy ("Profile is available in your personal account…"). Also, the existing Invalid launch copy "Open Personal Profile again from 1health." is wrong when the launch targets `/account` (EXPERIENCE.md Voice and Tone "Invalid launch", State Patterns). *Fix:* add a tenant-error state row and copy, and make the invalid-launch copy module-aware.
+- **medium** The wrong-tenant launch is missing. FR-102 and AM-3 require the AD-6 error with module-neutral copy ("Profile is available in your personal account…"). Also, the existing Invalid launch copy "Open Personal Profile again from 1health." is wrong when the launch targets `/account` (EXPERIENCE.md Voice and Tone "Invalid launch", State Patterns). *Fix:* add a tenant-error state row and copy, and make the invalid-launch copy module-aware. (Superseded 2026-10-14: wrong tenant is now the /auth error Alert message, D9.)
 - **low** "There are no changes" is listed as copy but has no state (FR-109: it stays in edit mode). The Preferred Locale default "English - United States" when nothing is stored (FR-108) also isn't stated (EXPERIENCE.md Account settings row). *Fix:* add both to the Account settings behavioral row.
 - **low** The Organizations skeleton shows 8 card placeholders, but a page holds 12 cards (FR-117) (DESIGN.md "Skeletons (/account)"). *Fix:* use 12, or state that 8 is deliberate.
 

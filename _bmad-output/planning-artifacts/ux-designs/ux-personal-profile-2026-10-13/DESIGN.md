@@ -78,6 +78,10 @@ colors:
   # Ledger delta: input/control boundary reads status-neutral #7a8696 (light) /
   # mist (dark), not --input (see Colors)
   control-border: '#7a8696'
+  # Ledger delta: primary-colored text (wordmark, text in the primary hue) — same as primary in light
+  primary-text: '#246b8f'
+  # Ledger delta: dialog/drawer scrim — graphite at 45 % in light
+  scrim: 'rgba(32, 40, 51, 0.45)'
   # Ledger delta: tooltip surface
   tooltip: '#202833'
   tooltip-foreground: '#ffffff'
@@ -110,6 +114,10 @@ colors:
   error-strong-dark: '#f08a80'
   # destructive fill stays #b23a31 in dark: white on error-strong-dark is 2.4:1
   destructive-fill-dark: '#b23a31'
+  # primary-dark #246b8f as text is 2.18:1 on card-dark; text in the primary hue reads info-strong-dark (5.71:1)
+  primary-text-dark: '#6fb6d8'
+  # graphite is the dark background (#202833), so a graphite scrim is invisible; dark scrim is black at 60 %
+  scrim-dark: 'rgba(0, 0, 0, 0.6)'
   control-border-dark: '#aeb8c4'
   # Dark tooltip inverts to cloud/graphite (Ledger mock is light-only)
   tooltip-dark: '#e6ebf0'
@@ -226,6 +234,7 @@ components:
     border-bottom: '{colors.border}'
     height: 52px
     title: '{typography.section-title}'
+    wordmark: '{colors.primary-text}'  # plain text span, not focusable
     return-link: '{colors.link-text}'
   app-nav-item:
     height: '{spacing.touch-target}'
@@ -252,7 +261,7 @@ components:
     radius: '{rounded.full}'
     background: '{colors.card}'
     border: '{colors.border}'
-    initials: '{colors.primary}'
+    initials: '{colors.primary-text}'
   avatar-button:
     hit-area: '{spacing.touch-target}'
     radius: '{rounded.full}'
@@ -293,7 +302,7 @@ components:
     hover: '{colors.accent}'
   section-index-item-active:
     background: '{colors.accent}'
-    foreground: '{colors.primary}'
+    foreground: '{colors.primary-text}'
     fontWeight: '600'
     marker: 'inset 3px {colors.primary}'
   jump-to:
@@ -386,7 +395,7 @@ components:
     height: '{spacing.touch-target}'
   button-ghost:
     background: transparent
-    foreground: '{colors.primary}'
+    foreground: '{colors.primary-text}'
     hover: '{colors.accent}'
     radius: '{rounded.md}'
     height: '{spacing.touch-target}'
@@ -480,7 +489,7 @@ components:
     background: '{colors.popover}'
     radius: '{rounded.lg}'
     shadow: elevation-2
-    overlay: 'dimmed'
+    overlay: '{colors.scrim}'
   toast:
     background: '{colors.popover}'
     radius: '{rounded.md}'
@@ -513,7 +522,7 @@ components:
     footer: 'sticky, top {colors.border}'
     body-padding: '20px {spacing.5} {spacing.5}'
   drawer-scrim:
-    background: '{colors.graphite} at 45 %'
+    background: '{colors.scrim}'
   address-expanded-grid:
     columns: 4
     gap: '{spacing.address-grid-gap}'
@@ -543,6 +552,7 @@ components:
     padding: '{spacing.3}'
     line-1: '{typography.cell-number}'
     line-2: '{typography.cell}'
+  # 2026-10-14: launch errors use the /auth Alert (D9); this block now serves only the kill-switch disabled screen
   full-page-message:
     background: '{colors.background}'
     panel: '{colors.card}'
@@ -656,8 +666,10 @@ All values are the exact `app/globals.css` tokens; light is default, dark is sup
 - **Clinical Ice (`{colors.accent}` #e8f7fa)** is the only hover/selected surface: row hover and focus-within, the active index item, the 3 px halo around an editing table.
 - **Status hues mean status.** Text uses the `-strong` variants (`{colors.success-strong}` Verified, `{colors.warning-strong}` Not verified and Unsaved changes, `{colors.error-strong}` validation and load errors). Base hues (`{colors.warning}` dot, `{colors.error}` 2 px invalid-input border) are for fills, borders and icons only. Status is never color alone: always icon + word.
 - **Red is errors and destructive actions only** (`{colors.destructive-fill}`, `{colors.error-strong}`, `{colors.error}`; the outline destructive button `{components.button-outline-destructive}` uses `{colors.error-strong}` text).
-- **Link text delta.** Text links use `{colors.link-text}` = info-strong #256a8c (5.97:1 on card) instead of `--link` #2f80a8 (4.40:1, just under AA). Dark mode keeps `--link` (signal-aqua, 8.0:1 on card-dark). The app maps link text to `text-info-strong`.
-- **Destructive button delta.** Destructive buttons fill with `{colors.destructive-fill}` = error-strong #b23a31 (white text 5.93:1) instead of `--destructive` #d84f45 (white text 4.10:1). The fill stays #b23a31 in dark mode, because white on error-strong-dark #f08a80 is 2.4:1. The app maps the destructive button to `bg-error-strong`.
+- **Link text delta.** Text links use `{colors.link-text}` = info-strong #256a8c (5.97:1 on card) instead of `--link` #2f80a8 (4.40:1, just under AA). Dark mode keeps `--link` (signal-aqua, 8.0:1 on card-dark). The app maps link text to the dedicated `text-link-text` utility, never `text-info-strong` directly.
+- **Destructive button delta.** Destructive buttons fill with `{colors.destructive-fill}` = error-strong #b23a31 (white text 5.93:1) instead of `--destructive` #d84f45 (white text 4.10:1). The fill stays #b23a31 in dark mode, because white on error-strong-dark #f08a80 is 2.4:1. The app maps the destructive button to the dedicated `bg-destructive-fill` utility, never `bg-error-strong` directly.
+- **Primary text delta.** Text in the primary hue (the wordmark, any text styled as primary) uses `{colors.primary-text}`: #246b8f in light, info-strong-dark #6fb6d8 in dark (5.71:1 on card-dark), because `primary-dark` #246b8f as text measures 2.18:1 on card-dark. Primary *fills* (buttons, active tab indicator, Primary chip) keep `{colors.primary}`. Decided 2026-10-14.
+- **Scrim delta.** Dialogs and the drawer sit over `{colors.scrim}`: graphite at 45 % in light, black at 60 % in dark, because the dark background is graphite (#202833) and a graphite scrim would not dim it. Decided 2026-10-14.
 - **Input border delta.** Input and control boundaries (inputs, selects, Jump to, Signature pad) use `{colors.control-border}` = #7a8696 (the existing `--status-neutral` value) (3.7:1 on card, passing WCAG 1.4.11) instead of `--input` #e1e8ef (1.24:1 on card). Dark mode keeps mist #aeb8c4 on card-dark (6.38:1). Table rules and card hairlines keep `{colors.border}`; only controls change.
 - **Signal Aqua (`{colors.brand-highlight}`)** appears only as the focus glow (`shadow-glow`) and dark-mode ring.
 
@@ -677,13 +689,14 @@ Profile module (`/account`) contrast, measured from the hex values above. Organi
 
 ### Design-system deviations to report upstream
 
-Three Ledger deltas override 1health tokens for contrast. Report them to the design-system owners. The app keeps each override until `app/globals.css` changes.
+Four Ledger deltas override 1health tokens for contrast (the scrim delta is a new token, not an override). Report them to the design-system owners. The app keeps each override until `app/globals.css` changes.
 
 | Token | 1health value (measured) | Ledger value (measured) | Criterion |
 |---|---|---|---|
 | Link text (`--link`) | #2f80a8 on card: 4.40:1 | info-strong #256a8c on card: 5.97:1 | WCAG 1.4.3, 4.5:1 text |
 | Destructive button (`--destructive`) | white on #d84f45: 4.10:1 | white on error-strong #b23a31: 5.93:1 | WCAG 1.4.3, 4.5:1 text |
 | Input border (`--input`) | #e1e8ef on card: 1.24:1 | #7a8696 on card: 3.7:1 | WCAG 1.4.11, 3:1 boundary |
+| Primary as text, dark (`--primary` in `.dark`) | #246b8f on card-dark: 2.18:1 | info-strong-dark #6fb6d8 on card-dark: 5.71:1 | WCAG 1.4.3, 4.5:1 text |
 
 Mist #aeb8c4 was tried first and measured only 2.01:1, so the light control border uses #7a8696 (`--status-neutral`, 3.7:1) instead; decided 2026-10-13.
 
@@ -721,7 +734,7 @@ The Personal information edit view uses a `{spacing.kv-key-edit}` 240 px key col
 Flat. No surface in the page has a shadow: tables, the profile header, Insurance cards and the Save all bar sit on tone and hairlines (the bar separates with a top border). Elevation is reserved for things that float above the page:
 
 - `shadow-md` (elevation-1): tooltip, row menu, Jump to and NPI combobox listboxes, Save all pill.
-- `shadow-lg` (elevation-2): confirm dialog, Profile Picture dialog, Link authenticator dialog (`{components.qr-dialog}`), Info popover (`{components.info-popover}`), toast, Insurance drawer. The drawer and dialogs sit over a `{components.drawer-scrim}` (graphite at 45 %); popovers have no scrim.
+- `shadow-lg` (elevation-2): confirm dialog, Profile Picture dialog, Link authenticator dialog (`{components.qr-dialog}`), Info popover (`{components.info-popover}`), toast, Insurance drawer. The drawer and dialogs sit over `{colors.scrim}` (graphite at 45 % in light, black at 60 % in dark); popovers have no scrim.
 - `shadow-glow`: focus only, never ambient.
 
 The editing state is shown by the `{colors.primary}` outline + `{colors.accent}` halo, not by lifting the table.
@@ -738,11 +751,11 @@ shadcn primitives used as-is on 1health tokens: Button, Input, Label, Dialog, To
 
 | Component | Visual spec |
 |---|---|
-| **App bar** | `{components.app-bar}`, identical on `/` and `/account`. Left: "1health" wordmark in `{colors.primary}` bold, 1 px vertical rule, then a `nav` ("Pages") with two items, **Personal Profile** (`/`) and **Account** (`/account`): `{components.app-nav-item}` text tabs (ghost-style hover in `{colors.accent}`), the current page `{components.app-nav-item-active}` (foreground, 600, 2 px `{colors.primary}` bottom indicator) with `aria-current="page"`. Right: "Return to 1health" link in `{colors.link-text}` with external-link icon, 44 px target, underline on hover. Mobile (< 768 px): the two items render as a compact segmented control in the bar (same tokens, 44 px targets); below 400 px they wrap onto a second row under the wordmark. Replaces the earlier "same app bar, no switcher" decision (user override 2026-10-13). |
-| **Profile header** | `{components.profile-header}`. Avatar (`{components.avatar}`: 40 px circle, initials in `{colors.primary}` 600 when no Profile Picture) · name `{typography.profile-name}` · meta "Last updated …" in `{colors.muted-foreground}` · right-aligned primary phone and primary email (label `{colors.muted-foreground}`, value `{colors.foreground}` 500, tabular). Mobile: avatar + name only. Change Profile Picture ([`mockups/key-profile-picture.html`](mockups/key-profile-picture.html)): the whole avatar is a button (`{components.avatar-button}`): avatar stays 40 px, hit area padded to 44 × 44, 2 px focus ring + glow. `{components.camera-badge}` sits bottom-right: 18 px circle, `{colors.primary}` fill, white camera icon, 2 px `{colors.card}` ring; shown with and without a picture. |
+| **App bar** | `{components.app-bar}`, identical on `/` and `/account`. Left: "1health" wordmark in `{colors.primary-text}` bold (plain text, not a link), 1 px vertical rule, then a `nav` ("Pages") with two items, **Personal Profile** (`/`) and **Account** (`/account`): `{components.app-nav-item}` text tabs (ghost-style hover in `{colors.accent}`), the current page `{components.app-nav-item-active}` (foreground, 600, 2 px `{colors.primary}` bottom indicator) with `aria-current="page"`. Right: "Return to 1health" link in `{colors.link-text}` with external-link icon, 44 px target, underline on hover. Mobile (< 768 px): the two items render as a compact segmented control in the bar (same tokens, 44 px targets); below 400 px they wrap onto a second row under the wordmark. Replaces the earlier "same app bar, no switcher" decision (user override 2026-10-13). |
+| **Profile header** | `{components.profile-header}`. Avatar (`{components.avatar}`: 40 px circle, initials in `{colors.primary-text}` 600 when no Profile Picture) · name `{typography.profile-name}` · meta "Last updated …" in `{colors.muted-foreground}` · right-aligned primary phone and primary email (label `{colors.muted-foreground}`, value `{colors.foreground}` 500, tabular). Mobile: avatar + name only. Change Profile Picture ([`mockups/key-profile-picture.html`](mockups/key-profile-picture.html)): the whole avatar is a button (`{components.avatar-button}`): avatar stays 40 px, hit area padded to 44 × 44, 2 px focus ring + glow. `{components.camera-badge}` sits bottom-right: 18 px circle, `{colors.primary}` fill, white camera icon, 2 px `{colors.card}` ring; shown with and without a picture. |
 | **Profile Picture dialog** | [`mockups/key-profile-picture.html`](mockups/key-profile-picture.html). `{components.picture-dialog}`: 440 px wide, Confirm dialog anatomy. Title "Change profile picture" · preview row: 96 px circle preview + file name (500, ellipsis) and type · size in muted text + "Choose another file" (outline) · rules line (info icon, muted) "JPG, PNG or BMP, up to 6 MB." · footer right-aligned Cancel (secondary) + Save (primary). Error state: the preview keeps the current picture with "Current picture · Not changed", the error line uses `{components.help-text-error}`, and Save is `{components.button-aria-disabled}`. Mobile: same dialog, full width minus 16 px gutters. |
 | **Tabs** | `{components.tab}` / `{components.tab-active}`: 44 px, 12 px side padding, 2 px `{colors.primary}` underline overlapping the strip's bottom border. Medical carries `{components.tag-coming-soon}` ("Coming soon", mobile "Soon"). |
-| **Section index (desktop)** | `{components.section-index-item}`: three-column grid — mono number (01–05), label, mono count of entries (blank for Personal information). Active (`aria-current=location`): `{components.section-index-item-active}`, 3 px inset left bar, number and count turn `{colors.primary}`. Sticky top. |
+| **Section index (desktop)** | `{components.section-index-item}`: three-column grid — mono number (01–05), label, mono count of entries (blank for Personal information). Active (`aria-current=location`): `{components.section-index-item-active}`, 3 px inset left bar, number and count turn `{colors.primary-text}`. Sticky top. |
 | **Jump to (mobile)** | `{components.jump-to}`: "Jump to" label (muted) + select showing the mono number and section name, chevron right; listbox uses `{components.row-menu}` styling. |
 | **Section header** | 44 px row: `h2` `{typography.section-title}` · count or "Editing" in `{colors.muted-foreground}` · right-aligned tools (`{components.button-outline}` "Edit" or "Add phone/email/link/address" with plus icon). |
 | **Section table — read** | `{components.table-container}` around a full-width table. `{components.table-header-cell}` header row; `{components.table-row}` body rows with 1 px dividers, last row none. Hover and focus-within: `{components.table-row-hover}`. Columns — Phone: Number · Label · Type · Status · Notifications · actions; Email: Email address · Label · Status · Notifications · actions; Social media: Link · actions; Addresses: Address · Label (Primary) · Type · Status · actions. The mock's "Network" and "Visibility" columns have no PRD backing and are dropped. |
@@ -769,7 +782,7 @@ shadcn primitives used as-is on 1health tokens: Button, Input, Label, Dialog, To
 | **Signature pad** | Edit view of the Signature row: `{components.signature-pad}` full value-column width capped at `{spacing.control-max}` 480 px, 160 px tall, baseline rule in `{colors.border}`, ink `{colors.foreground}`; below it "Clear" (ghost) and "Upload image instead" (ghost, upload icon). Upload shows the chosen PNG/JPEG in the pad area. |
 | **SSN reveal** | Masked value in `{typography.mono-value}` + "Reveal" text button (eye icon, `{colors.link-text}`, underlined, 44 px target). Revealed: full value + `{components.countdown-ring}` (16 px circle depleting clockwise over 30 s) + "Hide" button. Reduced motion: ring is replaced by static text "Hides in 30 s". |
 | **Stacked row card (mobile)** | `{components.stacked-row-card}`: each table row becomes a block separated by hairlines inside the same container. Line 1: value (number/email/address) + status. Line 2: Contact Label chip + type + notifications, muted. Kebab right, vertically centered. No hover actions; in edit mode the same card holds the inputs stacked full-width. |
-| **Full-page message** | `{components.full-page-message}`: centered card on `{colors.background}`, icon, title, one paragraph, one primary action ("Return to 1health"). Used for invalid launch and for the wrong-tenant launch error on both `/` and `/account` (copy in EXPERIENCE.md Voice and Tone). |
+| **Full-page message** | `{components.full-page-message}`: centered card on `{colors.background}`, icon, title, one paragraph, one primary action ("Return to 1health"). Not used for launch errors (superseded 2026-10-14: launch failures, incl. wrong tenant, are the /auth destructive Alert, D9). Used only for the kill-switch disabled screen. |
 | **Focus** | `{components.focus-ring}`: 2 px `{colors.ring}` outline, 2 px offset, plus `shadow-glow`, on every interactive element. |
 
 ### Profile module (/account) components
@@ -820,7 +833,7 @@ Insurance uses Umbrella rather than ShieldCheck, because today's 1health-fe uses
 
 | Do | Don't |
 |---|---|
-| Read every color from a 1health Tier 3 token (`bg-card`, `text-info-strong`) | Hardcode hex or Tailwind palette classes (`bg-blue-600`) |
+| Read every color from a 1health Tier 3 token (`bg-card`, `text-link-text`, `bg-destructive-fill`) | Hardcode hex or Tailwind palette classes (`bg-blue-600`) |
 | Use `{colors.link-text}` (info-strong #256a8c) for text links in light mode | Use `--link` #2f80a8 for text on white (4.40:1) |
 | Fill destructive buttons with `{colors.destructive-fill}` (error-strong #b23a31, 5.93:1 with white) | Use `--destructive` #d84f45 under white text (4.10:1) |
 | Outline inputs, selects, Jump to and the Signature pad with `{colors.control-border}` (#7a8696 light, mist dark) | Use `--input` #e1e8ef as a control boundary (1.24:1) |
