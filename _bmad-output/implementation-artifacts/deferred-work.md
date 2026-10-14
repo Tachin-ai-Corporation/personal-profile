@@ -184,3 +184,15 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
   summary: Confirm publicFilesOrigin (bocore-public-files-{demo,prod}.s3.us-west-1.amazonaws.com, found only in 2022–2023 backend git history) against a live tenantLogo.publicUrl on demo and prod before Story 10.2; SVG tenant logos will always show initials.
   evidence: 1h-ng-bo-core-be history (test-product.ftl, test.html); SimpleStorageService.java:346-353; TenantServiceImpl.java:738.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
+  summary: No per-session throttle on /api/places/autocomplete (paid Google calls) or /api/pp/mfa/validate (6-digit code guessing relies on upstream lockout, not confirmed in MfaResource).
+  evidence: Serverless in-memory limits are per instance; decide with Stories 4.3 (Team A) and 8.2 (Team B): confirm upstream TOTP lockout on demo, add a sealed-session attempt counter or edge rate limit if absent.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
+  summary: Public profile picture uploads pass the original bytes (EXIF incl. GPS, trailing payloads) — the BFF only sniffs magic bytes; client-side reencodeImage (Story 1.10) is not a server guarantee.
+  evidence: lib/server/proxy/upload.ts; isPublic=true entry in allowlist/core.ts. Story 1.10 (Team A) must decide server-side re-encode/metadata strip (e.g. sharp) or record it as an accepted AD-13 risk.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
+  summary: Signature-version (`v2/file/{fileId}/version`) and insurance uploads trust client-supplied ids; ownership is enforced only upstream (and the backend has no ownership check).
+  evidence: allowlist/personal.ts, allowlist/insurance.ts; backend follow-up already recorded (OneHealthServiceImpl.java:4552-4562). Stories 2.4 / 5.3 should resolve ids from myself / the user's own insurance list, or a named op should verify ownership.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
+  summary: /api/pp/org-logo makes up to 5 membership calls plus an S3 fetch per <img>, with no-store, so a 12-card page can cost ~70 upstream calls per render.
+  evidence: lib/server/named-ops/org-logo.ts. Story 10.2 should cache the membership lookup per session (or pass the list's tenant ids) and consider a short private max-age for successful logos.

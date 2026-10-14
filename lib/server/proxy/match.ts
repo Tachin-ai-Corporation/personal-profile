@@ -1,6 +1,6 @@
 import "server-only"
 
-import type { AllowlistEntry, ProxyMethod } from "./types"
+import type { AllowlistEntry, ProxyMethod, QueryParamRule } from "./types"
 
 /** Owner placeholders are filled from the session; the client must send `me`. */
 const OWNER_PLACEHOLDERS: Readonly<Record<string, "personId" | "userId">> = {
@@ -57,19 +57,23 @@ export function upstreamSegments(entry: AllowlistEntry, segments: readonly strin
 }
 
 /**
- * Validates the client query against the entry (decoded name + value regex),
- * applies server-fixed params and `preview=true` on image entries, and
- * returns the upstream query, or `null` for 400 `BAD_QUERY`.
+ * Validates a client query against per-name rules (decoded name + value
+ * regex; own properties only) and applies the server-fixed params, whose
+ * client values are ignored. Returns the rebuilt query, or `null` for 400
+ * `BAD_QUERY`. With no rules every client param is rejected.
  */
-export function buildUpstreamQuery(entry: AllowlistEntry, clientQuery: URLSearchParams): URLSearchParams | null {
-  const fixed: Record<string, string> = { ...entry.fixedQuery, ...(entry.asImage ? { preview: "true" } : {}) }
+export function validateQuery(
+  rules: Readonly<Record<string, QueryParamRule>> | undefined,
+  fixed: Readonly<Record<string, string>>,
+  clientQuery: URLSearchParams,
+): URLSearchParams | null {
   const out = new URLSearchParams()
   const seen = new Set<string>()
 
   for (const [key, value] of clientQuery) {
     // Own-property lookups only: `constructor`, `toString`, `__proto__` are unknown params.
     if (Object.hasOwn(fixed, key)) continue
-    const rule = entry.query && Object.hasOwn(entry.query, key) ? entry.query[key] : undefined
+    const rule = rules && Object.hasOwn(rules, key) ? rules[key] : undefined
     if (!rule || !rule.pattern.test(value)) return null
     if (seen.has(key) && !rule.repeatable) return null
     seen.add(key)
@@ -77,6 +81,14 @@ export function buildUpstreamQuery(entry: AllowlistEntry, clientQuery: URLSearch
   }
   for (const [key, value] of Object.entries(fixed)) out.set(key, value)
   return out
+}
+
+/**
+ * The upstream query of an allowlist entry: its rules, its server-fixed
+ * params and `preview=true` on image entries.
+ */
+export function buildUpstreamQuery(entry: AllowlistEntry, clientQuery: URLSearchParams): URLSearchParams | null {
+  return validateQuery(entry.query, { ...entry.fixedQuery, ...(entry.asImage ? { preview: "true" } : {}) }, clientQuery)
 }
 
 /** Template string for logs, e.g. `/v2/person/{personId}/ssn/expose`. */

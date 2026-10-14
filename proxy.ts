@@ -1,7 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { isLocalDev } from "@/lib/shared/app-env"
 import { generateNonce, securityHeaders } from "@/lib/server/security/headers"
+import { DISABLED_FROM_AUTH, DISABLED_FROM_HEADER, DISABLED_ROUTE } from "@/lib/server/disabled-screen"
+import { serverEnv } from "@/lib/server/env"
 import { NO_STORE_HEADERS } from "@/lib/server/http/cache-headers"
+import { jsonError } from "@/lib/server/http/responses"
+import { isSwitchedOff, killSwitchFor, normalizePath } from "@/lib/server/kill-switch"
 import { canRenewLastSeen } from "@/lib/server/session/refresh"
 import {
   clearSessionSetCookie,
@@ -15,6 +19,11 @@ import {
 /**
  * Next 16 request interceptor. Sets the AD-21 headers, with a fresh CSP nonce,
  * on every response (pages, 404s, `/api/**` and static assets).
+ *
+ * Kill switches first (AD-20, Stories 1.16 and 7.2; `lib/server/kill-switch.ts`):
+ * a switched-off API path answers 503 `SERVICE_DISABLED`; a switched-off page
+ * (navigation, RSC or prefetch) is rewritten to `/disabled`, a route handler
+ * that answers the disabled screen with status 503. Both are no-store.
  *
  * It does not redirect requests without a session: pages call
  * `requireSession()` themselves (spec 7.0a design note).
@@ -72,9 +81,46 @@ function rewriteCookieHeader(raw: string, seal: string): string {
   return raw.replace(new RegExp(`(^|;\\s*)${SESSION_COOKIE}=[^;]*`), (_match, prefix: string) => `${prefix}${SESSION_COOKIE}=${seal}`)
 }
 
-export async function proxy(request: NextRequest): Promise<NextResponse> {
+/** Whether the path's kill switch is on. A misconfigured env never switches anything off here (routes fail on their own). */
+function switchedOff(pathname: string): boolean {
+  const killSwitch = killSwitchFor(pathname)
+  if (killSwitch === null) return false
+  try {
+    return isSwitchedOff(killSwitch, serverEnv())
+  } catch {
+    return false
+  }
+}
+
+function withHeaders<R extends Response>(response: R, ...sets: Readonly<Record<string, string>>[]): R {
+  for (const set of sets) for (const [name, value] of Object.entries(set)) response.headers.set(name, value)
+  return response
+}
+
+/** The 503 of a switched-off path: JSON for `/api/**`, else a rewrite to the disabled screen. */
+function disabledResponse(request: NextRequest, requestHeaders: Headers, headers: Readonly<Record<string, string>>): Response {
+  // The same normalized path the matcher used: `//api/x` or `/%61pi/x` is still an API path.
+  const pathname = normalizePath(request.nextUrl.pathname)
+  if (pathname.startsWith("/api/")) {
+    return withHeaders(jsonError(503, "SERVICE_DISABLED"), headers)
+  }
+  if (pathname === "/auth") requestHeaders.set(DISABLED_FROM_HEADER, DISABLED_FROM_AUTH)
+  const response = NextResponse.rewrite(new URL(DISABLED_ROUTE, request.url), { request: { headers: requestHeaders } })
+  return withHeaders(response, headers, NO_STORE_HEADERS)
+}
+
+export async function proxy(request: NextRequest): Promise<Response> {
   const nonce = generateNonce()
   const headers = securityHeaders(nonce, isLocalDev())
+
+  // Next reads the nonce from the request CSP header and stamps its own scripts.
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.delete(DISABLED_FROM_HEADER)
+  requestHeaders.set("x-nonce", nonce)
+  requestHeaders.set("Content-Security-Policy", headers["Content-Security-Policy"])
+
+  if (switchedOff(request.nextUrl.pathname)) return disabledResponse(request, requestHeaders, headers)
+
   const activity = await navigationActivity(request)
 
   if (activity.kind === "expired") {
@@ -85,10 +131,6 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return response
   }
 
-  // Next reads the nonce from the request CSP header and stamps its own scripts.
-  const requestHeaders = new Headers(request.headers)
-  requestHeaders.set("x-nonce", nonce)
-  requestHeaders.set("Content-Security-Policy", headers["Content-Security-Policy"])
   if (activity.kind === "renewed") {
     requestHeaders.set("cookie", rewriteCookieHeader(request.headers.get("cookie") ?? "", activity.seal))
   }

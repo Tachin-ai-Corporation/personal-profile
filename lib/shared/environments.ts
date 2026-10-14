@@ -18,7 +18,10 @@ export interface EnvironmentConfig {
   readonly apiBase: string
   /** Where "Return to 1health" and hand-offs go (the same root, D4). */
   readonly portalUrl: string
-  /** Origin of organization `tenantLogo.publicUrl` (AD-24, D7). Open: `null` until known (logos 404). */
+  /**
+   * Origin of organization `tenantLogo.publicUrl` (AD-24, D7). `null` = unknown,
+   * and every logo of that environment 404s (cards show initials).
+   */
   readonly publicFilesOrigin: string | null
   /** Hostname fragment that recognises this environment in `document.referrer` (display only, D2). */
   readonly referrerHostFragment: string
@@ -26,13 +29,20 @@ export interface EnvironmentConfig {
   readonly label: string
 }
 
-function config(apiRoot: string, referrerHostFragment: string, label: string): EnvironmentConfig {
-  return { apiRoot, apiBase: `${apiRoot}/api`, portalUrl: apiRoot, publicFilesOrigin: null, referrerHostFragment, label }
+function config(apiRoot: string, publicFilesOrigin: string | null, referrerHostFragment: string, label: string): EnvironmentConfig {
+  return { apiRoot, apiBase: `${apiRoot}/api`, portalUrl: apiRoot, publicFilesOrigin, referrerHostFragment, label }
 }
 
+/*
+ * TODO(Story 10.2): the `publicFilesOrigin` values are unconfirmed (found only
+ * in 2022–2023 backend history). Confirm each against a live
+ * `tenantLogo.publicUrl` on demo and prod before Story 10.2; tracked in
+ * `_bmad-output/implementation-artifacts/deferred-work.md` ("Confirm
+ * publicFilesOrigin", source spec F2). A mismatch only falls back to initials.
+ */
 const CONFIG: Readonly<Record<Environment, EnvironmentConfig>> = {
-  demo: config("https://1health.demo.1health.io", "demo.1health", "Demo"),
-  prod: config("https://1health.app.1health.io", "app.1health", "Production"),
+  demo: config("https://1health.demo.1health.io", "https://bocore-public-files-demo.s3.us-west-1.amazonaws.com", "demo.1health", "Demo"),
+  prod: config("https://1health.app.1health.io", "https://bocore-public-files-prod.s3.us-west-1.amazonaws.com", "app.1health", "Production"),
 }
 
 export function isEnvironment(value: unknown): value is Environment {

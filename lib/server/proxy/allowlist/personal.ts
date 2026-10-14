@@ -94,4 +94,25 @@ export const userEditBodySchema = z
   })
   .refine((body) => (body.phoneNumber === undefined) === (body.phoneNumberRegion === undefined))
 
-export const entries: readonly AllowlistEntry[] = [{ method: "PUT", template: "v2/user/edit", body: userEditBodySchema }]
+/** AD-13: a Signature is a PNG of at most 1 MB (Story 2.4). */
+export const SIGNATURE_MAX_BYTES = 1024 * 1024
+
+export const entries: readonly AllowlistEntry[] = [
+  { method: "PUT", template: "v2/user/edit", body: userEditBodySchema },
+  /** First Signature (Story 2.4): private, one `file` part, PNG only. */
+  {
+    method: "POST",
+    template: "v2/health/type/Person/{personId}/relation/PersonHasSignatureFile/file/upload",
+    fixedQuery: { isPublic: "false" },
+    upload: { part: "file", types: ["png"] },
+    maxBytes: SIGNATURE_MAX_BYTES,
+  },
+  /** A new Signature version (Story 2.4): made current, one `fileNewVersion` part, PNG only. */
+  {
+    method: "POST",
+    template: "v2/file/{fileId}/version",
+    fixedQuery: { current: "true" },
+    upload: { part: "fileNewVersion", types: ["png"] },
+    maxBytes: SIGNATURE_MAX_BYTES,
+  },
+]

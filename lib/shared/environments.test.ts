@@ -7,14 +7,22 @@ describe("environments", () => {
       apiRoot: "https://1health.demo.1health.io",
       apiBase: "https://1health.demo.1health.io/api",
       portalUrl: "https://1health.demo.1health.io",
-      publicFilesOrigin: null,
+      publicFilesOrigin: "https://bocore-public-files-demo.s3.us-west-1.amazonaws.com",
     })
     expect(environmentConfig("prod")).toMatchObject({
       apiRoot: "https://1health.app.1health.io",
       apiBase: "https://1health.app.1health.io/api",
       portalUrl: "https://1health.app.1health.io",
-      publicFilesOrigin: null,
+      publicFilesOrigin: "https://bocore-public-files-prod.s3.us-west-1.amazonaws.com",
     })
+  })
+
+  it("keeps every public-files origin a bare https origin (AD-24 compares with URL#origin)", () => {
+    for (const environment of ["demo", "prod"] as const) {
+      const origin = environmentConfig(environment).publicFilesOrigin ?? ""
+      expect(new URL(origin).origin).toBe(origin)
+      expect(origin.startsWith("https://")).toBe(true)
+    }
   })
 
   it.each([

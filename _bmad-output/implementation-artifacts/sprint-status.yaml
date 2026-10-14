@@ -101,7 +101,7 @@ development_status:
   7-0c-1-idle-logoff-and-activity: done  # port of main Story 1.6
   # Shared foundation (approved 2026-10-14): built once before feature work by either team; see shared-foundation-plan.md
   f1-shared-contracts-and-data-layer: done
-  f2-bff-extension-kit: in-progress  # absorbs former 7-0c-3 disabled screen
+  f2-bff-extension-kit: done  # absorbs former 7-0c-3 disabled screen
   f3-1-ui-primitives-and-toasts: backlog  # Tooltip, DisabledAction, InfoIconButton, InlineBanner, StatusBadge, busy Button, FormField, input-locked, toasts, focus-ring, select port
   f3-2-section-edit-model: backlog  # registry completion, useSectionForm, header/container/footer, KeyValueTable, runSaveSteps, Save-all runner
   f3-3-states-and-section-navigation: backlog  # StateFrame + skeletons + nouns, forbidden-scope, SignatureThumb, SectionNav port (former 7.0c-2), panels

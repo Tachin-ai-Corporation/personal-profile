@@ -1,22 +1,7 @@
 import { http, HttpResponse, delay } from "msw"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { server } from "@/test/msw-server"
-import { buildUpstreamUrl, forward } from "./forward"
-
-describe("buildUpstreamUrl", () => {
-  it("encodes each segment and the query with encodeURIComponent", () => {
-    expect(buildUpstreamUrl("https://1health.demo.1health.io", ["v2", "user", "myself"], new URLSearchParams())).toBe(
-      "https://1health.demo.1health.io/api/v2/user/myself",
-    )
-    expect(buildUpstreamUrl("https://1health.demo.1health.io", ["v2", "a b"], new URLSearchParams("q=a b&x=é"))).toBe(
-      "https://1health.demo.1health.io/api/v2/a%20b?q=a%20b&x=%C3%A9",
-    )
-  })
-
-  it("refuses anything that does not rebuild to the same origin and path", () => {
-    expect(buildUpstreamUrl("https://1health.demo.1health.io", ["v2", ".."], new URLSearchParams())).toBeNull()
-  })
-})
+import { forward } from "./forward"
 
 describe("forward", () => {
   it("answers 504 UPSTREAM_TIMEOUT when upstream is too slow", async () => {
@@ -53,5 +38,105 @@ describe("forward", () => {
       requestId: "r",
     })
     expect(result.kind === "response" && result.response.status).toBe(204)
+  })
+})
+
+describe("forward: bodies and image entries", () => {
+  const base = { method: "POST" as const, accessToken: "t", requestId: "r" }
+
+  it("sends a rebuilt FormData with its own multipart Content-Type, never the client's", async () => {
+    let contentType: string | null = null
+    server.use(
+      http.post("https://1health.demo.1health.io/api/up", ({ request }) => {
+        contentType = request.headers.get("Content-Type")
+        return HttpResponse.json({ id: 1 })
+      }),
+    )
+    const form = new FormData()
+    form.append("file", new Blob([new Uint8Array([1])], { type: "image/png" }), "a.png")
+    const request = new Request("http://localhost/api/1h/up", { method: "POST", headers: { "Content-Type": "multipart/form-data; boundary=client" } })
+    const result = await forward({ ...base, url: "https://1health.demo.1health.io/api/up", request, body: form })
+    expect(result.kind === "response" && result.response.status).toBe(200)
+    expect(contentType).toMatch(/^multipart\/form-data; boundary=/)
+    expect(contentType).not.toContain("boundary=client")
+  })
+
+  it("an image body that errors before its head arrives → 502 UPSTREAM_ERROR", async () => {
+    const broken = new ReadableStream<Uint8Array>({ start: (c) => c.error(new Error("reset")) })
+    vi.stubGlobal("fetch", async () => new Response(broken, { status: 200, headers: { "Content-Type": "image/jpeg" } }))
+    const result = await forward({
+      ...base,
+      method: "GET",
+      url: "https://1health.demo.1health.io/api/img",
+      request: new Request("http://localhost/api/1h/img"),
+      body: undefined,
+      asImage: true,
+    })
+    vi.unstubAllGlobals()
+    if (result.kind !== "response") throw new Error("expected a response")
+    expect(result.response.status).toBe(502)
+    expect(await result.response.json()).toEqual({ errorCode: "UPSTREAM_ERROR", source: "proxy" })
+  })
+})
+
+describe("forward: the per-chunk idle timer (10 s of upstream silence)", () => {
+  const CHUNK = new TextEncoder().encode("chunk")
+
+  async function download(body: ReadableStream<Uint8Array>): Promise<Response> {
+    vi.stubGlobal("fetch", async () => new Response(body, { status: 200, headers: { "Content-Type": "application/octet-stream" } }))
+    const result = await forward({
+      url: "https://1health.demo.1health.io/api/big",
+      method: "GET",
+      request: new Request("http://localhost/api/1h/big"),
+      body: undefined,
+      accessToken: "t",
+      requestId: "r",
+    })
+    if (result.kind !== "response") throw new Error("expected a response")
+    return result.response
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it("a trickle (a chunk every 5 s, 40 s in all, past the 25 s deadline) completes", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    let sent = 0
+    const trickle = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        await new Promise((resolve) => setTimeout(resolve, 5_000))
+        sent += 1
+        if (sent > 8) controller.close()
+        else controller.enqueue(CHUNK)
+      },
+    })
+    const response = await download(trickle)
+    expect(response.status).toBe(200)
+    const text = response.text()
+    await vi.advanceTimersByTimeAsync(50_000)
+    expect(await text).toBe("chunk".repeat(8))
+  })
+
+  it("a stall after the first chunk is cut off after ~10 s", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    let sent = 0
+    const stall = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        sent += 1
+        if (sent === 1) controller.enqueue(CHUNK)
+      },
+    })
+    const response = await download(stall)
+    let failed = false
+    const text = response.text().catch(() => {
+      failed = true
+    })
+    await vi.advanceTimersByTimeAsync(9_900)
+    expect(failed).toBe(false)
+    await vi.advanceTimersByTimeAsync(200)
+    await text
+    expect(failed).toBe(true)
   })
 })

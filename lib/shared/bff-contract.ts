@@ -54,7 +54,76 @@ export const BFF_PATHS = {
   sessionRefresh: "/api/session/refresh",
   sessionLogout: "/api/session/logout",
   sessionPing: "/api/session/ping",
+  /** Named operations (F2): session-scoped server work the proxy cannot express. */
+  profilePictureId: "/api/pp/profile-picture-id",
+  mfaValidate: "/api/pp/mfa/validate",
+  practiceSupport: "/api/pp/practice-support",
+  /** `GET <orgLogoPrefix><tenantId>`, used as an `<img src>`. */
+  orgLogoPrefix: "/api/pp/org-logo/",
+  placesAutocomplete: "/api/places/autocomplete",
+  placesDetails: "/api/places/details",
 } as const
+
+/** `GET /api/pp/profile-picture-id` (Story 1.9). */
+export interface ProfilePictureIdBody {
+  readonly fileId: number | null
+}
+
+/** `POST /api/pp/mfa/validate` request (Story 8.2); the answer is the upstream boolean. */
+export interface MfaValidateRequest {
+  readonly code: string
+}
+
+/** `GET /api/pp/practice-support` (Story 9.3, AD-25): the practice's support contact, nothing else. */
+export interface PracticeSupportBody {
+  readonly name?: string
+  readonly phone?: string
+  readonly phoneRegion?: string
+  readonly email?: string
+}
+
+/** `POST /api/places/autocomplete` request (Story 4.3). */
+export interface PlacesAutocompleteRequest {
+  readonly input: string
+  readonly countryCode: string
+  /** A UUID v4 the client makes per address lookup and reuses until its details call (Places session). */
+  readonly lookupId: string
+}
+
+export interface PlaceSuggestion {
+  readonly placeId: string
+  readonly mainText: string
+  readonly secondaryText: string
+  /** Matched ranges of `mainText` (UTF-16 offsets, end exclusive). */
+  readonly matches: readonly { readonly start: number; readonly end: number }[]
+}
+
+export type PlacesAutocompleteBody =
+  | { readonly enabled: false; readonly suggestions: readonly [] }
+  | { readonly enabled: true; readonly suggestions: readonly PlaceSuggestion[] }
+
+/** `POST /api/places/details` request. */
+export interface PlacesDetailsRequest {
+  readonly placeId: string
+  /** The `lookupId` of the autocomplete calls this pick ends. */
+  readonly lookupId: string
+}
+
+/** A normalized address; a part Google did not return is `""`. */
+export interface PlaceAddress {
+  readonly addressLine1: string
+  readonly cityName: string
+  readonly county: string
+  readonly stateName: string
+  readonly postalCode: string
+  readonly countryCode: string
+  readonly country: string
+  readonly fullAddress: string
+  /** Street number + route, city, postal code and country are all present. */
+  readonly complete: boolean
+}
+
+export type PlacesDetailsBody = { readonly enabled: false } | ({ readonly enabled: true } & PlaceAddress)
 
 /**
  * User activity (AD-16, RC6). `callApi` sends `X-PP-Activity: user` on

@@ -2,7 +2,8 @@
 title: 'F2 BFF extension kit: named-op routes, image hardening, kill switches + disabled screen, uploads'
 type: 'feature'
 created: '2026-10-14'
-status: 'draft'
+status: 'done'
+baseline_commit: 'b8e20ff9683d1fec6cf7bccc452c73fbd688026b'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -64,12 +65,12 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `lib/server/named-op.ts` + `lib/server/http/upstream-url.ts` (+tests) -- wrapper.
-- [ ] `app/api/pp/{profile-picture-id,mfa/validate,practice-support,org-logo/[tenantId]}/route.ts`, `app/api/places/{autocomplete,details}/route.ts` + server modules (+tests) -- five routes.
-- [ ] `lib/server/proxy/forward.ts`, `handler.ts`, `http/fetch-with-timeout.ts` (+tests) -- image sniffing, idle timer, deny re-check.
-- [ ] `lib/server/kill-switch.ts`, `proxy.ts`, `app/disabled/route.ts`, `lib/shared/messages/disabled.ts` (+tests, e2e) -- kill switches and disabled screen.
-- [ ] `lib/server/http/read-capped.ts`, upload entry kind, area upload entries, `token-handler.ts` (+tests) -- uploads and capped reads.
-- [ ] `lib/shared/environments.ts` (+test) -- `publicFilesOrigin` values.
+- [x] `lib/server/named-op.ts` + `lib/server/http/upstream-url.ts` (+tests) -- wrapper.
+- [x] `app/api/pp/{profile-picture-id,mfa/validate,practice-support,org-logo/[tenantId]}/route.ts`, `app/api/places/{autocomplete,details}/route.ts` + server modules (+tests) -- five routes.
+- [x] `lib/server/proxy/forward.ts`, `handler.ts`, `http/fetch-with-timeout.ts` (+tests) -- image sniffing, idle timer, deny re-check.
+- [x] `lib/server/kill-switch.ts`, `proxy.ts`, `app/disabled/route.ts`, `lib/shared/messages/disabled.ts` (+tests, e2e) -- kill switches and disabled screen.
+- [x] `lib/server/http/read-capped.ts`, upload entry kind, area upload entries, `token-handler.ts` (+tests) -- uploads and capped reads.
+- [x] `lib/shared/environments.ts` (+test) -- `publicFilesOrigin` values.
 
 **Acceptance Criteria:**
 - Given any of the five routes, when called without a session, with a disabled switch or with an unexpected query, then it answers 401 / 503 / 400 with no-store and makes no upstream call.
@@ -88,6 +89,57 @@ Next 16 keeps a status only for responses returned directly from `proxy.ts` or a
 
 ## Implementation Notes
 
+- Implemented 2026-10-14 (implementer report): `lib/server/named-op.ts` (+ `lib/server/named-ops/*` route logic, thin `app/api/pp/**` and `app/api/places/**` files), `lib/server/http/{upstream-url,read-capped}.ts`, `lib/server/proxy/upload.ts`, `lib/server/kill-switch.ts`, `lib/server/disabled-screen.ts`, `app/disabled/route.ts`, root `proxy.ts` kill switch first, `e2e/kill-switch.spec.ts` (Playwright also starts the build on ports 3101 `PP_DISABLED=1` and 3102 `ACCOUNT_DISABLED=1`).
+- Choices where the spec was open: non-numeric `Content-Length` → 400 `BAD_BODY`; an upload must contain exactly one form entry (extra text field → 415); streamed proxy body idle timeout 10 s; Google calls 5 s; `profile-picture-id` keeps upstream 401 as `TOKEN_EXPIRED` and timeout as 504, other upstream errors 502; `practice-support` name = `shortOrganizationName` → `name` → `tenantName`, `{}` when sys-config has no matching tenant; Places session token derived from the session id (stable for the session); one disabled-screen copy set for both switches; `/disabled` returns 404 when no switch is on.
+- Risks: RSC e2e imports a Next internal to build `_rsc`; `publicFilesOrigin` unconfirmed; `PLACES_ENABLED` not yet on anywhere (address form falls back to manual entry).
+- Review fixes 2026-10-14:
+  - **Body timeouts.** The streamed-body idle timer now runs only while an upstream read is pending, so a slow browser no longer aborts a healthy download. A guarded body cut off by its timer raises `UpstreamBodyTimeoutError`, which `readStreamCapped` reports as `timeout`, so named ops and Places answer 504 `UPSTREAM_TIMEOUT` (not 502) for a mid-body timeout.
+  - **Places.**
+    - The session token is now HMAC(`places:${sid}:${lookupId}`), with a client UUID v4 `lookupId` per lookup on both routes (added to the bff-contract request types).
+    - Google failures and a missing key log a PHI-free `outcome` code via the new `ctx.setOutcome`.
+    - `input` is trimmed and must keep a non-space character.
+    - Match ranges outside the main text are dropped.
+  - **IDs.**
+    - `practice-support`: `user/npi` 404 → 404 `NO_PRACTICE` (the backend returns nulls for "no NPI", so there is no 400 case to map); a tenant id that is not a safe integer → `NO_PRACTICE`.
+    - `org-logo`: skips numeric tenant ids above 2^53.
+    - `profile-picture-id`: accepts a decimal-string id; a non-safe id → 502.
+  - **Proxy.** `proxy.ts` picks JSON vs page from the same normalized path the matcher uses.
+  - **503s.** Every `SERVICE_DISABLED` (via `jsonError`) and the disabled screen send `Retry-After: 300`.
+  - **Disabled screen.** It has a `prefers-color-scheme: dark` block, synced to the `.dark` tokens by test.
+  - **URLs and config.**
+    - `buildUpstreamUrl` uses only the root's origin and never throws.
+    - The `publicFilesOrigin` TODO references the deferred-work item.
+    - The picture upload no longer accepts a client `fileName` (the name is the server-sanitized multipart name).
+  - **Tests.** Added for each fix, plus `forward` trickle/stall rows and a `/api/token` `Content-Length: abc` row.
+
+
 ## Spec Change Log
 
 ## Review Triage Log
+
+Review pass 1 (2026-10-14; Blind Hunter, Edge Case Hunter, Verification Gap).
+
+| # | Finding | Verdict | Route |
+|---|---|---|---|
+| 1 | Idle timer measures client backpressure, not upstream silence | high | patch |
+| 2 | Body-stage timeout answers 502 instead of 504 (named-op, places) | medium | patch |
+| 3 | Places session token reused after details ends the session | medium | patch (per-lookup HMAC of sid + lookupId) |
+| 4 | Google failures invisible in logs | medium | patch (PHI-free outcome codes) |
+| 5 | Whitespace-only autocomplete input; unchecked match offsets | low | patch |
+| 6 | No practice NPI → 502 instead of 404 NO_PRACTICE; unsafe tenant ids | medium | patch |
+| 7 | Org-logo tenant ids > 2^53 lose precision | low | patch |
+| 8 | GraphQL Long id as string → 502 | medium | patch |
+| 9 | Kill switch JSON/HTML decision on raw vs normalized path | low | patch |
+| 10 | No Retry-After on 503 | low | patch |
+| 11 | Disabled page light-only | low | patch |
+| 12 | `buildUpstreamUrl` fragile with trailing-slash apiRoot | low | patch |
+| 13 | Unconfirmed publicFilesOrigin untracked in code | low | patch (TODO → deferred item) |
+| 14 | Client fileName query on picture upload | low | patch (removed) |
+| 15 | No forward-level idle tests; no token NaN Content-Length test | medium | patch (tests) |
+| 16 | No throttle on Places autocomplete / MFA validate | medium | defer (Stories 4.3, 8.2) |
+| 17 | Public picture keeps EXIF / trailing payload | medium | defer (Story 1.10) |
+| 18 | Signature-version / insurance ids trusted from client | medium | defer (Stories 2.4, 5.3; backend follow-up) |
+| 19 | Org-logo upstream cost per render | low | defer (Story 10.2) |
+| 20 | Env failure leaves page kill switch off | low | reject (invalid env fails boot) |
+| 21 | Upload buffered three times | low | reject (4 MB cap; acceptable) |
+

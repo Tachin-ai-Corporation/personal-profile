@@ -47,6 +47,19 @@ function expectNoStore(response: Response): void {
 }
 
 describe("POST /api/token", () => {
+  it("a non-numeric Content-Length → 400 LAUNCH_INVALID, not retryable, with no exchange call", async () => {
+    const calls = trackAllRequests()
+    const request = new Request("http://localhost:3000/api/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": "abc" },
+      body: JSON.stringify({ lpl: validLpl() }),
+    })
+    const response = await POST(request)
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ ok: false, errorCode: "LAUNCH_INVALID", source: "proxy", retryable: false })
+    expect(calls()).toBe(0)
+  })
+
   it("seals tokens + environment and answers { ok: true, environment } only, setting onehealth_environment", async () => {
     happyUpstream()
     const { lines, restore } = captureLogs()

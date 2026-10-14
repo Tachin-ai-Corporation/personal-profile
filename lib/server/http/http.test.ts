@@ -36,6 +36,11 @@ describe("responses", () => {
     expectNoStore(jsonError(500, "INTERNAL_ERROR"))
   })
 
+  it("jsonError adds Retry-After: 300 to SERVICE_DISABLED only", () => {
+    expect(jsonError(503, "SERVICE_DISABLED").headers.get("Retry-After")).toBe("300")
+    expect(jsonError(503, "REFRESH_UNAVAILABLE").headers.get("Retry-After")).toBeNull()
+  })
+
   it("jsonOk and noContent are no-store", async () => {
     const ok = jsonOk({ ok: true })
     expect(await ok.json()).toEqual({ ok: true })
@@ -69,7 +74,7 @@ describe("fetchWithTimeout", () => {
   it("keeps the timeout armed while the body stalls, then errors the body", async () => {
     const stalled = new ReadableStream<Uint8Array>({ start: (c) => c.enqueue(chunk) })
     vi.stubGlobal("fetch", async () => new Response(stalled, { status: 200 }))
-    const outcome = await fetchWithTimeout("https://upstream.test/stall", { method: "GET" }, 20)
+    const outcome = await fetchWithTimeout("https://upstream.test/stall", { method: "GET" }, { timeoutMs: 20 })
     expect(outcome.kind).toBe("response")
     if (outcome.kind !== "response") return
     await expect(outcome.response.text()).rejects.toThrow()
@@ -109,6 +114,91 @@ describe("fetchWithTimeout", () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it("with bodyIdleMs: a body that keeps moving outlives the header deadline", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    let sent = 0
+    const trickle = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        await new Promise((resolve) => setTimeout(resolve, 40))
+        sent += 1
+        if (sent > 5) controller.close()
+        else controller.enqueue(chunk)
+      },
+    })
+    vi.stubGlobal("fetch", async () => new Response(trickle, { status: 200 }))
+    const outcome = await fetchWithTimeout("https://upstream.test/trickle", { method: "GET" }, { timeoutMs: 100, bodyIdleMs: 50 })
+    if (outcome.kind !== "response") throw new Error("expected a response")
+    const text = outcome.response.text()
+    await vi.advanceTimersByTimeAsync(300)
+    expect(await text).toBe("partial".repeat(5))
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("with bodyIdleMs: a gap longer than the idle timer cuts the body off", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    let sent = 0
+    const stalls = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        sent += 1
+        if (sent === 1) controller.enqueue(chunk)
+        // then nothing: the stream stalls
+      },
+    })
+    vi.stubGlobal("fetch", async () => new Response(stalls, { status: 200 }))
+    const outcome = await fetchWithTimeout("https://upstream.test/stall", { method: "GET" }, { bodyIdleMs: 50 })
+    if (outcome.kind !== "response") throw new Error("expected a response")
+    const text = outcome.response.text()
+    const failed = expect(text).rejects.toThrow("Upstream body timed out")
+    await vi.advanceTimersByTimeAsync(60)
+    await failed
+  })
+
+  it("with bodyIdleMs: a slow reader (backpressure) never trips the idle timer, which only times upstream reads", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    let sent = 0
+    const ready = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          sent += 1
+          if (sent > 3) controller.close()
+          else controller.enqueue(chunk)
+        },
+      },
+      { highWaterMark: 0 },
+    )
+    vi.stubGlobal("fetch", async () => new Response(ready, { status: 200 }))
+    const outcome = await fetchWithTimeout("https://upstream.test/ready", { method: "GET" }, { timeoutMs: 100, bodyIdleMs: 50 })
+    if (outcome.kind !== "response") throw new Error("expected a response")
+    const reader = outcome.response.body?.getReader()
+    if (!reader) throw new Error("expected a body")
+    const received: string[] = []
+    for (;;) {
+      // The browser reads one chunk every 200 ms: 4x the idle timer, 2x the header deadline.
+      await vi.advanceTimersByTimeAsync(200)
+      const next = await reader.read()
+      if (next.done) break
+      received.push(new TextDecoder().decode(next.value))
+    }
+    expect(received).toEqual(["partial", "partial", "partial"])
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("without bodyIdleMs the deadline caps the whole body (total cap: refresh, revoke)", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    const trickle = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        await new Promise((resolve) => setTimeout(resolve, 40))
+        controller.enqueue(chunk)
+      },
+    })
+    vi.stubGlobal("fetch", async () => new Response(trickle, { status: 200 }))
+    const outcome = await fetchWithTimeout("https://upstream.test/trickle", { method: "GET" }, { timeoutMs: 100 })
+    if (outcome.kind !== "response") throw new Error("expected a response")
+    const failed = expect(outcome.response.text()).rejects.toThrow("Upstream body timed out")
+    await vi.advanceTimersByTimeAsync(150)
+    await failed
+  })
+
   it("returns the response with manual redirects", async () => {
     server.use(http.get("https://upstream.test/a", () => new HttpResponse(null, { status: 302, headers: { Location: "/b" } })))
     const outcome = await fetchWithTimeout("https://upstream.test/a", { method: "GET" })
@@ -123,7 +213,7 @@ describe("fetchWithTimeout", () => {
         return HttpResponse.json({})
       }),
     )
-    expect(await fetchWithTimeout("https://upstream.test/slow", { method: "GET" }, 10)).toEqual({ kind: "timeout" })
+    expect(await fetchWithTimeout("https://upstream.test/slow", { method: "GET" }, { timeoutMs: 10 })).toEqual({ kind: "timeout" })
   })
 
   it("reports a network error", async () => {

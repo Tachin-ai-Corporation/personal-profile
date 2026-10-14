@@ -5,6 +5,8 @@ import { environmentConfig } from "@/lib/shared/environments"
 import { serverEnv, type ServerEnv } from "@/lib/server/env"
 import { jsonError } from "@/lib/server/http/responses"
 import { isJsonRequest } from "@/lib/server/http/content-type"
+import { readCapped } from "@/lib/server/http/read-capped"
+import { buildUpstreamUrl } from "@/lib/server/http/upstream-url"
 import { logRequest, newRequestId } from "@/lib/server/log"
 import { canRenewLastSeen, isAccessTokenFresh } from "@/lib/server/session/refresh"
 import { getSession, renewLastSeen } from "@/lib/server/session/session"
@@ -12,10 +14,11 @@ import { sessionExpiredResponse } from "@/lib/server/session/session-routes"
 import type { SessionPayload } from "@/lib/server/session/types"
 import { ALLOWLIST } from "./allowlist"
 import { DENY_RULES, isDenied } from "./deny-list"
-import { buildUpstreamUrl, forward } from "./forward"
+import { forward } from "./forward"
 import { buildUpstreamQuery, logTemplate, matchEntry, upstreamSegments } from "./match"
 import { normalizeProxyPath } from "./normalize"
 import { PROXY_METHODS, type AllowlistEntry, type DenyRule, type ProxyMethod } from "./types"
+import { readUpload } from "./upload"
 
 /** Default request-body cap for JSON entries. */
 const DEFAULT_MAX_BYTES = 64 * 1024
@@ -29,23 +32,28 @@ export interface ProxyHandlerDeps {
 }
 
 type BodyResult =
-  | { readonly ok: true; readonly body: string | undefined }
+  | { readonly ok: true; readonly body: string | FormData | undefined }
   | { readonly ok: false; readonly status: number; readonly errorCode: BffErrorCode }
 
 function isProxyMethod(method: string): method is ProxyMethod {
   return (PROXY_METHODS as readonly string[]).includes(method)
 }
 
-/** Validates the request body against the entry. Bodies are read only for non-GET entries. */
+/**
+ * Validates the request body against the entry. Bodies are read only for
+ * non-GET entries, always through the byte-capped reader; upload entries
+ * through the multipart validator (AD-13).
+ */
 async function readEntryBody(request: Request, method: ProxyMethod, entry: AllowlistEntry): Promise<BodyResult> {
   if (method === "GET") return { ok: true, body: undefined }
+  if (entry.upload) {
+    const upload = await readUpload(request, entry.upload, entry.maxBytes)
+    return upload.ok ? { ok: true, body: upload.form } : upload
+  }
 
-  const maxBytes = entry.maxBytes ?? DEFAULT_MAX_BYTES
-  const declared = Number(request.headers.get("Content-Length") ?? "0")
-  if (declared > maxBytes) return { ok: false, status: 413, errorCode: "TOO_LARGE" }
-
-  const text = await request.text()
-  if (Buffer.byteLength(text, "utf8") > maxBytes) return { ok: false, status: 413, errorCode: "TOO_LARGE" }
+  const read = await readCapped(request, entry.maxBytes ?? DEFAULT_MAX_BYTES)
+  if (!read.ok) return read
+  const text = new TextDecoder().decode(read.bytes)
 
   if (!entry.body) {
     return text === "" ? { ok: true, body: undefined } : { ok: false, status: 400, errorCode: "BAD_BODY" }
@@ -84,8 +92,9 @@ async function recordActivity(request: Request, response: Response, session: Ses
 /**
  * Story 1.3 proxy, built by a factory so tests can inject fixture allowlists.
  * Order: kill switch → method → path → deny → allowlist → Profile switch →
- * session → query → body (415/413/400) → token expiry → upstream → activity
- * re-seal. There is no CSRF or session-binding check (D5); bodies are never
+ * session → query → body (415/413/400, uploads per AD-13) → token expiry →
+ * owner substitution → deny re-check on the upstream segments → upstream
+ * (image entries sniffed) → activity re-seal. There is no CSRF or session-binding check (D5); bodies are never
  * logged (D6). `X-PP-Activity` is never forwarded upstream.
  */
 export function createProxyHandler(deps: ProxyHandlerDeps = {}): (request: Request) => Promise<Response> {
@@ -136,15 +145,23 @@ export function createProxyHandler(deps: ProxyHandlerDeps = {}): (request: Reque
     const checkedAt = now()
     if (!isAccessTokenFresh(session, checkedAt)) return fail(401, "TOKEN_EXPIRED")
 
-    const upstreamUrl = buildUpstreamUrl(
-      environmentConfig(session.environment).apiRoot,
-      upstreamSegments(entry, segments, session),
-      query,
-    )
+    // The session's ids replace `me`: the result must still clear the deny list.
+    const upstream = upstreamSegments(entry, segments, session)
+    if (isDenied(method, upstream, denyRules)) return fail(403, "NOT_ALLOWED")
+
+    const upstreamUrl = buildUpstreamUrl(environmentConfig(session.environment).apiRoot, upstream, query)
     /* v8 ignore next -- defensive: normalized segments always rebuild to the same path */
     if (!upstreamUrl) return fail(400, "BAD_PATH")
 
-    const result = await forward({ url: upstreamUrl, method, request, body: body.body, accessToken: session.accessToken, requestId })
+    const result = await forward({
+      url: upstreamUrl,
+      method,
+      request,
+      body: body.body,
+      accessToken: session.accessToken,
+      requestId,
+      asImage: entry.asImage === true,
+    })
     if (result.kind === "token-expired") return fail(401, "TOKEN_EXPIRED")
     return done(await recordActivity(request, result.response, session, checkedAt))
   }

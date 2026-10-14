@@ -22,7 +22,7 @@ export async function revokeAllDevices(apiRoot: string, accessToken: string, con
   const outcome = await fetchWithTimeout(
     `${apiRoot}/auth/user/logout/all-devices`,
     { method: "POST", headers: { Authorization: `Bearer ${accessToken}` } },
-    context.timeoutMs ?? REVOKE_TIMEOUT_MS,
+    { timeoutMs: context.timeoutMs ?? REVOKE_TIMEOUT_MS },
   )
   const { requestId, routeTemplate } = context
   if (outcome.kind !== "response") {

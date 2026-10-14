@@ -1,13 +1,42 @@
 import { describe, expect, it } from "vitest"
 import { nameIssue } from "@/lib/shared/person-rules"
-import { BIOLOGICAL_GENDERS, entries, ETHNICITIES, RACES, userEditBodySchema } from "./personal"
+import { buildUpstreamQuery, matchEntry } from "../match"
+import { BIOLOGICAL_GENDERS, entries, ETHNICITIES, RACES, SIGNATURE_MAX_BYTES, userEditBodySchema } from "./personal"
 
 const valid = (body: unknown): boolean => userEditBodySchema.safeParse(body).success
 
 describe("PUT v2/user/edit entry", () => {
   it("is the one shared PUT, not a Profile-module entry", () => {
-    expect(entries.map((e) => `${e.method} ${e.template}`)).toEqual(["PUT v2/user/edit"])
-    expect(entries[0].profile).toBeUndefined()
+    expect(entries.map((e) => `${e.method} ${e.template}`)).toEqual([
+      "PUT v2/user/edit",
+      "POST v2/health/type/Person/{personId}/relation/PersonHasSignatureFile/file/upload",
+      "POST v2/file/{fileId}/version",
+    ])
+    expect(entries.every((e) => e.profile === undefined)).toBe(true)
+  })
+})
+
+describe("Signature upload entries (Story 2.4, AD-13)", () => {
+  const seg = (path: string) => path.split("/")
+  const q = (query: string) => new URLSearchParams(query)
+
+  it("first Signature: owner me only, isPublic=false forced, no client query, one PNG `file` part, 1 MB", () => {
+    const match = matchEntry(entries, "POST", seg("v2/health/type/Person/me/relation/PersonHasSignatureFile/file/upload"))
+    if (match.kind !== "matched") throw new Error("expected a match")
+    expect(match.entry).toMatchObject({ upload: { part: "file", types: ["png"] }, maxBytes: SIGNATURE_MAX_BYTES })
+    expect(SIGNATURE_MAX_BYTES).toBe(1024 * 1024)
+    expect(buildUpstreamQuery(match.entry, q("isPublic=true"))?.toString()).toBe("isPublic=false")
+    expect(buildUpstreamQuery(match.entry, q("fileName=x.png"))).toBeNull()
+    expect(matchEntry(entries, "POST", seg("v2/health/type/Person/4242/relation/PersonHasSignatureFile/file/upload")).kind).toBe("not-allowed")
+  })
+
+  it("new version: numeric id, current=true forced, no client query, one PNG `fileNewVersion` part, 1 MB", () => {
+    const match = matchEntry(entries, "POST", seg("v2/file/77/version"))
+    if (match.kind !== "matched") throw new Error("expected a match")
+    expect(match.entry).toMatchObject({ upload: { part: "fileNewVersion", types: ["png"] }, maxBytes: SIGNATURE_MAX_BYTES })
+    expect(buildUpstreamQuery(match.entry, q("current=false"))?.toString()).toBe("current=true")
+    expect(buildUpstreamQuery(match.entry, q("versionName=x"))).toBeNull()
+    expect(matchEntry(entries, "POST", seg("v2/file/me/version")).kind).toBe("not-allowed")
   })
 })
 

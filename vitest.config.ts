@@ -21,7 +21,7 @@ export default defineConfig({
         test: {
           name: "server",
           environment: "node",
-          include: ["lib/server/**/*.test.ts", "lib/shared/**/*.test.ts", "lib/*.test.ts", "app/api/**/*.test.ts", "app/*.test.ts", "scripts/**/*.test.ts", "*.test.ts"],
+          include: ["lib/server/**/*.test.ts", "lib/shared/**/*.test.ts", "lib/*.test.ts", "app/api/**/*.test.ts", "app/disabled/*.test.ts", "app/*.test.ts", "scripts/**/*.test.ts", "*.test.ts"],
         },
       },
       {

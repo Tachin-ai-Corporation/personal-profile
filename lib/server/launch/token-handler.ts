@@ -6,6 +6,7 @@ import { environmentConfig, type Environment } from "@/lib/shared/environments"
 import { LAUNCH_ERROR_MESSAGES } from "@/lib/shared/messages"
 import { serverEnv, type ServerEnv } from "@/lib/server/env"
 import { isJsonRequest } from "@/lib/server/http/content-type"
+import { readCapped } from "@/lib/server/http/read-capped"
 import { jsonResponse } from "@/lib/server/http/responses"
 import { logRequest, newRequestId } from "@/lib/server/log"
 import { environmentSetCookie } from "@/lib/server/session/environment-cookie"
@@ -19,12 +20,12 @@ const MAX_BODY_BYTES = 16 * 1024
 /** Only `lpl` is read; every other field (including `environment`) is ignored (D2). */
 const bodySchema = z.object({ lpl: z.string().min(1).max(8 * 1024) })
 
+/** Reads `{ lpl }` through the byte-capped reader; anything unusable is `null` (400 `LAUNCH_INVALID`). */
 async function readLpl(request: Request): Promise<string | null> {
-  if (Number(request.headers.get("Content-Length") ?? "0") > MAX_BODY_BYTES) return null
-  const text = await request.text().catch(() => "")
-  if (!text || Buffer.byteLength(text, "utf8") > MAX_BODY_BYTES) return null
+  const read = await readCapped(request, MAX_BODY_BYTES)
+  if (!read.ok || read.bytes.byteLength === 0) return null
   try {
-    const parsed = bodySchema.safeParse(JSON.parse(text))
+    const parsed = bodySchema.safeParse(JSON.parse(new TextDecoder().decode(read.bytes)))
     return parsed.success ? parsed.data.lpl : null
   } catch {
     return null

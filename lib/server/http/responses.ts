@@ -11,10 +11,18 @@ export function jsonResponse(status: number, body: unknown, headers?: Headers): 
   return new Response(JSON.stringify(body), { status, headers: out })
 }
 
-/** The one builder for BFF-originated errors: `{ errorCode, source: "proxy" }`, no-store. */
+/** Kill-switch 503s tell clients and monitors when to try again (seconds). */
+export const SERVICE_DISABLED_RETRY_AFTER = "300"
+
+/**
+ * The one builder for BFF-originated errors: `{ errorCode, source: "proxy" }`,
+ * no-store; a kill-switch `SERVICE_DISABLED` also carries `Retry-After: 300`.
+ */
 export function jsonError(status: number, errorCode: BffErrorCode, headers?: Headers): Response {
   const body: BffErrorBody = { errorCode, source: BFF_ERROR_SOURCE }
-  return jsonResponse(status, body, headers)
+  const response = jsonResponse(status, body, headers)
+  if (errorCode === "SERVICE_DISABLED") response.headers.set("Retry-After", SERVICE_DISABLED_RETRY_AFTER)
+  return response
 }
 
 /** A no-store JSON success body. */

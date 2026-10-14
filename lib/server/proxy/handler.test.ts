@@ -8,6 +8,8 @@ import type { SessionPayload } from "@/lib/server/session/types"
 import { stubServerEnv, testEnv } from "@/test/env-fixture"
 import { server, trackAllRequests } from "@/test/msw-server"
 import { makeSession, NOW } from "@/test/session-fixture"
+import { IMAGES, imageOfSize } from "@/test/image-fixture"
+import { multipart, multipartInit, type Part, type Transfer } from "@/test/multipart-fixture"
 import { DEMO, PROD } from "@/test/upstream-fixture"
 import { ALLOWLIST } from "./allowlist"
 import { createProxyHandler } from "./handler"
@@ -21,6 +23,8 @@ const FIXTURES: AllowlistEntry[] = [
   { method: "POST", template: "v2/mfa/disable/totp", profile: true },
   { method: "DELETE", template: "v2/file/{id}", fixedQuery: { hardDelete: "true" } },
   { method: "POST", template: "v2/small", body: z.object({ a: z.string() }), maxBytes: 20 },
+  { method: "GET", template: "v2/mfa/enable/{userId}" },
+  { method: "POST", template: "v2/fixture/png-only", upload: { part: "file", types: ["png"] }, maxBytes: 2048 },
 ]
 
 const env = testEnv
@@ -465,5 +469,149 @@ describe("proxy: user activity (Story 1.6)", () => {
     const response = await late(new Request("http://localhost:3000/api/1h/v2/user/myself", { headers: { cookie } }))
     await expectError(response, 401, "SESSION_EXPIRED")
     expect(response.headers.get("Set-Cookie")).toMatch(/Max-Age=0$/)
+  })
+})
+
+describe("proxy: deny list re-checked after owner substitution", () => {
+  it("an allowlisted owner template whose substituted path is denied → 403 before upstream", async () => {
+    const calls = trackAllRequests()
+    await expectError(await call({ path: "v2/mfa/enable/me" }), 403, "NOT_ALLOWED")
+    expect(calls()).toBe(0)
+  })
+})
+
+describe("proxy: capped body reads", () => {
+  it("a NaN Content-Length → 400 BAD_BODY before reading", async () => {
+    const calls = trackAllRequests()
+    const response = await call({ method: "PUT", path: "v2/user/edit", headers: { "Content-Type": "application/json", "Content-Length": "abc" }, body: "{}" })
+    await expectError(response, 400, "BAD_BODY")
+    expect(calls()).toBe(0)
+  })
+})
+
+describe("proxy: image downloads (AD-13 hardening)", () => {
+  const image = (bytes: Uint8Array<ArrayBuffer>, declared: string) =>
+    http.get(`${UP}/v2/file/:id/download`, () =>
+      new HttpResponse(bytes, {
+        headers: {
+          "Content-Type": declared,
+          "Content-Disposition": 'inline; filename="evil.html"',
+          "Content-Length": String(bytes.byteLength),
+          "Set-Cookie": "up=1",
+          "Cache-Control": "public, max-age=600",
+          ETag: "x",
+        },
+      }),
+    )
+
+  it.each([
+    ["PNG bytes declared image/jpeg", IMAGES.png, "image/jpeg", "image/png", "inline"],
+    ["JPEG bytes", IMAGES.jpeg, "image/jpeg", "image/jpeg", "inline"],
+    ["BMP bytes", IMAGES.bmp, "image/jpeg", "image/bmp", "inline"],
+    ["SVG bytes declared image/svg+xml", IMAGES.svg, "image/svg+xml", "application/octet-stream", 'attachment; filename="file"'],
+    ["HTML bytes declared image/png", IMAGES.html, "image/png", "application/octet-stream", 'attachment; filename="file"'],
+    ["WebP bytes (logos only)", IMAGES.webp, "image/webp", "application/octet-stream", 'attachment; filename="file"'],
+  ])("%s → %s, %s", async (_label, bytes, declared, type, disposition) => {
+    server.use(image(bytes, declared))
+    const response = await call({ path: "v2/file/9/download" })
+    expect(response.status).toBe(200)
+    expect(response.headers.get("Content-Type")).toBe(type)
+    expect(response.headers.get("Content-Disposition")).toBe(disposition)
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff")
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0")
+    expect(response.headers.get("Set-Cookie")).toBeNull()
+    expect(response.headers.get("Content-Length")).toBeNull()
+    expect(response.headers.get("ETag")).toBeNull()
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes)
+  })
+
+  it("an upstream 404 on an image entry passes through without a disposition", async () => {
+    server.use(http.get(`${UP}/v2/file/:id/download`, () => HttpResponse.json({ message: "Not found", code: 4 }, { status: 404 })))
+    const response = await call({ path: "v2/file/9/download" })
+    expect(response.status).toBe(404)
+    expect(response.headers.get("Content-Disposition")).toBeNull()
+    expect(await response.json()).toEqual({ message: "Not found", code: 4 })
+  })
+
+  it("never forwards Set-Cookie, Content-Disposition or Content-Length on a JSON answer either", async () => {
+    server.use(
+      http.get(`${UP}/v2/user/myself`, () =>
+        HttpResponse.json({ id: 1 }, { headers: { "Set-Cookie": "a=1", "Content-Disposition": "attachment", "Content-Length": "8" } }),
+      ),
+    )
+    const response = await call({ path: "v2/user/myself" })
+    for (const name of ["Set-Cookie", "Content-Disposition", "Content-Length"]) expect(response.headers.get(name)).toBeNull()
+  })
+})
+
+describe("proxy: uploads (Story 1.10 table, AD-13)", () => {
+  const PICTURE = "v2/health/type/Person/me/relation/PersonHasProfilePictureFile/file/upload"
+  const CAP = 4 * 1024 * 1024
+
+  async function upload(path: string, parts: readonly Part[], transfer: Transfer = "header", headers: Record<string, string> = {}) {
+    const payload = await multipart(parts)
+    const cookie = `${SESSION_COOKIE}=${await sealSession(makeSession())}`
+    return proxy(new Request(`http://localhost:3000/api/1h/${path}`, multipartInit(payload, transfer, { cookie, ...headers })))
+  }
+
+  it("forwards one rebuilt part to the session's person, forcing isPublic=true; the name is the server's multipart name", async () => {
+    let seen: { path: string; search: string; contentType: string | null; entries: [string, FormDataEntryValue][] } | undefined
+    server.use(
+      http.post(`${UP}/v2/health/type/Person/:id/relation/PersonHasProfilePictureFile/file/upload`, async ({ request }) => {
+        const url = new URL(request.url)
+        seen = { path: url.pathname, search: url.search, contentType: request.headers.get("Content-Type"), entries: [...(await request.formData()).entries()] }
+        return HttpResponse.json({ id: 900, name: "me.jpg" })
+      }),
+    )
+    const response = await upload(`${PICTURE}?isPublic=false`, [{ name: "file", bytes: IMAGES.jpeg, filename: "IMG 1.JPG", type: "text/html" }])
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ id: 900, name: "me.jpg" })
+    expect(seen?.path).toBe("/api/v2/health/type/Person/4242/relation/PersonHasProfilePictureFile/file/upload")
+    expect(seen?.search).toBe("?isPublic=true")
+    expect(seen?.contentType).toMatch(/^multipart\/form-data; boundary=/)
+    expect(seen?.entries).toHaveLength(1)
+    const [name, file] = seen?.entries[0] ?? []
+    expect(name).toBe("file")
+    expect(file instanceof File && [file.type, file.name, file.size]).toEqual(["image/jpeg", "IMG_1.jpg", IMAGES.jpeg.byteLength])
+  })
+
+  it.each(["header", "chunked"] as const)("accepts exactly 4 MB (%s)", async (transfer) => {
+    server.use(http.post(`${UP}/v2/health/type/Person/:id/relation/PersonHasProfilePictureFile/file/upload`, () => HttpResponse.json({ id: 1 })))
+    const response = await upload(PICTURE, [{ name: "file", bytes: imageOfSize("png", CAP) }], transfer)
+    expect(response.status).toBe(200)
+  })
+
+  describe("rejections, before any upstream call", () => {
+    beforeEach(() => {
+      upstreamCalls = trackAllRequests()
+    })
+    afterEach(() => expect(upstreamCalls()).toBe(0))
+
+    it.each(["header", "chunked"] as const)("4 MB + 1 byte → 413 TOO_LARGE (%s)", async (transfer) => {
+      await expectError(await upload(PICTURE, [{ name: "file", bytes: imageOfSize("png", CAP + 1) }], transfer), 413, "TOO_LARGE")
+    })
+
+    it.each([
+      ["SVG renamed .png", [{ name: "file", bytes: IMAGES.svg, filename: "a.png" }]],
+      ["HTML renamed .png", [{ name: "file", bytes: IMAGES.html, filename: "a.png" }]],
+      ["GIF renamed .png", [{ name: "file", bytes: IMAGES.gif, filename: "a.png" }]],
+      ["two file parts", [{ name: "file", bytes: IMAGES.png }, { name: "file", bytes: IMAGES.png }]],
+      ["a part named image", [{ name: "image", bytes: IMAGES.png }]],
+    ] as const)("%s → 415 UNSUPPORTED_MEDIA", async (_label, parts) => {
+      await expectError(await upload(PICTURE, parts), 415, "UNSUPPORTED_MEDIA")
+    })
+
+    it("a JSON body → 415 UNSUPPORTED_MEDIA", async () => {
+      const response = await call({ method: "POST", path: PICTURE, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ file: "x" }) })
+      await expectError(response, 415, "UNSUPPORTED_MEDIA")
+    })
+
+    it("a PNG-only entry rejects a JPEG → 415", async () => {
+      await expectError(await upload("v2/fixture/png-only", [{ name: "file", bytes: IMAGES.jpeg }]), 415, "UNSUPPORTED_MEDIA")
+    })
+
+    it.each(["x=1", "fileName=me.jpg"])("a client query (%s) on the picture upload → 400 BAD_QUERY", async (query) => {
+      await expectError(await upload(`${PICTURE}?${query}`, [{ name: "file", bytes: IMAGES.png }]), 400, "BAD_QUERY")
+    })
   })
 })

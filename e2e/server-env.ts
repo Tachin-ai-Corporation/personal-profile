@@ -8,3 +8,12 @@ export const TEST_SERVER_ENV = {
   /** Serves /test-fixtures/** (the leave-guard fixture page). */
   PP_E2E_FIXTURES: "1",
 } as const
+
+/** Extra servers of the same build with a kill switch on (AD-20; e2e/kill-switch.spec.ts). */
+export const KILL_SWITCH_SERVERS = [
+  { port: 3101, env: { PP_DISABLED: "1" } },
+  { port: 3102, env: { ACCOUNT_DISABLED: "1" } },
+] as const
+
+export const PP_DISABLED_URL = `http://localhost:${KILL_SWITCH_SERVERS[0].port}`
+export const ACCOUNT_DISABLED_URL = `http://localhost:${KILL_SWITCH_SERVERS[1].port}`

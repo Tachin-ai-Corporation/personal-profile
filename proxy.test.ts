@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { resetServerEnvCache } from "@/lib/server/env"
 import { SESSION_COOKIE, sealSession, unsealSession } from "@/lib/server/session/session"
 import type { SessionPayload } from "@/lib/server/session/types"
 import { stubServerEnv } from "@/test/env-fixture"
@@ -161,6 +162,118 @@ describe("navigation activity (Story 1.6)", () => {
     const response = await proxy(request("/", { ...NAVIGATE, cookie }))
     expect(response.status).toBe(200)
     expect(response.headers.get("Set-Cookie")).toBeNull()
+    expectSecurityHeaders(response)
+  })
+})
+
+describe("kill switches (AD-20, Stories 1.16 and 7.2)", () => {
+  const rewrittenTo = (response: Response) => response.headers.get("x-middleware-rewrite")
+  const DISABLED = "http://localhost:3000/disabled"
+
+  async function expectApi503(response: Response): Promise<void> {
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ errorCode: "SERVICE_DISABLED", source: "proxy" })
+    expect(response.headers.get("Retry-After")).toBe("300")
+    expectSecurityHeaders(response)
+    expectNoStore(response)
+  }
+
+  describe("PP_DISABLED=1", () => {
+    beforeEach(() => stubServerEnv({ PP_DISABLED: "1" }))
+
+    it.each(["/", "/auth", "/auth?lpl=abc", "/account", "/account/", "/handoff/portal?to=create-org"])(
+      "rewrites the page %s to the 503 disabled screen, with security and no-store headers",
+      async (path) => {
+        const response = await proxy(request(path, NAVIGATE))
+        expect(rewrittenTo(response)).toBe(DISABLED)
+        expectSecurityHeaders(response)
+        expectNoStore(response)
+      },
+    )
+
+    it.each(["//api/pp/profile-picture-id", "/%61pi/1h/v2/user/myself", "/api//pp/mfa/validate/"])(
+      "decides API vs page on the same normalized path the matcher uses: %s → 503 JSON",
+      async (path) => {
+        await expectApi503(await proxy(request(path)))
+      },
+    )
+
+    it("/auth/ (trailing slash) is the /auth page for the referrer hint", async () => {
+      const response = await proxy(request("/auth/", NAVIGATE))
+      expect(response.headers.get("x-middleware-request-x-pp-disabled-from")).toBe("auth")
+    })
+
+    it("rewrites RSC and prefetch requests too", async () => {
+      expect(rewrittenTo(await proxy(request("/", { rsc: "1" })))).toBe(DISABLED)
+      expect(rewrittenTo(await proxy(request("/account", { "next-router-prefetch": "1", purpose: "prefetch" })))).toBe(DISABLED)
+    })
+
+    it("tells the screen when the page was /auth (its referrer may pick the link), and only then", async () => {
+      const auth = await proxy(request("/auth", { ...NAVIGATE, referer: "https://1health.demo.1health.io/" }))
+      expect(auth.headers.get("x-middleware-request-x-pp-disabled-from")).toBe("auth")
+      const root = await proxy(request("/", { ...NAVIGATE, "x-pp-disabled-from": "auth" }))
+      expect(root.headers.get("x-middleware-request-x-pp-disabled-from")).toBeNull()
+    })
+
+    it("does not re-seal the session of a switched-off page", async () => {
+      const response = await proxy(request("/", { ...NAVIGATE, cookie: await cookieFor({ lastSeen: NOW - 5 * MIN }) }))
+      expect(rewrittenTo(response)).toBe(DISABLED)
+      expect(response.headers.get("Set-Cookie")).toBeNull()
+    })
+
+    it.each([
+      ["GET", "/api/1h/v2/user/myself"],
+      ["POST", "/api/pp/mfa/validate"],
+      ["GET", "/api/pp/profile-picture-id"],
+      ["POST", "/api/places/autocomplete"],
+      ["POST", "/api/session/refresh"],
+      ["POST", "/api/session/ping"],
+    ])("%s %s → 503 SERVICE_DISABLED JSON", async (method, path) => {
+      await expectApi503(await proxy(request(path, {}, method)))
+    })
+
+    it.each([
+      ["POST", "/api/session/logout"],
+      ["GET", "/api/session/logout"],
+      ["POST", "/api/token"],
+      ["GET", "/favicon.png"],
+      ["GET", "/_next/static/chunk.js"],
+    ])("leaves %s %s alone (logout always works; /api/token keeps its own envelope)", async (method, path) => {
+      const response = await proxy(request(path, {}, method))
+      expect(response.status).toBe(200)
+      expect(rewrittenTo(response)).toBeNull()
+      expectSecurityHeaders(response)
+    })
+  })
+
+  describe("ACCOUNT_DISABLED=1", () => {
+    beforeEach(() => stubServerEnv({ ACCOUNT_DISABLED: "1" }))
+
+    it.each(["/account", "/account?tab=provider", "/handoff/portal"])("rewrites %s to the disabled screen", async (path) => {
+      expect(rewrittenTo(await proxy(request(path, NAVIGATE)))).toBe(DISABLED)
+    })
+
+    it.each(["/api/pp/mfa/validate", "/api/pp/org-logo/12", "/api/pp/practice-support"])("%s → 503", async (path) => {
+      await expectApi503(await proxy(request(path)))
+    })
+
+    it.each(["/", "/auth", "/api/1h/v2/user/myself", "/api/pp/profile-picture-id", "/api/places/details"])("keeps %s working", async (path) => {
+      const response = await proxy(request(path, NAVIGATE))
+      expect(response.status).toBe(200)
+      expect(rewrittenTo(response)).toBeNull()
+    })
+  })
+
+  it("with neither flag nothing is switched off", async () => {
+    for (const path of ["/", "/account", "/api/pp/mfa/validate"]) expect(rewrittenTo(await proxy(request(path, NAVIGATE)))).toBeNull()
+  })
+
+  it("a misconfigured env switches nothing off here (routes fail on their own) and headers are still set", async () => {
+    vi.stubEnv("SESSION_SECRET", "short")
+    vi.stubEnv("PP_DISABLED", "1")
+    resetServerEnvCache()
+    const response = await proxy(request("/api/1h/v2/user/myself"))
+    expect(response.status).toBe(200)
     expectSecurityHeaders(response)
   })
 })
