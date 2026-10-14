@@ -531,7 +531,8 @@ components/ui/             # shadcn on 1health tokens
 
 | Question | Owner |
 | --- | --- |
-| Does 1health rotate refresh tokens or detect reuse for `client_id=public-client`? (AD-16 assumes rotation without reuse revocation is tolerated.) | Daniel Garcia / backend |
+| Will `POST /auth/user/logout` also invalidate the refresh token? Today it invalidates only the access token, so after logout the refresh token stays valid upstream for up to 24 h. Request: `_bmad-output/implementation-artifacts/backend-request-refresh-token-revocation.md`. No app change is needed once it ships. | Daniel Garcia / backend |
+| Is `auth.client-config.public-client-id` left at `public-client` in demo and prod (no env override)? | Daniel Garcia / backend |
 | Launch-code replay (G5, no row lock): accept the 60 s window or get a backend fix? | Daniel Garcia / backend |
 | Custom domains for the three projects (replace `personal-profile-<env>.vercel.app`). | Daniel Garcia |
 | Is the dev 1health environment synthetic-data only (so the dev project and previews need no BAA)? | Daniel Garcia |
@@ -541,6 +542,16 @@ components/ui/             # shadcn on 1health tokens
 | `PUBLIC_FILES_ORIGIN` value per environment (dev/demo/prod origin of `tenantLogo.publicUrl`); until set, AD-24 serves 404 and cards show initials. | Dev lead |
 | Does changing the login email via `PUT user/edit` keep the current access/refresh tokens valid? Verify on demo; if not, the success path ends in `SESSION_EXPIRED`. | Dev lead |
 | Is the 1health backend audit the system of record for SSN expose and Signature changes, or must the proxy emit audit lines to a BAA sink? | Daniel Garcia |
+
+### Answered from backend source (2026-10-13)
+
+Read from `1h-ng-bo-core-be` (`oauth2` module, `master` at `9a7342252e`). Paths are under `oauth2/src/main/java/com/sirma/bocore/auth/`.
+
+| Question | Answer | Evidence |
+| --- | --- | --- |
+| Is `public-client` the right `client_id` for the refresh grant? | **Yes.** The launch exchange issues its tokens under the registered client looked up by `publicClientId`. The public refresh path accepts exactly one `client_id` and no secret (`ClientAuthenticationMethod.NONE`). Whether demo/prod override the id is still open (above). | `service/impl/ThirdPartyTokenServiceImpl.java:126`; `config/PublicRefreshTokenAuthenticationConverter.java`; `config/CustomPublicClientRefreshTokenAuthenticationProvider.java`; `application.yml:121` |
+| Does 1health rotate refresh tokens or detect reuse for `client_id=public-client`? | **It rotates; there is no reuse detection.** `reuseRefreshTokens(false)`, with a 24 h refresh-token TTL; the access-token TTL is half the tenant's token validity (measured: 50 min). Refresh uses Spring's stock `OAuth2RefreshTokenAuthenticationProvider`. A replayed old refresh token isn't found and gets `invalid_grant`, but nothing revokes the rest of the session. AD-16's assumption holds. Because a refresh that loses a race gets `invalid_grant` (→ `SESSION_EXPIRED`), the in-tab and cross-tab single-flight is required, not optional. | `config/AuthorizationServerConfig.java:186-191`; `config/CustomOAuth2RefreshTokenAuthenticationProvider.java`; `config/BocoreJwtTokenCustomizer.java:114` |
+| What does `POST /auth/user/logout` revoke? | **The access token only.** It looks up the authorization by the Bearer token and invalidates that token. The refresh token is invalidated only when it is the token passed in (which also invalidates the access token and authorization code). This is acceptable for v1: the refresh token exists only inside the sealed `HttpOnly` cookie that logout clears, and our idle and absolute limits still apply. Full revocation is requested from the backend (open question above). The standard `/oauth2/revoke` isn't usable, because it needs client authentication and `public-client` has none. | `service/TokenRevocationService.java:189-196`, `:243-261`, `:320-339`; `controller/TokenController.java:56` |
 
 ## Notes from measurement (2026-10-13)
 
