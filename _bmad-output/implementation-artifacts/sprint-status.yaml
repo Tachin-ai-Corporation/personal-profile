@@ -106,7 +106,7 @@ development_status:
   f3-2-section-edit-model: done  # registry completion, useSectionForm, header/container/footer, KeyValueTable, runSaveSteps, Save-all runner
   f3-3-states-and-section-navigation: in-progress  # StateFrame + skeletons + nouns, forbidden-scope, SignatureThumb, SectionNav port (former 7.0c-2), panels
   f4-drafts: backlog
-  f5-1-select-date-input-popover: backlog  # aria-disabled Select + helper, DateInput + Calendar, Popover + info-popover
+  f5-1-select-date-input-popover: in-progress  # aria-disabled Select + helper, DateInput + Calendar, Popover + info-popover
   f5-2-async-combobox: backlog  # ARIA 1.2 combobox (NPI, address, insurer, gender identity variants)
   7-1-account-page-route-tabs-deep-links-and-states: backlog
   7-2-account-page-hardening-denies-kill-switch-headers-mobile-and-a: backlog  # 2026-10-14: page/route-level ACCOUNT_DISABLED kill switch + 503 screen + e2e matrix built in spec-f2. Remaining (Team B): /account no-store test (needs 7.1), Profile deny/traversal rows, /account header asserts, mobile + keyboard/axe runs
