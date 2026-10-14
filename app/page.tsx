@@ -1,17 +1,33 @@
+import { redirect } from "next/navigation"
+import { ONEHEALTH_SECRET_KEY, PP_DISABLED } from "@/lib/server/env"
+import { deriveAesKey } from "@/lib/server/launch"
+import { requireSession } from "@/lib/server/session"
+
 /**
- * Placeholder home page.
+ * Home page (placeholder) with the session guard (AD-1, AD-4).
  *
- * Story 1.1 ships only the foundation. Launch, the session guard and the profile
- * shell arrive in Stories 1.2 and 1.8 — this page does no data load and no
- * session check.
+ * The kill switch and bad-key guards run first (AD-20), then `requireSession()`
+ * redirects to `/launch-error?reason=expired` when there is no valid session.
+ * There is no login page and no `/auth` route. `app/page.tsx` never reads `lpl`;
+ * `proxy.ts` redirects a `/?lpl=` request to `/launch` before this runs.
  *
- * Rendered per request so the proxy's per-request CSP nonce is stamped onto
- * Next's scripts (a statically prerendered page cannot carry a per-request
- * nonce, which would blank the page under `'strict-dynamic'`). AD-18 pins this.
+ * Rendered per request so the proxy's no-store headers and CSP nonce apply, and
+ * the guard runs on every request (AD-18).
  */
 export const dynamic = "force-dynamic"
 
-export default function HomePage() {
+export default async function HomePage() {
+  if (PP_DISABLED) {
+    redirect("/launch-error?reason=disabled")
+  }
+  try {
+    deriveAesKey(ONEHEALTH_SECRET_KEY)
+  } catch {
+    redirect("/launch-error?reason=config")
+  }
+
+  await requireSession()
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-2 p-6 text-center">
       <h1 className="text-2xl font-semibold">Personal Profile</h1>
