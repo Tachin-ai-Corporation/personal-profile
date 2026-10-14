@@ -131,6 +131,11 @@ context:
 
 - **Revoke is after the response:** `returnToPortal` waits only 3 s, but the revoke may take 5 s. Revoking before answering could let the navigation cancel the request and lose the cookie-clearing `Set-Cookie`. `after()` sends the 204 first and keeps the function alive for the revoke.
 - **What revoke covers:** `/auth/user/logout` invalidates the access token only. The refresh token stays valid upstream until it expires, but it existed only inside the sealed cookie that was just cleared. Revoking it too would need `/oauth2/revoke` with client authentication, which `public-client` doesn't have.
+- **Confirmed from backend source (2026-10-13; see the spine's "Answered from backend source"):**
+  - `public-client` is the right refresh `client_id`: the launch exchange issues its tokens under it.
+  - The IdP rotates refresh tokens (`reuseRefreshTokens(false)`, 24 h TTL) with no reuse detection. A replayed token gets `invalid_grant` but nothing else is revoked.
+  - Logout leaving the refresh token valid is accepted for v1, because only the sealed, now-cleared cookie held it. It still leaves the session live upstream for up to 24 h and widens the logout-vs-refresh race in the Review Triage Log.
+  - The backend is asked to invalidate the refresh token in `logout()` (`backend-request-refresh-token-revocation.md`). Once that ships, this route revokes both with no app change.
 - **Mismatched binding is a no-op:** the cookie then belongs to whichever account launched last in this browser. A stale tab's "Return to 1health" must not sign that account out or revoke its token.
 - **First event wins:** after `session-changed`, writing drafts on a later expiry would store edits against an account that is no longer signed in. After `session-expired`, the drafts have already been written and the page is inert, so a later change adds nothing.
 
