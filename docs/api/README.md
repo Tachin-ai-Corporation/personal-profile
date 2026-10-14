@@ -1,5 +1,12 @@
 # Building on the 1health platform — API guide
 
+> **Personal Profile (spec 7.0a):** the template's generic engines (`query`,
+> `schema`, `grid`, `custom-data`, workflow, campaign, journey and provisioning
+> modules) were removed: none of those endpoints is on the proxy allowlist.
+> These docs stay as **platform reference only**. In this app the browser calls
+> 1health only through the BFF proxy with `callApi`; see
+> [CONVENTIONS.md](CONVENTIONS.md) and [../AUTH-ARCHITECTURE.md](../AUTH-ARCHITECTURE.md).
+
 **Start here if you're building features on this template.** These docs distill
 the reusable 1health API patterns (extracted from a full production app) into
 generic, copy-ready building blocks. Every concept below ships as typed code in
@@ -30,8 +37,8 @@ code is the *how*.
   per-journey); *where you edit config determines its scope* (e.g. notification
   settings live on the campaign template) — see
   [PROVISIONING.md § template layers](PROVISIONING.md#the-four-template-layers-where-you-edit-matters).
-- **Everything goes through `authFetch`** (Bearer token, auto-refresh) and
-  resolves the base URL **per call**. Use the [`callApi` helper](CONVENTIONS.md).
+- **Everything goes through `callApi`** and the server-side proxy (Bearer token
+  and upstream origin are added server-side). See [CONVENTIONS.md](CONVENTIONS.md).
 
 ## The one distinction that trips everyone up
 
@@ -64,23 +71,17 @@ Never hardcode a step-field GUID. See [DATA-MODEL.md § Attributes](DATA-MODEL.m
 
 ```
 lib/api/
-  client.ts            callApi / ApiResponse / ok / err
-  types.ts             all shared wire & domain types
-  config.ts            endpoint path builders + RECORD_TYPES / ATTRIBUTES (fill per app)
-  schema.ts            runtime type/attribute/relationship discovery (+ cache)
-  query.ts             runQuery + RSQL builders + response extractors
-  grid.ts              runGridQuery + fetchAllGridPages
-  custom-data.ts       read/append/replace/delete customData
-  workflow-template.ts resolveTemplate + step-configuration + field-by-label
-  journey.ts           create/fetch/list/status/assign journeys
-  journey-step.ts      fetch steps + the 3 submit recipes + metadata builder
-  attachments.ts       journey documents, file upload/download/delete
-  comments.ts          list/post journey comments
-  campaign.ts          campaign lifecycle: create/activate/share/list/find
-  workflow-provisioning.ts  self-bootstrap: find/clone/publish + ensureWorkflow()
-  step-config.ts       edit step config: notifications + webhooks (subscriptions)
-  partnerships.ts      list partner orgs (resolve share targets)
+  client.ts            callApi (same-origin transport, refresh, session events)
+  types.ts             ApiResponse
+  errors-codes.ts      error-envelope parsing (BFF errorCode vs upstream code)
+  session-events.ts    session-expired (published once)
+  log-api-call.ts      dev-only console logger (redacted)
+  refresh-coordinator.ts  single-flight refresh (+ navigator.locks)
+  keys.ts              SWR keys ["pp", ...]
+  fetcher.ts           shared SWR fetcher + typed fetchers
+  config.ts            same-origin proxy paths
+  user.ts              fetchMyself → Myself
+  session.ts           startSession (/api/token) / endSession (logout)
   index.ts             barrel — import everything from "@/lib/api"
-components/workflow/
-  dynamic-step-form.tsx  data-driven renderer for a step's custom fields
+lib/server/proxy/      allowlist, deny list, normalization, forwarding
 ```

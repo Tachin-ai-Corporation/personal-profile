@@ -1,14 +1,14 @@
 # Workflow provisioning & self-bootstrap
 
+> **Reference only (spec 7.0a):** the template code this page describes (`lib/api/*` engines, `components/workflow/`) was removed from Personal Profile; its endpoints are not on the proxy allowlist. See [README.md](README.md).
+
 Some apps only work if a specific workflow **template** exists in the tenant.
 Rather than requiring manual setup per client, an app can **provision itself on
 any account** — by name, idempotently. This is the "define" side of workflows
 (creating templates & campaigns), complementing [WORKFLOWS.md](WORKFLOWS.md)
 (the "run" side).
 
-Code: [`workflow-provisioning.ts`](../../lib/api/workflow-provisioning.ts),
-[`campaign.ts`](../../lib/api/campaign.ts),
-[`partnerships.ts`](../../lib/api/partnerships.ts).
+Code: removed in spec 7.0a; see git history before d35a162.
 
 ## Concepts
 
@@ -87,7 +87,7 @@ lives on the campaign base:
 So "notification settings" is really "template config, edited at the campaign
 layer." Concretely, they're **step subscriptions** — `notifications` (email) and
 `webhooks` arrays on a step's configuration DTO. Verified against live 1health
-captures and implemented in [`lib/api/step-config.ts`](../../lib/api/step-config.ts):
+captures and implemented in `lib/api/step-config.ts`:
 
 **Read** (2 calls) — campaign → step, then the step's config:
 
@@ -186,7 +186,7 @@ Each step is **check-then-act**, so re-running is safe:
 ```
 
 `ensureTemplateGroup(name)` does steps 1–4 alone if you only need the group id;
-the campaign helpers ([`campaign.ts`](../../lib/api/campaign.ts)) do 5–7.
+the campaign helpers (`campaign.ts`) do 5–7.
 
 ## Endpoints
 
@@ -228,7 +228,7 @@ await shareCampaignWithPartner(c.data!.id, partnerOrgId)  // Read access to a pa
   before journeys can attach.
 - **Share** grants a partner org access: `{ targetAccessEntity: "Partner
   Organization", targetEntityId, shareAccess: "Read" }`. Resolve `partnerOrgId`
-  via [`fetchPartnerships`](../../lib/api/partnerships.ts).
+  via `fetchPartnerships`.
 
 ## Idempotency
 
@@ -268,8 +268,8 @@ provisions, and you persist `res.campaignId` / `res.workflowTemplateGroupId` int
 4. **Give progress feedback** — `onProgress` emits `finding → cloning →
    publishing → creating → activating → sharing → done`; surface it during the
    multi-second first-run bootstrap.
-5. **Handle `SESSION_EXPIRED`** (thrown by `authFetch`) by re-authenticating and
-   retrying.
+5. **Handle `SESSION_EXPIRED`** (an `ApiResponse.errorCode` from `callApi`) by
+   relaunching from 1health.
 
 ## Error cases
 

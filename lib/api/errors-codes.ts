@@ -1,0 +1,66 @@
+import { BFF_ERROR_SOURCE, isBffErrorCode, type BffErrorCode } from "@/lib/shared/bff-contract"
+
+/**
+ * Error codes `callApi` can report, and the one parser of non-2xx bodies.
+ * Two envelopes, never mixed (AD-19):
+ *   - BFF: `{ errorCode: "<STRING>", source: "proxy" }` → `errorCode`
+ *   - upstream: `{ message, code: <int> }` → `upstreamCode` + `error`
+ * Mapping a response to what the UI shows is `lib/api/errors.ts#mapApiError`,
+ * the only reader of these codes outside this file and `client.ts`.
+ */
+
+/** Client-side codes `callApi` adds on top of the BFF ones. */
+export type ClientErrorCode = "NETWORK_ERROR"
+
+export type ApiErrorCode = BffErrorCode | ClientErrorCode
+
+export interface ParsedError {
+  readonly errorCode?: ApiErrorCode
+  /** A BFF body's `retryable: false` (launch, D9). */
+  readonly retryable?: false
+  /** A BFF body's user-safe `message` (launch, D9). */
+  readonly userMessage?: string
+  readonly upstreamCode?: number
+  /** An upstream body's own non-empty `message` (never a fallback, never BFF copy). */
+  readonly platformMessage?: string
+  readonly error: string
+  readonly details?: unknown
+  /** The body was a BFF envelope (`source: "proxy"`). */
+  readonly fromProxy: boolean
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+export function parseErrorBody(text: string, fallback: string): ParsedError {
+  let body: unknown
+  try {
+    body = text ? JSON.parse(text) : undefined
+  } catch {
+    return { error: fallback, fromProxy: false }
+  }
+  if (!isRecord(body)) return { error: fallback, fromProxy: false }
+
+  // A proxy body is the proxy's even with a code this client doesn't know (so an
+  // unknown proxy 403 is never "no access"); its `message` is user-safe copy (D9).
+  if (body.source === BFF_ERROR_SOURCE) {
+    return {
+      ...(isBffErrorCode(body.errorCode) ? { errorCode: body.errorCode } : {}),
+      error: fallback,
+      fromProxy: true,
+      ...(typeof body.message === "string" && body.message !== "" ? { userMessage: body.message } : {}),
+      ...(body.retryable === false ? { retryable: false } : {}),
+    }
+  }
+
+  const code = body.code
+  const message = typeof body.message === "string" && body.message !== "" ? body.message : undefined
+  return {
+    upstreamCode: typeof code === "number" && Number.isInteger(code) ? code : undefined,
+    ...(message === undefined ? {} : { platformMessage: message }),
+    error: message ?? fallback,
+    details: body.details,
+    fromProxy: false,
+  }
+}

@@ -1,11 +1,13 @@
 # Schema discovery (types, attributes, relationships)
 
+> **Reference only (spec 7.0a):** the template code this page describes (`lib/api/*` engines, `components/workflow/`) was removed from Personal Profile; its endpoints are not on the proxy allowlist. See [README.md](README.md).
+
 **The 1health platform is introspectable at runtime.** You do not have to know
 type names, attribute keys, or relationship edges ahead of time — you can fetch
 them. This powers generic tooling (a query builder, an admin UI, an
 export mapper) and lets you build `/query` requests with zero hardcoded strings.
 
-Code: [`lib/api/schema.ts`](../../lib/api/schema.ts).
+Code: removed in spec 7.0a; see git history before d35a162.
 
 > This corrects an earlier note in these docs that said schema attributes have
 > "no discovery endpoint." They do — the two endpoints below.
@@ -134,7 +136,7 @@ Both are legitimate:
 - **Discover** — for generic/dynamic tooling, admin UIs, or when you don't want
   to track schema by hand. It's a couple of cached GETs.
 - **Hardcode** — for a fixed app, pin the handful of `attrKey`s you use in
-  [`ATTRIBUTES`](../../lib/api/config.ts) to skip the round trip. Attribute keys
+  `ATTRIBUTES` to skip the round trip. Attribute keys
   are stable across environments, so this is safe.
 
 ## Relation to workflow step fields

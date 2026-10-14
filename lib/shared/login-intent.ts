@@ -1,76 +1,85 @@
 /**
- * =============================================================================
- * Login intent (D9)
- * =============================================================================
- *
- * The in-app path a user should land on after the next successful launch. It
- * lives in `sessionStorage` under `pp:login-intent` (per tab, never sent to the
- * server). Story 1.7 saves it when a session expires; `/auth` consumes it once
- * after a successful `POST /api/token`.
- *
- * A stored value is used only if it is a same-origin relative path: it starts
- * with `/` (not `//` or `/\`), has no scheme, control character or backslash,
- * and is not under the `/auth` or `/api` path segment. Anything else falls back.
- * Storage faults (private mode, blocked storage) are swallowed.
- * =============================================================================
+ * Where to land after a (re)launch (D9, Story 1.7): one sessionStorage key,
+ * read-and-remove. Only same-origin relative paths outside `/auth` and `/api`
+ * are accepted (as patient-vault `lib/login-intent.ts`).
  */
 
 export const LOGIN_INTENT_KEY = "pp:login-intent"
 
-/** Upper bound on a stored path, so a corrupt value can't grow unbounded. */
-const MAX_LENGTH = 2048
-
-/** `true` for a safe same-origin relative path that is not a launch or API path. */
-export function isSafeIntent(value: unknown): value is string {
-  if (typeof value !== "string" || value.length === 0 || value.length > MAX_LENGTH) return false
-  if (!value.startsWith("/") || value.startsWith("//")) return false
-  // Backslashes are treated as slashes by browsers (`/\evil` → `//evil`); control
-  // characters can smuggle a scheme past naive checks.
-  if (/[\\\u0000-\u001f\u007f]/.test(value)) return false
-  let url: URL
-  try {
-    url = new URL(value, "https://pp.invalid")
-  } catch {
-    return false
-  }
-  if (url.origin !== "https://pp.invalid") return false
-  // Whole path segments, checked on the normalized path: `/auth`, `/auth/…`,
-  // `/api`, `/api/…` (also via `/./auth` or `/x/../api`) are refused, while
-  // `/authors` or `/apiary` are not.
-  const path = url.pathname.toLowerCase()
-  return !/^\/(auth|api)(\/|$)/.test(path)
+/** The part of `Storage` this needs (injectable for tests). */
+export interface IntentStorage {
+  getItem(key: string): string | null
+  setItem(key: string, value: string): void
+  removeItem(key: string): void
 }
 
-function storage(): Storage | null {
-  try {
-    return typeof window === "undefined" ? null : window.sessionStorage
-  } catch {
-    return null
-  }
+function under(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`)
 }
 
-/** Remember `path` as the post-launch target. An unsafe path is not stored. */
-export function saveLoginIntent(path: string): void {
-  if (!isSafeIntent(path)) return
-  try {
-    storage()?.setItem(LOGIN_INTENT_KEY, path)
-  } catch {
-    // Storage blocked or full: the launch simply lands on the fallback.
-  }
-}
+/** A placeholder origin: only relative paths that stay on it are accepted. */
+const BASE = "https://intent.invalid"
+const CONTROL = /[\u0000-\u001f\u007f]/
 
 /**
- * Read and remove the stored intent. Returns it only when it is safe, else
- * `fallback`. The key is removed either way, so an intent is used at most once.
+ * The normalized intent (`pathname + search` of the parsed URL), or `null`
+ * when it is not a same-origin relative path, contains a control character or
+ * backslash, or resolves (after `..` handling) under `/auth` or `/api`.
  */
-export function consumeLoginIntent(fallback: string): string {
-  const store = storage()
+export function normalizeIntent(path: string): string | null {
+  // The URL parser silently drops tabs and newlines, so control characters are rejected first.
+  if (!path.startsWith("/") || path.startsWith("//") || CONTROL.test(path)) return null
+  // A leading "/" against a valid base always parses; "/\\host" resolves to another origin.
+  const url = new URL(path, BASE)
+  if (url.origin !== BASE || under(url.pathname, "/auth") || under(url.pathname, "/api")) return null
+  return `${url.pathname}${url.search}`
+}
+
+export function isValidIntent(path: string): boolean {
+  return normalizeIntent(path) !== null
+}
+
+function browserStorage(): IntentStorage | undefined {
+  try {
+    return typeof window === "undefined" ? undefined : window.sessionStorage
+  } catch {
+    return undefined
+  }
+}
+
+/** Saves `pathname + search` (no fragment) when valid. */
+export function saveLoginIntent(path: string, storage: IntentStorage | undefined = browserStorage()): void {
+  const clean = normalizeIntent(path)
+  if (!storage || clean === null) return
+  try {
+    storage.setItem(LOGIN_INTENT_KEY, clean)
+  } catch {
+    // Storage full or blocked: landing on the fallback is fine.
+  }
+}
+
+/** Reads and removes the intent; returns it only when valid, else `fallback`. */
+export function consumeLoginIntent(fallback: string, storage: IntentStorage | undefined = browserStorage()): string {
+  if (!storage) return fallback
   let value: string | null = null
   try {
-    value = store?.getItem(LOGIN_INTENT_KEY) ?? null
-    store?.removeItem(LOGIN_INTENT_KEY)
+    value = storage.getItem(LOGIN_INTENT_KEY)
+    storage.removeItem(LOGIN_INTENT_KEY)
   } catch {
-    value = null
+    return fallback
   }
-  return isSafeIntent(value) ? value : fallback
+  return (value === null ? null : normalizeIntent(value)) ?? fallback
+}
+
+/** Where every (re)launch lands (D9 as amended 2026-10-14). */
+export const LAUNCH_LANDING_PATH = "/"
+
+/**
+ * Reads and removes the intent for a launch: it is used only when its
+ * pathname is `/` (e.g. `/?tab=insurance`); anything else, `/account…`
+ * included, lands on `/`.
+ */
+export function consumeLaunchIntent(storage: IntentStorage | undefined = browserStorage()): string {
+  const intent = consumeLoginIntent(LAUNCH_LANDING_PATH, storage)
+  return new URL(intent, BASE).pathname === LAUNCH_LANDING_PATH ? intent : LAUNCH_LANDING_PATH
 }

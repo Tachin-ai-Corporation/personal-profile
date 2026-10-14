@@ -1,38 +1,32 @@
 /**
- * =============================================================================
- * 1health API — public surface
- * =============================================================================
- *
- * One import site for the whole API layer:  import { callApi } from "@/lib/api"
- *
- * `callApi` is the only browser transport (AD-19). Reads go through SWR with
- * keys from `keys.ts` and the shared `fetcher` (AD-10).
- * =============================================================================
+ * The client API layer's public surface. Import from `@/lib/api`.
+ * Every call is same-origin through `callApi` (AD-19).
  */
 
-// --- Core client -----------------------------------------------------------
+export { callApi, configureApiClient, createCallApi, getPortalUrl, type ApiClientConfig, type CallApi } from "./client"
+export type { ApiResponse } from "./types"
+export { parseErrorBody, type ApiErrorCode, type ClientErrorCode, type ParsedError } from "./errors-codes"
+export { mapApiError, mapFetchError, type MappedError } from "./errors"
 export {
-  callApi,
-  configureClient,
-  getPortalUrl,
-  ok,
-  err,
-  ApiError,
-  type ApiResponse,
-  type CallApiInit,
-} from "./client"
-// `publish` is deliberately not re-exported: only `callApi` and the idle warning
-// (`features/shell/idle-warning.tsx`) publish (AD-19, Story 1.6).
-export { subscribe, type SessionEvent } from "./session-events"
-// Activity the server recorded (this tab or another), for the idle warning (Story 1.6).
-export { subscribeActivity, lastActivityAt } from "./activity"
-
-// --- SWR -------------------------------------------------------------------
-export { keys, type SwrKey } from "./keys"
-export { fetcher } from "./fetcher"
-
-// --- Resources -------------------------------------------------------------
-export { fetchMyself, type Myself } from "./user"
-
-// --- App config ------------------------------------------------------------
-export { endpoints, RECORD_TYPES, TYPE_REST_PATH, ATTRIBUTES } from "./config"
+  sessionEvents,
+  createSessionEvents,
+  type SessionEvent,
+  type SessionEventListener,
+  type SessionEvents,
+} from "./session-events"
+export { keys, isSwrKey, type SwrKey } from "./keys"
+export { ApiResponseError, fetchers, swrFetcher, unwrap } from "./fetcher"
+export { endpoints } from "./config"
+export { fetchMyself, toMyself, type Myself } from "./user"
+export {
+  CONTACT_POINT_TYPES,
+  PRIMARY_LABEL,
+  fetchContactPoints,
+  findPrimary,
+  isContactPointType,
+  toContactPoints,
+  type ContactPoint,
+  type ContactPointType,
+} from "./contact-points"
+export { startSession, endSession, type LaunchAttempt } from "./session"
+export { logApiCall, redact, type ApiCallLog } from "./log-api-call"

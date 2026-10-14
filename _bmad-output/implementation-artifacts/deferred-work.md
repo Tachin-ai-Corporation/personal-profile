@@ -4,6 +4,57 @@
 - source_spec: none
   summary: Story 7.1 Account page — route, tabs, deep links and states, built on 7.0a + 7.0b.
   evidence: Split from the Epic 7 start (user-approved 2026-10-14); depends on the 7.0a/7.0b foundation specs.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0a-bff-foundation-and-tooling.md`
+  summary: Proxy request bodies are buffered before the size check when no Content-Length is sent; needs a streaming byte-capped reader.
+  evidence: lib/server/proxy/handler.ts readEntryBody uses request.text(); bounded today by Next/Vercel body limits and no upload entries ship yet (AD-13 upload stories must add the streaming reader).
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0a-bff-foundation-and-tooling.md`
+  summary: PUT v2/user/edit body schema lacks namePrefix, nameSuffix, otherNames, titles, cityOfBirth and accepts birthDate "n/a" although the backend type is LocalDate.
+  evidence: backend UserServiceImpl.validateUserAttributes applies only non-null fields (partial update, no wipe); the Personal information card story must add the fields and confirm how a birth date is cleared on demo (unverified).
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0a-bff-foundation-and-tooling.md`
+  summary: Launch exchange errors are classified by substring ("used"/"expired"), so words like "refused" map to LAUNCH_USED.
+  evidence: lib/server/launch/exchange.ts classifyExchangeError; same status, retry behavior and user message either way, only the logged errorCode differs; switch to word/structured matching once real upstream error bodies are recorded.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0a-bff-foundation-and-tooling.md`
+  summary: Error logs from guardRoute use a new requestId, so a 500 cannot be correlated with its request line.
+  evidence: lib/server/http/guard-route.ts generates its own newRequestId(); fix by creating the id once in guardRoute and passing it into handlers.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0a-bff-foundation-and-tooling.md`
+  summary: Browser refresh call has no client-side timeout; a hung refresh holding the pp-refresh Web Lock would stall waiting callApi calls (unverified, medium if real).
+  evidence: lib/api/client.ts runRefresh has no AbortSignal; server side is bounded by fetchWithTimeout and locks release on tab close, so it needs a hung same-origin request to bite. Settle by testing a never-resolving refresh with a mocked lock.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0a-bff-foundation-and-tooling.md`
+  summary: Token lifetimes of 30 s or less would make every proxy call TOKEN_EXPIRED and end the session (unverified, medium if real).
+  evidence: lib/server/session/refresh.ts EXPIRY_SKEW_MS = 30 s; real IdP lifetimes are minutes. Settle by recording expires_in from demo/prod; fix by clamping the skew to min(30 s, expires_in/2).
+
+## Deferred from: code review of spec-7-0a-bff-foundation-and-tooling (2026-10-14)
+
+- Upstream 401 on a clock-fresh access token ends the session instead of forcing a refresh (Story 1.5 L1050/L1067 behaviour); revisit with a force-refresh flag when 1.6/7.0b touch refresh.
+- `/api/token` (and the proxy) buffer chunked request bodies without Content-Length before the size cap; bounded by Next/Vercel limits, add a streaming byte-capped reader with the AD-13 upload stories.
+- `fetchWithTimeout` now caps body streaming at 25 s, which would cut future large `asImage` downloads; switch to an idle timeout when the first `asImage` entry ships.
+- Proxy deny check runs on client segments before owner-id substitution; re-run it on upstream segments when the first `{userId}`/`{personId}` entry is added.
+- A relaunch over an existing session drops the previous tokens without revoking them; add a best-effort `revokeAllDevices` for the replaced session.
+- CSP has no Google Maps hosts for `PLACES_ENABLED=1`; decide with the Places epic (AD-14 proxies Places through `/api/places`).
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0b-1-tokens-messages-errors.md`
+  summary: 7.0b-2 Shell navigation — app bar (non-interactive wordmark, page nav, Return to 1health), ARIA tabs pattern, minimal header (initials only, primary phone/email ≥768 px), navigate() + requestLeave/leave guard + SectionRegistry, session-expired dialog with login-intent save, `/` page frame with placeholder tabs.
+  evidence: Split from spec 7.0b at the human's request (2026-10-14, size gate); builds on 7.0b-1 (tokens, messages, errors.ts, ConfirmDialog, read states). Decisions already taken: relaunch after expiry always lands on `/` (intent used only for `/` paths); header shows initials only until Story 1.10.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0b-1-tokens-messages-errors.md`
+  summary: ProfilePlaceholder renders its own inline load-error copy for every failure (incl. SESSION_EXPIRED and 403) instead of mapFetchError + ReadStateFor.
+  evidence: features/shell/profile-placeholder.tsx is replaced by the page frame in 7.0b-2; its test pins the old behaviour (shell.test.tsx:56-66) and must go with it.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0b-1-tokens-messages-errors.md`
+  summary: No test proves check-forbidden.sh actually invokes check-tokens.sh, so the token gate could be disabled silently.
+  evidence: check-forbidden.sh takes no root argument; add one (as check-tokens.sh has) and a fixture test.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0b-1-tokens-messages-errors.md`
+  summary: Token gate misses multi-line JSX links using text-info-strong and rgb()/hsl()/oklch()/named colors in inline styles; nothing forbids text-primary used as text (dark 2.18:1).
+  evidence: scripts/check-tokens.sh is line-based; extend with an ESLint rule on className/style when the shell components land (7.0b-2).
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0b-1-tokens-messages-errors.md`
+  summary: Outline button keeps dark:border-input (1.24:1) and Input's invalid border uses --destructive (4.10:1) instead of the D13 control-border / error-strong boundary.
+  evidence: components/ui/button.tsx, input.tsx; DESIGN.md control-border covers Input, Select and Jump to — decide the button boundary with the 7.0b-2/7.5 controls.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0b-2-shell-navigation.md`
+  summary: The e2e "page switch (clean)" journey goes to a 404 because /account does not exist yet, so its "myself not refetched" assertion proves nothing about the shared SWR cache.
+  evidence: PageNav targets /account; Story 7.1 adds app/account/page.tsx and must assert the shared cache (one /myself request) and Account aria-current on the real page.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0b-2-shell-navigation.md`
+  summary: Header shows primary phone numbers raw (e.g. +12125550100) although phoneNumberRegion is mapped.
+  evidence: features/header ContactItem prints value; formatPhoneDisplay() arrives with Story 7.4 and should be applied to the header then.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0b-2-shell-navigation.md`
+  summary: A failed save inside the leave guard closes the dialog with no Section-level feedback.
+  evidence: Story 1.13 only requires staying on the page; per-Section save error UI lands with the edit model (7.5).
 - source_spec: `_bmad-output/implementation-artifacts/1-1-foundation-environment-config-security-headers-test-tooling.md`
   summary: AGENTS.md is auto-generated by `next dev` (Next 16) and is currently untracked; decide whether to commit it or add it to .gitignore.
   evidence: Appears in the review diff only because staging used `git add -N` on all untracked files; the Implementation Note says it was left untracked. Fix touches an agent-context file, so deferred.

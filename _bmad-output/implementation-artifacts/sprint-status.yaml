@@ -1,3 +1,4 @@
+# 2026-10-14: rebased feat/NG-9019-epic-7 onto main; Epic 7 foundation specs 7.0a/7.0b-1/7.0b-2 replace the R2-R4 reworks.
 # STATUS DEFINITIONS:
 # ==================
 # Epic Status:
@@ -45,9 +46,9 @@ development_status:
   1-7-logout-and-session-expired-session-changed-dialogs: review
   1-8-profile-page-shell-tokens-app-bar-tabs-and-section-navigatio: review
   1-1r-foundation-and-launch-rework: review
-  1-3r-transport-and-proxy-rework: backlog
-  1-7r-logout-and-session-expired-rework: backlog
-  1-8r-app-bar-and-shell-rework: backlog
+  1-3r-transport-and-proxy-rework: done  # 2026-10-14: covered by spec-7-0a (proxy: no CSRF/binding, {errorCode,source}, exact deny list, profile tag, ACCOUNT_DISABLED, root SWRConfig, logApiCall) on feat/NG-9019-epic-7
+  1-7r-logout-and-session-expired-rework: done  # 2026-10-14: covered by spec-7-0a + 7-0b-2 (all-devices logout, navigate(), session-expired dialog only, login intent saved) on feat/NG-9019-epic-7
+  1-8r-app-bar-and-shell-rework: done  # 2026-10-14: covered by spec-7-0b-1 + 7-0b-2 (page nav, primary-text span wordmark, ProfileTab/AccountTab, tokens) on feat/NG-9019-epic-7
   1-9-profile-header-view-name-picture-and-primary-contacts: backlog
   1-10-change-profile-picture: backlog
   1-11-section-framework-registry-edit-model-inline-validation-and: backlog
@@ -93,7 +94,11 @@ development_status:
   epic-6: backlog
   epic-6-retrospective: optional
 
-  epic-7: backlog
+  epic-7: in-progress
+  7-0a-bff-foundation-and-tooling: done
+  7-0b-1-tokens-messages-errors: done
+  7-0b-2-shell-navigation: done
+  7-0c-port-from-main: backlog  # 1.6 idle/activity, 1.8B section nav/SectionFrame/select, disabled screen, copy
   7-1-account-page-route-tabs-deep-links-and-states: backlog
   7-2-account-page-hardening-denies-kill-switch-headers-mobile-and-a: backlog
   7-3-portal-hand-off-route: backlog

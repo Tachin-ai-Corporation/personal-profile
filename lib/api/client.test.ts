@@ -1,398 +1,280 @@
-import { http, HttpResponse } from "msw"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { server } from "../../test/server"
-import { callApi, configureClient, getPortalUrl } from "./client"
-import { __resetSessionEventsForTests, subscribe } from "./session-events"
-import { __resetActivityForTests, lastActivityAt, subscribeActivity } from "./activity"
+import { http, HttpResponse, delay } from "msw"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { server } from "@/test/msw-server"
+import { configureApiClient, createCallApi, getPortalUrl } from "./client"
+import { mapApiError } from "./errors"
+import { createSessionEvents, type SessionEvents } from "./session-events"
+import type { LockManagerLike } from "./refresh-coordinator"
 
-const URL_MYSELF = "http://localhost:3000/api/1h/v2/user/myself"
-const BINDING = "test-binding"
+const proxyError = (errorCode: string, status: number) => HttpResponse.json({ errorCode, source: "proxy" }, { status })
 
-let consoleSpy: ReturnType<typeof vi.spyOn>
+let events: SessionEvents
+let published: string[]
 
-beforeEach(() => {
-  configureClient({ sessionBinding: BINDING, portalUrl: "https://portal.example/applications" })
-  consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
-})
-
-afterEach(() => {
-  __resetSessionEventsForTests()
-  configureClient({})
-  consoleSpy.mockRestore()
-  vi.restoreAllMocks()
-})
-
-/** Register a handler and capture the request it received. */
-function capture(resolver: () => Response) {
-  const seen: Request[] = []
-  server.use(
-    http.all(URL_MYSELF, ({ request }) => {
-      seen.push(request.clone())
-      return resolver()
-    }),
-  )
-  return seen
+function freshClient(locks?: () => LockManagerLike | undefined) {
+  events = createSessionEvents()
+  published = []
+  events.subscribe("session-expired", () => published.push("session-expired"))
+  return createCallApi({ events, locks: locks ?? (() => undefined) })
 }
 
-describe("callApi — happy path", () => {
-  it("resolves typed data, sends the binding, same-origin credentials and Accept", async () => {
-    const seen = capture(() => HttpResponse.json({ id: 42, firstName: "Ada" }))
-    const fetchSpy = vi.spyOn(globalThis, "fetch")
+beforeEach(() => configureApiClient({ portalUrl: "https://portal.test" }))
 
-    const res = await callApi<{ id: number; firstName: string }>("user/fetchMyself", "/api/1h/v2/user/myself")
-
-    expect(res).toEqual({ success: true, data: { id: 42, firstName: "Ada" }, statusCode: 200 })
-    expect(seen).toHaveLength(1)
-    expect(seen[0].headers.get("X-PP-Session")).toBe(BINDING)
-    expect(seen[0].headers.get("Accept")).toBe("application/json")
-    expect(fetchSpy.mock.calls[0][1]?.credentials).toBe("same-origin")
-  })
-
-  it("forces same-origin credentials even when the caller asks for include", async () => {
-    capture(() => HttpResponse.json({}))
-    const fetchSpy = vi.spyOn(globalThis, "fetch")
-    await callApi("t/creds", "/api/1h/v2/user/myself", { credentials: "include" })
-    expect(fetchSpy.mock.calls[0][1]?.credentials).toBe("same-origin")
-  })
-
-  it("keeps a caller-supplied Accept", async () => {
-    const seen = capture(() => HttpResponse.json({}))
-    await callApi("t/accept", "/api/1h/v2/user/myself", { headers: { Accept: "image/png" } })
-    expect(seen[0].headers.get("Accept")).toBe("image/png")
-  })
-
-  it("replaces a caller-supplied X-PP-Session with the registered binding", async () => {
-    const seen = capture(() => HttpResponse.json({}))
-    await callApi("t/forged", "/api/1h/v2/user/myself", { headers: { "x-pp-session": "forged" } })
-    expect(seen[0].headers.get("X-PP-Session")).toBe(BINDING)
-  })
-
-  it("omits X-PP-Session (and drops a forged one) when no binding is registered", async () => {
-    configureClient({})
-    const seen = capture(() => HttpResponse.json({}))
-    await callApi("t/nobinding", "/api/1h/v2/user/myself", { headers: { "X-PP-Session": "forged" } })
-    expect(seen[0].headers.has("X-PP-Session")).toBe(false)
-  })
-
-  it("exposes the registered portal URL", () => {
-    expect(getPortalUrl()).toBe("https://portal.example/applications")
-  })
-})
-
-describe("callApi — empty and non-JSON 2xx", () => {
-  it("204 → success with undefined data", async () => {
-    capture(() => new HttpResponse(null, { status: 204 }))
-    expect(await callApi("t/204", "/api/1h/v2/user/myself")).toEqual({
-      success: true,
-      data: undefined,
-      statusCode: 204,
-    })
-  })
-
-  it("200 empty body → success with undefined data", async () => {
-    capture(() => new HttpResponse("", { status: 200 }))
-    const res = await callApi("t/empty", "/api/1h/v2/user/myself")
-    expect(res.success).toBe(true)
-    expect(res.data).toBeUndefined()
-  })
-
-  it("200 bare text → data is the string", async () => {
-    capture(() => HttpResponse.text("OK"))
-    expect((await callApi("t/text", "/api/1h/v2/user/myself")).data).toBe("OK")
-  })
-})
-
-describe("callApi — path guard", () => {
-  it.each([
-    "https://evil/x",
-    "//evil/x",
-    "api/x",
-    "/foo",
-    "",
-    "/api",
-    "/api/../auth",
-    "/api/%2e%2e/x",
-    "/api/./../x",
-  ])("rejects %j without a network call", async (path) => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch")
-    const res = await callApi("t/badpath", path)
-    expect(res.success).toBe(false)
-    expect(res.errorCode).toBe("BAD_PATH")
-    expect(res.statusCode).toBeUndefined()
-    expect(fetchSpy).not.toHaveBeenCalled()
-  })
-
-  it("rejects a non-string path without throwing", async () => {
-    const res = await callApi("t/badpath", 42 as unknown as string)
-    expect(res.errorCode).toBe("BAD_PATH")
-  })
-})
-
-describe("callApi — errors", () => {
-  it("proxy error 502 UPSTREAM_ERROR → errorCode, statusCode, no event", async () => {
-    const expired = vi.fn()
-    const changed = vi.fn()
-    subscribe("session-expired", expired)
-    subscribe("session-changed", changed)
-    capture(() => HttpResponse.json({ code: "UPSTREAM_ERROR" }, { status: 502 }))
-
-    const res = await callApi("t/502", "/api/1h/v2/user/myself")
-
-    expect(res).toMatchObject({ success: false, statusCode: 502, errorCode: "UPSTREAM_ERROR" })
-    expect(res.details).toBeUndefined()
-    expect(expired).not.toHaveBeenCalled()
-    expect(changed).not.toHaveBeenCalled()
-  })
-
-  it("backend 400 errorCode + details", async () => {
-    const details = [{ field: "gender", value: "X" }]
-    capture(() => HttpResponse.json({ errorCode: "INVALID_ENUM_VALUE", details }, { status: 400 }))
-    const res = await callApi("t/400", "/api/1h/v2/user/myself")
-    expect(res).toMatchObject({ success: false, statusCode: 400, errorCode: "INVALID_ENUM_VALUE", details })
-  })
-
-  it("a BFF (source: proxy) body keeps its user-safe message and retryable flag in details", async () => {
-    capture(() =>
-      HttpResponse.json(
-        { ok: false, errorCode: "WRONG_TENANT", source: "proxy", message: "Safe copy.", retryable: false },
-        { status: 403 },
-      ),
-    )
-    const res = await callApi("t/token", "/api/1h/v2/user/myself", { method: "POST" })
-    expect(res).toMatchObject({
-      success: false,
-      statusCode: 403,
-      errorCode: "WRONG_TENANT",
-      details: { message: "Safe copy.", retryable: false },
-    })
-  })
-
-  it("an upstream body's message is not kept", async () => {
-    capture(() => HttpResponse.json({ message: "upstream text", code: 400 }, { status: 400 }))
-    const res = await callApi("t/up", "/api/1h/v2/user/myself")
-    expect(res.details).toBeUndefined()
-  })
-
-  it("prefers a string `code` over `errorCode`", async () => {
-    capture(() => HttpResponse.json({ code: "A", errorCode: "B" }, { status: 400 }))
-    expect((await callApi("t/code", "/api/1h/v2/user/myself")).errorCode).toBe("A")
-  })
-
-  it("ignores a numeric `code` and falls back to a string errorCode", async () => {
-    capture(() => HttpResponse.json({ code: 400, errorCode: "DUPLICATE" }, { status: 400 }))
-    expect((await callApi("t/num", "/api/1h/v2/user/myself")).errorCode).toBe("DUPLICATE")
-  })
-
-  it("ignores a numeric `code` alone", async () => {
-    capture(() => HttpResponse.json({ message: "x", code: 400 }, { status: 400 }))
-    const res = await callApi("t/num", "/api/1h/v2/user/myself")
-    expect(res.errorCode).toBeUndefined()
-    expect(res.statusCode).toBe(400)
-  })
-
-  it("500 text/html → no errorCode, generic error", async () => {
-    capture(() => HttpResponse.html("<html>oops</html>", { status: 500 }))
-    const res = await callApi("t/500", "/api/1h/v2/user/myself")
-    expect(res.success).toBe(false)
-    expect(res.statusCode).toBe(500)
-    expect(res.errorCode).toBeUndefined()
-    expect(res.error).toBe("t/500 failed (500)")
-    expect(res.error).not.toContain("oops")
-  })
-
-  it("500 empty body → no errorCode, generic error", async () => {
-    capture(() => new HttpResponse(null, { status: 500 }))
-    const res = await callApi("t/500e", "/api/1h/v2/user/myself")
-    expect(res).toMatchObject({ success: false, statusCode: 500, error: "t/500e failed (500)" })
-    expect(res.errorCode).toBeUndefined()
-  })
-
-  it("never logs the response body", async () => {
-    capture(() => HttpResponse.json({ code: "X", details: "SECRET-PHI" }, { status: 400 }))
-    await callApi("t/log", "/api/1h/v2/user/myself")
-    expect(JSON.stringify(consoleSpy.mock.calls)).not.toContain("SECRET-PHI")
-  })
-
-  it("network failure → NETWORK_ERROR, no statusCode, no throw", async () => {
-    server.use(http.get(URL_MYSELF, () => HttpResponse.error()))
-    const res = await callApi("t/net", "/api/1h/v2/user/myself")
-    expect(res.success).toBe(false)
-    expect(res.errorCode).toBe("NETWORK_ERROR")
-    expect(res.statusCode).toBeUndefined()
-  })
-
-  it("invalid caller headers resolve to a failure instead of throwing", async () => {
-    const res = await callApi("t/hdr", "/api/1h/v2/user/myself", { headers: { "bad header": "x" } })
-    expect(res.success).toBe(false)
-  })
-})
-
-describe("callApi — session events", () => {
-  it("401 SESSION_EXPIRED twice → session-expired published once, both calls return the error", async () => {
-    const cb = vi.fn()
-    subscribe("session-expired", cb)
-    capture(() => HttpResponse.json({ code: "SESSION_EXPIRED" }, { status: 401 }))
-
-    const a = await callApi("t/exp", "/api/1h/v2/user/myself")
-    const b = await callApi("t/exp", "/api/1h/v2/user/myself")
-
-    expect(cb).toHaveBeenCalledOnce()
-    for (const res of [a, b]) {
-      expect(res).toMatchObject({ success: false, statusCode: 401, errorCode: "SESSION_EXPIRED" })
-    }
-  })
-
-  it("409 SESSION_CHANGED twice → session-changed published once", async () => {
-    const cb = vi.fn()
-    subscribe("session-changed", cb)
-    capture(() => HttpResponse.json({ code: "SESSION_CHANGED" }, { status: 409 }))
-
-    const a = await callApi("t/chg", "/api/1h/v2/user/myself")
-    const b = await callApi("t/chg", "/api/1h/v2/user/myself")
-
-    expect(cb).toHaveBeenCalledOnce()
-    expect(a.errorCode).toBe("SESSION_CHANGED")
-    expect(b.errorCode).toBe("SESSION_CHANGED")
-  })
-
-  it("401 TOKEN_EXPIRED runs a refresh; a 503 refresh resolves REFRESH_UNAVAILABLE with no event", async () => {
-    const expired = vi.fn()
-    const changed = vi.fn()
-    subscribe("session-expired", expired)
-    subscribe("session-changed", changed)
-    capture(() => HttpResponse.json({ code: "TOKEN_EXPIRED" }, { status: 401 }))
+describe("callApi transport", () => {
+  it("sends same-origin, with no session-binding header (D5), and parses JSON", async () => {
+    let seen: Request | undefined
     server.use(
-      http.post("http://localhost:3000/api/session/refresh", () =>
-        HttpResponse.json({ code: "REFRESH_UNAVAILABLE" }, { status: 503 }),
-      ),
-    )
-
-    const res = await callApi("t/tok", "/api/1h/v2/user/myself")
-
-    expect(res).toMatchObject({ success: false, statusCode: 503, errorCode: "REFRESH_UNAVAILABLE" })
-    expect(expired).not.toHaveBeenCalled()
-    expect(changed).not.toHaveBeenCalled()
-  })
-
-  it("a throwing subscriber does not break callApi", async () => {
-    subscribe("session-expired", () => {
-      throw new Error("boom")
-    })
-    capture(() => HttpResponse.json({ code: "SESSION_EXPIRED" }, { status: 401 }))
-    const res = await callApi("t/throw", "/api/1h/v2/user/myself")
-    expect(res.errorCode).toBe("SESSION_EXPIRED")
-  })
-})
-
-describe("callApi — user activity header (Story 1.6)", () => {
-  afterEach(() => {
-    __resetActivityForTests()
-    Object.defineProperty(navigator, "locks", { value: undefined, configurable: true })
-  })
-
-  it.each([
-    ["POST", { method: "POST" }, "user"],
-    ["put (lower-case)", { method: "put" }, "user"],
-    ["DELETE", { method: "DELETE" }, "user"],
-    ["GET userInitiated: true", { userInitiated: true }, "user"],
-    ["plain GET", {}, null],
-    ["GET userInitiated: false", { userInitiated: false }, null],
-  ])("%s → X-PP-Activity %s", async (_label, init, expected) => {
-    const seen = capture(() => HttpResponse.json({}))
-    await callApi("t/act", "/api/1h/v2/user/myself", init)
-    expect(seen[0].headers.get("X-PP-Activity")).toBe(expected)
-  })
-
-  it("a caller-supplied X-PP-Activity is removed on a non-user GET and normalized otherwise", async () => {
-    const seen = capture(() => HttpResponse.json({}))
-    await callApi("t/forged", "/api/1h/v2/user/myself", { headers: { "X-PP-Activity": "user" } })
-    await callApi("t/odd", "/api/1h/v2/user/myself", { method: "POST", headers: { "x-pp-activity": "bogus" } })
-    expect(seen[0].headers.get("X-PP-Activity")).toBeNull()
-    expect(seen[1].headers.get("X-PP-Activity")).toBe("user")
-  })
-
-  it("userInitiated is stripped before fetch", async () => {
-    capture(() => HttpResponse.json({}))
-    const fetchSpy = vi.spyOn(globalThis, "fetch")
-    await callApi("t/strip", "/api/1h/v2/user/myself", { userInitiated: true })
-    const init = fetchSpy.mock.calls[0][1] as Record<string, unknown>
-    expect("userInitiated" in init).toBe(false)
-  })
-
-  it("the refresh POST never carries it; the replay carries the original's header", async () => {
-    let calls = 0
-    const seen = capture(() =>
-      ++calls === 1 ? HttpResponse.json({ code: "TOKEN_EXPIRED" }, { status: 401 }) : HttpResponse.json({ ok: 1 }),
-    )
-    const refreshes: Request[] = []
-    server.use(
-      http.post("http://localhost:3000/api/session/refresh", ({ request }) => {
-        refreshes.push(request.clone())
-        return HttpResponse.json({})
+      http.get("/api/1h/v2/user/myself", ({ request }) => {
+        seen = request
+        return HttpResponse.json({ id: 1 })
       }),
     )
-    const res = await callApi("t/replay", "/api/1h/v2/user/myself", { userInitiated: true })
-    expect(res.success).toBe(true)
-    expect(refreshes).toHaveLength(1)
-    expect(refreshes[0].headers.get("X-PP-Activity")).toBeNull()
-    expect(seen).toHaveLength(2)
-    expect(seen.map((r) => r.headers.get("X-PP-Activity"))).toEqual(["user", "user"])
+    const res = await freshClient()("user/fetchMyself", "/api/1h/v2/user/myself")
+    expect(res).toEqual({ success: true, data: { id: 1 }, statusCode: 200 })
+    expect(seen?.headers.get("X-PP-Session")).toBeNull()
+    expect(getPortalUrl()).toBe("https://portal.test")
+    expect(seen?.headers.get("Accept")).toBe("application/json")
+    expect(seen?.credentials).toBe("same-origin")
   })
 
-  it("a plain GET replay carries no header either", async () => {
-    let calls = 0
-    const seen = capture(() =>
-      ++calls === 1 ? HttpResponse.json({ code: "TOKEN_EXPIRED" }, { status: 401 }) : HttpResponse.json({}),
+  it("sets JSON content type for string bodies and keeps a caller Accept", async () => {
+    let seen: Request | undefined
+    server.use(
+      http.post("/api/token", ({ request }) => {
+        seen = request
+        return HttpResponse.json({ ok: true })
+      }),
     )
-    server.use(http.post("http://localhost:3000/api/session/refresh", () => HttpResponse.json({})))
-    await callApi("t/replay-bg", "/api/1h/v2/user/myself")
-    expect(seen.map((r) => r.headers.get("X-PP-Activity"))).toEqual([null, null])
+    await freshClient()("session/start", "/api/token", { method: "POST", body: "{}", headers: { Accept: "text/plain" } })
+    expect(seen?.headers.get("Content-Type")).toBe("application/json")
+    expect(seen?.headers.get("Accept")).toBe("text/plain")
+  })
+
+  it("rejects paths that are not same-origin /api/ without a network call", async () => {
+    const call = freshClient()
+    expect(await call("x", "https://evil.test/api/x")).toMatchObject({ success: false, errorCode: "BAD_PATH" })
+    expect(await call("x", "/other")).toMatchObject({ success: false, errorCode: "BAD_PATH" })
+  })
+
+  it("treats an empty 2xx body as success without data", async () => {
+    server.use(http.post("/api/session/logout", () => new HttpResponse(null, { status: 204 })))
+    expect(await freshClient()("x", "/api/session/logout", { method: "POST" })).toEqual({ success: true, statusCode: 204 })
+  })
+
+  it("reports an unreadable 2xx body as a failure", async () => {
+    server.use(http.get("/api/1h/x", () => new HttpResponse("<html>", { status: 200 })))
+    expect(await freshClient()("ctx", "/api/1h/x")).toMatchObject({ success: false, statusCode: 200 })
+  })
+
+  it("resolves NETWORK_ERROR without a status on a network failure", async () => {
+    server.use(http.get("/api/1h/x", () => HttpResponse.error()))
+    const res = await freshClient()("ctx", "/api/1h/x")
+    expect(res).toMatchObject({ success: false, errorCode: "NETWORK_ERROR" })
+    expect(res.statusCode).toBeUndefined()
+  })
+
+  it("resolves NETWORK_ERROR when the body fails mid-read", async () => {
+    const broken = new ReadableStream({ start: (controller) => controller.error(new Error("reset")) })
+    vi.stubGlobal("fetch", async () => new Response(broken, { status: 200 }))
+    expect(await freshClient()("ctx", "/api/1h/x")).toMatchObject({ success: false, errorCode: "NETWORK_ERROR" })
+  })
+
+  it("parses an upstream error into upstreamCode and message, publishing nothing", async () => {
+    server.use(http.put("/api/1h/v2/user/edit", () => HttpResponse.json({ message: "Duplicate", code: 1409, details: { f: 1 } }, { status: 409 })))
+    const res = await freshClient()("ctx", "/api/1h/v2/user/edit", { method: "PUT", body: "{}" })
+    expect(res).toEqual({ success: false, statusCode: 409, error: "Duplicate", upstreamCode: 1409, platformMessage: "Duplicate", details: { f: 1 }, errorCode: undefined })
+    expect(published).toEqual([])
+  })
+
+  it("parses a proxy error into errorCode", async () => {
+    server.use(http.get("/api/1h/x", () => proxyError("UPSTREAM_ERROR", 502)))
+    expect(await freshClient()("ctx", "/api/1h/x")).toMatchObject({ success: false, statusCode: 502, errorCode: "UPSTREAM_ERROR" })
+  })
+
+  it("marks a proxy body with an unknown code as the proxy's, never upstream forbidden", async () => {
+    server.use(http.get("/api/1h/x", () => proxyError("SOME_NEW_CODE", 403)))
+    const res = await freshClient()("ctx", "/api/1h/x")
+    expect(res).toMatchObject({ success: false, statusCode: 403, source: "proxy" })
+    expect(res.errorCode).toBeUndefined()
+    expect(mapApiError(res)).toEqual({ kind: "generic" })
+  })
+
+  it("keeps the user-safe message and retryable:false of an unknown-code proxy body", async () => {
+    server.use(
+      http.post("/api/token", () =>
+        HttpResponse.json({ ok: false, errorCode: "SOME_NEW_CODE", source: "proxy", message: "safe copy", retryable: false }, { status: 400 }),
+      ),
+    )
+    expect(await freshClient()("ctx", "/api/token", { method: "POST", body: "{}" })).toMatchObject({
+      source: "proxy",
+      userMessage: "safe copy",
+      retryable: false,
+    })
+  })
+
+  it("treats a 409 as an ordinary error and publishes nothing (no SESSION_CHANGED, D5)", async () => {
+    server.use(http.get("/api/1h/x", () => HttpResponse.json({ message: "conflict", code: 7 }, { status: 409 })))
+    expect(await freshClient()("ctx", "/api/1h/x")).toMatchObject({ statusCode: 409, upstreamCode: 7 })
+    expect(published).toEqual([])
+  })
+
+  it("carries a BFF body's user-safe message and retryable:false", async () => {
+    server.use(
+      http.post("/api/token", () =>
+        HttpResponse.json({ ok: false, errorCode: "WRONG_TENANT", source: "proxy", message: "safe copy", retryable: false }, { status: 403 }),
+      ),
+    )
+    expect(await freshClient()("ctx", "/api/token", { method: "POST", body: "{}" })).toMatchObject({
+      errorCode: "WRONG_TENANT",
+      userMessage: "safe copy",
+      retryable: false,
+    })
+  })
+
+  it("publishes session-expired once for a proxy 401 SESSION_EXPIRED", async () => {
+    server.use(http.get("/api/1h/x", () => proxyError("SESSION_EXPIRED", 401)))
+    const call = freshClient()
+    await call("ctx", "/api/1h/x")
+    await call("ctx", "/api/1h/x")
+    expect(published).toEqual(["session-expired"])
   })
 })
 
-describe("callApi — X-PP-Activity-At echo (Story 1.6)", () => {
-  afterEach(() => __resetActivityForTests())
+describe("callApi refresh (AD-16)", () => {
+  function expiringUpstream() {
+    let refreshed = false
+    let refreshCalls = 0
+    const hits = new Map<string, number>()
+    server.use(
+      http.post("/api/session/refresh", async () => {
+        refreshCalls += 1
+        await delay(5)
+        refreshed = true
+        return HttpResponse.json({ ok: true })
+      }),
+      http.all("/api/1h/*", ({ request }) => {
+        const key = `${request.method} ${new URL(request.url).pathname}`
+        hits.set(key, (hits.get(key) ?? 0) + 1)
+        return refreshed ? HttpResponse.json({ ok: key }) : proxyError("TOKEN_EXPIRED", 401)
+      }),
+    )
+    return { refreshCalls: () => refreshCalls, hits }
+  }
 
-  it("a numeric echo → noteActivity(t)", async () => {
-    const cb = vi.fn()
-    subscribeActivity(cb)
-    capture(() => HttpResponse.json({}, { headers: { "X-PP-Activity-At": "1800000000123" } }))
-    await callApi("t/echo", "/api/1h/v2/user/myself", { userInitiated: true })
-    expect(lastActivityAt()).toBe(1_800_000_000_123)
-    expect(cb).toHaveBeenCalledWith(1_800_000_000_123)
+  it("10 concurrent calls across an expiry → exactly 1 refresh, all replayed once and succeed", async () => {
+    const upstream = expiringUpstream()
+    const call = freshClient()
+    const results = await Promise.all(Array.from({ length: 10 }, (_, i) => call("ctx", `/api/1h/item/${i}`)))
+    expect(upstream.refreshCalls()).toBe(1)
+    expect(results.every((r) => r.success)).toBe(true)
+    for (const count of upstream.hits.values()) expect(count).toBe(2)
   })
 
-  it("an echo on an error response still counts", async () => {
-    capture(() => HttpResponse.json({ code: "X" }, { status: 404, headers: { "X-PP-Activity-At": "42" } }))
-    await callApi("t/echo404", "/api/1h/v2/user/myself", { method: "POST" })
-    expect(lastActivityAt()).toBe(42)
+  it("two tabs sharing navigator.locks → exactly 1 IdP refresh", async () => {
+    let idpCalls = 0
+    let refreshed = false
+    server.use(
+      http.post("/api/session/refresh", async () => {
+        // The route answers 200 without the IdP when another tab already refreshed.
+        if (!refreshed) {
+          idpCalls += 1
+          await delay(5)
+          refreshed = true
+        }
+        return HttpResponse.json({ ok: true })
+      }),
+      http.get("/api/1h/*", () => (refreshed ? HttpResponse.json({}) : proxyError("TOKEN_EXPIRED", 401))),
+    )
+    let chain: Promise<unknown> = Promise.resolve()
+    const sharedLocks: LockManagerLike = {
+      request: <T,>(_name: string, callback: () => Promise<T>): Promise<T> => {
+        const next = chain.then(callback)
+        chain = next.catch(() => undefined)
+        return next
+      },
+    }
+    const tabA = freshClient(() => sharedLocks)
+    const tabB = createCallApi({ events: createSessionEvents(), locks: () => sharedLocks })
+    const results = await Promise.all([tabA("a", "/api/1h/a"), tabB("b", "/api/1h/b")])
+    expect(results.every((r) => r.success)).toBe(true)
+    expect(idpCalls).toBe(1)
   })
 
-  it.each([["abc"], ["12x"], [""], ["-5"], ["1.5"]])("a non-numeric echo %j is ignored", async (value) => {
-    const cb = vi.fn()
-    subscribeActivity(cb)
-    capture(() => HttpResponse.json({}, { headers: { "X-PP-Activity-At": value } }))
-    await callApi("t/bad-echo", "/api/1h/v2/user/myself")
-    expect(lastActivityAt()).toBe(0)
-    expect(cb).not.toHaveBeenCalled()
+  it("replays a PUT once after a proxy TOKEN_EXPIRED", async () => {
+    const upstream = expiringUpstream()
+    const res = await freshClient()("ctx", "/api/1h/v2/user/edit", { method: "PUT", body: "{}" })
+    expect(res.success).toBe(true)
+    expect(upstream.hits.get("PUT /api/1h/v2/user/edit")).toBe(2)
   })
 
-  it("no echo → no activity", async () => {
-    capture(() => HttpResponse.json({}))
-    await callApi("t/none", "/api/1h/v2/user/myself", { method: "POST" })
-    expect(lastActivityAt()).toBe(0)
+  it.each([
+    ["502 UPSTREAM_ERROR", () => proxyError("UPSTREAM_ERROR", 502)],
+    ["504 UPSTREAM_TIMEOUT", () => proxyError("UPSTREAM_TIMEOUT", 504)],
+    ["an upstream 401 body without source", () => HttpResponse.json({ errorCode: "TOKEN_EXPIRED" }, { status: 401 })],
+  ])("never replays a PUT answered by %s", async (_label, resolver) => {
+    let puts = 0
+    server.use(
+      http.put("/api/1h/v2/user/edit", () => {
+        puts += 1
+        return resolver()
+      }),
+    )
+    const res = await freshClient()("ctx", "/api/1h/v2/user/edit", { method: "PUT", body: "{}" })
+    expect(res.success).toBe(false)
+    expect(puts).toBe(1)
   })
-})
 
-describe("background reads are not activity (Story 1.6)", () => {
-  it("fetchMyself and the SWR fetcher send no X-PP-Activity", async () => {
-    const { fetchMyself } = await import("./user")
-    const { fetcher } = await import("./fetcher")
-    const { keys } = await import("./keys")
-    const seen = capture(() => HttpResponse.json({ id: 1, personId: 2 }))
-    await fetchMyself()
-    await fetcher(keys.myself())
-    expect(seen).toHaveLength(2)
-    expect(seen.map((r) => r.headers.get("X-PP-Activity"))).toEqual([null, null])
+  it("treats a replay that is TOKEN_EXPIRED again as SESSION_EXPIRED", async () => {
+    server.use(
+      http.post("/api/session/refresh", () => HttpResponse.json({ ok: true })),
+      http.get("/api/1h/x", () => proxyError("TOKEN_EXPIRED", 401)),
+    )
+    const res = await freshClient()("ctx", "/api/1h/x")
+    expect(res).toMatchObject({ success: false, statusCode: 401, errorCode: "SESSION_EXPIRED" })
+    expect(published).toEqual(["session-expired"])
+  })
+
+  it("refresh 401 → session-expired published once, error to every waiting call", async () => {
+    let refreshCalls = 0
+    server.use(
+      http.post("/api/session/refresh", () => {
+        refreshCalls += 1
+        return proxyError("SESSION_EXPIRED", 401)
+      }),
+      http.get("/api/1h/*", () => proxyError("TOKEN_EXPIRED", 401)),
+    )
+    const call = freshClient()
+    const results = await Promise.all([call("a", "/api/1h/a"), call("b", "/api/1h/b"), call("c", "/api/1h/c")])
+    expect(refreshCalls).toBe(1)
+    expect(results.map((r) => r.errorCode)).toEqual(["SESSION_EXPIRED", "SESSION_EXPIRED", "SESSION_EXPIRED"])
+    expect(published).toEqual(["session-expired"])
+  })
+
+  it("refresh 503 → REFRESH_UNAVAILABLE, no event, and the next TOKEN_EXPIRED tries again", async () => {
+    let refreshCalls = 0
+    server.use(
+      http.post("/api/session/refresh", () => {
+        refreshCalls += 1
+        return proxyError("REFRESH_UNAVAILABLE", 503)
+      }),
+      http.get("/api/1h/x", () => proxyError("TOKEN_EXPIRED", 401)),
+    )
+    const call = freshClient()
+    expect(await call("ctx", "/api/1h/x")).toEqual({ success: false, statusCode: 503, errorCode: "REFRESH_UNAVAILABLE" })
+    await call("ctx", "/api/1h/x")
+    expect(refreshCalls).toBe(2)
+    expect(published).toEqual([])
+  })
+
+  it("uses navigator.locks by default when the browser has it", async () => {
+    const request = vi.fn(<T,>(_name: string, callback: () => Promise<T>) => callback())
+    vi.stubGlobal("navigator", { ...navigator, locks: { request } })
+    server.use(
+      http.post("/api/session/refresh", () => HttpResponse.json({ ok: true })),
+      http.get("/api/1h/x", () => proxyError("TOKEN_EXPIRED", 401)),
+    )
+    const call = createCallApi({ events: createSessionEvents() })
+    await call("ctx", "/api/1h/x")
+    expect(request).toHaveBeenCalledWith("pp-refresh", expect.any(Function))
   })
 })

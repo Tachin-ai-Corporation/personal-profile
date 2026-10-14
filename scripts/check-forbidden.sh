@@ -1,166 +1,88 @@
 #!/usr/bin/env bash
+# CI forbidden-pattern gate (Story 1.1; D1, D5, D10, D13). Exits non-zero on any hit.
 #
-# Forbidden-pattern gate (AD-1, AD-20, D1, D10).
-#
-# Fails if any of these appear in CLIENT source (app code outside lib/server):
-#   - NEXT_PUBLIC_*SECRET*            (secrets must never be public)
-#   - document.cookie                 (tokens live only in the sealed cookie; AD-1)
-#   - access_token                    (tokens never reach the browser; AD-1)
-#
-# Fails if a name ending _DEMO / _PROD (the per-environment secrets, D1) appears
-# anywhere in code other than lib/server/env.ts, its tests, .env.example and the
-# CI/test fixtures (.github/workflows/ci.yml, playwright.config.ts, test/,
-# e2e/fixtures.ts, vitest.setup.ts).
-#
-# Fails, in app code (the source dirs incl. lib/server, plus the root proxy.ts
-# and instrumentation.ts; *.test.* and e2e/ excluded), on the symbols the
-# 2026-10-14 decisions removed: APP_ENV, API_ORIGIN, APP_ORIGIN, PORTAL_URL,
-# PORTAL_ORIGIN, PUBLIC_FILES_ORIGIN (D1, D4: origins live only in
-# lib/shared/environments.ts), SameSite=None, Partitioned, window.top (D10:
-# never framed) and bg-black/50 (D13: use the scrim token). Later rework
-# stories add their own bans (X-PP-Session, sessionBinding) as they remove them.
-#
-# And, over app/, components/ and features/ only (skipping app/globals.css, the
-# one home of raw colors, and *.test.* files), the design-system color rules:
-#   - hex colors                      (#fff, #256a8c, bg-[#fff], any file type)
-#   - Tailwind palette classes        (bg-red-500, dark:text-white, bg-black/50,
-#                                      border-t-slate-200/40, drop-shadow-red-500)
-#     Allowed: transparent / current / inherit, and bare `neutral` (a 1health
-#     token, text-neutral); `neutral-<shade>` still fails.
-#
-# Scope: the source dirs below, excluding lib/server (the only place that may
-# read env/secrets), this script, and build/VCS/vendor trees. Runs in CI and
-# locally: `bash scripts/check-forbidden.sh`.
+#   1. `document.cookie` or `access_token` in any file under app/, components/,
+#      contexts/, hooks/, features/ or lib/ outside lib/server/ (tests included).
+#   2. A `NEXT_PUBLIC_*SECRET*` name anywhere.
+#   3. A `_DEMO`/`_PROD`-suffixed secret name outside lib/server/env.ts, its
+#      test, .env.example and the CI/test fixtures (D1 keeps those names).
+#   4. Removed concepts in app code (tests excluded, since they assert absence):
+#      APP_ENV, API_ORIGIN, APP_ORIGIN, PORTAL_URL, PORTAL_ORIGIN,
+#      PUBLIC_FILES_ORIGIN, X-PP-Session, sessionBinding, SESSION_CHANGED,
+#      Sec-Fetch-Site, SameSite=None, Partitioned, window.top, bg-black/50, and
+#      any /launch route.
+#   5. A hard-coded 1health origin in app code outside lib/shared/environments.ts.
+#   6. scripts/check-tokens.sh: hex colors, Tailwind palette classes,
+#      text-info-strong on links and bg-error-strong in components/, features/
+#      and app/ (outside app/globals.css).
 set -euo pipefail
 
-# Run from the repo root regardless of where the script is invoked.
 cd "$(dirname "$0")/.."
 
-SRC_DIRS=(app components contexts hooks features lib)
-# Root-level app files (the request interceptor and the boot hook).
-ROOT_APP_FILES=(proxy.ts instrumentation.ts)
+SELF="scripts/check-forbidden.sh"
+status=0
 
-# Keep only the source dirs / files that currently exist.
-EXISTING=()
-for d in "${SRC_DIRS[@]}"; do
-  [ -d "$d" ] && EXISTING+=("$d")
-done
-for f in "${ROOT_APP_FILES[@]}"; do
-  [ -f "$f" ] && EXISTING+=("$f")
-done
+# Tracked and untracked (not ignored) files; planning/docs trees are not code.
+files() {
+  git ls-files -co --exclude-standard \
+    | grep -Ev '^(_bmad/|_bmad-output/|\.claude/|docs/)|\.md$|^pnpm-lock\.yaml$' \
+    | grep -Fxv "$SELF" \
+    | while IFS= read -r f; do
+        [[ -f "$f" ]] || continue
+        printf '%s\n' "$f"
+      done
+}
 
-# Code outside app code that the _DEMO/_PROD rule also covers.
-EXTRA=()
-for p in e2e test scripts .github .env.example playwright.config.ts vitest.config.ts vitest.setup.ts next.config.mjs eslint.config.mjs; do
-  [ -e "$p" ] && EXTRA+=("$p")
-done
-
-if [ "${#EXISTING[@]}" -eq 0 ] && [ "${#EXTRA[@]}" -eq 0 ]; then
-  echo "check-forbidden: no source directories to scan."
-  exit 0
-fi
-
-fail=0
-
+# report "<message>" "<newline-separated paths>"
 report() {
-  local label="$1" matches="$2"
-  if [ -n "$matches" ]; then
-    echo "FORBIDDEN [$label]:"
-    echo "$matches"
-    echo
-    fail=1
+  echo "check-forbidden: $1" >&2
+  printf '%s\n' "$2" | sed 's/^/  /' >&2
+  status=1
+}
+
+# grep -l over a newline-separated file list (NUL-delimited for xargs, so
+# spaces in paths are safe); empty list → no hits. Only grep's exit 1 means
+# "no match"; any grep error (exit ≥ 2) aborts the check.
+hits_in() {
+  local list="$1" pattern="$2" rc=0
+  [[ -z "$list" ]] && return 0
+  printf '%s\n' "$list" | tr '\n' '\0' \
+    | xargs -0 sh -c 'grep -lE -- "$0" "$@"; rc=$?; [ "$rc" -le 1 ] || exit 255' "$pattern" || rc=$?
+  if [[ $rc -ne 0 ]]; then
+    echo "check-forbidden: grep failed (exit $rc) for pattern: $pattern" >&2
+    exit 2
   fi
 }
 
-grep_paths() {
-  local pattern="$1"
-  shift
-  # No paths: nothing to scan (and never let grep fall back to stdin).
-  [ "$#" -eq 0 ] && return 0
-  grep -rnE --binary-files=without-match \
-    --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.next \
-    --exclude="check-forbidden.sh" \
-    "$pattern" "$@" 2>/dev/null || true
-}
+all_files=$(files)
+app_dirs=$(printf '%s\n' "$all_files" | grep -E '^(app|components|contexts|hooks|features|lib)/|^(proxy|instrumentation)\.ts$' || true)
+client_files=$(printf '%s\n' "$app_dirs" | grep -Ev '^lib/server/' || true)
+app_code=$(printf '%s\n' "$app_dirs" | grep -Ev '\.test\.tsx?$' || true)
 
-run_grep() {
-  local label="$1" pattern="$2" matches
-  # Scan app code, then drop matches under lib/server (and only there — the one
-  # allowed secret reader). A path-anchored filter, so a future app/server or
-  # components/server stays in scope.
-  matches=$(grep_paths "$pattern" ${EXISTING[@]+"${EXISTING[@]}"} | grep -vE '^(\./)?lib/server/' || true)
-  report "$label" "$matches"
-}
+hits=$(hits_in "$client_files" 'document\.cookie')
+[[ -n "$hits" ]] && report "document.cookie outside lib/server/:" "$hits"
+hits=$(hits_in "$client_files" 'access_token')
+[[ -n "$hits" ]] && report "access_token outside lib/server/:" "$hits"
 
-run_grep "NEXT_PUBLIC_*SECRET*"      'NEXT_PUBLIC_[A-Za-z0-9_]*SECRET'
-run_grep "document.cookie"           'document\.cookie'
-run_grep "access_token"              'access_token'
+hits=$(hits_in "$all_files" 'NEXT_PUBLIC_[A-Z0-9_]*SECRET')
+[[ -n "$hits" ]] && report "NEXT_PUBLIC_*SECRET* name:" "$hits"
 
-# ---- Per-environment secret names (D1) --------------------------------------
-# Allowed only in lib/server/env.ts, its tests, .env.example and CI/test
-# fixtures. Everything else in app code, e2e/, test/ and tooling is checked.
-DEMO_PROD_ALLOWED='^(\./)?(lib/server/env\.ts|lib/server/env\.test\.ts|\.env\.example|\.github/workflows/ci\.yml|playwright\.config\.ts|vitest\.setup\.ts|e2e/fixtures\.ts|test/[^:]*):'
-matches=$(grep_paths '[A-Z][A-Z0-9_]*_(DEMO|PROD)([^A-Za-z0-9_]|$)' ${EXISTING[@]+"${EXISTING[@]}"} ${EXTRA[@]+"${EXTRA[@]}"} \
-  | grep -vE "$DEMO_PROD_ALLOWED" || true)
-report "_DEMO/_PROD secret name" "$matches"
+ALLOWED_SUFFIXED='^(lib/server/env\.ts|lib/server/env\.test\.ts|test/env-fixture\.ts|\.env\.example|playwright\.config\.ts|e2e/server-env\.ts|\.github/workflows/ci\.yml)$'
+hits=$(hits_in "$(printf '%s\n' "$all_files" | grep -Ev "$ALLOWED_SUFFIXED" || true)" '[A-Z0-9_]*(SECRET|KEY|TOKEN|PASSWORD)[A-Z0-9_]*_(DEMO|PROD)\b')
+[[ -n "$hits" ]] && report "_DEMO/_PROD secret name outside the allowed files:" "$hits"
 
-# ---- Removed symbols (D1, D4, D10, D13) -------------------------------------
-# App code including lib/server; test files hold fixtures and are skipped.
-run_app_grep() {
-  local label="$1" pattern="$2" matches
-  [ "${#EXISTING[@]}" -eq 0 ] && return 0
-  matches=$(grep -rnE --binary-files=without-match \
-    --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.next \
-    --exclude="check-forbidden.sh" --exclude='*.test.*' \
-    "$pattern" "${EXISTING[@]}" 2>/dev/null || true)
-  report "$label" "$matches"
-}
+REMOVED='\b(APP_ENV|API_ORIGIN|APP_ORIGIN|PORTAL_URL|PORTAL_ORIGIN|PUBLIC_FILES_ORIGIN|SESSION_CHANGED)\b|X-PP-Session|sessionBinding|Sec-Fetch-Site|SameSite=None|Partitioned|window\.top|["'"'"'`]/launch([/?"'"'"'`]|$)'
+hits=$(hits_in "$app_code" "$REMOVED")
+[[ -n "$hits" ]] && report "removed concept (D1/D5/D10) in app code:" "$hits"
+hits=$(hits_in "$app_code" 'bg-black/50')
+[[ -n "$hits" ]] && report "bg-black/50 (use the scrim token, D13):" "$hits"
+[[ -d app/launch ]] && report "a /launch route exists (D1):" "app/launch"
 
-# A left boundary of "not a letter or digit" also catches NEXT_PUBLIC_APP_ENV.
-run_app_grep "removed env/origin name" '(^|[^A-Za-z0-9])(APP_ENV|API_ORIGIN|APP_ORIGIN|PORTAL_URL|PORTAL_ORIGIN|PUBLIC_FILES_ORIGIN)([^A-Za-z0-9_]|$)'
-run_app_grep "SameSite=None"         'SameSite=None'
-run_app_grep "Partitioned"           'Partitioned'
-run_app_grep "window.top"            'window\.top([^A-Za-z0-9_]|$)'
-run_app_grep "bg-black/50"           'bg-black/50'
+hits=$(hits_in "$(printf '%s\n' "$app_code" | grep -Fxv lib/shared/environments.ts || true)" 'https?://[a-z0-9.-]*1health\.io')
+[[ -n "$hits" ]] && report "hard-coded 1health origin outside lib/shared/environments.ts:" "$hits"
 
-# ---- Design-system color gate (docs/DESIGN-SYSTEM.md) -----------------------
-# Own scope: components must read 1health tokens, never raw colors. Like the
-# checks above, grep errors go to /dev/null; scripts/check-forbidden.test.ts
-# (run in CI) is the guard that these patterns still match.
-COLOR_DIRS=()
-for d in app components features; do
-  [ -d "$d" ] && COLOR_DIRS+=("$d")
-done
+# 6. Design tokens (D13): hex colors, palette classes, text-info-strong links, bg-error-strong.
+bash scripts/check-tokens.sh || status=1
 
-run_color_grep() {
-  local label="$1" pattern="$2" matches
-  [ "${#COLOR_DIRS[@]}" -eq 0 ] && return 0
-  # app/globals.css (exactly that path) is the token source; test files hold
-  # fixtures. Everything else in scope is checked, whatever its file type.
-  matches=$(grep -rnE --binary-files=without-match \
-    --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.next \
-    --exclude='*.test.*' \
-    "$pattern" "${COLOR_DIRS[@]}" 2>/dev/null | grep -vE '^(\./)?app/globals\.css:' || true)
-  if [ -n "$matches" ]; then
-    echo "FORBIDDEN [$label]:"
-    echo "$matches"
-    echo
-    fail=1
-  fi
-}
-
-# A color-utility prefix (after a non-word char: start, quote, space, a variant
-# `:` or a `-` as in drop-shadow-/inset-ring-), then a Tailwind palette name with
-# an optional -<shade>, then the end of the class (`/` opacity, space, quote...).
-COLOR_PREFIX='(bg|text|border(-(x|y|t|r|b|l|s|e))?|ring-offset|ring|outline|fill|stroke|from|via|to|divide|placeholder|decoration|accent|caret|shadow)'
-PALETTE='(black|white|slate|gray|zinc|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|mauve|olive|mist|taupe)'
-
-run_color_grep "hex color"           '#[0-9a-fA-F]{3,8}\b'
-run_color_grep "Tailwind palette"    "(^|[^A-Za-z0-9_])${COLOR_PREFIX}-(${PALETTE}(-[0-9]+)?|neutral-[0-9]+)([^A-Za-z0-9_-]|\$)"
-
-if [ "$fail" -ne 0 ]; then
-  echo "check-forbidden: forbidden patterns found." >&2
-  exit 1
-fi
-
-echo "check-forbidden: clean."
+if [[ $status -eq 0 ]]; then echo "check-forbidden: OK"; fi
+exit $status

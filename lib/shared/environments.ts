@@ -1,51 +1,58 @@
 /**
- * =============================================================================
- * The 1health environment map (D1, D2, D4, D7)
- * =============================================================================
+ * The 1health environments (D1, D4) and the constant URLs of each. Pure and
+ * isomorphic, no secrets. The server picks the upstream root per request from
+ * the session's `environment`; `/auth` uses it for display labels and links.
  *
- * One deployment serves both 1health environments. The environment of a session
- * is decided once, at launch, by whichever secret key decrypts the launch payload
- * (`/api/token`), and is sealed in the session cookie. Every upstream origin is
- * derived from that sealed value through this map; it never comes from an env
- * var, a request, a URL, the referrer or a cookie.
- *
- * This is the ONLY module that knows a 1health origin. It holds no secrets and
- * is importable by both server and client code.
- * =============================================================================
+ * This is the only module that names a 1health origin. Origins never come from
+ * env vars, request input or response data.
  */
 
-/** The two 1health environments. There is no `dev`. */
-export type Environment = "demo" | "prod"
+export const ENVIRONMENTS = ["demo", "prod"] as const
 
-/** The per-environment origins. */
+export type Environment = (typeof ENVIRONMENTS)[number]
+
 export interface EnvironmentConfig {
-  /** The 1health root origin (API, auth server and portal share it). */
-  apiRoot: string
-  /** The upstream API base: `<apiRoot>/api`. */
-  apiBase: string
-  /** The portal "Return to 1health" and hand-off target: the same root. */
-  portalUrl: string
-  /**
-   * The origin of organization `tenantLogo.publicUrl` values (AD-24, D7).
-   * Values are still open; unset means org logos 404.
-   */
-  publicFilesOrigin: string | undefined
+  /** Platform root: IdP (`<apiRoot>/auth/...`) and portal. */
+  readonly apiRoot: string
+  /** REST API base: `<apiRoot>/api`. */
+  readonly apiBase: string
+  /** Where "Return to 1health" and hand-offs go (the same root, D4). */
+  readonly portalUrl: string
+  /** Origin of organization `tenantLogo.publicUrl` (AD-24, D7). Open: `null` until known (logos 404). */
+  readonly publicFilesOrigin: string | null
+  /** Hostname fragment that recognises this environment in `document.referrer` (display only, D2). */
+  readonly referrerHostFragment: string
+  /** Human label shown on `/auth`. */
+  readonly label: string
 }
 
-function config(apiRoot: string): EnvironmentConfig {
-  return { apiRoot, apiBase: `${apiRoot}/api`, portalUrl: apiRoot, publicFilesOrigin: undefined }
+function config(apiRoot: string, referrerHostFragment: string, label: string): EnvironmentConfig {
+  return { apiRoot, apiBase: `${apiRoot}/api`, portalUrl: apiRoot, publicFilesOrigin: null, referrerHostFragment, label }
 }
 
-/** The constant environment map (D4). */
-export const environments: Readonly<Record<Environment, Readonly<EnvironmentConfig>>> = {
-  demo: config("https://1health.demo.1health.io"),
-  prod: config("https://1health.app.1health.io"),
+const CONFIG: Readonly<Record<Environment, EnvironmentConfig>> = {
+  demo: config("https://1health.demo.1health.io", "demo.1health", "Demo"),
+  prod: config("https://1health.app.1health.io", "app.1health", "Production"),
 }
 
-/** The environments, in detection order (prod first, D2). */
-export const ENVIRONMENTS: readonly Environment[] = ["prod", "demo"]
-
-/** Type guard: `true` only for `"demo"` or `"prod"`. */
 export function isEnvironment(value: unknown): value is Environment {
   return value === "demo" || value === "prod"
+}
+
+export function environmentConfig(environment: Environment): EnvironmentConfig {
+  return CONFIG[environment]
+}
+
+/** Display-only Demo/Prod guess from the page that opened `/auth` (never sent with a request). */
+export function environmentFromReferrer(referrer: string): Environment | null {
+  let hostname: string
+  try {
+    hostname = new URL(referrer).hostname
+  } catch {
+    return null
+  }
+  for (const environment of ENVIRONMENTS) {
+    if (hostname.includes(CONFIG[environment].referrerHostFragment)) return environment
+  }
+  return null
 }

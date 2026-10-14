@@ -1,33 +1,34 @@
 import { describe, expect, it } from "vitest"
-import { ENVIRONMENTS, environments, isEnvironment } from "./environments"
+import { environmentConfig, environmentFromReferrer, isEnvironment } from "./environments"
 
-describe("environments map (D4)", () => {
-  it("holds the demo origins", () => {
-    expect(environments.demo).toEqual({
+describe("environments", () => {
+  it("holds the D4 map values", () => {
+    expect(environmentConfig("demo")).toMatchObject({
       apiRoot: "https://1health.demo.1health.io",
       apiBase: "https://1health.demo.1health.io/api",
       portalUrl: "https://1health.demo.1health.io",
-      publicFilesOrigin: undefined,
+      publicFilesOrigin: null,
     })
-  })
-
-  it("holds the prod origins", () => {
-    expect(environments.prod).toEqual({
+    expect(environmentConfig("prod")).toMatchObject({
       apiRoot: "https://1health.app.1health.io",
       apiBase: "https://1health.app.1health.io/api",
       portalUrl: "https://1health.app.1health.io",
-      publicFilesOrigin: undefined,
+      publicFilesOrigin: null,
     })
   })
 
-  it("has exactly demo and prod, detected prod first", () => {
-    expect(Object.keys(environments).sort()).toEqual(["demo", "prod"])
-    expect(ENVIRONMENTS).toEqual(["prod", "demo"])
+  it.each([
+    ["https://1health.demo.1health.io/apps", "demo"],
+    ["https://1health.app.1health.io/", "prod"],
+    ["https://example.com/", null],
+    ["not a url", null],
+  ])("detects %s as %s", (referrer, expected) => {
+    expect(environmentFromReferrer(referrer)).toBe(expected)
   })
 
-  it("isEnvironment accepts only demo and prod", () => {
+  it("narrows environment values", () => {
     expect(isEnvironment("demo")).toBe(true)
     expect(isEnvironment("prod")).toBe(true)
-    for (const v of ["dev", "", "Prod", undefined, null, 1, {}]) expect(isEnvironment(v)).toBe(false)
+    expect(isEnvironment("dev")).toBe(false)
   })
 })

@@ -1,166 +1,132 @@
 /**
- * =============================================================================
- * Copy catalog
- * =============================================================================
+ * User-facing copy (AD-11): the one message catalog. Components never inline
+ * user-facing strings.
  *
- * Every user-facing string lives here (no copy in components). Strings quoted
- * in EXPERIENCE.md are final; the rest are marked `// DRAFT COPY` (or
- * `// ARCHITECTURE-ADDED COPY`) for PM review. Raw error codes, upstream text
- * and exception strings are never rendered — only the mapped copy below.
- * =============================================================================
+ * - `LAUNCH_*`: the /auth launch strings. DRAFT COPY for PM review: the
+ *   patient-vault launch strings (D9), the tenant title and the config/disabled
+ *   copy are not quoted in EXPERIENCE.md. They are exempt from the voice test
+ *   ("Success!" is patient-vault verbatim).
+ * - Everything from `COMMON_MESSAGES` on: verbatim from the EXPERIENCE.md Voice
+ *   and Tone table, unless the line carries a `// DRAFT COPY` marker
+ *   (`messages.test.ts` enforces both, plus the voice rules).
+ * - `{Name}` placeholders are filled with `formatMessage()`.
  */
 
-import type { Environment } from "./environments"
-
-/** The `/api/token` error codes (Story 1.2, D9). */
-export type LaunchErrorCode =
-  | "LAUNCH_INVALID"
-  | "LAUNCH_USED"
-  | "LAUNCH_EXPIRED"
-  | "WRONG_TENANT"
-  | "LAUNCH_CONFIG"
-  | "SERVICE_DISABLED"
-  | "UNSUPPORTED_MEDIA"
-  | "METHOD_NOT_ALLOWED"
-
-// DRAFT COPY — not quoted in EXPERIENCE.md (PM review).
-const LINK_EXPIRED = "This link has expired. Open Personal Profile again from 1health."
-// DRAFT COPY — not quoted in EXPERIENCE.md (PM review).
-const UNAVAILABLE = "Personal Profile is unavailable right now. Use your profile in 1health for now."
-
-/**
- * The user-safe `message` every `/api/token` error body carries, chosen by
- * `errorCode` (Story 1.2). `/auth` shows it in the error Alert.
- */
-export const LAUNCH_ERROR_MESSAGES: Readonly<Record<LaunchErrorCode, string>> = {
-  LAUNCH_INVALID: LINK_EXPIRED,
-  LAUNCH_USED: LINK_EXPIRED,
-  LAUNCH_EXPIRED: LINK_EXPIRED,
-  // Locked in EXPERIENCE.md (module-neutral tenant copy, AD-6, PA5).
-  WRONG_TENANT: "This is available in your personal account. Switch to it in 1health and open it again.",
-  LAUNCH_CONFIG: UNAVAILABLE,
-  SERVICE_DISABLED: UNAVAILABLE,
-  UNSUPPORTED_MEDIA: LINK_EXPIRED,
-  METHOD_NOT_ALLOWED: LINK_EXPIRED,
-}
-
-/** The display name of each environment (EXPERIENCE.md "{Demo|Production}"). */
-export const ENVIRONMENT_LABELS: Readonly<Record<Environment, string>> = {
-  // Locked in EXPERIENCE.md.
-  demo: "Demo",
-  // Locked in EXPERIENCE.md.
-  prod: "Production",
-}
-
-/** The `/auth` launch screen copy (Story 1.2, D9). Locked in EXPERIENCE.md unless marked. */
-export const AUTH_COPY = {
-  // Progress, attempt 1.
-  authenticating: "Authenticating...",
-  connectingTo: (env: Environment) => `Connecting to ${ENVIRONMENT_LABELS[env]} environment`,
-  // Progress, attempt 2 and later.
-  confirming: "Confirming your login...",
+export const LAUNCH_MESSAGES = {
+  authenticatingTitle: "Authenticating...",
+  connectingTo: (label: string): string => `Connecting to ${label} environment`,
+  confirmingTitle: "Confirming your login...",
   confirmingBody: "This can take a moment. Please wait while we finish confirming your login.",
-  // Success.
-  success: "Success!",
-  loadingApp: "Loading app...",
-  // Error Alert.
+  successTitle: "Success!",
+  successBody: "Loading app...",
   failedTitle: "Authentication Failed",
   failedFallback: "Unable to authenticate. Please return to 1health and try again.",
   connectionTitle: "Connection Error",
   connectionBody: "Unable to connect to the authentication service. Please check your connection and try again.",
   enterManually: "Enter LPL Manually",
   switchEnvironment: "Switch Environment",
-  goTo1health: (env: Environment) => `Go to 1health (${ENVIRONMENT_LABELS[env]})`,
-  // Manual entry card.
+  goTo1health: (label: string): string => `Go to 1health (${label})`,
   manualTitle: "Authentication Required",
-  manualDescription: (env: Environment) =>
-    `Connected to ${ENVIRONMENT_LABELS[env]} environment. No launch payload detected.`,
+  manualDescription: (label: string): string => `Connected to ${label} environment. No launch payload detected.`,
   lplLabel: "Launch Payload (LPL)",
   lplPlaceholder: "Paste encrypted LPL here...",
   submit: "Submit",
   or: "Or",
-  // Choose Environment card.
   chooseTitle: "Choose Environment",
-  // DRAFT COPY — patient-vault text, not quoted in EXPERIENCE.md (PM review).
   chooseDescription: "Select which 1health environment to connect to.",
+  initializing: "Initializing...",
 } as const
 
-/** The kill-switch screen on `/` and `/auth` (Story 1.16). */
-export const DISABLED_COPY = {
-  // DRAFT COPY
-  title: "Personal Profile is unavailable right now",
-  // DRAFT COPY
-  body: "Use your profile in 1health for now.",
-  // DRAFT COPY
-  action: "Go to 1health",
+/** User-safe `message` of `/api/token` error bodies, by error code (D9). Never upstream text. */
+export const LAUNCH_ERROR_MESSAGES = {
+  expired: "This link has expired. Open Personal Profile again from 1health.",
+  wrongTenant: "This is available in your personal account. Switch to it in 1health and open it again.",
+  unavailable: "Personal Profile is unavailable right now. Use your profile in 1health for now.",
 } as const
 
-// ARCHITECTURE-ADDED COPY — PM review
-/** Idle-logoff warning copy (AD-16, Story 1.6). */
-export const IDLE_COPY = {
-  title: "You'll be signed out in 1 minute",
-  stay: "Stay signed in",
-} as const
+/** Fills each `{Name}` placeholder of a catalog template; unknown names stay as written. */
+export function formatMessage(template: string, values: Readonly<Record<string, string | number>>): string {
+  return template.replace(/\{(\w+)\}/g, (placeholder, name: string) =>
+    Object.hasOwn(values, name) ? String(values[name]) : placeholder,
+  )
+}
 
-/** Session-expired dialog copy (FR-2, AD-19, Story 1.7). */
-export const SESSION_EXPIRED_COPY = {
-  // Locked in EXPERIENCE.md.
-  title: "Your session ended",
-  // Locked in EXPERIENCE.md.
-  body: "Your changes are kept on this device. Relaunch from 1health to continue.",
-  // Locked in EXPERIENCE.md.
-  action: "Return to 1health",
-} as const
+// --- App catalog (verbatim unless marked `// DRAFT COPY`) --------------------
 
-/** Session-changed dialog copy (AD-19, Story 1.7). */
-export const SESSION_CHANGED_COPY = {
-  // ARCHITECTURE-ADDED COPY — PM review
-  title: "This profile was opened by another account in another tab",
-  // ARCHITECTURE-ADDED COPY — PM review
-  reload: "Reload",
-} as const
-
-/** Profile page shell copy: app bar, tabs, Section navigation (Story 1.8). */
-export const SHELL_COPY = {
-  // DRAFT COPY
-  appTitle: "Personal Profile",
-  // DRAFT COPY — the header slot's region name (Story 1.9 fills it).
-  profileRegion: "Profile",
-  // Locked in EXPERIENCE.md.
-  returnToPortal: "Return to 1health",
-  // Locked in EXPERIENCE.md.
-  tabs: { contacts: "Contacts", insurance: "Insurance", medical: "Medical" },
-  // DRAFT COPY
-  comingSoon: "Coming soon",
-  // DRAFT COPY
-  soon: "Soon",
-  // Locked in EXPERIENCE.md.
-  jumpTo: "Jump to",
-  // DRAFT COPY
-  sectionsNav: "Sections",
-  // Locked in EXPERIENCE.md.
-  sections: {
-    personal: "Personal information",
-    phone: "Phone",
-    email: "Email",
-    social: "Social media",
-    addresses: "Addresses",
-  },
-  // DRAFT COPY — column headers from DESIGN.md "Section table — read".
-  columns: {
-    phone: ["Number", "Label", "Type", "Status", "Notifications"],
-    email: ["Email address", "Label", "Status", "Notifications"],
-    social: ["Link"],
-    addresses: ["Address", "Label", "Type", "Status"],
-  },
-  // DRAFT COPY
-  signature: "Signature",
-  // DRAFT COPY
-  insurance: "Insurance",
-  // Locked (RC9).
-  medical: "Coming soon: your medical information will appear here.",
-  // Locked in EXPERIENCE.md: "Couldn't load {section} · Retry".
-  loadError: (section: string) => `Couldn't load ${section.toLowerCase()}`,
-  // DRAFT COPY
+/** Actions and values shared by several surfaces. */
+export const COMMON_MESSAGES = {
+  cancel: "Cancel",
+  save: "Save",
   retry: "Retry",
+  notProvided: "Not provided",
+} as const
+
+/** App bar, page nav and tab labels (Story 1.8, Story 7.1). */
+export const SHELL_MESSAGES = {
+  wordmark: "1health", // DRAFT COPY (brand wordmark)
+  pagesNavLabel: "Pages", // DRAFT COPY (nav landmark name, epics Story 1.8)
+  pageProfile: "Personal Profile",
+  pageAccount: "Account", // DRAFT COPY (epics Story 1.8)
+  returnTo1health: "Return to 1health",
+  profileTabContacts: "Contacts", // DRAFT COPY (DESIGN.md tabs)
+  profileTabInsurance: "Insurance", // DRAFT COPY (DESIGN.md tabs)
+  profileTabMedical: "Medical", // DRAFT COPY (DESIGN.md tabs)
+  comingSoon: "Coming soon", // DRAFT COPY (DESIGN.md tag-coming-soon)
+  comingSoonShort: "Soon", // DRAFT COPY (DESIGN.md mobile tag)
+  medicalComingSoon: "Coming soon: medications, allergies and conditions will appear here",
+  tabPlaceholder: "This tab is on its way.", // DRAFT COPY (7.0b-2 placeholder panel until Epics 3–5)
+  accountTabPersonal: "Personal Account", // DRAFT COPY (DESIGN.md /account tabs)
+  accountTabProvider: "Individual Provider Registration", // DRAFT COPY (DESIGN.md /account tabs)
+  accountTabOrganizations: "My Organizations", // DRAFT COPY (DESIGN.md /account tabs)
+  accountSectionHeading: "Personal account settings",
+  authenticatorHeading: "Authenticator app", // DRAFT COPY (epics Story 7.1 h2)
+} as const
+
+/** Section framework copy (Stories 1.11, 1.12). */
+export const SECTION_MESSAGES = {
+  edit: "Edit", // DRAFT COPY (EXPERIENCE.md Section header)
+  editing: "Editing", // DRAFT COPY (epic 7 edit view label)
+  saving: "Saving…", // DRAFT COPY (EXPERIENCE.md Saving state)
+  unsavedChanges: "Unsaved changes",
+  saved: "{section} saved.",
+  networkFailure: "Couldn't save {section}. Check your connection.",
+} as const
+
+/** Shared read states on `/account` (Story 7.1). */
+export const STATE_MESSAGES = {
+  loadError: "Something went wrong while loading profile information",
+  noAccess: "You don't have access to this in your current account",
+} as const
+
+/** The profile header (Story 1.9). */
+export const HEADER_MESSAGES = {
+  loading: "Loading your profile", // DRAFT COPY (skeleton accessible name)
+  primaryPhone: "Primary phone", // DRAFT COPY (header meta label)
+  primaryEmail: "Primary email", // DRAFT COPY (header meta label)
+} as const
+
+/** The leave guard (Story 1.13); its Save button is `COMMON_MESSAGES.save`. */
+export const LEAVE_GUARD_MESSAGES = {
+  title: "You have unsaved changes",
+  keepEditing: "Keep editing",
+  discard: "Discard",
+  body: "Save your changes before you leave, or discard them.", // DRAFT COPY (Story 1.13 body)
+  bodyCannotSave: "These changes can't be saved from here. Keep editing to finish them, or discard them.", // DRAFT COPY (Story 1.13 canSave:false)
+} as const
+
+/** The session-expired dialog (Story 1.7); its action is `SHELL_MESSAGES.returnTo1health`. */
+export const SESSION_EXPIRED_MESSAGES = {
+  title: "Your session ended",
+  body: "Your changes are kept on this device. Relaunch from 1health to continue.",
+} as const
+
+/** Every app-catalog group (not the launch strings), for the catalog tests. */
+export const MESSAGE_CATALOG = {
+  common: COMMON_MESSAGES,
+  shell: SHELL_MESSAGES,
+  section: SECTION_MESSAGES,
+  state: STATE_MESSAGES,
+  header: HEADER_MESSAGES,
+  leaveGuard: LEAVE_GUARD_MESSAGES,
+  sessionExpired: SESSION_EXPIRED_MESSAGES,
 } as const

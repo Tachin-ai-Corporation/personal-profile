@@ -1,70 +1,124 @@
+import { existsSync, readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
-import { AUTH_COPY, DISABLED_COPY, ENVIRONMENT_LABELS, LAUNCH_ERROR_MESSAGES, SESSION_EXPIRED_COPY } from "./messages"
+import { formatMessage, LAUNCH_ERROR_MESSAGES, LAUNCH_MESSAGES, MESSAGE_CATALOG } from "./messages"
 
-/**
- * The `/auth` launch copy (Story 1.2, D9) and the `/api/token` errorCode →
- * message map. Strings quoted in EXPERIENCE.md are asserted verbatim.
- */
-describe("LAUNCH_ERROR_MESSAGES", () => {
-  it("maps every launch errorCode to its user-safe message", () => {
-    const expired = "This link has expired. Open Personal Profile again from 1health."
-    const unavailable = "Personal Profile is unavailable right now. Use your profile in 1health for now."
-    expect(LAUNCH_ERROR_MESSAGES).toEqual({
-      LAUNCH_INVALID: expired,
-      LAUNCH_USED: expired,
-      LAUNCH_EXPIRED: expired,
-      WRONG_TENANT: "This is available in your personal account. Switch to it in 1health and open it again.",
-      LAUNCH_CONFIG: unavailable,
-      SERVICE_DISABLED: unavailable,
-      UNSUPPORTED_MEDIA: expired,
-      METHOD_NOT_ALLOWED: expired,
-    })
+const read = (relative: string): string => readFileSync(new URL(relative, import.meta.url), "utf8")
+
+const EXPERIENCE_URL = new URL("../../_bmad-output/planning-artifacts/ux-designs/ux-personal-profile-2026-10-13/EXPERIENCE.md", import.meta.url)
+if (!existsSync(EXPERIENCE_URL)) {
+  throw new Error(`EXPERIENCE.md source missing at ${fileURLToPath(EXPERIENCE_URL)}: update the path in messages.test.ts`)
+}
+const EXPERIENCE = readFileSync(EXPERIENCE_URL, "utf8")
+const SOURCE = read("./messages.ts")
+
+/** Every quoted string of the EXPERIENCE.md Voice and Tone table, whole and split on " · ". */
+function voiceAndToneStrings(): Set<string> {
+  const start = EXPERIENCE.indexOf("## Voice and Tone")
+  const end = EXPERIENCE.indexOf("\n## ", start + 1)
+  const table = EXPERIENCE.slice(start, end)
+  const found = new Set<string>()
+  for (const match of table.matchAll(/"([^"]+)"/g)) {
+    found.add(match[1])
+    for (const part of match[1].split(" · ")) found.add(part)
+  }
+  return found
+}
+
+interface CatalogLine {
+  readonly key: string
+  readonly value: string
+  readonly draft: boolean
+}
+
+/** The app catalog's string entries as written in the source, with their DRAFT COPY markers. */
+function catalogLines(): CatalogLine[] {
+  const body = SOURCE.slice(SOURCE.indexOf("export const COMMON_MESSAGES"))
+  const lines: CatalogLine[] = []
+  for (const match of body.matchAll(/^\s+(\w+): "((?:[^"\\]|\\.)*)",?[ \t]*(\/\/.*)?$/gm)) {
+    lines.push({ key: match[1], value: JSON.parse(`"${match[2]}"`), draft: (match[3] ?? "").includes("DRAFT COPY") })
+  }
+  return lines
+}
+
+function catalogValues(): string[] {
+  return Object.values(MESSAGE_CATALOG).flatMap((group) => Object.values(group))
+}
+
+/** A template matches a Voice and Tone string when its `{Name}` placeholders stand for any text. */
+function matchesTemplate(template: string, copy: string): boolean {
+  const pattern = template
+    .split(/\{\w+\}/)
+    .map((literal) => literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join(".+")
+  return new RegExp(`^${pattern}$`).test(copy)
+}
+
+const VOICE_AND_TONE = voiceAndToneStrings()
+
+describe("message catalog: verbatim against EXPERIENCE.md Voice and Tone", () => {
+  it("parses every catalog string from the source, so none escapes the marker check", () => {
+    const parsed = catalogLines().map((line) => line.value)
+    expect(parsed.toSorted()).toEqual(catalogValues().toSorted())
+  })
+
+  it("has no duplicated strings", () => {
+    const values = catalogValues()
+    expect(new Set(values).size).toBe(values.length)
+  })
+
+  it.each(catalogLines().filter((line) => !line.draft))("$key is verbatim Voice and Tone copy", ({ value }) => {
+    expect([...VOICE_AND_TONE].some((copy) => matchesTemplate(value, copy))).toBe(true)
+  })
+
+  it.each([
+    "Cancel",
+    "Save",
+    "Retry",
+    "Not provided",
+    "Return to 1health",
+    "Personal Profile",
+    "Personal account settings",
+    "Unsaved changes",
+    "Something went wrong while loading profile information",
+    "You don't have access to this in your current account",
+    "You have unsaved changes",
+    "Keep editing",
+    "Discard",
+    "Your session ended",
+    "Your changes are kept on this device. Relaunch from 1health to continue.",
+    "Phone saved.",
+    "Couldn't save phone. Check your connection.",
+  ])("holds the shell/state/dialog copy %j", (copy) => {
+    expect(VOICE_AND_TONE.has(copy)).toBe(true)
+    expect(catalogValues().some((value) => matchesTemplate(value, copy))).toBe(true)
   })
 })
 
-describe("AUTH_COPY (EXPERIENCE.md, verbatim)", () => {
-  it("progress, success and error strings", () => {
-    expect(AUTH_COPY.authenticating).toBe("Authenticating...")
-    expect(AUTH_COPY.connectingTo("demo")).toBe("Connecting to Demo environment")
-    expect(AUTH_COPY.connectingTo("prod")).toBe("Connecting to Production environment")
-    expect(AUTH_COPY.confirming).toBe("Confirming your login...")
-    expect(AUTH_COPY.confirmingBody).toBe("This can take a moment. Please wait while we finish confirming your login.")
-    expect(AUTH_COPY.success).toBe("Success!")
-    expect(AUTH_COPY.loadingApp).toBe("Loading app...")
-    expect(AUTH_COPY.failedTitle).toBe("Authentication Failed")
-    expect(AUTH_COPY.failedFallback).toBe("Unable to authenticate. Please return to 1health and try again.")
-    expect(AUTH_COPY.connectionTitle).toBe("Connection Error")
-    expect(AUTH_COPY.connectionBody).toBe(
-      "Unable to connect to the authentication service. Please check your connection and try again.",
+describe("message catalog: voice rules", () => {
+  const sentences = catalogValues()
+
+  it.each(sentences)("%j has no exclamation mark", (value) => {
+    expect(value).not.toContain("!")
+  })
+
+  it.each(sentences.filter((value) => value.includes(" ")))("%j keeps platform jargon out of sentences", (value) => {
+    expect(value).not.toMatch(/contact point|precedence/i)
+  })
+
+  it("exempts only the D9 launch strings, which stay unchanged", () => {
+    expect(LAUNCH_MESSAGES.successTitle).toBe("Success!")
+    expect(LAUNCH_ERROR_MESSAGES.wrongTenant).toBe(
+      "This is available in your personal account. Switch to it in 1health and open it again.",
     )
-    expect(AUTH_COPY.enterManually).toBe("Enter LPL Manually")
-    expect(AUTH_COPY.switchEnvironment).toBe("Switch Environment")
-    expect(AUTH_COPY.goTo1health("demo")).toBe("Go to 1health (Demo)")
-    expect(AUTH_COPY.goTo1health("prod")).toBe("Go to 1health (Production)")
-  })
-
-  it("manual entry and Choose Environment strings", () => {
-    expect(AUTH_COPY.manualTitle).toBe("Authentication Required")
-    expect(AUTH_COPY.manualDescription("demo")).toBe("Connected to Demo environment. No launch payload detected.")
-    expect(AUTH_COPY.lplLabel).toBe("Launch Payload (LPL)")
-    expect(AUTH_COPY.lplPlaceholder).toBe("Paste encrypted LPL here...")
-    expect(AUTH_COPY.submit).toBe("Submit")
-    expect(AUTH_COPY.or).toBe("Or")
-    expect(AUTH_COPY.chooseTitle).toBe("Choose Environment")
-    expect(ENVIRONMENT_LABELS).toEqual({ demo: "Demo", prod: "Production" })
+    expect(catalogValues()).not.toContain("Success!")
   })
 })
 
-describe("DISABLED_COPY and SESSION_EXPIRED_COPY", () => {
-  it("holds the disabled-screen draft copy", () => {
-    expect(DISABLED_COPY).toEqual({
-      title: "Personal Profile is unavailable right now",
-      body: "Use your profile in 1health for now.",
-      action: "Go to 1health",
-    })
-  })
-
-  it("has no framed variant (D10)", () => {
-    expect(Object.keys(SESSION_EXPIRED_COPY).sort()).toEqual(["action", "body", "title"])
+describe("formatMessage", () => {
+  it("fills placeholders and leaves unknown ones as written", () => {
+    expect(formatMessage(MESSAGE_CATALOG.section.saved, { section: "Phone" })).toBe("Phone saved.")
+    expect(formatMessage("{N} unsaved sections", { N: 2 })).toBe("2 unsaved sections")
+    expect(formatMessage("Couldn't save {section}.", {})).toBe("Couldn't save {section}.")
   })
 })

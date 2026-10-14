@@ -161,3 +161,7 @@ No story text changes. The amended Epic 1 text is the source for every rework sp
 - **Q2, forbidden-gate staging — answered yes:** Story 1.1's AC bans the superseded symbols (`APP_ENV`, `X-PP-Session`, `sessionBinding`, `window.top`, …) at once, but R2–R4 remove some of them. Proposed: each rework story adds the bans for the symbols it removes, so the gate is green at every step and complete after R4.
 
 `publicFilesOrigin` is not an open decision: the amended Story 1.1 AC puts the key in the environment map with its values still open (unset means logos 404), so R1 adds it unset.
+
+## Addendum (2026-10-14): Epic 7 foundation rebased onto main
+
+`feat/NG-9019-epic-7` was rebuilt on top of this proposal's R1 (PR #4). Its specs 7.0a, 7.0b-1 and 7.0b-2 already implement what R2 (1.3–1.6 transport/proxy), R3 (1.7 logout/session) and R4 (1.8 app bar/shell) planned, under D1–D13, so those reworks are marked done in `sprint-status.yaml` and must not be built again. Where both sides had code, the Epic 7 implementation was kept (no CSRF/`X-PP-Session`/session-changed, `{errorCode, source}` bodies, exact deny list, `profile: true` + `ACCOUNT_DISABLED`, all-devices logout, `navigate()` + leave guard + Section registry, `mapApiError`, D13 tokens incl. `primary-text`). Pieces only main had — Story 1.6 idle logoff/activity, Story 1.8B Section menu/Jump to/`SectionFrame`/`select.tsx`, the disabled screen and their copy — are ported in spec 7.0c. §3's note that "7.0b waits for R3/R4" no longer applies. The prior branch is kept as `backup/NG-9019-epic-7-pre-rebase`.

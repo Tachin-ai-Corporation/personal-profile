@@ -1,104 +1,104 @@
-# Authentication Architecture
+# Auth architecture (Backend-for-Frontend)
 
-This document describes the authentication flow for the 1health App Template.
+The Next.js server is the only thing that holds 1health tokens and talks to
+1health. The browser talks only to this app's own origin, and only through
+`callApi` (`lib/api/client.ts`). Spec: `_bmad-output/implementation-artifacts/spec-7-0a-bff-foundation-and-tooling.md`;
+decisions D1–D13 in `_bmad-output/planning-artifacts/epics.md` (they override
+the architecture spine where they differ).
 
-## Overview
+## Environments
 
-The app uses OAuth2 tokens obtained through a secure Launch Payload (LPL) flow. Only the initial token exchange requires server-side processing (to protect the secret key). All subsequent API calls are made directly from the browser.
+`lib/shared/environments.ts` is the only place that names a 1health origin.
+Per environment (`demo`, `prod`): `apiRoot` (`https://1health.demo.1health.io`,
+`https://1health.app.1health.io`), `apiBase` = `<apiRoot>/api`, `portalUrl` =
+the root, and `publicFilesOrigin` (open, `null` for now). The server picks the
+environment per request from the session; a request never carries one.
 
-## Environment Selection
+## Launch (`/auth`)
 
-The auth page supports two environments: **Demo** and **Production**. Each uses its own secret key and hardcoded base URL:
+1. The portal opens `/auth?lpl=<encrypted launch payload>`.
+2. `app/auth/page.tsx` (server, `force-dynamic`) reads only the
+   `onehealth_environment` cookie and renders `features/shell/auth-screen.tsx`.
+3. The screen removes `lpl` from the address bar (`history.replaceState`),
+   then runs the launch flow (`features/shell/launch-flow.ts`): up to 5
+   attempts of `POST /api/token { lpl }`, 1.5 s apart; a body with
+   `retryable: false` stops at once. Attempt 2 onward shows "Confirming your login...".
+4. `/api/token` (`lib/server/launch/token-handler.ts` → `launch.ts`):
+   - requires `Content-Type: application/json` (else 415) and reads only `lpl`;
+   - decrypts it with `ONEHEALTH_SECRET_KEY_PROD`, then `_DEMO`, each as
+     stored and then trimmed (a trimmed-only match logs a warning naming the
+     variable); the key that decrypts decides `environment` (D2);
+   - checks the payload's app id equals `APP_ID_<ENV>`;
+   - exchanges the one-time code exactly once, signed with that key;
+   - checks the token's plaintext `tenantId` is `1` (else 403 `WRONG_TENANT`);
+   - calls `GET /v2/user/myself` and requires its id to equal the payload user;
+   - seals tokens, ids, a new `sid` and `environment` into `__Host-pp_s`, sets
+     `onehealth_environment` (30 days) and answers `{ ok: true, environment }`.
+5. On success the screen shows "Success!" and after 1.2 s calls
+   `location.assign(consumeLoginIntent("/"))` (`lib/shared/login-intent.ts`).
 
-| Environment | Secret Key | Base URL |
-|-------------|------------|----------|
-| Demo | `ONEHEALTH_SECRET_KEY_DEMO` | `https://demo.1health.io` |
-| Production | `ONEHEALTH_SECRET_KEY_PROD` | `https://app.1health.io` |
+Failures answer `{ ok: false, errorCode, source: "proxy", message, retryable? }`
+with a user-safe `message` from `lib/shared/messages.ts` and clear any previous
+session. Decode, app-id and tenant failures, a missing `lpl` and
+`SERVICE_DISABLED` carry `retryable: false`; exchange and `myself` failures
+stay retryable. Without `lpl` the screen shows manual entry (environment known
+from the referrer or the cookie, display only) or "Choose Environment".
 
-Environment is auto-detected from `document.referrer`:
-- Referrer containing `demo.1health` selects **Demo**
-- Referrer containing `app.1health` selects **Production**
-- Otherwise, the user chooses manually
+## The session
 
-The selected environment is persisted in the `environment` cookie and passed to `/api/token` during LPL exchange.
+- One cookie, `__Host-pp_s`: `HttpOnly; Secure; SameSite=Lax; Path=/`, no
+  `Max-Age`, no `Domain`, sealed with iron-session (`SESSION_SECRET`;
+  `SESSION_SECRET_PREVIOUS` is accepted for unseal only during a rotation).
+- Payload (`lib/server/session/types.ts`): access and refresh tokens, access
+  expiry (epoch ms), `userId`, `personId`, `tenantId`, `sid`, `gen`, `iat`,
+  `lastSeen`, `environment`.
+- Pages call `requirePageSession()` (`lib/server/page-session.ts`): no session
+  redirects to `/auth`; otherwise the page passes the session's `portalUrl` to
+  `PortalUrlProvider`, which registers it with `callApi`'s module.
+- There is no CSRF check and no session binding (D5): cross-site write
+  protection relies on `SameSite=Lax`. JSON routes still require
+  `application/json` (415).
 
-## Flow Diagram
+## The proxy
 
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   1health   │     │   Browser   │     │  App Server │     │ 1health API │
-│   Portal    │     │             │     │ (/api/token)│     │             │
-└──────┬──────┘     └──────┬──────┘     └──────┬──────┘     └──────┬──────┘
-       │                   │                   │                   │
-       │ 1. Launch with    │                   │                   │
-       │    encrypted LPL  │                   │                   │
-       │──────────────────>│                   │                   │
-       │                   │                   │                   │
-       │                   │ 2. POST /api/token│                   │
-       │                   │    { lpl: "..." } │                   │
-       │                   │──────────────────>│                   │
-       │                   │                   │                   │
-       │                   │                   │ 3. Decrypt LPL    │
-       │                   │                   │    using env-     │
-       │                   │                   │    specific key   │
-       │                   │                   │    (SECRET_KEY_   │
-       │                   │                   │    DEMO or _PROD) │
-       │                   │                   │                   │
-       │                   │                   │ 4. Exchange code  │
-       │                   │                   │──────────────────>│
-       │                   │                   │                   │
-       │                   │                   │ 5. OAuth tokens   │
-       │                   │                   │<──────────────────│
-       │                   │                   │                   │
-       │                   │ 6. Set cookies    │                   │
-       │                   │<──────────────────│                   │
-       │                   │                   │                   │
-       │                   │ 7. Direct API calls with Bearer token │
-       │                   │───────────────────────────────────────>│
-       │                   │                   │                   │
-```
+All 1health traffic goes through `/api/1h/<path relative to the upstream /api>`
+(`lib/server/proxy/*`). In order: kill switch, method, path normalization
+(400 `BAD_PATH`), deny list and allowlist (403 `NOT_ALLOWED`, 405), the
+Profile kill switch (`ACCOUNT_DISABLED=1` → 503 for `profile: true` entries),
+session (401 `SESSION_EXPIRED`), query and body validation (400/413/415),
+token expiry (401 `TOKEN_EXPIRED` within 30 s), then the upstream call with a
+25 s timeout and `redirect: "manual"`. Owner ids are the literal `me`; the
+proxy fills them from the session. Every response is no-store. Logs carry only
+`{ requestId, method, routeTemplate, status, durationMs }`; bodies are never logged
+on the server (D6).
 
-## Token Storage
+## Token refresh
 
-Tokens are stored in browser cookies:
+The proxy never refreshes. On a proxy `401 TOKEN_EXPIRED`, `callApi` runs one
+`POST /api/session/refresh` (single-flight in the tab, `navigator.locks`
+across tabs), then replays each waiting call once. A non-GET is replayed only
+after a proxy `TOKEN_EXPIRED`. The refresh route answers 200 without calling
+the IdP when the token is still fresh, clears the cookie on an IdP rejection
+(401 `SESSION_EXPIRED`) and keeps it otherwise (503 `REFRESH_UNAVAILABLE`).
 
-| Cookie | Purpose | Max Age |
-|--------|---------|---------|
-| `access_token` | Bearer token for API auth | ~50 minutes |
-| `refresh_token` | Used to obtain new access token | 7 days |
-| `token_expires_at` | Unix timestamp (seconds) | 7 days |
-| `onehealth_base_url` | Base URL for API calls (set per environment) | 30 days |
-| `onehealth_environment` | Selected environment: `demo` or `prod` | 30 days |
-| `user_id` | Current user's ID | 7 days |
-| `user_org_id` | Current user's organization ID | 7 days |
+`session-expired` is published once per page on `lib/api/session-events.ts`;
+the shell (Story 7.0b) subscribes.
 
-## Token Refresh
+## Logout
 
-When an access token expires, `authFetch()` automatically:
-1. Detects the 401 response
-2. Calls `refreshToken()` to get new tokens directly from 1health
-3. Retries the original request with the new token
+`POST` or `GET /api/session/logout`: with a session, first a best-effort
+`POST <apiRoot>/auth/user/logout/all-devices` with the session Bearer (5 s,
+no-store; failures are logged without the token), then always 204 clearing
+`__Host-pp_s`.
 
-```typescript
-// Token refresh flow (client-side)
-POST https://{1health-url}/auth/oauth2/token
-Content-Type: application/x-www-form-urlencoded
+## Client logging
 
-grant_type=refresh_token&refresh_token={token}&client_id=public-client
-```
+`callApi` logs each call through `logApiCall` (`lib/api/log-api-call.ts`)
+only under `next dev` (`lib/shared/app-env.ts#isLocalDev()`), redacting
+SSN-shaped values, MFA `code`, `qrCode`, `lpl` and token-like fields.
 
-## Security Considerations
+## Security headers
 
-1. **ONEHEALTH_SECRET_KEY_DEMO / _PROD** - Only used server-side for LPL decryption, selected per environment
-2. **Tokens in cookies** - Not httpOnly to allow client-side access (required for client-side API calls)
-3. **CORS** - 1health API must allow requests from the app domain
-4. **Automatic refresh** - Tokens are refreshed before expiration to maintain session
-
-## Files
-
-| File | Purpose |
-|------|---------|
-| `/app/api/token/route.tsx` | Server-side LPL decryption and initial token exchange |
-| `/lib/auth-server.ts` | Server-side cookie utilities (minimal) |
-| `/lib/auth-client.ts` | Client-side auth utilities, authFetch, token refresh |
-| `/lib/api/*.ts` | Client-side API modules |
+`proxy.ts` sets the AD-21 headers on every response, with a fresh CSP nonce per
+request. Every page renders dynamically so Next stamps that nonce on its
+scripts.

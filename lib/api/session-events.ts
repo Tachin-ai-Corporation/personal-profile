@@ -1,68 +1,54 @@
 /**
- * =============================================================================
- * Session events — the only client-side session signals (AD-19)
- * =============================================================================
- *
- * Exactly two modules publish:
- *   - `callApi` publishes `session-expired` (401 `SESSION_EXPIRED`) or
- *     `session-changed` (409 `SESSION_CHANGED`);
- *   - the idle warning (`features/shell/idle-warning.tsx`) publishes
- *     `session-expired` when the client-side idle or absolute deadline passes
- *     (Story 1.6).
- * Nothing else publishes; `lib/api/index.ts` deliberately does not re-export
- * `publish`.
- *
- * Each event reaches subscribers only the FIRST time it is published in a
- * page's lifetime: a session that ended stays ended until the page reloads, so
- * later failures must not re-open dialogs. The shell subscribes through
- * `features/shell/session-dialogs.tsx` (`SessionDialogs`, Story 1.7), the only
- * module that opens the session dialogs; the idle warning also subscribes, to
- * stop itself.
- *
- * A throwing subscriber is isolated: it never breaks `callApi` or the other
- * subscribers.
- * =============================================================================
+ * The only client-side session signal (AD-19): `session-expired`. `callApi`
+ * publishes it; the shell (Story 7.0b) subscribes. It is published at most once
+ * per page lifetime. There is no session-change event (D5).
  */
 
-export type SessionEvent = "session-expired" | "session-changed"
+export type SessionEvent = "session-expired"
 
-type Listener = () => void
+export type SessionEventListener = () => void
 
-const listeners: Record<SessionEvent, Set<Listener>> = {
-  "session-expired": new Set(),
-  "session-changed": new Set(),
+export interface SessionEvents {
+  publish(event: SessionEvent): void
+  subscribe(event: SessionEvent, listener: SessionEventListener): () => void
+  hasPublished(event: SessionEvent): boolean
+  /** Test hook: forgets what was published (listeners stay). */
+  reset(): void
 }
 
-const published = new Set<SessionEvent>()
+export function createSessionEvents(): SessionEvents {
+  const listeners = new Map<SessionEvent, Set<SessionEventListener>>()
+  const published = new Set<SessionEvent>()
 
-/**
- * Notify subscribers of `event`, only the first time per page lifetime. Later
- * calls for the same event are no-ops. Never throws.
- */
-export function publish(event: SessionEvent): void {
-  if (published.has(event)) return
-  published.add(event)
-  // Snapshot so a subscriber that unsubscribes during dispatch is safe.
-  for (const cb of Array.from(listeners[event])) {
-    try {
-      cb()
-    } catch (error) {
-      console.error(`[pp session-events] ${event} subscriber failed:`, error instanceof Error ? error.name : "error")
-    }
+  return {
+    publish(event) {
+      if (published.has(event)) return
+      published.add(event)
+      for (const listener of listeners.get(event) ?? []) {
+        // A failing listener must not stop the others or make `callApi` throw.
+        try {
+          listener()
+        } catch (error) {
+          console.error("[session-events] listener failed", error)
+        }
+      }
+    },
+    subscribe(event, listener) {
+      const set = listeners.get(event) ?? new Set<SessionEventListener>()
+      set.add(listener)
+      listeners.set(event, set)
+      return () => {
+        set.delete(listener)
+      }
+    },
+    hasPublished(event) {
+      return published.has(event)
+    },
+    reset() {
+      published.clear()
+    },
   }
 }
 
-/** Subscribe to `event`; returns an unsubscribe function. */
-export function subscribe(event: SessionEvent, cb: Listener): () => void {
-  listeners[event].add(cb)
-  return () => {
-    listeners[event].delete(cb)
-  }
-}
-
-/** Test-only: forget published events and drop all subscribers. */
-export function __resetSessionEventsForTests(): void {
-  published.clear()
-  listeners["session-expired"].clear()
-  listeners["session-changed"].clear()
-}
+/** The page-lifetime instance. */
+export const sessionEvents: SessionEvents = createSessionEvents()

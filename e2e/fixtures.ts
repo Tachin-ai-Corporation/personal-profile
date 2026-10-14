@@ -1,52 +1,86 @@
-import { createCipheriv, hkdfSync, randomBytes } from "node:crypto"
-import { expect, type Page } from "@playwright/test"
+import type { Page, Route } from "@playwright/test"
+import { environmentConfig } from "../lib/shared/environments"
+import { sealedSessionCookie } from "./session-cookie"
+
+/** The sealed session's environment is demo, so this is the embedded portal URL. */
+export const PORTAL_URL = environmentConfig("demo").portalUrl
+
+export const ANN = { id: 42, personId: 4242, firstName: "Ann", lastName: "Lee", username: "ann.lee" }
+
+const SIGN_IN_PATH = "/e2e-sign-in"
 
 /**
- * Shared e2e fixtures: a valid launch payload for the webServer's dummy
- * per-environment secrets/app ids (see `playwright.config.ts`, D1) and a fresh
- * one-time code. Never real credentials.
+ * Puts a sealed `__Host-pp_s` session on the page's context the way the BFF
+ * does, with a `Set-Cookie` response (CDP refuses to add a `__Host-` cookie
+ * directly). The real exchange is unit-tested.
  */
+export async function signIn(page: Page): Promise<void> {
+  const cookie = await sealedSessionCookie()
+  await page.route(`**${SIGN_IN_PATH}`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      headers: { "Set-Cookie": `${cookie.name}=${cookie.value}; Path=/; HttpOnly; Secure; SameSite=Lax` },
+      body: "signed in",
+    }),
+  )
+  await page.goto(SIGN_IN_PATH)
+  await page.unroute(`**${SIGN_IN_PATH}`)
+}
 
-export type E2eEnvironment = "demo" | "prod"
+const json = (route: Route, status: number, body: unknown) =>
+  route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
 
-/** The dummy values `playwright.config.ts` boots the server with. */
-const SECRETS: Record<E2eEnvironment, string> = { demo: "dummy-demo-secret", prod: "dummy-prod-secret" }
-const APP_IDS: Record<E2eEnvironment, string> = { demo: "dummy-app-demo", prod: "dummy-app-prod" }
-const USER_ID = 42 // must match the mock `/myself` id
-
-/**
- * Build a valid base64 lpl for `env`: base64( IV(12) ++ AES-256-GCM ciphertext ++ tag(16) ),
- * keyed with that environment's dummy secret, so `/api/token` detects `env`.
- */
-export function makeLpl(code: string, env: E2eEnvironment = "demo"): string {
-  const key = Buffer.from(hkdfSync("sha256", Buffer.from(SECRETS[env], "utf8"), Buffer.alloc(32, 0), Buffer.alloc(0), 32))
-  const payload = JSON.stringify({
-    required: {
-      apiKey: { name: APP_IDS[env] },
-      tenant: { id: 1 },
-      user: { id: USER_ID },
-      externalApplicationId: { id: 1 },
-      oneTimeCode: { value: code, issuedAt: "2026-10-14T00:00:00" },
-    },
+/** Mocks `GET /api/1h/v2/user/myself`; returns a request counter. */
+export async function mockMyself(page: Page, answer: { status?: number; body?: unknown } = {}): Promise<() => number> {
+  let count = 0
+  await page.route("**/api/1h/v2/user/myself", (route) => {
+    count += 1
+    return json(route, answer.status ?? 200, answer.body ?? ANN)
   })
-  const iv = randomBytes(12)
-  const cipher = createCipheriv("aes-256-gcm", key, iv)
-  const ct = Buffer.concat([cipher.update(payload, "utf8"), cipher.final()])
-  const tag = cipher.getAuthTag()
-  return Buffer.concat([iv, ct, tag]).toString("base64")
+  return () => count
 }
 
-/** A fresh, unique one-time code per test (the mock tracks consumed codes for the run). */
-export function freshCode(): string {
-  return `code-${randomBytes(8).toString("hex")}`
+export type ContactAnswer = readonly Record<string, unknown>[] | { readonly status: number; readonly body: unknown }
+
+/** Mocks the contact-point list per type; returns the types requested, in order. */
+export async function mockContacts(page: Page, byType: Partial<Record<"Mobile" | "Landline" | "Email", ContactAnswer>> = {}): Promise<string[]> {
+  const seen: string[] = []
+  await page.route("**/api/1h/v2/user/contact-point/list?**", (route) => {
+    const type = new URL(route.request().url()).searchParams.get("type") as "Mobile" | "Landline" | "Email"
+    seen.push(type)
+    const answer = byType[type] ?? []
+    return "status" in answer ? json(route, answer.status, answer.body) : json(route, 200, answer)
+  })
+  return seen
+}
+
+/** Mocks logout (204) and the portal page; returns the logout counter. */
+export async function mockExit(page: Page): Promise<() => number> {
+  let logouts = 0
+  await page.route("**/api/session/logout", (route) => {
+    logouts += 1
+    return route.fulfill({ status: 204 })
+  })
+  const portalOrigin = new URL(PORTAL_URL).origin
+  await page.route((url) => url.origin === portalOrigin, (route) => route.fulfill({ status: 200, contentType: "text/html", body: "<title>portal</title>portal" }))
+  return () => logouts
 }
 
 /**
- * Launch through the real `/auth` flow (D1, D9) and wait for the signed-in
- * profile page. With no launch tab param the app lands on `/`, which
- * `ProfileTabs` normalises to `?tab=contacts`.
+ * Switches the page to the dark theme (class-based, D13). Reduced motion is
+ * emulated first, so color transitions are near-instant (globals.css), and
+ * contrast is never measured mid-transition.
  */
-export async function launch(page: Page, env: E2eEnvironment = "demo"): Promise<void> {
-  await page.goto(`/auth?lpl=${encodeURIComponent(makeLpl(freshCode(), env))}`)
-  await expect(page).toHaveURL(/\/\?tab=contacts$/)
+export async function setTheme(page: Page, theme: "light" | "dark"): Promise<void> {
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  // Toggle, then wait two frames: even a 0.01 ms transition only lands on the next frame.
+  await page.evaluate(
+    (dark) =>
+      new Promise<void>((resolve) => {
+        document.documentElement.classList.toggle("dark", dark)
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      }),
+    theme === "dark",
+  )
 }

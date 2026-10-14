@@ -1,67 +1,67 @@
 import nextVitals from "eslint-config-next/core-web-vitals"
 import nextTs from "eslint-config-next/typescript"
 
-// Shared rule options. ESLint flat config REPLACES a rule's options when a
-// later block redefines it, so every block that redefines one of these rules
-// spreads the shared entries back in.
-
-/** Server env is read only in lib/server/env.ts (D1); the one other reader is lib/shared/app-env.ts (D6). */
-const PROCESS_ENV_RESTRICTION = {
-  object: "process",
-  property: "env",
-  message:
-    "Read server env only via lib/server/env.ts; elsewhere use isLocalDev() from lib/shared/app-env.ts (the only other process.env reader, NODE_ENV only).",
-}
-
-const FETCH_MESSAGE = "Use callApi from @/lib/api — it is the only browser transport (AD-19)."
-
-/** `window.fetch`, `globalThis.fetch`, `self.fetch` (AD-19). */
-const FETCH_PROPERTY_RESTRICTIONS = ["window", "globalThis", "self"].map((object) => ({
-  object,
-  property: "fetch",
-  message: FETCH_MESSAGE,
-}))
-
-const SWR_KEY_MESSAGE = 'Build SWR keys with keys.* from @/lib/api/keys (AD-10); inline keys are banned.'
-const SWR_FN = "/^(useSWR|useSWRImmutable|useSWRMutation|useSWRSubscription|mutate|preload)$/"
-const SWR_MEMBER_FN = "/^(mutate|preload)$/"
-const INLINE_KEY_ARG = [
-  '[arguments.0.type="ArrayExpression"]',
-  '[arguments.0.type="TemplateLiteral"]',
-  '[arguments.0.type="Literal"][arguments.0.raw=/^["\']/]',
-]
-
-/** Global no-restricted-syntax entries: dangerouslySetInnerHTML + inline SWR keys. */
-const RESTRICTED_SYNTAX = [
-  {
-    selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",
-    message: "dangerouslySetInnerHTML is banned (AD-11); render data-derived content through safeHref/escaping.",
-  },
-  ...INLINE_KEY_ARG.map((arg) => ({
-    selector: `CallExpression[callee.type="Identifier"][callee.name=${SWR_FN}]${arg}`,
-    message: SWR_KEY_MESSAGE,
-  })),
-  ...INLINE_KEY_ARG.map((arg) => ({
-    selector: `CallExpression[callee.type="MemberExpression"][callee.property.name=${SWR_MEMBER_FN}]${arg}`,
-    message: SWR_KEY_MESSAGE,
-  })),
-]
-
 /**
- * `lib/shared/app-env.ts` may read `process.env.NODE_ENV` and nothing else (D6):
- * any other member, a computed member or a bare `process.env` fails.
+ * Layering (ARCHITECTURE-SPINE): lib/server (server-only) · lib/api (client,
+ * same-origin /api/* only) · lib/shared (pure, isomorphic) · features/<id> ·
+ * components/ui. The boundaries below are enforced, not just documented.
  */
-const APP_ENV_ONLY_NODE_ENV = {
-  selector:
-    'MemberExpression[object.name="process"][property.name="env"]:not(MemberExpression[computed=false][property.name="NODE_ENV"] > MemberExpression.object)',
-  message: "lib/shared/app-env.ts may read only process.env.NODE_ENV (D6).",
+
+const ban = {
+  processEnv: {
+    selector: "MemberExpression[object.name='process'][property.name='env']",
+    message: "Read configuration through lib/server/env.ts only.",
+  },
+  fetch: {
+    selector: "CallExpression[callee.name='fetch']",
+    message: "Use callApi (lib/api/client.ts); only lib/server/** may call fetch upstream.",
+  },
+  dangerousHtml: {
+    selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",
+    message: "dangerouslySetInnerHTML is banned (AD-11).",
+  },
+  nextRedirect: {
+    selector: "MemberExpression[object.name='NextResponse'][property.name='redirect']",
+    message: "Use seeOther() from lib/server/http/responses.ts (AD-4).",
+  },
+  referrer: {
+    selector: "MemberExpression[object.name='document'][property.name='referrer']",
+    message: "document.referrer is read only by the /auth screen, for display (D2).",
+  },
+  nextLink: {
+    selector: "ImportDeclaration[source.value='next/link']",
+    message: "Cross-page and external navigation go through features/shell navigate() (AD-26).",
+  },
+  internalHref: {
+    selector: "JSXAttribute[name.name='href'][value.type='Literal'][value.value=/^\\/(account|handoff)?([/?#].*)?$|1health\\.io/]",
+    message: "Links to /, /account, /handoff/** or 1health go through features/shell navigate() (AD-26).",
+  },
+  portalHref: {
+    selector: "JSXAttribute[name.name='href'] Identifier[name=/portalUrl/i]",
+    message: "Links to the portal go through features/shell navigate() (AD-26).",
+  },
+  inlineSwrKey: {
+    selector: "CallExpression[callee.name=/^(useSWR|useSWRImmutable|mutate)$/][arguments.0.type='ArrayExpression']",
+    message: "Build SWR keys with lib/api/keys.ts (AD-10).",
+  },
 }
 
-/** Hand-off routes redirect with lib/server/http.ts#seeOther(), never NextResponse.redirect (AD-4). */
-const NO_NEXT_REDIRECT = {
-  selector: 'MemberExpression[object.name="NextResponse"][property.name="redirect"]',
-  message: "Use seeOther() from lib/server/http.ts in app/handoff/** (AD-4), not NextResponse.redirect.",
-}
+const syntax = (...rules) => ["error", ...rules]
+const ALL = Object.values(ban)
+const without = (...names) => Object.entries(ban).filter(([name]) => !names.includes(name)).map(([, rule]) => rule)
+
+const imports = (...patterns) => ["error", { patterns }]
+const group = (list, message) => ({ group: list, message })
+
+const SERVER_ONLY = group(["@/lib/server", "@/lib/server/*", "server-only"], "lib/server is server-only.")
+const FEATURES = group(["@/features", "@/features/*"], "This layer may not import features.")
+const CLIENT_API = group(["@/lib/api", "@/lib/api/*"], "This layer may not import lib/api.")
+const APP = group(["@/app", "@/app/*"], "Nothing imports from app/.")
+const COMPONENTS = group(["@/components", "@/components/*"], "This layer may not import components.")
+const OTHER_FEATURES = group(
+  ["@/features/*", "!@/features/shell", "!@/features/shell/*"],
+  "Features import only features/shell (relative imports inside a feature).",
+)
 
 const eslintConfig = [
   ...nextVitals,
@@ -73,58 +73,48 @@ const eslintConfig = [
       "_bmad/**",
       "_bmad-output/**",
       ".claude/**",
+      "next-env.d.ts",
+      "coverage/**",
       "playwright-report/**",
       "test-results/**",
-      "next-env.d.ts",
     ],
   },
+
+  // --- Syntax bans (later blocks override earlier ones for their files) ----
+  { files: ["**/*.{ts,tsx,js,jsx,mjs}"], rules: { "no-restricted-syntax": syntax(...ALL) } },
+  { files: ["lib/server/**"], rules: { "no-restricted-syntax": syntax(...without("fetch")) } },
+  { files: ["lib/server/env.ts"], rules: { "no-restricted-syntax": syntax(...without("fetch", "processEnv")) } },
+  { files: ["lib/api/client.ts"], rules: { "no-restricted-syntax": syntax(...without("fetch")) } },
+  { files: ["lib/api/keys.ts"], rules: { "no-restricted-syntax": syntax(...without("inlineSwrKey")) } },
+  { files: ["lib/shared/app-env.ts"], rules: { "no-restricted-syntax": syntax(...without("processEnv")) } },
+  // The shell and the /auth screen own navigation and the display-only referrer (AD-26, D2).
   {
-    // Server env is read only in lib/server/env.ts; lib/shared/app-env.ts reads
-    // only NODE_ENV (D1, D6). dangerouslySetInnerHTML is banned (AD-11, AD-21).
-    // SWR keys come only from lib/api/keys.ts (AD-10).
-    rules: {
-      "no-restricted-properties": ["error", PROCESS_ENV_RESTRICTION],
-      "no-restricted-syntax": ["error", ...RESTRICTED_SYNTAX],
-    },
+    files: ["features/shell/**", "app/auth/**"],
+    rules: { "no-restricted-syntax": syntax(...without("nextLink", "internalHref", "portalHref")) },
   },
   {
-    // callApi is the only browser transport (AD-19): no fetch in client code
-    // outside lib/api/client.ts.
-    files: ["features/**/*.{ts,tsx,js,jsx,mjs}", "components/**/*.{ts,tsx,js,jsx,mjs}", "lib/api/**/*.{ts,tsx,js,jsx,mjs}"],
-    ignores: ["lib/api/client.ts", "**/*.test.*"],
-    rules: {
-      "no-restricted-globals": ["error", { name: "fetch", message: FETCH_MESSAGE }],
-      "no-restricted-properties": ["error", PROCESS_ENV_RESTRICTION, ...FETCH_PROPERTY_RESTRICTIONS],
-    },
+    files: ["features/shell/auth-screen.tsx", "app/auth/**"],
+    rules: { "no-restricted-syntax": syntax(...without("nextLink", "internalHref", "portalHref", "referrer")) },
   },
+  // Tests and tooling (not app code): fetch for MSW tests; env for runner config.
+  { files: ["**/*.test.{ts,tsx}", "test/**", "e2e/**"], rules: { "no-restricted-syntax": syntax(...without("fetch")) } },
   {
-    // The single allowed server reader of process.env.
-    files: ["lib/server/env.ts"],
-    rules: {
-      "no-restricted-properties": "off",
-    },
+    files: ["*.config.{ts,mjs,js}"],
+    rules: { "no-restricted-syntax": syntax(...without("fetch", "processEnv")) },
   },
+
+  // --- Import boundaries ---------------------------------------------------
   {
-    // The shared app-env helper: process.env.NODE_ENV only (D6).
-    files: ["lib/shared/app-env.ts"],
-    rules: {
-      "no-restricted-properties": "off",
-      "no-restricted-syntax": ["error", ...RESTRICTED_SYNTAX, APP_ENV_ONLY_NODE_ENV],
-    },
+    files: ["lib/shared/**"],
+    rules: { "no-restricted-imports": imports(SERVER_ONLY, FEATURES, CLIENT_API, APP, COMPONENTS) },
   },
+  { files: ["lib/api/**"], rules: { "no-restricted-imports": imports(SERVER_ONLY, FEATURES, APP, COMPONENTS) } },
+  { files: ["lib/server/**"], rules: { "no-restricted-imports": imports(FEATURES, CLIENT_API, APP, COMPONENTS) } },
+  { files: ["features/**"], rules: { "no-restricted-imports": imports(SERVER_ONLY, APP, OTHER_FEATURES) } },
+  { files: ["components/**", "hooks/**"], rules: { "no-restricted-imports": imports(SERVER_ONLY, FEATURES, APP) } },
   {
-    // Hand-off routes (Epic 7) answer with seeOther(), never NextResponse.redirect (AD-4).
-    files: ["app/handoff/**/*.{ts,tsx}"],
-    rules: {
-      "no-restricted-syntax": ["error", ...RESTRICTED_SYNTAX, NO_NEXT_REDIRECT],
-    },
-  },
-  {
-    // Tests and tooling may set/read process.env to exercise the env reader.
-    files: ["**/*.test.{ts,tsx}", "vitest.config.ts", "playwright.config.ts", "next.config.mjs", "eslint.config.mjs"],
-    rules: {
-      "no-restricted-properties": "off",
-    },
+    files: ["components/ui/**"],
+    rules: { "no-restricted-imports": imports(SERVER_ONLY, FEATURES, APP, CLIENT_API) },
   },
 ]
 

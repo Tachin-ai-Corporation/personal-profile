@@ -1,5 +1,7 @@
 # The 1health data model
 
+> **Reference only (spec 7.0a):** the template code this page describes (`lib/api/*` engines, `components/workflow/`) was removed from Personal Profile; its endpoints are not on the proxy allowlist. See [README.md](README.md).
+
 Everything in 1health is a typed object in a graph. Get these four concepts
 right and the rest of the API follows.
 
@@ -16,7 +18,7 @@ You can either know the name up front (like a SQL table name) or **discover it
 at runtime** — `GET /api/v2/type/all` lists every type and its `boKey`. See
 [SCHEMA-DISCOVERY.md](SCHEMA-DISCOVERY.md).
 
-Keep the type names your app uses in [`RECORD_TYPES`](../../lib/api/config.ts):
+Keep the type names your app uses in `RECORD_TYPES`:
 
 ```ts
 export const RECORD_TYPES = {
@@ -35,7 +37,7 @@ assume `key === path segment`:
 | `WorkflowTemplate` | `/api/v2/journey` | "Journey" |
 | `LabelTag` | `/api/v2/tag` | "Tag" |
 
-Track the mapping explicitly in [`TYPE_REST_PATH`](../../lib/api/config.ts).
+Track the mapping explicitly in `TYPE_REST_PATH`.
 
 ## 2. Instances are numeric ids
 
@@ -63,7 +65,7 @@ Field names on a type, written as plain strings in query `attributes` and
 - You can **discover** them at runtime — `GET /api/v2/type/key/{type}` returns
   every attribute's `attrKey`, `type`, and enum options (see
   [SCHEMA-DISCOVERY.md](SCHEMA-DISCOVERY.md)) — **or** hardcode the few you use in
-  [`ATTRIBUTES`](../../lib/api/config.ts) for a fixed app. Both are fine.
+  `ATTRIBUTES` for a fixed app. Both are fine.
 
 ### (b) Dynamic step-field identifiers — GUIDs, resolved at runtime
 

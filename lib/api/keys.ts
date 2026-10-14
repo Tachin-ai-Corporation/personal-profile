@@ -1,18 +1,18 @@
 /**
- * =============================================================================
- * SWR keys — the only place SWR keys are built (AD-10)
- * =============================================================================
- *
- * Every key has the shape `["pp", resource, ...params]`. Inline array/string
- * keys passed to `useSWR`/`mutate`/`preload` are lint-banned, so a typo can't
- * silently split one resource into two caches.
- * =============================================================================
+ * Every SWR key in the app is built here (AD-10): `["pp", resource, ...params]`.
+ * Inline array keys passed to `useSWR`/`mutate` are a lint error elsewhere.
  */
 
-export const keys = {
-  /** `GET /api/1h/v2/user/myself` — the signed-in user (feeds the header). */
-  myself: () => ["pp", "myself"] as const,
-} as const
+import type { ContactPointType } from "./contact-points"
 
-/** Any key built by `keys`. */
-export type SwrKey = ReturnType<(typeof keys)[keyof typeof keys]>
+export type SwrKey = readonly ["pp", string, ...(string | number)[]]
+
+export const keys = {
+  myself: (): readonly ["pp", "myself"] => ["pp", "myself"],
+  /** One key per Contact Type, shared by the header, Contacts and `/account` (Story 1.9). */
+  contactPoints: <T extends ContactPointType>(type: T): readonly ["pp", "contact-points", T] => ["pp", "contact-points", type],
+} as const satisfies Record<string, (...args: never[]) => SwrKey>
+
+export function isSwrKey(value: unknown): value is SwrKey {
+  return Array.isArray(value) && value[0] === "pp" && typeof value[1] === "string"
+}
