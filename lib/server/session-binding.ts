@@ -9,7 +9,7 @@ import { SESSION_SECRET } from "./env"
  * =============================================================================
  *
  * `app/page.tsx` embeds `sessionBinding = base64url(HMAC-SHA256(SESSION_SECRET,
- * sid))` in the page (a later story); `callApi` echoes it back as `X-PP-Session`
+ * sid))` in the page (Story 1.4); `callApi` echoes it back as `X-PP-Session`
  * on every request (Story 1.4). The proxy compares the header against the binding
  * of the CURRENT cookie's `sid`: a mismatch means the tab's page was issued for a
  * different session than the one the cookie now carries (another account launched

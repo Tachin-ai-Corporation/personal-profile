@@ -60,9 +60,9 @@ export { fetchEntity, createEntity, type EntityInfo } from "./entity"
 
 ## Rules of the house
 
-1. **Resolve the base URL per call.** `callApi` does this; if you drop to
-   `callApiRaw`/`authFetch`, call `getOneHealthBaseUrl()` inside the function —
-   never cache it at module scope (it can change with env/tenant at runtime).
+1. **Go through `callApi` only.** It is the single browser transport (AD-19):
+   same-origin `/api/...` paths, the `X-PP-Session` binding and session events.
+   Bare `fetch` is lint-banned in client code.
 2. **Centralize paths.** Add endpoint builders to
    [`config.ts`](../../lib/api/config.ts) rather than scattering path strings.
    Remember the version prefix isn't uniform (v2 vs v3 vs graphql).

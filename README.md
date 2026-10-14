@@ -35,7 +35,7 @@ contexts/
 lib/
   auth-client.ts     # Client-side auth: authFetch(), refreshToken(), cookies
   api/               # 1health API layer (import from "@/lib/api")
-    client.ts        # callApi / callApiRaw / ApiResponse envelope
+    client.ts        # callApi / ApiResponse envelope (single transport)
     types.ts         # Shared wire & domain types
     config.ts        # Endpoint paths + RECORD_TYPES / ATTRIBUTES (fill per app)
     schema.ts        # Runtime type/attribute/relationship discovery (+ cache)

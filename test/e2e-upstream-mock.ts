@@ -79,10 +79,10 @@ export function installUpstreamMock(): void {
     }
 
     if (url.endsWith(MYSELF_PATH)) {
-      return new Response(JSON.stringify({ id: MOCK_USER_ID, personId: MOCK_PERSON_ID }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      })
+      return new Response(
+        JSON.stringify({ id: MOCK_USER_ID, personId: MOCK_PERSON_ID, firstName: "Test", lastName: "User" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )
     }
 
     return realFetch(input, init)

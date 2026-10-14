@@ -64,7 +64,7 @@ Never hardcode a step-field GUID. See [DATA-MODEL.md § Attributes](DATA-MODEL.m
 
 ```
 lib/api/
-  client.ts            callApi / callApiRaw / ApiResponse / ok / err
+  client.ts            callApi / ApiResponse / ok / err
   types.ts             all shared wire & domain types
   config.ts            endpoint path builders + RECORD_TYPES / ATTRIBUTES (fill per app)
   schema.ts            runtime type/attribute/relationship discovery (+ cache)

@@ -118,7 +118,8 @@ go beyond them.
 - **API timestamps often have no timezone suffix.** Treat them as UTC (append
   `Z`) before parsing, or they'll misparse as local time.
 - **A third read path exists (`POST /api/graphql`)** with its own request/response
-  shape — don't conflate it with `/api/v2/query`. Use `callApiRaw` if you need it.
+  shape — don't conflate it with `/api/v2/query`. It is never proxied; GraphQL
+  reads are named server operations under `/api/pp/` (AD-2).
 
 ## Data hygiene
 
