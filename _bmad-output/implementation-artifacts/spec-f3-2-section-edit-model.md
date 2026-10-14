@@ -2,7 +2,8 @@
 title: 'F3-2 Section edit model: registry completion, useSectionForm, section chrome, key/value table, save runners'
 type: 'feature'
 created: '2026-10-14'
-status: 'draft'
+status: 'in-progress'
+baseline_commit: '5b4ed143dde8f204c66c2aef623311be2e3b8798'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
