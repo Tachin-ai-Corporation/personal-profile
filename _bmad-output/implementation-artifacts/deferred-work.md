@@ -70,3 +70,15 @@
 - source_spec: `_bmad-output/implementation-artifacts/1-8a-design-tokens-overrides-and-color-lint.md`
   summary: The new CLAUDE.md design-system line says to use the override tokens "where DESIGN.md calls for them" without locating DESIGN.md. Point it at the "Contrast overrides" table in `docs/DESIGN-SYSTEM.md` instead.
   evidence: The section links `docs/DESIGN-SYSTEM.md`, but DESIGN.md lives under `_bmad-output/planning-artifacts/ux-designs/…`. Agent-context file, deferred per workflow.
+- source_spec: `_bmad-output/implementation-artifacts/1-8b-profile-page-shell-app-bar-tabs-and-section-navigation.md`
+  summary: `SectionFrame`'s loading state isn't announced to screen readers (only `aria-busy`, and the skeleton rows are `aria-hidden`). Design a non-noisy announcement (e.g. one polite page-level status) in the Section framework.
+  evidence: `aria-busy` support is poor; five Sections loading at once means one per-Section announcement each is too noisy. Story 1.11 owns `SectionFrame`'s full contract.
+- source_spec: `_bmad-output/implementation-artifacts/1-8b-profile-page-shell-app-bar-tabs-and-section-navigation.md`
+  summary: `Input`, `Badge`, and the session-dialog / idle-warning action buttons still use `ring-*` focus styles, the latter on top of Button's `focus-ring`. Migrate them to `focus-ring` and make the CLAUDE.md / DESIGN-SYSTEM.md wording ("every interactive control") true.
+  evidence: The part B spec told the implementer to leave the dialog classes alone. The doc claim covers more than the code, and one fix edits an agent-context file.
+- source_spec: `_bmad-output/implementation-artifacts/1-8b-profile-page-shell-app-bar-tabs-and-section-navigation.md`
+  summary: The deep-link scroll runs once at mount, and the scroll-spy observes only the Sections present when it starts. When header data (`MyselfName`, Story 1.9) or Section content (1.11) changes the layout, re-follow the hash and observe late Sections.
+  evidence: The layout shifts after the initial scroll and moves `#signature`/`#<section>` targets. It is harmless while every Section is a fixed-height skeleton.
+- source_spec: `_bmad-output/implementation-artifacts/1-8b-profile-page-shell-app-bar-tabs-and-section-navigation.md`
+  summary: PM copy question: the load-error template lower-cases the Section label ("Couldn't load phone", "Couldn't load personal information"), while EXPERIENCE.md's example reads "Couldn't load phones".
+  evidence: EXPERIENCE.md lines 73 and 156. Story 1.12 owns the message catalog and error copy.
