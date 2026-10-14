@@ -19,3 +19,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/1-2-launch-from-the-portal-and-arrive-signed-in.md`
   summary: Consider a shared deadline for the launch exchange — `exchangeCode` and `fetchIds` each use a 25s timeout, so a double-slow upstream can take ~50s and may exceed the serverless function's maxDuration, never rendering the error screen.
   evidence: blind-hunter review of Story 1.2. Low/maybe-false; settle against the deployed function's maxDuration.
+- source_spec: `_bmad-output/implementation-artifacts/1-3-secure-1health-proxy-allowlist-normalization-csrf-no-store-a.md`
+  summary: Proxy upstream timeout covers only time-to-headers; a stalled body stream after headers has no deadline. Add a streamed-body deadline (TransformStream/abort) so a hung upstream body can't tie up the function.
+  evidence: blind-hunter + edge-case review of Story 1.3. Low/maybe-false, medium-if-true; fix needs streaming-deadline plumbing beyond a trivial change.
+- source_spec: `_bmad-output/implementation-artifacts/1-3-secure-1health-proxy-allowlist-normalization-csrf-no-store-a.md`
+  summary: Dev-only redactBody (lib/server/log.ts) misses some secret field names (code, oneTimeCode, apiKey, authorization). Expand the field list when the debug logger is next touched.
+  evidence: blind-hunter review of Story 1.3. Dev-only logging; low severity.
