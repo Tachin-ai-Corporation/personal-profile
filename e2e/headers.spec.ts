@@ -184,6 +184,19 @@ test("an /api/1h error response carries AD-21 + no-store + nosniff (409 and 403)
   assertNoStore(noBinding.headers())
 })
 
+/**
+ * AD-16 / AD-17 / AD-18: `POST /api/session/refresh` without the CSRF headers
+ * (no same-origin proof, no `X-PP-Session`) → 403 `CSRF`, still carrying the
+ * no-store trio + `nosniff`.
+ */
+test("POST /api/session/refresh without CSRF headers → 403 with no-store + nosniff", async ({ request }) => {
+  const res = await request.post("/api/session/refresh")
+  expect(res.status()).toBe(403)
+  expect(await res.json()).toEqual({ code: "CSRF" })
+  assertSecurityHeaders(res.headers())
+  assertNoStore(res.headers())
+})
+
 test("two requests to / produce different CSP nonces", async ({ request }) => {
   const nonceOf = async () => {
     const res = await request.get("/")

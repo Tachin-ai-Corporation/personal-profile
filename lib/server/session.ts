@@ -25,6 +25,13 @@ import { SESSION_SECRET, SESSION_SECRET_PREVIOUS } from "./env"
 /** The single session cookie name. */
 export const SESSION_COOKIE_NAME = "__Host-pp_s"
 
+/**
+ * Treat the access token as expired this many ms before its real expiry. Shared
+ * by the proxy (→ `TOKEN_EXPIRED`) and the refresh route (→ refresh only when
+ * within the skew), so both agree on "expired" (AD-2, AD-16).
+ */
+export const ACCESS_TOKEN_SKEW_MS = 30_000
+
 /** The exact attribute string appended to the sealed cookie (AD-1). */
 const COOKIE_ATTRIBUTES = "HttpOnly; Secure; SameSite=None; Partitioned; Path=/"
 
@@ -45,6 +52,11 @@ export interface SessionData {
   iat: number
   /** Last-seen time (epoch ms). */
   lastSeen: number
+  /**
+   * Time of the last successful refresh (epoch ms). Absent until the first
+   * refresh; launch leaves it unset. Guards forced refreshes (AD-16).
+   */
+  refreshedAt?: number
 }
 
 /**

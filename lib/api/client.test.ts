@@ -232,16 +232,21 @@ describe("callApi — session events", () => {
     expect(b.errorCode).toBe("SESSION_CHANGED")
   })
 
-  it("401 TOKEN_EXPIRED is returned unchanged with no event", async () => {
+  it("401 TOKEN_EXPIRED runs a refresh; a 503 refresh resolves REFRESH_UNAVAILABLE with no event", async () => {
     const expired = vi.fn()
     const changed = vi.fn()
     subscribe("session-expired", expired)
     subscribe("session-changed", changed)
     capture(() => HttpResponse.json({ code: "TOKEN_EXPIRED" }, { status: 401 }))
+    server.use(
+      http.post("http://localhost:3000/api/session/refresh", () =>
+        HttpResponse.json({ code: "REFRESH_UNAVAILABLE" }, { status: 503 }),
+      ),
+    )
 
     const res = await callApi("t/tok", "/api/1h/v2/user/myself")
 
-    expect(res).toMatchObject({ success: false, statusCode: 401, errorCode: "TOKEN_EXPIRED" })
+    expect(res).toMatchObject({ success: false, statusCode: 503, errorCode: "REFRESH_UNAVAILABLE" })
     expect(expired).not.toHaveBeenCalled()
     expect(changed).not.toHaveBeenCalled()
   })

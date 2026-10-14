@@ -78,9 +78,12 @@ describe("useMyself / MyselfName", () => {
     expect(container.querySelector("p")).toBeNull()
   })
 
-  it("keeps a loaded name when a later revalidation fails with 401 TOKEN_EXPIRED", async () => {
+  it("keeps a loaded name when a later revalidation fails (TOKEN_EXPIRED + refresh unavailable)", async () => {
     let fail = false
     server.use(
+      http.post("http://localhost:3000/api/session/refresh", () =>
+        HttpResponse.json({ code: "REFRESH_UNAVAILABLE" }, { status: 503 }),
+      ),
       http.get(URL_MYSELF, () =>
         fail
           ? HttpResponse.json({ code: "TOKEN_EXPIRED" }, { status: 401 })
@@ -105,7 +108,7 @@ describe("useMyself / MyselfName", () => {
 
     fail = true
     await revalidate().catch(() => {})
-    await waitFor(() => expect(screen.getByTestId("err").textContent).toBe("TOKEN_EXPIRED"))
+    await waitFor(() => expect(screen.getByTestId("err").textContent).toBe("REFRESH_UNAVAILABLE"))
     expect(screen.getByText("Ada Lovelace")).toBeInTheDocument()
     expect(screen.queryByText("We couldn't load your name.")).not.toBeInTheDocument()
   })
