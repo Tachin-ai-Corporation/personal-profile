@@ -197,6 +197,20 @@ test("POST /api/session/refresh without CSRF headers → 403 with no-store + nos
   assertNoStore(res.headers())
 })
 
+/**
+ * Story 1.6 / AD-17 / AD-18: `POST /api/session/ping` without the CSRF headers
+ * → 403 `CSRF`, still carrying the no-store trio + `nosniff`, and no cookie.
+ */
+test("POST /api/session/ping without CSRF headers → 403 with no-store + nosniff", async ({ request }) => {
+  const res = await request.post("/api/session/ping")
+  expect(res.status()).toBe(403)
+  expect(await res.json()).toEqual({ code: "CSRF" })
+  expect(res.headers()["set-cookie"]).toBeUndefined()
+  expect(res.headers()["x-pp-activity-at"]).toBeUndefined()
+  assertSecurityHeaders(res.headers())
+  assertNoStore(res.headers())
+})
+
 test("two requests to / produce different CSP nonces", async ({ request }) => {
   const nonceOf = async () => {
     const res = await request.get("/")

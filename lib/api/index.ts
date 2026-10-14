@@ -11,9 +11,21 @@
  */
 
 // --- Core client -----------------------------------------------------------
-export { callApi, configureClient, getPortalUrl, ok, err, ApiError, type ApiResponse } from "./client"
-// `publish` is deliberately not re-exported: only `callApi` publishes (AD-19).
+export {
+  callApi,
+  configureClient,
+  getPortalUrl,
+  ok,
+  err,
+  ApiError,
+  type ApiResponse,
+  type CallApiInit,
+} from "./client"
+// `publish` is deliberately not re-exported: only `callApi` and the idle warning
+// (`features/shell/idle-warning.tsx`) publish (AD-19, Story 1.6).
 export { subscribe, type SessionEvent } from "./session-events"
+// Activity the server recorded (this tab or another), for the idle warning (Story 1.6).
+export { subscribeActivity, lastActivityAt } from "./activity"
 
 // --- SWR -------------------------------------------------------------------
 export { keys, type SwrKey } from "./keys"

@@ -2,6 +2,13 @@ import "server-only"
 import { NextResponse, type NextRequest } from "next/server"
 import { PORTAL_ORIGIN } from "@/lib/server/env"
 import { NO_STORE_HEADERS } from "@/lib/server/cache-headers"
+import {
+  SESSION_COOKIE_NAME,
+  clearSessionCookie,
+  isSessionAged,
+  sealSession,
+  unsealSession,
+} from "@/lib/server/session"
 
 /**
  * =============================================================================
@@ -14,8 +21,12 @@ import { NO_STORE_HEADERS } from "@/lib/server/cache-headers"
  * fresh per-request CSP nonce, and forwards that nonce to the App Router via the
  * `x-nonce` request header so Next's own scripts carry it.
  *
- * This story sets headers only. Launch redirects, token exchange, refresh and
- * proxy forwarding belong to Stories 1.2–1.5.
+ * It also redirects `/?lpl=` to `/launch` (AD-4) and records a top-level
+ * navigation to `/` as user activity (AD-16, Story 1.6): a `GET /` with
+ * `Sec-Fetch-Mode: navigate` and a session cookie re-seals `lastSeen = now`
+ * (aged or unsealable → clear the cookie + 307 to `reason=expired`). This lives
+ * here because a server component cannot set cookies. Prefetch and RSC requests
+ * are not activity.
  * =============================================================================
  */
 
@@ -65,7 +76,51 @@ function applySecurityHeaders(res: NextResponse, nonce: string): NextResponse {
  */
 const NO_STORE_PATHS = new Set(["/", "/launch", "/launch/verify", "/launch-error"])
 
-export function proxy(request: NextRequest): NextResponse {
+/** Apply the no-store trio (AD-18). */
+function applyNoStore(res: NextResponse): void {
+  for (const [name, value] of Object.entries(NO_STORE_HEADERS)) {
+    res.headers.set(name, value)
+  }
+}
+
+/** A top-level browser navigation to `/` (not a prefetch, not an RSC fetch). */
+function isHomeNavigation(request: NextRequest): boolean {
+  if (request.method !== "GET" || request.nextUrl.pathname !== "/") return false
+  if (request.headers.get("sec-fetch-mode") !== "navigate") return false
+  if (request.headers.has("rsc") || request.headers.has("next-router-prefetch")) return false
+  const purpose = request.headers.get("sec-purpose") ?? request.headers.get("purpose") ?? ""
+  return !/prefetch/i.test(purpose)
+}
+
+/**
+ * The raw request `cookie` header with only the `__Host-pp_s=…` segment's value
+ * replaced; every other byte (other cookies, their encoding, separators) is kept.
+ */
+function rewriteCookieHeader(request: NextRequest, sealedValue: string): string {
+  const raw = request.headers.get("cookie") ?? ""
+  const pattern = new RegExp(`(^|;\\s*)${SESSION_COOKIE_NAME}=[^;]*`)
+  return raw.replace(pattern, (_match, prefix: string) => `${prefix}${SESSION_COOKIE_NAME}=${sealedValue}`)
+}
+
+type HomeActivity =
+  | { kind: "none" }
+  | { kind: "expired" }
+  | { kind: "renewed"; setCookie: string; sealedValue: string }
+
+/** Evaluate the `/` navigate activity rule (Story 1.6). */
+async function homeActivity(request: NextRequest): Promise<HomeActivity> {
+  if (!isHomeNavigation(request)) return { kind: "none" }
+  const raw = request.cookies.get(SESSION_COOKIE_NAME)?.value
+  if (!raw) return { kind: "none" }
+  const now = Date.now()
+  const session = await unsealSession(raw)
+  if (!session || isSessionAged(session, now)) return { kind: "expired" }
+  const setCookie = await sealSession({ ...session, lastSeen: now })
+  const sealedValue = setCookie.slice(SESSION_COOKIE_NAME.length + 1, setCookie.indexOf(";"))
+  return { kind: "renewed", setCookie, sealedValue }
+}
+
+export async function proxy(request: NextRequest): Promise<NextResponse> {
   const nonce = generateNonce()
   const csp = buildCsp(nonce)
 
@@ -77,9 +132,20 @@ export function proxy(request: NextRequest): NextResponse {
     const redirect = NextResponse.redirect(target, 307)
     applySecurityHeaders(redirect, nonce)
     // This is a `/` response whose Location carries the single-use lpl — no-store it (AD-18).
-    for (const [name, value] of Object.entries(NO_STORE_HEADERS)) {
-      redirect.headers.set(name, value)
-    }
+    applyNoStore(redirect)
+    return redirect
+  }
+
+  // Story 1.6: a top-level navigation to `/` is user activity.
+  const activity = await homeActivity(request)
+  if (activity.kind === "expired") {
+    const target = request.nextUrl.clone()
+    target.pathname = "/launch-error"
+    target.search = "?reason=expired"
+    const redirect = NextResponse.redirect(target, 307)
+    redirect.headers.append("Set-Cookie", clearSessionCookie())
+    applySecurityHeaders(redirect, nonce)
+    applyNoStore(redirect)
     return redirect
   }
 
@@ -89,19 +155,22 @@ export function proxy(request: NextRequest): NextResponse {
   const requestHeaders = new Headers(request.headers)
   requestHeaders.set("x-nonce", nonce)
   requestHeaders.set("content-security-policy", csp)
+  // Forward the renewed cookie so the page renders the new `lastSeen`.
+  if (activity.kind === "renewed") {
+    requestHeaders.set("cookie", rewriteCookieHeader(request, activity.sealedValue))
+  }
 
   const response = NextResponse.next({
     request: { headers: requestHeaders },
   })
 
   applySecurityHeaders(response, nonce)
+  if (activity.kind === "renewed") response.headers.append("Set-Cookie", activity.setCookie)
 
   // AD-18: no-store on the launch surfaces and the guarded home page. These page
   // responses cannot set their own headers; route handlers set theirs too.
   if (NO_STORE_PATHS.has(request.nextUrl.pathname)) {
-    for (const [name, value] of Object.entries(NO_STORE_HEADERS)) {
-      response.headers.set(name, value)
-    }
+    applyNoStore(response)
   }
 
   return response

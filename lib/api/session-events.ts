@@ -3,11 +3,18 @@
  * Session events — the only client-side session signals (AD-19)
  * =============================================================================
  *
- * `callApi` publishes `session-expired` (401 `SESSION_EXPIRED`) or
- * `session-changed` (409 `SESSION_CHANGED`). Each event reaches subscribers only
- * the FIRST time it is published in a page's lifetime: a session that ended
- * stays ended until the page reloads, so later failures must not re-open
- * dialogs. The shell subscribes (Story 1.7); nothing else publishes.
+ * Exactly two modules publish:
+ *   - `callApi` publishes `session-expired` (401 `SESSION_EXPIRED`) or
+ *     `session-changed` (409 `SESSION_CHANGED`);
+ *   - the idle warning (`features/shell/idle-warning.tsx`) publishes
+ *     `session-expired` when the client-side idle or absolute deadline passes
+ *     (Story 1.6).
+ * Nothing else publishes; `lib/api/index.ts` deliberately does not re-export
+ * `publish`.
+ *
+ * Each event reaches subscribers only the FIRST time it is published in a
+ * page's lifetime: a session that ended stays ended until the page reloads, so
+ * later failures must not re-open dialogs. The shell subscribes (Story 1.7).
  *
  * A throwing subscriber is isolated: it never breaks `callApi` or the other
  * subscribers.
