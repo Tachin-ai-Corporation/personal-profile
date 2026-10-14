@@ -14,7 +14,10 @@
  *
  * Each event reaches subscribers only the FIRST time it is published in a
  * page's lifetime: a session that ended stays ended until the page reloads, so
- * later failures must not re-open dialogs. The shell subscribes (Story 1.7).
+ * later failures must not re-open dialogs. The shell subscribes through
+ * `features/shell/session-dialogs.tsx` (`SessionDialogs`, Story 1.7), the only
+ * module that opens the session dialogs; the idle warning also subscribes, to
+ * stop itself.
  *
  * A throwing subscriber is isolated: it never breaks `callApi` or the other
  * subscribers.

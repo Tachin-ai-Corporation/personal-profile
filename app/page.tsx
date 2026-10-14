@@ -2,6 +2,7 @@ import { redirect } from "next/navigation"
 import { ClientConfig } from "@/features/shell/client-config"
 import { IdleWarning } from "@/features/shell/idle-warning"
 import { MyselfName } from "@/features/shell/myself-name"
+import { SessionDialogs } from "@/features/shell/session-dialogs"
 import { ONEHEALTH_SECRET_KEY, PORTAL_URL, PP_DISABLED } from "@/lib/server/env"
 import { deriveAesKey } from "@/lib/server/launch"
 import { ABSOLUTE_TIMEOUT_MS, IDLE_TIMEOUT_MS, requireSession } from "@/lib/server/session"
@@ -26,6 +27,10 @@ import { computeBinding } from "@/lib/server/session-binding"
  * seconds, the session's `lastSeen`, `iat + ABSOLUTE_TIMEOUT_MS` and the server
  * clock, so the client evaluates every deadline in server time. `proxy.ts` has
  * already re-sealed `lastSeen` for a top-level navigation to `/`.
+ *
+ * `SessionDialogs` (Story 1.7) is the shell's single listener for
+ * `session-expired` / `session-changed`; its "Return to 1health" links to the
+ * constant `PORTAL_URL`.
  */
 export const dynamic = "force-dynamic"
 
@@ -53,6 +58,8 @@ export default async function HomePage() {
 
   return (
     <ClientConfig sessionBinding={computeBinding(session.sid)} portalUrl={PORTAL_URL}>
+      {/* Must mount before any publisher (IdleWarning, SWR reads): publish never replays. */}
+      <SessionDialogs portalUrl={PORTAL_URL} />
       <main className="flex min-h-screen flex-col items-center justify-center gap-2 p-6 text-center">
         <h1 className="text-2xl font-semibold">Personal Profile</h1>
         <MyselfName />

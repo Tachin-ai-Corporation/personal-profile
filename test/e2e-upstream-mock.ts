@@ -6,7 +6,8 @@
  * The launch exchange and `/myself` happen SERVER-SIDE inside the Next route
  * handler, so Playwright's browser-level mocking can't reach them. When
  * `PP_E2E_MOCK=1`, `instrumentation.ts` installs this patch over the server's
- * global `fetch`, intercepting only the two 1health endpoints and delegating
+ * global `fetch`, intercepting only the 1health launch exchange, `/myself` and
+ * the logout revoke (`/auth/user/logout`), and delegating
  * everything else to the real `fetch`.
  *
  * It models the single-use code: a second exchange of the same code returns the
@@ -17,6 +18,8 @@
 
 const TOKEN_PATH = "/api/v2/public/external-application/auth/oauth2/user/token"
 const MYSELF_PATH = "/api/v2/user/myself"
+/** The logout route's deferred access-token revoke (Story 1.7). */
+const REVOKE_PATH = "/auth/user/logout"
 
 /** The user id the mock `/myself` returns; the e2e lpl fixture must use the same. */
 export const MOCK_USER_ID = 42
@@ -83,6 +86,10 @@ export function installUpstreamMock(): void {
         JSON.stringify({ id: MOCK_USER_ID, personId: MOCK_PERSON_ID, firstName: "Test", lastName: "User" }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       )
+    }
+
+    if (url.endsWith(REVOKE_PATH)) {
+      return new Response(null, { status: 200 })
     }
 
     return realFetch(input, init)

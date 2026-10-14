@@ -91,6 +91,26 @@ export const IDLE_COPY = {
   stay: "Stay signed in",
 } as const
 
+/** Session-expired dialog copy (FR-2, AD-19, Story 1.7). */
+export const SESSION_EXPIRED_COPY = {
+  // Locked in EXPERIENCE.md.
+  title: "Your session ended",
+  // Locked in EXPERIENCE.md.
+  body: "Your changes are kept on this device. Relaunch from 1health to continue.",
+  // Locked in EXPERIENCE.md.
+  action: "Return to 1health",
+  // ARCHITECTURE-ADDED COPY — PM review
+  framedAction: "Close and reopen from 1health",
+} as const
+
+/** Session-changed dialog copy (AD-19, Story 1.7). */
+export const SESSION_CHANGED_COPY = {
+  // ARCHITECTURE-ADDED COPY — PM review
+  title: "This profile was opened by another account in another tab",
+  // ARCHITECTURE-ADDED COPY — PM review
+  reload: "Reload",
+} as const
+
 /** Map a raw `reason` query value to a known reason; unknown/missing → `invalid`. */
 export function normalizeLaunchErrorReason(reason: string | undefined | null): LaunchErrorReason {
   // Own-property check only: `"__proto__" in obj` is true, so `in` would let
