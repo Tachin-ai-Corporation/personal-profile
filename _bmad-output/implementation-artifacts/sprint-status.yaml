@@ -98,7 +98,9 @@ development_status:
   7-0a-bff-foundation-and-tooling: done
   7-0b-1-tokens-messages-errors: done
   7-0b-2-shell-navigation: done
-  7-0c-port-from-main: backlog  # 1.6 idle/activity, 1.8B section nav/SectionFrame/select, disabled screen, copy
+  7-0c-1-idle-logoff-and-activity: backlog  # port of main Story 1.6
+  7-0c-2-section-navigation: backlog  # port of main Story 1.8B (Section menu, Jump to, SectionFrame, select, panels)
+  7-0c-3-disabled-screen: backlog  # port of main disabled screen (PP_DISABLED, 503 if feasible)
   7-1-account-page-route-tabs-deep-links-and-states: backlog
   7-2-account-page-hardening-denies-kill-switch-headers-mobile-and-a: backlog
   7-3-portal-hand-off-route: backlog

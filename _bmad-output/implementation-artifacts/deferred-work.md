@@ -163,3 +163,9 @@
 - source_spec: none
   summary: Login CSRF on /auth (auto-launch of any lpl in the URL) — resolved as accepted risk.
   evidence: Human decision 2026-10-14 (recorded on D9 in epics.md): keep patient-vault behaviour, no "Continue" step for non-1health referrers.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0c-1-idle-logoff-and-activity.md`
+  summary: 7.0c-2 Section navigation — port main Story 1.8B (Section menu, Jump to on components/ui/select.tsx @radix-ui/react-select 2.3.7, scroll-spy, deep links incl. #signature, SectionFrame with MappedError-driven states, Contacts/Insurance panels) into PageTabs; section jumps bypass requestLeave; load-error copy "Couldn't load {section}" with the EXPERIENCE plural nouns.
+  evidence: Split from 7.0c at the human's request (2026-10-14, three specs); main code at commit b005536.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0c-1-idle-logoff-and-activity.md`
+  summary: 7.0c-3 Disabled screen — port main's DisabledScreen for PP_DISABLED on / and /auth (and ACCOUNT_DISABLED on /account later, Story 7.2), environment from session/cookie/referrer, DISABLED_MESSAGES draft copy, 503 via root proxy.ts if Next 16 allows (else 200, deferred).
+  evidence: Split from 7.0c at the human's request (2026-10-14, three specs); main code at commit b005536.

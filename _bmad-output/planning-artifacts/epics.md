@@ -330,7 +330,7 @@ UX-DR70: Idle logoff — 15-minute idle / 8-hour absolute session limit surfaced
 - **RC6 Idle activity:** user-triggered requests count, plus "Stay signed in" (`POST /api/session/ping`). Background or automatic refetches don't.
 - **RC7 Signature upload alternative:** adopted. Uploads are converted to PNG, at most 1 MB. Closes the PRD FR-14 assumption.
 - **RC8 "Last updated" header line:** dropped.
-- **RC9 Medical copy:** "Coming soon: your medical information will appear here."
+- **RC9 Medical copy:** "Coming soon: your medical information will appear here." *(Superseded 2026-10-14, human: use the EXPERIENCE.md Voice & Tone string "Coming soon: medications, allergies and conditions will appear here".)*
 - **RC10 Relationship-to-insured options:** from the `/type/key/Insurance` relationship attributes.
 - **RC11 Image downscaling:** the browser re-encodes images through a canvas to JPEG (Signature to PNG), stepping quality and size down until the file is at most 4 MB. BMP is converted.
 - **RC12 Legacy files:** the first story deletes the uncommitted legacy auth files.
@@ -1253,7 +1253,7 @@ So that I can find any part of my profile quickly, by mouse, touch or keyboard, 
 
 **Given** the Medical tab
 **When** it renders
-**Then** it shows a quiet centered muted panel with exactly "Coming soon: your medical information will appear here." (RC9), no action
+**Then** it shows a quiet centered muted panel with exactly "Coming soon: medications, allergies and conditions will appear here" *(EXPERIENCE.md copy, human decision 2026-10-14; was RC9 "Coming soon: your medical information will appear here.")*" (RC9), no action
 **And** an MSW test asserts that switching to Medical issues no network request.
 
 **Given** a 360 × 740 viewport (Playwright mobile project)
