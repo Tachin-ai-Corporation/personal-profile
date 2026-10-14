@@ -37,3 +37,15 @@
 - source_spec: `_bmad-output/implementation-artifacts/1-4-callapi-transport-swr-keys-and-usemyself.md`
   summary: Decide in Story 1.7 whether `session-events.subscribe` should replay an event already published before the subscriber registered.
   evidence: Unverified (medium if true) — `publish` is once-per-lifetime, so a subscriber added after the first publish never hears it; today responses arrive after commit, so effect-time subscription likely wins. Settle with a test where a 409 resolves before SessionDialogs mounts.
+- source_spec: `_bmad-output/implementation-artifacts/1-5-client-coordinated-token-refresh.md`
+  summary: Verify `client_id=public-client` against the real IdP with one refresh on demo; a wrong client id makes every refresh end the session (IdP 401 `invalid_client` maps to `SESSION_EXPIRED`).
+  evidence: maybe-false, high if wrong. The refresh request shape comes from the pre-Story-1.1 client code; the launch exchange uses a different (external-application) endpoint, so the pairing is unproven.
+- source_spec: `_bmad-output/implementation-artifacts/1-5-client-coordinated-token-refresh.md`
+  summary: Concurrent IdP refreshes (no `navigator.locks`, lock fallback, overlapping normal/forced slots) or a relaunch mid-refresh can let a stale `Set-Cookie` (clear or re-seal) overwrite a newer cookie.
+  evidence: maybe-false, medium if true — needs IdP refresh-token rotation with reuse detection and a browser path without Web Locks. Settle by confirming the IdP's rotation policy.
+- source_spec: `_bmad-output/implementation-artifacts/1-5-client-coordinated-token-refresh.md`
+  summary: Make `lib/server/proxy.test.ts` use the real `ACCESS_TOKEN_SKEW_MS` instead of mocking it, so proxy/refresh-route agreement on the skew is tested.
+  evidence: The proxy test mocks `@/lib/server/session` with a literal 30_000; a drifted proxy constant would pass and force an IdP refresh on every call in the drift window.
+- source_spec: `_bmad-output/implementation-artifacts/1-5-client-coordinated-token-refresh.md`
+  summary: CLAUDE.md still says "Token refresh is not built yet (Story 1.5)"; describe `/api/session/refresh` and callApi's refresh/replay.
+  evidence: Agent-context file, deferred per workflow.
