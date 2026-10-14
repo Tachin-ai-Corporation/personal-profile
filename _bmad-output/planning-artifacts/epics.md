@@ -3428,12 +3428,12 @@ So that I can confirm at a glance what 1health has on file and spot what's missi
 
 **Given** `lib/api/myself.ts`, created in this story as the Profile module's `myself` domain module on top of Story 1.4's `fetchMyself()` (same `["pp","myself"]` key, no second fetcher)
 **When** it maps the payload
-**Then** it exposes the fields this story reads (`firstName`, `lastName`, `username`, `email`, `phoneNumber`, `phoneNumberRegion`, `birthDate`, `roles`, `preferredLanguage`, `timeZone`, `locale`); Stories 8.1 and 9.3 extend it with the fields they need.
+**Then** it exposes the fields this story reads (`firstName`, `lastName`, `username`, `email`, `phoneNumber`, `birthDate`, `roles`, `preferredLanguage`, `timeZone`, `locale`); Stories 8.1 and 9.3 extend it with the fields they need. *(Amended 2026-10-14, validated against agents.md + backend: `myself` has no `phoneNumberRegion`; the region comes from the `GET v2/user/contact-point/list` row of type `Mobile` labelled `Primary` (or whose `value` equals `myself.phoneNumber`), falling back to `"us"` when empty or `"n/a"`.)*
 
 **Given** a `myself` payload
 **When** values are mapped by `toAccountView(myself)` in `features/account/view-model.ts`
 **Then** First name, Last name and Username show as stored (trimmed); Password always shows `********` in mono-value, whatever the payload (FR106)
-**And** Primary email address is `myself.email` and Primary phone number is `myself.phoneNumber` with `phoneNumberRegion`, formatted with the shared Contacts display formatter `formatPhoneDisplay(value, region)` in `lib/shared/` (US `+1 (415) 551-2125`, other countries libphonenumber-js international format), created here if Story 3.1 hasn't already; Story 3.1 reuses it
+**And** Primary email address is `myself.email` and Primary phone number is `myself.phoneNumber` with the region of its Primary Mobile contact-point row (default `"us"`), formatted with the shared Contacts display formatter `formatPhoneDisplay(value, region)` in `lib/shared/` (US `+1 (415) 551-2125`, other countries libphonenumber-js international format), created here if Story 3.1 hasn't already; Story 3.1 reuses it
 **And** Birth date `yyyy-MM-dd` displays as `MM/DD/YYYY`
 **And** Preferred language `en` shows "English"; Default time zone shows its `lib/shared/time-zones.ts` label (e.g. `America/Chicago` → "Central"); Preferred locale `en-US` shows "English - United States"
 **And** a stored language, time zone or locale not on the lists shows its known label, else the raw code (e.g. `Europe/Paris` → "Europe/Paris") (FR108).
@@ -3585,13 +3585,13 @@ So that I sign in and get notifications with the address and number I use now.
 
 **Given** edit view from Story 7.5
 **When** it opens
-**Then** Primary email address and Primary phone number become Selects fed by `keys.contactPoints("Email")`, `keys.contactPoints("Mobile")` and `keys.contactPoints("Landline")` (one key per type, shared with Contacts and the header; no new request when fresh, PA3, AD-10), via `GET v2/user/contact-point/list?type=…`
+**Then** Primary email address and Primary phone number become Selects fed by `keys.contactPoints("Email")` and `keys.contactPoints("Mobile")` (one key per type, shared with Contacts and the header; no new request when fresh, PA3, AD-10), via `GET v2/user/contact-point/list?type=…`
 **And** while those keys load, each Select shows the current Primary and is `aria-busy`.
 
 **Given** the email Select
 **When** it lists options
 **Then** the selected value is always the current Primary (`myself.email`), even when it isn't Verified; the options are the Verified Email Contact Points other than it (case-insensitive value match), each shown by its address
-**And** the phone Select lists Verified **Mobile and Landline** Contact Points (landlines allowed, unlike Contacts), each formatted by `formatPhoneDisplay()` (Story 7.4); its selected value is always `myself.phoneNumber` (FR107, PRC8)
+**And** the phone Select lists Verified **Mobile** Contact Points only, each formatted by `formatPhoneDisplay()` (Story 7.4); its selected value is always `myself.phoneNumber` *(Amended 2026-10-14, validated against agents.md `POST /v2/health/contact-point` and the backend: `PUT v2/user/edit` `phoneNumber` always resolves to a verified Mobile (`ContactPointServiceImpl` maps it to MOBILE) and only Email/Mobile primaries drive the login, so a Landline is rejected with 400; Landlines stay "Primary Landline" on the Contacts phone card. Current 1health-fe offers Landlines here — a latent bug not to copy.)*  (FR107, PRC8)
 **And** the current Primary never counts as an option.
 
 **Given** a Select has no option other than the current Primary
@@ -3610,8 +3610,8 @@ So that I sign in and get notifications with the address and number I use now.
 
 **Given** a changed Primary
 **When** Save runs the Story 7.5 sequence
-**Then** `lib/api/account.ts#updateAccount()` (the sole builder, AD-9 exception) adds `email` only when the email Select changed, and `phoneNumber` with `phoneNumberRegion` only when the phone Select changed (region = the chosen Contact Point's `phoneNumberRegion`, from the Story 1.9 row type), in the same `PUT v2/user/edit` as the other dirty details
-**And** it accepts only values present in the current Verified Email / Mobile / Landline lists; any other value returns `{ ok:false }` without a request
+**Then** `lib/api/account.ts#updateAccount()` (the sole builder, AD-9 exception) adds `email` only when the email Select changed, and `phoneNumber` with `phoneNumberRegion` (the chosen row's region, default `"us"`, sent unchanged) only when the phone Select changed (region = the chosen Contact Point's `phoneNumberRegion`, from the Story 1.9 row type), in the same `PUT v2/user/edit` as the other dirty details
+**And** it accepts only values present in the current Verified Email / Mobile lists; any other value returns `{ ok:false }` without a request
 **And** the user's own current email is never sent: changing A → B → A is not a change, and after a partial failure where `/edit` succeeded, Save again does not re-send the email (backend R1, FR109)
 **And** a type-level test proves the Personal-information payload type has no `email`, `phoneNumber` or `phoneNumberRegion`, and ESLint `no-restricted-imports` fails when `updateAccount` is imported outside `features/account` (lint fixture).
 

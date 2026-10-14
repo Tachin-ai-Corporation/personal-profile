@@ -62,7 +62,7 @@ Add a second page, `/account`, reached from an app-bar "Account" item or a bookm
   - Locale: `en-US`.
   - A stored value that isn't on the list stays selected and is sent only if the user changes it.
 - **Primary pickers:**
-  - Email options are Verified Email Contact Points. Phone options are Verified Mobile **and Landline** Contact Points.
+  - Email options are Verified Email Contact Points. Phone options are Verified **Mobile** Contact Points only (amended 2026-10-14: `PUT v2/user/edit` `phoneNumber` resolves to a verified Mobile; a Landline is rejected). The phone region comes from the Primary Mobile contact-point row, default `"us"` (`myself` has no `phoneNumberRegion`).
   - The current Primary is always the selected value and is never counted as an option.
   - When there is no other option, the Select is aria-disabled and shows a helper with an in-app link to `/?tab=contacts#email` (or `#phone`).
   - The first time a Select changes, an info notice appears under it. There is no confirm dialog.
