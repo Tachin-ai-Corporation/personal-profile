@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test"
+import { createCipheriv, hkdfSync, randomBytes } from "node:crypto"
 
 /**
  * AD-21: every response — app routes, 404s and static assets — carries the full
@@ -9,6 +10,34 @@ import { expect, test } from "@playwright/test"
  */
 
 const PORTAL_ORIGIN = "https://dev.1hdev.io"
+
+/** The webServer's dummy launch secret/app-id (see playwright.config.ts). */
+const LAUNCH_SECRET = "dummy-onehealth-secret"
+const LAUNCH_APP_ID = "dummy-app-id"
+const LAUNCH_USER_ID = 42 // must match the e2e `/myself` mock
+
+/** Build a valid base64 lpl: base64( IV(12) ++ AES-256-GCM ciphertext ++ tag(16) ). */
+function makeLpl(code: string): string {
+  const key = Buffer.from(
+    hkdfSync("sha256", Buffer.from(LAUNCH_SECRET, "utf8"), Buffer.alloc(32, 0), Buffer.alloc(0), 32),
+  )
+  const payload = JSON.stringify({
+    required: {
+      apiKey: { name: LAUNCH_APP_ID },
+      tenant: { id: 1 },
+      user: { id: LAUNCH_USER_ID },
+      oneTimeCode: { value: code, issuedAt: "2026-10-13T00:00:00" },
+    },
+  })
+  const iv = randomBytes(12)
+  const cipher = createCipheriv("aes-256-gcm", key, iv)
+  const ct = Buffer.concat([cipher.update(payload, "utf8"), cipher.final()])
+  return Buffer.concat([iv, ct, cipher.getAuthTag()]).toString("base64")
+}
+
+function freshCode(): string {
+  return `code-${randomBytes(8).toString("hex")}`
+}
 
 const TARGETS = [
   // `/` with no session redirects to the launch-error screen; follow it so we
@@ -114,6 +143,45 @@ test("the response CSP nonce reaches the page scripts (strict-dynamic works)", a
   )
   expect(violations, "no CSP violations during load").toEqual([])
   expect(pageErrors, "no page errors during load").toEqual([])
+})
+
+/**
+ * AD-2 / AD-18 / AD-21: the `/api/1h` proxy carries the AD-21 header set (from the
+ * root `proxy.ts` interceptor) PLUS the no-store trio + `nosniff` (from the proxy
+ * route handler) — including on error responses. The test launches to obtain a
+ * real session cookie, then provokes a 409 (mismatched `X-PP-Session`) and a 403
+ * (GET without `X-PP-Session` on a non-image entry) and asserts the headers on each.
+ */
+function assertNoStore(headers: Record<string, string>) {
+  expect(headers["cache-control"]).toBe("private, no-store, max-age=0")
+  expect(headers["pragma"]).toBe("no-cache")
+  // The proxy sets `Vary: Cookie`; Next merges its own RSC negotiation tokens
+  // onto it, so assert the Cookie directive is present rather than the exact value.
+  expect(headers["vary"]).toContain("Cookie")
+  expect(headers["x-content-type-options"]).toBe("nosniff")
+}
+
+test("an /api/1h error response carries AD-21 + no-store + nosniff (409 and 403)", async ({ page }) => {
+  // Launch to seal a session cookie into this page's context.
+  const lpl = makeLpl(freshCode())
+  await page.goto(`/launch?lpl=${encodeURIComponent(lpl)}&tab=contacts`)
+  await expect(page).toHaveURL(/\/\?tab=contacts$/)
+
+  // 409 SESSION_CHANGED: a mismatched per-tab binding header.
+  const mismatched = await page.request.get("/api/1h/v2/user/myself", {
+    headers: { "X-PP-Session": "definitely-not-the-binding" },
+  })
+  expect(mismatched.status()).toBe(409)
+  expect((await mismatched.json()).code).toBe("SESSION_CHANGED")
+  assertSecurityHeaders(mismatched.headers())
+  assertNoStore(mismatched.headers())
+
+  // 403 CSRF: a GET without the binding header on a non-image entry.
+  const noBinding = await page.request.get("/api/1h/v2/user/myself")
+  expect(noBinding.status()).toBe(403)
+  expect((await noBinding.json()).code).toBe("CSRF")
+  assertSecurityHeaders(noBinding.headers())
+  assertNoStore(noBinding.headers())
 })
 
 test("two requests to / produce different CSP nonces", async ({ request }) => {
