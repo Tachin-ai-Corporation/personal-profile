@@ -3,7 +3,15 @@ import "server-only"
 import { randomUUID } from "node:crypto"
 import type { NextRequest } from "next/server"
 import { API_ORIGIN, PP_DISABLED } from "./env"
-import { ACCESS_TOKEN_SKEW_MS, getSession, type SessionData } from "./session"
+import {
+  ACCESS_TOKEN_SKEW_MS,
+  UPSTREAM_TIMEOUT_MS,
+  clearSessionCookie,
+  getSession,
+  hasSessionCookie,
+  sealSession,
+  type SessionData,
+} from "./session"
 import { applyNoStore } from "./cache-headers"
 import { checkCsrf } from "./csrf"
 import { verifyBinding } from "./session-binding"
@@ -31,15 +39,30 @@ import {
  *   (NOT_ALLOWED / 405) → owner-id + id-shape (NOT_ALLOWED) → query (BAD_QUERY)
  *   + server-fixed params → CSRF (CSRF / UNSUPPORTED_MEDIA) → session binding
  *   (SESSION_CHANGED / GET-without-binding gate) → token-expiry (TOKEN_EXPIRED)
- *   → build + assert URL → forward → map upstream → filter headers → log.
+ *   → build + assert URL → forward → map upstream → filter headers
+ *   → activity re-seal → log.
+ *
+ * Activity (Story 1.6): a request carrying `X-PP-Activity: user` whose
+ * `X-PP-Session` binding verified and that was forwarded upstream re-seals the
+ * cookie with `lastSeen = now` and echoes `X-PP-Activity-At`, but only when the
+ * access token has more than `ACCESS_TOKEN_SKEW_MS + UPSTREAM_TIMEOUT_MS` (55 s)
+ * left at request start: then no normal refresh can overlap the upstream call,
+ * so this late `Set-Cookie` can never overwrite freshly refreshed tokens (AD-16).
+ * `X-PP-Activity` itself is never forwarded upstream.
  *
  * This is NOT the root `proxy.ts` request interceptor (AD-21 headers); this is
  * the server-only BFF proxy under `lib/server/`.
  * =============================================================================
  */
 
-/** Upstream timeout; exceeding it → 504 `UPSTREAM_TIMEOUT` (AD-2). */
-const UPSTREAM_TIMEOUT_MS = 25_000
+/** Request header marking a user-initiated call (set only by `callApi`). */
+const ACTIVITY_HEADER = "X-PP-Activity"
+
+/** Response header echoing the re-sealed `lastSeen` (epoch ms). */
+const ACTIVITY_AT_HEADER = "X-PP-Activity-At"
+
+/** A proxy activity re-seal requires the token to outlive the request by this much. */
+const ACTIVITY_RESEAL_MIN_MS = ACCESS_TOKEN_SKEW_MS + UPSTREAM_TIMEOUT_MS
 
 /** Request-header path marker; everything after it is the raw upstream sub-path. */
 const PATH_MARKER = "/api/1h/"
@@ -289,7 +312,12 @@ async function handle(request: NextRequest, method: string, allowlist: readonly 
 
     // 3. Session.
     const session = await getSession()
-    if (!session) return finish(errorResponse(401, "SESSION_EXPIRED", requestId))
+    if (!session) {
+      const res = errorResponse(401, "SESSION_EXPIRED", requestId)
+      // Aged or unsealable: clear the cookie the client sent (Story 1.6).
+      if (await hasSessionCookie()) res.headers.append("Set-Cookie", clearSessionCookie())
+      return finish(res)
+    }
 
     // 4. Denied prefixes + allowlist match.
     if (isDeniedPath(pathSegments)) return finish(errorResponse(403, "NOT_ALLOWED", requestId))
@@ -322,6 +350,7 @@ async function handle(request: NextRequest, method: string, allowlist: readonly 
 
     // 8. Session binding + GET-without-binding gate.
     const binding = request.headers.get("X-PP-Session")
+    const bindingVerified = Boolean(binding)
     if (binding) {
       if (!verifyBinding(binding, session.sid)) {
         return finish(errorResponse(409, "SESSION_CHANGED", requestId))
@@ -334,7 +363,8 @@ async function handle(request: NextRequest, method: string, allowlist: readonly 
 
     // 9. Token expiry (no refresh here; AD-16 owns refresh).
     // `<=`: the refresh route treats a token as valid only when `> skew`, so both agree at the boundary.
-    if (session.accessTokenExpiresAt - Date.now() <= ACCESS_TOKEN_SKEW_MS) {
+    const now = Date.now()
+    if (session.accessTokenExpiresAt - now <= ACCESS_TOKEN_SKEW_MS) {
       return finish(errorResponse(401, "TOKEN_EXPIRED", requestId))
     }
 
@@ -345,7 +375,18 @@ async function handle(request: NextRequest, method: string, allowlist: readonly 
 
     // 11. Forward + map.
     const result = await forward(request, method, upstreamUrl, session.accessToken, requestId, entry.body === "json")
-    return finish(mapUpstream(result, requestId))
+    const response = mapUpstream(result, requestId)
+
+    // 12. Activity re-seal (user-initiated, verified binding, race guard).
+    if (
+      bindingVerified &&
+      request.headers.get(ACTIVITY_HEADER) === "user" &&
+      session.accessTokenExpiresAt - now > ACTIVITY_RESEAL_MIN_MS
+    ) {
+      response.headers.append("Set-Cookie", await sealSession({ ...session, lastSeen: now }))
+      response.headers.set(ACTIVITY_AT_HEADER, String(now))
+    }
+    return finish(response)
   } catch (error) {
     const errorName = error instanceof Error ? error.name : "Error"
     logError({ requestId, routeTemplate: template, status: 500, errorName })

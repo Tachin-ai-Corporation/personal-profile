@@ -111,6 +111,8 @@ async function withSession(data: SessionData | null, env: Record<string, string>
   return mods
 }
 
+const CLEARED = "__Host-pp_s=; HttpOnly; Secure; SameSite=None; Partitioned; Path=/; Max-Age=0"
+
 const GOOD_HEADERS = { "Sec-Fetch-Site": "same-origin", "X-PP-Session": binding() }
 
 function makeRequest(headers: Record<string, string> = GOOD_HEADERS, query = "") {
@@ -485,12 +487,13 @@ describe("handleRefresh — guards (no IdP call)", () => {
     assertHeaders(res)
   })
 
-  it("unsealable cookie → 401 SESSION_EXPIRED", async () => {
+  it("unsealable cookie → 401 SESSION_EXPIRED + cookie cleared", async () => {
     const { handleRefresh } = await withSession(null)
     cookieValue = "Fe26.2*garbage"
     const res = await handleRefresh(makeRequest())
     expect(res.status).toBe(401)
     expect((await readBody(res)).json).toEqual({ code: "SESSION_EXPIRED" })
+    expect(res.headers.get("set-cookie")).toBe(CLEARED)
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -517,5 +520,43 @@ describe("handleRefresh — unhandled error", () => {
     const line = JSON.parse(String(errorSpy.mock.calls[0][0])) as Record<string, unknown>
     expect(line).toEqual(expect.objectContaining({ routeTemplate: "/api/session/refresh", status: 500, errorName: "TypeError" }))
     assertSingleRouteLog(500)
+  })
+})
+
+describe("handleRefresh — idle / absolute limits (Story 1.6)", () => {
+  it.each([
+    ["idle 15:01", { lastSeen: -(15 * 60_000 + 1_000), iat: -20 * 60_000 }],
+    ["absolute 8 h + 1 s (lastSeen 1 min ago)", { lastSeen: -60_000, iat: -(8 * 3_600_000 + 1_000) }],
+  ])("%s → 401 SESSION_EXPIRED + cookie cleared, no IdP call", async (_label, offsets) => {
+    const now = Date.now()
+    const { handleRefresh } = await withSession(
+      sessionData({ lastSeen: now + offsets.lastSeen, iat: now + offsets.iat }),
+    )
+    const res = await handleRefresh(makeRequest())
+    expect(res.status).toBe(401)
+    expect((await readBody(res)).json).toEqual({ code: "SESSION_EXPIRED" })
+    expect(res.headers.get("set-cookie")).toBe(CLEARED)
+    expect(fetchMock).not.toHaveBeenCalled()
+    assertHeaders(res)
+    assertSingleRouteLog(401)
+  })
+
+  it("idle 14:59 → still refreshes", async () => {
+    const now = Date.now()
+    const { handleRefresh } = await withSession(sessionData({ lastSeen: now - (14 * 60_000 + 59_000) }))
+    const res = await handleRefresh(makeRequest())
+    expect(res.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it("refresh is not activity: a successful refresh leaves lastSeen and iat unchanged", async () => {
+    const before = sessionData({ lastSeen: Date.now() - 10 * 60_000 })
+    const { handleRefresh, session } = await withSession(before)
+    const res = await handleRefresh(makeRequest({ ...GOOD_HEADERS, "X-PP-Activity": "user" }))
+    expect(res.status).toBe(200)
+    const after = await unsealSetCookie(session, res)
+    expect(after!.lastSeen).toBe(before.lastSeen)
+    expect(after!.iat).toBe(before.iat)
+    expect(res.headers.get("x-pp-activity-at")).toBeNull()
   })
 })

@@ -32,6 +32,15 @@ export const SESSION_COOKIE_NAME = "__Host-pp_s"
  */
 export const ACCESS_TOKEN_SKEW_MS = 30_000
 
+/** Upstream timeout for proxied 1health calls; exceeding it → 504 `UPSTREAM_TIMEOUT` (AD-2). */
+export const UPSTREAM_TIMEOUT_MS = 25_000
+
+/** Idle limit: no user-initiated request for longer than this ends the session (AD-16). */
+export const IDLE_TIMEOUT_MS = 15 * 60 * 1000
+
+/** Absolute limit: a session never outlives this much time after launch (AD-16). */
+export const ABSOLUTE_TIMEOUT_MS = 8 * 60 * 60 * 1000
+
 /** The exact attribute string appended to the sealed cookie (AD-1). */
 const COOKIE_ATTRIBUTES = "HttpOnly; Secure; SameSite=None; Partitioned; Path=/"
 
@@ -103,10 +112,37 @@ export async function unsealSession(raw: string | undefined): Promise<SessionDat
   }
 }
 
-/** Read and unseal the current request's session cookie, or `null`. */
+/**
+ * True when the session has been idle for longer than `IDLE_TIMEOUT_MS` or has
+ * lived longer than `ABSOLUTE_TIMEOUT_MS` since launch (both strictly greater).
+ * A missing or non-numeric `iat`/`lastSeen` counts as aged.
+ */
+export function isSessionAged(session: Pick<SessionData, "iat" | "lastSeen">, now: number): boolean {
+  const { iat, lastSeen } = session
+  if (typeof iat !== "number" || !Number.isFinite(iat)) return true
+  if (typeof lastSeen !== "number" || !Number.isFinite(lastSeen)) return true
+  return now - lastSeen > IDLE_TIMEOUT_MS || now - iat > ABSOLUTE_TIMEOUT_MS
+}
+
+/**
+ * Read and unseal the current request's session cookie, or `null`. An aged
+ * session (idle or absolute limit passed) is `null` exactly like a missing or
+ * unsealable cookie, so every caller treats it as no session (AD-16).
+ */
 export async function getSession(): Promise<SessionData | null> {
   const store = await cookies()
-  return unsealSession(store.get(SESSION_COOKIE_NAME)?.value)
+  const session = await unsealSession(store.get(SESSION_COOKIE_NAME)?.value)
+  if (!session || isSessionAged(session, Date.now())) return null
+  return session
+}
+
+/**
+ * Whether the current request carried a session cookie at all (valid or not).
+ * Routes answering `SESSION_EXPIRED` clear the cookie only when one was sent.
+ */
+export async function hasSessionCookie(): Promise<boolean> {
+  const store = await cookies()
+  return Boolean(store.get(SESSION_COOKIE_NAME)?.value)
 }
 
 /**

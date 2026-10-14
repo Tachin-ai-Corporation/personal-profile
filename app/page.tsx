@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation"
 import { ClientConfig } from "@/features/shell/client-config"
+import { IdleWarning } from "@/features/shell/idle-warning"
 import { MyselfName } from "@/features/shell/myself-name"
 import { ONEHEALTH_SECRET_KEY, PORTAL_URL, PP_DISABLED } from "@/lib/server/env"
 import { deriveAesKey } from "@/lib/server/launch"
-import { requireSession } from "@/lib/server/session"
+import { ABSOLUTE_TIMEOUT_MS, IDLE_TIMEOUT_MS, requireSession } from "@/lib/server/session"
 import { computeBinding } from "@/lib/server/session-binding"
 
 /**
@@ -20,8 +21,22 @@ import { computeBinding } from "@/lib/server/session-binding"
  * The page embeds `sessionBinding = HMAC(SESSION_SECRET, sid)` for this cookie's
  * `sid` plus `PORTAL_URL`; `ClientConfig` registers both with `callApi` before
  * any child fetches (AD-17, AD-19).
+ *
+ * The idle warning gets only four numbers (Story 1.6): the idle limit in
+ * seconds, the session's `lastSeen`, `iat + ABSOLUTE_TIMEOUT_MS` and the server
+ * clock, so the client evaluates every deadline in server time. `proxy.ts` has
+ * already re-sealed `lastSeen` for a top-level navigation to `/`.
  */
 export const dynamic = "force-dynamic"
+
+/**
+ * The server clock for this request. Called once per render of this
+ * force-dynamic server component; it is a plain helper so the `react-hooks/purity`
+ * lint rule does not flag a direct `Date.now()` in the component body.
+ */
+function readServerClock(): number {
+  return Date.now()
+}
 
 export default async function HomePage() {
   if (PP_DISABLED) {
@@ -34,6 +49,7 @@ export default async function HomePage() {
   }
 
   const session = await requireSession()
+  const serverNow = readServerClock()
 
   return (
     <ClientConfig sessionBinding={computeBinding(session.sid)} portalUrl={PORTAL_URL}>
@@ -42,6 +58,12 @@ export default async function HomePage() {
         <MyselfName />
         <p className="text-muted-foreground">Coming soon.</p>
       </main>
+      <IdleWarning
+        idleTimeoutSec={IDLE_TIMEOUT_MS / 1000}
+        lastSeen={session.lastSeen}
+        absoluteExpiresAt={session.iat + ABSOLUTE_TIMEOUT_MS}
+        serverNow={serverNow}
+      />
     </ClientConfig>
   )
 }

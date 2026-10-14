@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { server } from "../../test/server"
 import { callApi, configureClient, getPortalUrl } from "./client"
 import { __resetSessionEventsForTests, subscribe } from "./session-events"
+import { __resetActivityForTests, lastActivityAt, subscribeActivity } from "./activity"
 
 const URL_MYSELF = "http://localhost:3000/api/1h/v2/user/myself"
 const BINDING = "test-binding"
@@ -258,5 +259,118 @@ describe("callApi — session events", () => {
     capture(() => HttpResponse.json({ code: "SESSION_EXPIRED" }, { status: 401 }))
     const res = await callApi("t/throw", "/api/1h/v2/user/myself")
     expect(res.errorCode).toBe("SESSION_EXPIRED")
+  })
+})
+
+describe("callApi — user activity header (Story 1.6)", () => {
+  afterEach(() => {
+    __resetActivityForTests()
+    Object.defineProperty(navigator, "locks", { value: undefined, configurable: true })
+  })
+
+  it.each([
+    ["POST", { method: "POST" }, "user"],
+    ["put (lower-case)", { method: "put" }, "user"],
+    ["DELETE", { method: "DELETE" }, "user"],
+    ["GET userInitiated: true", { userInitiated: true }, "user"],
+    ["plain GET", {}, null],
+    ["GET userInitiated: false", { userInitiated: false }, null],
+  ])("%s → X-PP-Activity %s", async (_label, init, expected) => {
+    const seen = capture(() => HttpResponse.json({}))
+    await callApi("t/act", "/api/1h/v2/user/myself", init)
+    expect(seen[0].headers.get("X-PP-Activity")).toBe(expected)
+  })
+
+  it("a caller-supplied X-PP-Activity is removed on a non-user GET and normalized otherwise", async () => {
+    const seen = capture(() => HttpResponse.json({}))
+    await callApi("t/forged", "/api/1h/v2/user/myself", { headers: { "X-PP-Activity": "user" } })
+    await callApi("t/odd", "/api/1h/v2/user/myself", { method: "POST", headers: { "x-pp-activity": "bogus" } })
+    expect(seen[0].headers.get("X-PP-Activity")).toBeNull()
+    expect(seen[1].headers.get("X-PP-Activity")).toBe("user")
+  })
+
+  it("userInitiated is stripped before fetch", async () => {
+    capture(() => HttpResponse.json({}))
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+    await callApi("t/strip", "/api/1h/v2/user/myself", { userInitiated: true })
+    const init = fetchSpy.mock.calls[0][1] as Record<string, unknown>
+    expect("userInitiated" in init).toBe(false)
+  })
+
+  it("the refresh POST never carries it; the replay carries the original's header", async () => {
+    let calls = 0
+    const seen = capture(() =>
+      ++calls === 1 ? HttpResponse.json({ code: "TOKEN_EXPIRED" }, { status: 401 }) : HttpResponse.json({ ok: 1 }),
+    )
+    const refreshes: Request[] = []
+    server.use(
+      http.post("http://localhost:3000/api/session/refresh", ({ request }) => {
+        refreshes.push(request.clone())
+        return HttpResponse.json({})
+      }),
+    )
+    const res = await callApi("t/replay", "/api/1h/v2/user/myself", { userInitiated: true })
+    expect(res.success).toBe(true)
+    expect(refreshes).toHaveLength(1)
+    expect(refreshes[0].headers.get("X-PP-Activity")).toBeNull()
+    expect(seen).toHaveLength(2)
+    expect(seen.map((r) => r.headers.get("X-PP-Activity"))).toEqual(["user", "user"])
+  })
+
+  it("a plain GET replay carries no header either", async () => {
+    let calls = 0
+    const seen = capture(() =>
+      ++calls === 1 ? HttpResponse.json({ code: "TOKEN_EXPIRED" }, { status: 401 }) : HttpResponse.json({}),
+    )
+    server.use(http.post("http://localhost:3000/api/session/refresh", () => HttpResponse.json({})))
+    await callApi("t/replay-bg", "/api/1h/v2/user/myself")
+    expect(seen.map((r) => r.headers.get("X-PP-Activity"))).toEqual([null, null])
+  })
+})
+
+describe("callApi — X-PP-Activity-At echo (Story 1.6)", () => {
+  afterEach(() => __resetActivityForTests())
+
+  it("a numeric echo → noteActivity(t)", async () => {
+    const cb = vi.fn()
+    subscribeActivity(cb)
+    capture(() => HttpResponse.json({}, { headers: { "X-PP-Activity-At": "1800000000123" } }))
+    await callApi("t/echo", "/api/1h/v2/user/myself", { userInitiated: true })
+    expect(lastActivityAt()).toBe(1_800_000_000_123)
+    expect(cb).toHaveBeenCalledWith(1_800_000_000_123)
+  })
+
+  it("an echo on an error response still counts", async () => {
+    capture(() => HttpResponse.json({ code: "X" }, { status: 404, headers: { "X-PP-Activity-At": "42" } }))
+    await callApi("t/echo404", "/api/1h/v2/user/myself", { method: "POST" })
+    expect(lastActivityAt()).toBe(42)
+  })
+
+  it.each([["abc"], ["12x"], [""], ["-5"], ["1.5"]])("a non-numeric echo %j is ignored", async (value) => {
+    const cb = vi.fn()
+    subscribeActivity(cb)
+    capture(() => HttpResponse.json({}, { headers: { "X-PP-Activity-At": value } }))
+    await callApi("t/bad-echo", "/api/1h/v2/user/myself")
+    expect(lastActivityAt()).toBe(0)
+    expect(cb).not.toHaveBeenCalled()
+  })
+
+  it("no echo → no activity", async () => {
+    capture(() => HttpResponse.json({}))
+    await callApi("t/none", "/api/1h/v2/user/myself", { method: "POST" })
+    expect(lastActivityAt()).toBe(0)
+  })
+})
+
+describe("background reads are not activity (Story 1.6)", () => {
+  it("fetchMyself and the SWR fetcher send no X-PP-Activity", async () => {
+    const { fetchMyself } = await import("./user")
+    const { fetcher } = await import("./fetcher")
+    const { keys } = await import("./keys")
+    const seen = capture(() => HttpResponse.json({ id: 1, personId: 2 }))
+    await fetchMyself()
+    await fetcher(keys.myself())
+    expect(seen).toHaveLength(2)
+    expect(seen.map((r) => r.headers.get("X-PP-Activity"))).toEqual([null, null])
   })
 })

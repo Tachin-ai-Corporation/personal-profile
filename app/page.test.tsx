@@ -14,10 +14,14 @@ const redirect = vi.fn((url: string) => {
 
 vi.mock("next/navigation", () => ({ redirect }))
 
+const IAT = 1_800_000_000_000
+const LAST_SEEN = IAT + 120_000
+const SESSION = { sid: "abc", iat: IAT, lastSeen: LAST_SEEN }
+
 async function loadPage(
   config: { PP_DISABLED?: boolean; deriveThrows?: boolean; requireSession?: ReturnType<typeof vi.fn> } = {},
 ) {
-  const requireSession = config.requireSession ?? vi.fn().mockResolvedValue({ sid: "abc" })
+  const requireSession = config.requireSession ?? vi.fn().mockResolvedValue(SESSION)
   const deriveAesKey = vi.fn(() => {
     if (config.deriveThrows) throw new Error("bad key")
     return Buffer.alloc(32)
@@ -32,7 +36,11 @@ async function loadPage(
     PP_DISABLED: config.PP_DISABLED ?? false,
   }))
   vi.doMock("@/lib/server/launch", () => ({ deriveAesKey }))
-  vi.doMock("@/lib/server/session", () => ({ requireSession }))
+  vi.doMock("@/lib/server/session", () => ({
+    requireSession,
+    IDLE_TIMEOUT_MS: 15 * 60 * 1000,
+    ABSOLUTE_TIMEOUT_MS: 8 * 60 * 60 * 1000,
+  }))
   vi.doMock("@/lib/server/session-binding", () => ({ computeBinding }))
 
   const HomePage = (await import("./page")).default
@@ -79,5 +87,24 @@ describe("home page guard", () => {
     const { HomePage, requireSession } = await loadPage({ deriveThrows: true })
     await expect(HomePage()).rejects.toThrow("REDIRECT:/launch-error?reason=config")
     expect(requireSession).not.toHaveBeenCalled()
+  })
+})
+
+describe("home page idle-warning props (Story 1.6)", () => {
+  it("passes exactly idleTimeoutSec, lastSeen, absoluteExpiresAt and serverNow to IdleWarning", async () => {
+    const { IdleWarning } = await import("@/features/shell/idle-warning")
+    const { HomePage } = await loadPage()
+    const before = Date.now()
+    const element = (await HomePage()) as { props: { children: unknown } }
+    const after = Date.now()
+    const children = ([] as unknown[]).concat(element.props.children) as { type: unknown; props: Record<string, number> }[]
+    const warning = children.find((child) => child && (child.type as { name?: string })?.name === IdleWarning.name)
+    expect(warning).toBeTruthy()
+    expect(Object.keys(warning!.props).sort()).toEqual(["absoluteExpiresAt", "idleTimeoutSec", "lastSeen", "serverNow"])
+    expect(warning!.props.idleTimeoutSec).toBe(900)
+    expect(warning!.props.lastSeen).toBe(LAST_SEEN)
+    expect(warning!.props.absoluteExpiresAt).toBe(IAT + 8 * 60 * 60 * 1000)
+    expect(warning!.props.serverNow).toBeGreaterThanOrEqual(before)
+    expect(warning!.props.serverNow).toBeLessThanOrEqual(after)
   })
 })

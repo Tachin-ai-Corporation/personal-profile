@@ -17,12 +17,20 @@
  * On `401 TOKEN_EXPIRED` it runs one refresh (single-flighted in the tab and
  * across tabs via `navigator.locks`) and replays the call; if the replay is
  * `TOKEN_EXPIRED` again it forces one refresh and replays a last time (AD-16,
- * Story 1.5). Error-message mapping (Story 1.12) is not here yet. Response bodies are
+ * Story 1.5).
+ *
+ * User activity (Story 1.6): every non-GET, and a GET flagged
+ * `userInitiated: true`, carries `X-PP-Activity: user` (a caller-supplied value
+ * is removed otherwise; the refresh POST never carries it). A response echoing
+ * `X-PP-Activity-At` is handed to `noteActivity`.
+ *
+ * Error-message mapping (Story 1.12) is not here yet. Response bodies are
  * never logged — only `context` + status.
  * =============================================================================
  */
 
 import { publish } from "./session-events"
+import { noteActivity } from "./activity"
 
 /** Standard result envelope returned by every API module function. */
 export interface ApiResponse<T> {
@@ -102,6 +110,12 @@ export function err(error: unknown, context: string, statusCode?: number, errorC
 
 const SESSION_HEADER = "X-PP-Session"
 
+const ACTIVITY_HEADER = "X-PP-Activity"
+const ACTIVITY_AT_HEADER = "X-PP-Activity-At"
+
+/** `callApi`'s init: a `RequestInit` plus the user-initiated flag (stripped before `fetch`). */
+export type CallApiInit = RequestInit & { userInitiated?: boolean }
+
 const GUARD_BASE = "http://pp.invalid"
 
 /**
@@ -147,6 +161,10 @@ async function send<T>(context: string, path: string, init: RequestInit): Promis
   } catch (error) {
     return err(error, context, undefined, "NETWORK_ERROR")
   }
+
+  // The server re-sealed `lastSeen`: follow what it actually recorded.
+  const activityAt = response.headers.get(ACTIVITY_AT_HEADER)
+  if (activityAt !== null && /^\d{1,16}$/.test(activityAt.trim())) noteActivity(Number(activityAt.trim()))
 
   const statusCode = response.status
   let text: string
@@ -271,6 +289,20 @@ function refreshFailure<T>(context: string, refreshed: ApiResponse<never>): ApiR
 }
 
 /**
+ * Normalize the caller's init: strip `userInitiated` and set `X-PP-Activity:
+ * user` on every non-GET and on user-initiated GETs, removing it otherwise.
+ * The same prepared init is used for the first send and every replay.
+ */
+function prepareInit(init: CallApiInit): RequestInit {
+  const { userInitiated, ...rest } = init
+  const headers = new Headers(rest.headers)
+  const method = (rest.method ?? "GET").toUpperCase()
+  if (method !== "GET" || userInitiated === true) headers.set(ACTIVITY_HEADER, "user")
+  else headers.delete(ACTIVITY_HEADER)
+  return { ...rest, headers }
+}
+
+/**
  * The canonical JSON call to a same-origin `/api/...` path.
  *
  * On `401 TOKEN_EXPIRED` it awaits one shared refresh, then replays the
@@ -286,10 +318,17 @@ function refreshFailure<T>(context: string, refreshed: ApiResponse<never>): ApiR
 export async function callApi<T = unknown>(
   context: string,
   path: string,
-  init: RequestInit = {},
+  callerInit: CallApiInit = {},
 ): Promise<ApiResponse<T>> {
   if (!isApiPath(path)) {
     return err(new Error(`${context}: path must be a same-origin /api/ path`), context, undefined, "BAD_PATH")
+  }
+  let init: RequestInit
+  try {
+    init = prepareInit(callerInit)
+  } catch (error) {
+    // Invalid caller headers: fail like `send` does, never throw.
+    return err(error, context, undefined, "NETWORK_ERROR")
   }
 
   const first = await send<T>(context, path, init)

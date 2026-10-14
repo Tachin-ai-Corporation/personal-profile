@@ -127,3 +127,66 @@ describe("session — secret rotation", () => {
     expect(await afterRotation.unsealSession(newSeal)).toMatchObject({ sid: data.sid })
   })
 })
+
+describe("session — idle / absolute limits (Story 1.6)", () => {
+  const T = 1_800_000_000_000
+  const MIN = 60_000
+
+  it("exports the limits", async () => {
+    const { IDLE_TIMEOUT_MS, ABSOLUTE_TIMEOUT_MS } = await loadSession({ SESSION_SECRET: CURRENT })
+    expect(IDLE_TIMEOUT_MS).toBe(15 * 60 * 1000)
+    expect(ABSOLUTE_TIMEOUT_MS).toBe(8 * 60 * 60 * 1000)
+  })
+
+  it.each([
+    ["idle 14:59", { iat: T - 20 * MIN, lastSeen: T - (14 * MIN + 59_000) }, false],
+    ["idle exactly 15:00", { iat: T - 20 * MIN, lastSeen: T - 15 * MIN }, false],
+    ["idle 15:01", { iat: T - 20 * MIN, lastSeen: T - (15 * MIN + 1_000) }, true],
+    ["absolute exactly 8 h", { iat: T - 8 * 60 * MIN, lastSeen: T - MIN }, false],
+    ["absolute 8 h + 1 s, lastSeen 1 min ago", { iat: T - (8 * 60 * MIN + 1_000), lastSeen: T - MIN }, true],
+    ["missing lastSeen", { iat: T, lastSeen: undefined as unknown as number }, true],
+    ["non-numeric iat", { iat: "x" as unknown as number, lastSeen: T }, true],
+  ])("isSessionAged: %s → %s", async (_label, times, aged) => {
+    const { isSessionAged } = await loadSession({ SESSION_SECRET: CURRENT })
+    expect(isSessionAged(times, T)).toBe(aged)
+  })
+
+  async function getSessionAt(times: { iat: number; lastSeen: number } | null, raw?: string) {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(T)
+    const mod = await loadSession({ SESSION_SECRET: CURRENT })
+    const value = times ? sealOf(await mod.sealSession({ ...largeSession(), ...times })) : raw
+    const headers = await import("next/headers")
+    vi.mocked(headers.cookies).mockResolvedValue({
+      get: (name: string) => (name === "__Host-pp_s" && value !== undefined ? { name, value } : undefined),
+    } as never)
+    try {
+      return { session: await mod.getSession(), hasCookie: await mod.hasSessionCookie() }
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  it("getSession returns the session at idle 14:59", async () => {
+    const { session } = await getSessionAt({ iat: T - 20 * MIN, lastSeen: T - (14 * MIN + 59_000) })
+    expect(session).toMatchObject({ sid: "a".repeat(32) })
+  })
+
+  it("getSession returns null at idle 15:01 (cookie still present)", async () => {
+    const { session, hasCookie } = await getSessionAt({ iat: T - 20 * MIN, lastSeen: T - (15 * MIN + 1_000) })
+    expect(session).toBeNull()
+    expect(hasCookie).toBe(true)
+  })
+
+  it("getSession returns null at absolute 8 h + 1 s even with recent activity", async () => {
+    const { session } = await getSessionAt({ iat: T - (8 * 60 * MIN + 1_000), lastSeen: T - MIN })
+    expect(session).toBeNull()
+  })
+
+  it("hasSessionCookie is false without a cookie and true for an unsealable one", async () => {
+    expect((await getSessionAt(null, undefined)).hasCookie).toBe(false)
+    const garbage = await getSessionAt(null, "garbage")
+    expect(garbage.session).toBeNull()
+    expect(garbage.hasCookie).toBe(true)
+  })
+})

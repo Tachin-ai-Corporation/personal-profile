@@ -2,7 +2,14 @@ import "server-only"
 
 import { randomUUID } from "node:crypto"
 import { API_ORIGIN, PP_DISABLED } from "./env"
-import { ACCESS_TOKEN_SKEW_MS, clearSessionCookie, getSession, sealSession, type SessionData } from "./session"
+import {
+  ACCESS_TOKEN_SKEW_MS,
+  clearSessionCookie,
+  getSession,
+  hasSessionCookie,
+  sealSession,
+  type SessionData,
+} from "./session"
 import { NO_STORE_HEADERS } from "./cache-headers"
 import { checkCsrf } from "./csrf"
 import { verifyBinding } from "./session-binding"
@@ -19,7 +26,7 @@ import { logError, logRoute } from "./log"
  *
  *   PP_DISABLED → 503 SERVICE_DISABLED
  *   CSRF (same-origin + X-PP-Session present) → 403 CSRF
- *   no/unsealable cookie → 401 SESSION_EXPIRED
+ *   no/unsealable/aged cookie → 401 SESSION_EXPIRED (+ clear, if a cookie was sent)
  *   X-PP-Session ≠ HMAC(sid) → 409 SESSION_CHANGED
  *   not forced, token still valid beyond the skew → 200 (no IdP call, no Set-Cookie)
  *   forced (`?force=1`), refreshedAt < 10 s ago → 200 (no IdP call, no Set-Cookie)
@@ -32,6 +39,8 @@ import { logError, logRoute } from "./log"
  * the lock while the first refreshed — skip the IdP: its request already carries
  * the new cookie. No body ever carries a token; logs carry only
  * `{requestId, routeTemplate, status, durationMs}`.
+ *
+ * Refresh is not user activity: it never touches `lastSeen` (AD-16, Story 1.6).
  * =============================================================================
  */
 
@@ -173,7 +182,10 @@ async function run(request: Request): Promise<Response> {
 
   // 3. Session.
   const session = await getSession()
-  if (!session) return errorResponse(401, "SESSION_EXPIRED")
+  if (!session) {
+    // Aged sessions land here too (idle / absolute limit); clear a sent cookie.
+    return errorResponse(401, "SESSION_EXPIRED", (await hasSessionCookie()) ? clearSessionCookie() : undefined)
+  }
 
   // 4. Per-tab binding.
   if (!verifyBinding(request.headers.get("X-PP-Session"), session.sid)) {

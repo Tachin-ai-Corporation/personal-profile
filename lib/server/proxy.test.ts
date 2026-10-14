@@ -8,7 +8,9 @@ import type { AllowlistEntry } from "./proxy-allowlist"
  * Full-pipeline coverage for `createProxy` over an INJECTED fixture allowlist, with
  * `fetch` mocked (MSW never sees these server-side upstream calls). The real
  * `env.ts` loads from `process.env` (APP_ENV=demo → API_ORIGIN=demo.1health.io);
- * `session.ts` is mocked so `getSession` is controllable.
+ * `session.ts` is partially mocked so `getSession` / `hasSessionCookie` are
+ * controllable (the real `sealSession` etc. stay); `realSession: true` uses the
+ * real module over a mocked `next/headers` cookie store instead.
  */
 
 const SESSION_SECRET = "proxy-session-secret-0123456789abcdef"
@@ -74,8 +76,11 @@ function freshSession(overrides: Partial<Session> = {}): Session {
 let ORIGINAL_ENV: NodeJS.ProcessEnv
 let ORIGINAL_FETCH: typeof globalThis.fetch
 let fetchMock: ReturnType<typeof vi.fn>
+/** The sealed `__Host-pp_s` value the mocked cookie store returns (real-session cases). */
+let cookieValue: string | undefined
 
 beforeEach(() => {
+  cookieValue = undefined
   ORIGINAL_ENV = process.env
   ORIGINAL_FETCH = globalThis.fetch
   fetchMock = vi.fn(async () => new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }))
@@ -90,13 +95,36 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-async function loadProxy(opts: { env?: Record<string, string>; getSession?: ReturnType<typeof vi.fn> } = {}) {
+async function loadProxy(
+  opts: {
+    env?: Record<string, string>
+    getSession?: ReturnType<typeof vi.fn>
+    hasSessionCookie?: ReturnType<typeof vi.fn>
+    realSession?: boolean
+  } = {},
+) {
   vi.resetModules()
   process.env = { ...ORIGINAL_ENV, ...BASE_ENV, ...(opts.env ?? {}) }
+  vi.doMock("next/headers", () => ({
+    cookies: async () => ({
+      get: (name: string) => (name === "__Host-pp_s" && cookieValue !== undefined ? { value: cookieValue } : undefined),
+    }),
+  }))
+  vi.doMock("next/navigation", () => ({ redirect: vi.fn() }))
   const getSession = opts.getSession ?? vi.fn(async () => freshSession())
-  vi.doMock("@/lib/server/session", () => ({ getSession, ACCESS_TOKEN_SKEW_MS: 30_000 }))
+  const hasSessionCookie = opts.hasSessionCookie ?? vi.fn(async () => true)
+  if (opts.realSession) {
+    vi.doUnmock("@/lib/server/session")
+  } else {
+    vi.doMock("@/lib/server/session", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("./session")>()),
+      getSession,
+      hasSessionCookie,
+    }))
+  }
   const { createProxy } = await import("./proxy")
-  return { proxy: createProxy(FIXTURES), getSession }
+  const session = await import("@/lib/server/session")
+  return { proxy: createProxy(FIXTURES), getSession, hasSessionCookie, session }
 }
 
 function makeRequest(
@@ -577,5 +605,207 @@ describe("logging", () => {
     expect(logged).toMatchObject({ status: 500, errorName: "TypeError", routeTemplate: "-" })
     expect(logged.requestId).toBeTruthy()
     errSpy.mockRestore()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 1.6 — idle logoff, activity re-seal
+// ---------------------------------------------------------------------------
+
+const CLEARED = "__Host-pp_s=; HttpOnly; Secure; SameSite=None; Partitioned; Path=/; Max-Age=0"
+const T0 = 1_800_000_000_000
+const MIN = 60_000
+
+type SessionModule = typeof import("./session")
+
+async function unsealSetCookie(session: SessionModule, res: Response) {
+  const setCookie = res.headers.get("set-cookie") ?? ""
+  return session.unsealSession(setCookie.slice("__Host-pp_s=".length, setCookie.indexOf(";")))
+}
+
+function activityHeaders(extra: Record<string, string> = {}) {
+  return { ...getHeaders(), "X-PP-Activity": "user", ...extra }
+}
+
+describe("activity re-seal", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(T0)
+  })
+
+  it("GET with X-PP-Activity: user, verified binding, token > 55 s → re-seal lastSeen = now + echo; header not forwarded", async () => {
+    const before = freshSession({ lastSeen: T0 - 5 * MIN, iat: T0 - 60 * MIN })
+    const { proxy, session } = await loadProxy({ getSession: vi.fn(async () => before) })
+    const res = await proxy.GET(makeRequest("v2/user/myself", { headers: activityHeaders() }))
+
+    expect(res.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const fwd = (fetchMock.mock.calls[0] as [string, RequestInit])[1].headers as Headers
+    expect(fwd.get("x-pp-activity")).toBeNull()
+
+    expect(res.headers.get("x-pp-activity-at")).toBe(String(T0))
+    expect(res.headers.get("set-cookie")).toContain("HttpOnly; Secure; SameSite=None; Partitioned; Path=/")
+    expect(await unsealSetCookie(session, res)).toEqual({ ...before, lastSeen: T0 })
+    assertNoStoreAndNosniff(res)
+  })
+
+  it("a non-GET with X-PP-Activity: user re-seals too", async () => {
+    const { proxy } = await loadProxy()
+    const res = await proxy.PUT(
+      makeRequest("v2/person/location/5", {
+        method: "PUT",
+        headers: { ...putHeaders(), "X-PP-Activity": "user" },
+        body: "{}",
+      }),
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers.get("x-pp-activity-at")).toBe(String(T0))
+    expect(res.headers.get("set-cookie")).toBeTruthy()
+  })
+
+  it.each([
+    ["404", () => new Response(JSON.stringify({ code: "NOPE" }), { status: 404 })],
+    ["500", () => new Response("boom", { status: 500 })],
+  ])("re-seals whatever the upstream status (%s)", async (_label, make) => {
+    fetchMock.mockImplementationOnce(async () => make())
+    const { proxy } = await loadProxy()
+    const res = await proxy.GET(makeRequest("v2/user/myself", { headers: activityHeaders() }))
+    expect(res.headers.get("x-pp-activity-at")).toBe(String(T0))
+    expect(res.headers.get("set-cookie")).toBeTruthy()
+  })
+
+  it.each([
+    ["31 s", 31_000],
+    ["40 s", 40_000],
+    ["exactly 55 s", 55_000],
+  ])("token %s from expiry → forwarded, no Set-Cookie, no echo (race guard)", async (_label, left) => {
+    const { proxy } = await loadProxy({ getSession: vi.fn(async () => freshSession({ accessTokenExpiresAt: T0 + left })) })
+    const res = await proxy.GET(makeRequest("v2/user/myself", { headers: activityHeaders() }))
+    expect(res.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(res.headers.get("set-cookie")).toBeNull()
+    expect(res.headers.get("x-pp-activity-at")).toBeNull()
+  })
+
+  it("token 55.001 s from expiry → re-sealed", async () => {
+    const { proxy } = await loadProxy({ getSession: vi.fn(async () => freshSession({ accessTokenExpiresAt: T0 + 55_001 })) })
+    const res = await proxy.GET(makeRequest("v2/user/myself", { headers: activityHeaders() }))
+    expect(res.headers.get("x-pp-activity-at")).toBe(String(T0))
+  })
+
+  it("asImage GET without X-PP-Session but with X-PP-Activity → served, no re-seal", async () => {
+    const { proxy } = await loadProxy()
+    const res = await proxy.GET(makeRequest("v2/image/5", { headers: { "X-PP-Activity": "user" } }))
+    expect(res.status).toBe(200)
+    expect(res.headers.get("set-cookie")).toBeNull()
+    expect(res.headers.get("x-pp-activity-at")).toBeNull()
+  })
+
+  it.each([
+    ["no X-PP-Activity", getHeaders()],
+    ["X-PP-Activity: background", { ...getHeaders(), "X-PP-Activity": "background" }],
+  ])("%s → no re-seal", async (_label, headers) => {
+    const { proxy } = await loadProxy()
+    const res = await proxy.GET(makeRequest("v2/user/myself", { headers }))
+    expect(res.status).toBe(200)
+    expect(res.headers.get("set-cookie")).toBeNull()
+    expect(res.headers.get("x-pp-activity-at")).toBeNull()
+  })
+
+  it("rejected before forwarding (binding mismatch) → no re-seal", async () => {
+    const { proxy } = await loadProxy()
+    const res = await proxy.GET(
+      makeRequest("v2/user/myself", { headers: { "X-PP-Session": binding("other"), "X-PP-Activity": "user" } }),
+    )
+    expect(res.status).toBe(409)
+    expect(res.headers.get("set-cookie")).toBeNull()
+  })
+})
+
+describe("session expiry clears the cookie", () => {
+  it("no session but a cookie was sent → 401 SESSION_EXPIRED + clear", async () => {
+    const { proxy } = await loadProxy({ getSession: vi.fn(async () => null), hasSessionCookie: vi.fn(async () => true) })
+    const res = await proxy.GET(makeRequest("v2/user/myself", { headers: getHeaders() }))
+    expect(res.status).toBe(401)
+    expect(await bodyCode(res)).toBe("SESSION_EXPIRED")
+    expect(res.headers.get("set-cookie")).toBe(CLEARED)
+    assertNoStoreAndNosniff(res)
+  })
+
+  it("no session and no cookie → 401 without Set-Cookie", async () => {
+    const { proxy } = await loadProxy({ getSession: vi.fn(async () => null), hasSessionCookie: vi.fn(async () => false) })
+    const res = await proxy.GET(makeRequest("v2/user/myself", { headers: getHeaders() }))
+    expect(res.status).toBe(401)
+    expect(res.headers.get("set-cookie")).toBeNull()
+  })
+})
+
+describe("idle / absolute limits through the real session (Story 1.6)", () => {
+  async function sealInto(session: SessionModule, data: Partial<Session>) {
+    const setCookie = await session.sealSession(freshSession({ accessTokenExpiresAt: T0 + 9 * 60 * MIN, ...data }))
+    cookieValue = setCookie.slice("__Host-pp_s=".length, setCookie.indexOf(";"))
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(T0)
+  })
+
+  it("idle 14:59 → valid", async () => {
+    const { proxy, session } = await loadProxy({ realSession: true })
+    await sealInto(session, { iat: T0, lastSeen: T0 })
+    vi.setSystemTime(T0 + 14 * MIN + 59_000)
+    const res = await proxy.GET(makeRequest("v2/user/myself", { headers: getHeaders() }))
+    expect(res.status).toBe(200)
+  })
+
+  it("idle 15:01 → 401 SESSION_EXPIRED + cookie cleared, no upstream", async () => {
+    const { proxy, session } = await loadProxy({ realSession: true })
+    await sealInto(session, { iat: T0, lastSeen: T0 })
+    vi.setSystemTime(T0 + 15 * MIN + 1_000)
+    const res = await proxy.GET(makeRequest("v2/user/myself", { headers: activityHeaders() }))
+    expect(res.status).toBe(401)
+    expect(await bodyCode(res)).toBe("SESSION_EXPIRED")
+    expect(res.headers.get("set-cookie")).toBe(CLEARED)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("absolute 8 h + 1 s with lastSeen 1 min ago → 401 + cookie cleared", async () => {
+    const { proxy, session } = await loadProxy({ realSession: true })
+    const now = T0 + 8 * 60 * MIN + 1_000
+    await sealInto(session, { iat: T0, lastSeen: now - MIN, accessTokenExpiresAt: now + 30 * MIN })
+    vi.setSystemTime(now)
+    const res = await proxy.GET(makeRequest("v2/user/myself", { headers: activityHeaders() }))
+    expect(res.status).toBe(401)
+    expect(res.headers.get("set-cookie")).toBe(CLEARED)
+  })
+
+  it("background only: GETs without X-PP-Activity never move lastSeen; at 15:01 the session expires", async () => {
+    const { proxy, session } = await loadProxy({ realSession: true })
+    await sealInto(session, { iat: T0, lastSeen: T0 })
+    for (const at of [5 * MIN, 10 * MIN, 15 * MIN]) {
+      vi.setSystemTime(T0 + at)
+      const res = await proxy.GET(makeRequest("v2/user/myself", { headers: getHeaders() }))
+      expect(res.status).toBe(200)
+      expect(res.headers.get("set-cookie")).toBeNull()
+    }
+    vi.setSystemTime(T0 + 15 * MIN + 1_000)
+    const res = await proxy.GET(makeRequest("v2/user/myself", { headers: getHeaders() }))
+    expect(res.status).toBe(401)
+    expect(await bodyCode(res)).toBe("SESSION_EXPIRED")
+    expect(res.headers.get("set-cookie")).toBe(CLEARED)
+  })
+
+  it("a user-initiated call re-seals, so the idle window restarts from it", async () => {
+    const { proxy, session } = await loadProxy({ realSession: true })
+    await sealInto(session, { iat: T0, lastSeen: T0 })
+    vi.setSystemTime(T0 + 10 * MIN)
+    const active = await proxy.GET(makeRequest("v2/user/myself", { headers: activityHeaders() }))
+    const renewed = active.headers.get("set-cookie") ?? ""
+    expect(renewed).toBeTruthy()
+    cookieValue = renewed.slice("__Host-pp_s=".length, renewed.indexOf(";"))
+    vi.setSystemTime(T0 + 20 * MIN)
+    const later = await proxy.GET(makeRequest("v2/user/myself", { headers: getHeaders() }))
+    expect(later.status).toBe(200)
   })
 })

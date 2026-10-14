@@ -84,6 +84,13 @@ export const LAUNCH_ERROR_COPY: Record<LaunchErrorReason, LaunchErrorCopy> = {
   },
 }
 
+// ARCHITECTURE-ADDED COPY — PM review
+/** Idle-logoff warning copy (AD-16, Story 1.6). */
+export const IDLE_COPY = {
+  title: "You'll be signed out in 1 minute",
+  stay: "Stay signed in",
+} as const
+
 /** Map a raw `reason` query value to a known reason; unknown/missing → `invalid`. */
 export function normalizeLaunchErrorReason(reason: string | undefined | null): LaunchErrorReason {
   // Own-property check only: `"__proto__" in obj` is true, so `in` would let
