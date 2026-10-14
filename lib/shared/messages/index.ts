@@ -17,6 +17,7 @@
 import type { SectionId } from "../section-ids"
 import { ACCOUNT_MESSAGES } from "./account"
 import { ADDRESS_MESSAGES } from "./addresses"
+import { COMBOBOX_MESSAGES } from "./combobox"
 import { COMMON_MESSAGES } from "./common"
 import { CONTACT_MESSAGES } from "./contacts"
 import { CONTROL_MESSAGES } from "./controls"
@@ -40,6 +41,7 @@ export { LAUNCH_ERROR_MESSAGES, LAUNCH_MESSAGES } from "./launch"
 export {
   ACCOUNT_MESSAGES,
   ADDRESS_MESSAGES,
+  COMBOBOX_MESSAGES,
   COMMON_MESSAGES,
   CONTACT_MESSAGES,
   CONTROL_MESSAGES,
@@ -64,6 +66,7 @@ export {
 export const MESSAGE_CATALOG = {
   common: COMMON_MESSAGES,
   controls: CONTROL_MESSAGES,
+  combobox: COMBOBOX_MESSAGES,
   shell: SHELL_MESSAGES,
   section: SECTION_MESSAGES,
   state: STATE_MESSAGES,

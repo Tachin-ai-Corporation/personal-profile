@@ -66,7 +66,7 @@ const inTabOrder = (el: HTMLElement): boolean => {
 }
 
 /** Keyboard-reachable elements under `root`, in document order (Radix's focus guards and hidden elements excluded). */
-function tabbables(root: ParentNode): HTMLElement[] {
+export function tabbables(root: ParentNode): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(TABBABLE)).filter(
     (el) => inTabOrder(el) && !el.hasAttribute("data-radix-focus-guard") && !el.closest("[hidden], [inert]") && isShown(el),
   )
