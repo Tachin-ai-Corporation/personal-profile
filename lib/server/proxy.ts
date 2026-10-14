@@ -3,7 +3,7 @@ import "server-only"
 import { randomUUID } from "node:crypto"
 import type { NextRequest } from "next/server"
 import { API_ORIGIN, PP_DISABLED } from "./env"
-import { getSession, type SessionData } from "./session"
+import { ACCESS_TOKEN_SKEW_MS, getSession, type SessionData } from "./session"
 import { applyNoStore } from "./cache-headers"
 import { checkCsrf } from "./csrf"
 import { verifyBinding } from "./session-binding"
@@ -40,9 +40,6 @@ import {
 
 /** Upstream timeout; exceeding it → 504 `UPSTREAM_TIMEOUT` (AD-2). */
 const UPSTREAM_TIMEOUT_MS = 25_000
-
-/** Treat the access token as expired this many ms before its real expiry (AD-2). */
-const TOKEN_SKEW_MS = 30_000
 
 /** Request-header path marker; everything after it is the raw upstream sub-path. */
 const PATH_MARKER = "/api/1h/"
@@ -336,7 +333,8 @@ async function handle(request: NextRequest, method: string, allowlist: readonly 
     }
 
     // 9. Token expiry (no refresh here; AD-16 owns refresh).
-    if (session.accessTokenExpiresAt - Date.now() < TOKEN_SKEW_MS) {
+    // `<=`: the refresh route treats a token as valid only when `> skew`, so both agree at the boundary.
+    if (session.accessTokenExpiresAt - Date.now() <= ACCESS_TOKEN_SKEW_MS) {
       return finish(errorResponse(401, "TOKEN_EXPIRED", requestId))
     }
 

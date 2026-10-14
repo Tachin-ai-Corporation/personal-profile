@@ -38,6 +38,27 @@ export function logProxy(fields: ProxyLogFields): void {
   )
 }
 
+/** One BFF route request's structured log line (non-proxy routes, e.g. `/api/session/refresh`). */
+export interface RouteLogFields {
+  requestId: string
+  /** The route TEMPLATE, e.g. `/api/session/refresh`. */
+  routeTemplate: string
+  status: number
+  durationMs: number
+}
+
+/** Log a BFF route request. Carries only request-id/route/status/duration — never tokens or bodies (AD-15). */
+export function logRoute(fields: RouteLogFields): void {
+  console.info(
+    JSON.stringify({
+      requestId: fields.requestId,
+      routeTemplate: fields.routeTemplate,
+      status: fields.status,
+      durationMs: fields.durationMs,
+    }),
+  )
+}
+
 /** An unhandled-error log line — never carries upstream data (AD-15). */
 export interface ErrorLogFields {
   requestId: string

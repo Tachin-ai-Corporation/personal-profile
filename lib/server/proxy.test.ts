@@ -94,7 +94,7 @@ async function loadProxy(opts: { env?: Record<string, string>; getSession?: Retu
   vi.resetModules()
   process.env = { ...ORIGINAL_ENV, ...BASE_ENV, ...(opts.env ?? {}) }
   const getSession = opts.getSession ?? vi.fn(async () => freshSession())
-  vi.doMock("@/lib/server/session", () => ({ getSession }))
+  vi.doMock("@/lib/server/session", () => ({ getSession, ACCESS_TOKEN_SKEW_MS: 30_000 }))
   const { createProxy } = await import("./proxy")
   return { proxy: createProxy(FIXTURES), getSession }
 }
@@ -401,6 +401,21 @@ describe("session & token", () => {
     expect(res.status).toBe(401)
     expect(await bodyCode(res)).toBe("TOKEN_EXPIRED")
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("token exactly 30 s from expiry → 401 TOKEN_EXPIRED (agrees with the refresh route)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    try {
+      vi.setSystemTime(1_800_000_000_000)
+      const getSession = vi.fn(async () => freshSession({ accessTokenExpiresAt: Date.now() + 30_000 }))
+      const { proxy } = await loadProxy({ getSession })
+      const res = await proxy.GET(makeRequest("v2/user/myself", { headers: getHeaders() }))
+      expect(res.status).toBe(401)
+      expect(await bodyCode(res)).toBe("TOKEN_EXPIRED")
+      expect(fetchMock).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("upstream 401 → 401 TOKEN_EXPIRED", async () => {

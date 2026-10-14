@@ -14,8 +14,11 @@
  *   - publishes `session-expired` / `session-changed` on
  *     `lib/api/session-events.ts` (once per page lifetime).
  *
- * Token refresh (Story 1.5) and error-message mapping (Story 1.12) are not here
- * yet. Response bodies are never logged — only `context` + status.
+ * On `401 TOKEN_EXPIRED` it runs one refresh (single-flighted in the tab and
+ * across tabs via `navigator.locks`) and replays the call; if the replay is
+ * `TOKEN_EXPIRED` again it forces one refresh and replays a last time (AD-16,
+ * Story 1.5). Error-message mapping (Story 1.12) is not here yet. Response bodies are
+ * never logged — only `context` + status.
  * =============================================================================
  */
 
@@ -132,22 +135,8 @@ function parseErrorBody(text: string): { errorCode?: string; details?: unknown }
   return "details" in obj ? { errorCode, details: obj.details } : { errorCode }
 }
 
-/**
- * The canonical JSON call to a same-origin `/api/...` path.
- *
- * @example
- * const res = await callApi<Myself>("user/fetchMyself", "/api/1h/v2/user/myself")
- * if (res.success) use(res.data)
- */
-export async function callApi<T = unknown>(
-  context: string,
-  path: string,
-  init: RequestInit = {},
-): Promise<ApiResponse<T>> {
-  if (!isApiPath(path)) {
-    return err(new Error(`${context}: path must be a same-origin /api/ path`), context, undefined, "BAD_PATH")
-  }
-
+/** Send one request and parse the result. Never throws; publishes nothing. */
+async function send<T>(context: string, path: string, init: RequestInit): Promise<ApiResponse<T>> {
   let response: Response
   try {
     const headers = new Headers(init.headers)
@@ -170,10 +159,6 @@ export async function callApi<T = unknown>(
   if (!response.ok) {
     const { errorCode, details } = parseErrorBody(text)
     console.error(`[pp API] ${context}:`, statusCode, errorCode ?? "")
-
-    if (statusCode === 401 && errorCode === "SESSION_EXPIRED") publish("session-expired")
-    else if (statusCode === 409 && errorCode === "SESSION_CHANGED") publish("session-changed")
-
     const res: ApiResponse<T> = { success: false, error: `${context} failed (${statusCode})`, errorCode, statusCode }
     if (details !== undefined) res.details = details
     return res
@@ -189,4 +174,145 @@ export async function callApi<T = unknown>(
     }
   }
   return { success: true, data: data as T, statusCode }
+}
+
+/**
+ * The single place session events are published (AD-19). `publish` itself is
+ * once-per-page-lifetime, so a replayed or refresh-derived `SESSION_EXPIRED` /
+ * `SESSION_CHANGED` still reaches subscribers at most once.
+ */
+function signal<T>(res: ApiResponse<T>): ApiResponse<T> {
+  if (!res.success) {
+    if (res.statusCode === 401 && res.errorCode === "SESSION_EXPIRED") publish("session-expired")
+    else if (res.statusCode === 409 && res.errorCode === "SESSION_CHANGED") publish("session-changed")
+  }
+  return res
+}
+
+function isTokenExpired(res: ApiResponse<unknown>): boolean {
+  return !res.success && res.statusCode === 401 && res.errorCode === "TOKEN_EXPIRED"
+}
+
+// ---------------------------------------------------------------------------
+// Token refresh (AD-16)
+// ---------------------------------------------------------------------------
+
+const REFRESH_PATH = "/api/session/refresh"
+const FORCED_REFRESH_PATH = "/api/session/refresh?force=1"
+const REFRESH_LOCK = "pp-refresh"
+
+type RefreshResult = ApiResponse<never> | { success: true }
+
+/**
+ * The in-tab single flights: one shared promise per kind (normal / forced),
+ * each cleared when it settles.
+ */
+const inflight: { normal: Promise<RefreshResult> | null; forced: Promise<RefreshResult> | null } = {
+  normal: null,
+  forced: null,
+}
+
+/** One `POST /api/session/refresh[?force=1]`. Goes through `send`, never `callApi`, so it has no refresh handling of its own. */
+async function postRefresh(forced: boolean): Promise<RefreshResult> {
+  const res = await send<never>("session/refresh", forced ? FORCED_REFRESH_PATH : REFRESH_PATH, { method: "POST" })
+  return res.success ? { success: true } : res
+}
+
+/** Run the refresh under the cross-tab `navigator.locks` mutex when available. */
+async function runRefresh(forced: boolean): Promise<RefreshResult> {
+  const locks = typeof navigator !== "undefined" ? navigator.locks : undefined
+  if (locks && typeof locks.request === "function") {
+    let ran = false
+    let result: RefreshResult | undefined
+    try {
+      return await locks.request(REFRESH_LOCK, async () => {
+        ran = true
+        result = await postRefresh(forced)
+        return result
+      })
+    } catch (error) {
+      // The lock itself failed (postRefresh never rejects): refresh unlocked,
+      // or keep the result of a refresh that already ran under the lock.
+      if (!ran) return postRefresh(forced)
+      if (result) return result
+      return err(error, "session/refresh", undefined, "NETWORK_ERROR")
+    }
+  }
+  return postRefresh(forced)
+}
+
+/**
+ * Single-flighted refresh: every caller that hits `TOKEN_EXPIRED` while a
+ * refresh of the same kind is in flight in this tab awaits the same promise.
+ * Across tabs, the lock serializes refreshes; the second tab's request then
+ * carries the first tab's new cookie and the route answers 200 without calling
+ * the IdP (normal: the token is valid; forced: the 10 s `refreshedAt` guard).
+ */
+function refreshSession(forced = false): Promise<RefreshResult> {
+  const slot = forced ? "forced" : "normal"
+  let pending = inflight[slot]
+  if (!pending) {
+    pending = runRefresh(forced).finally(() => {
+      inflight[slot] = null
+    })
+    inflight[slot] = pending
+  }
+  return pending
+}
+
+/** A per-caller copy of a refresh failure (the `error` text uses the caller's context). */
+function refreshFailure<T>(context: string, refreshed: ApiResponse<never>): ApiResponse<T> {
+  return {
+    success: false,
+    error: `${context} failed (session refresh ${refreshed.statusCode ?? refreshed.errorCode ?? "error"})`,
+    errorCode: refreshed.errorCode,
+    statusCode: refreshed.statusCode,
+  }
+}
+
+/**
+ * The canonical JSON call to a same-origin `/api/...` path.
+ *
+ * On `401 TOKEN_EXPIRED` it awaits one shared refresh, then replays the
+ * original request (AD-16). If that replay is `TOKEN_EXPIRED` again (the
+ * upstream rejected a locally-valid token), it runs one forced refresh and
+ * replays a second and last time; a second `TOKEN_EXPIRED` becomes
+ * `SESSION_EXPIRED`. A call is therefore replayed at most twice.
+ *
+ * @example
+ * const res = await callApi<Myself>("user/fetchMyself", "/api/1h/v2/user/myself")
+ * if (res.success) use(res.data)
+ */
+export async function callApi<T = unknown>(
+  context: string,
+  path: string,
+  init: RequestInit = {},
+): Promise<ApiResponse<T>> {
+  if (!isApiPath(path)) {
+    return err(new Error(`${context}: path must be a same-origin /api/ path`), context, undefined, "BAD_PATH")
+  }
+
+  const first = await send<T>(context, path, init)
+  if (!isTokenExpired(first)) return signal(first)
+
+  const refreshed = await refreshSession()
+  if (!refreshed.success) return signal(refreshFailure<T>(context, refreshed))
+
+  const replay = await send<T>(context, path, init)
+  if (!isTokenExpired(replay)) return signal(replay)
+
+  // The upstream still rejects the token: force one refresh, replay once more.
+  const forced = await refreshSession(true)
+  if (!forced.success) return signal(refreshFailure<T>(context, forced))
+
+  const lastReplay = await send<T>(context, path, init)
+  if (isTokenExpired(lastReplay)) {
+    return signal<T>({
+      success: false,
+      error: `${context} failed (401)`,
+      errorCode: "SESSION_EXPIRED",
+      statusCode: 401,
+    })
+  }
+  return signal(lastReplay)
 }
