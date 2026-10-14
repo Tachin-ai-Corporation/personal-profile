@@ -52,3 +52,21 @@
 - source_spec: `_bmad-output/implementation-artifacts/1-6-idle-logoff-activity-ping-and-cross-tab-activity.md`
   summary: PM copy question — an idle/absolute logoff found on reload redirects to `/launch-error?reason=expired`, which reads "This link has expired".
   evidence: `reason=expired` copy is locked in EXPERIENCE.md and launch-oriented; while the page is open Story 1.7's "Your session ended" dialog covers the case.
+- source_spec: none
+  summary: Story 1.8 part B — profile page shell: app bar with framed-aware "Return to 1health", Contacts/Insurance/Medical tabs with `?tab=` replace + `requestLeave()`, numbered Section menu / "Jump to" with scroll-spy and `#<section>`/`#signature` deep links, `SectionFrame` loading/error states, Insurance and Medical placeholders, 360 px and axe (light/dark) checks.
+  evidence: Split from Story 1.8 at the multi-goal check (user chose "tokens first"); part A (design tokens, DESIGN.md overrides, dark values, hex/palette lint gate) ships first because B's light/dark axe contrast scans depend on A's colors.
+- source_spec: `_bmad-output/implementation-artifacts/1-8a-design-tokens-overrides-and-color-lint.md`
+  summary: The destructive Badge and destructive Toast put white text on `bg-destructive` #d84f45 (4.10:1, below AA); the toast close icon at 70 % is about 2.75:1. Move them to `destructive-fill` (or a soft recipe) when a caller first uses them.
+  evidence: Pre-existing (the old `text-red-300` close icon was worse); neither variant has an in-app caller yet. Medium when used.
+- source_spec: `_bmad-output/implementation-artifacts/1-8a-design-tokens-overrides-and-color-lint.md`
+  summary: The destructive Button's focus ring is `focus-visible:ring-destructive/20` (dark `/40`), below the 3:1 non-text contrast a focus indicator needs.
+  evidence: Pre-existing, medium. Story 1.8 part B's focus-ring criterion covers every interactive element, so fix it there.
+- source_spec: `_bmad-output/implementation-artifacts/1-8a-design-tokens-overrides-and-color-lint.md`
+  summary: DESIGN.md is stale against Story 1.8a. Its prose says links map to `text-info-strong` and the destructive button to `bg-error-strong` (the app uses `link-text` / `destructive-fill`), and `drawer-scrim` has no dark value (the app uses black at 60 %). Update it after PM/design review of the dark scrim.
+  evidence: DESIGN.md lines 483-484, 545-546 and 598. It is a planning/UX document, so it is deferred rather than edited in a code story.
+- source_spec: `_bmad-output/implementation-artifacts/1-8a-design-tokens-overrides-and-color-lint.md`
+  summary: Nothing tracks the follow-ups that `globals.css` promises: reporting the three contrast deviations upstream to the 1health design-system owners, and PM/design review of the dark scrim (black at 60 %). Give each an owner and a ticket.
+  evidence: The only record is the comment in `app/globals.css` and `docs/DESIGN-SYSTEM.md`; there is no Jira ticket or owner.
+- source_spec: `_bmad-output/implementation-artifacts/1-8a-design-tokens-overrides-and-color-lint.md`
+  summary: The new CLAUDE.md design-system line says to use the override tokens "where DESIGN.md calls for them" without locating DESIGN.md. Point it at the "Contrast overrides" table in `docs/DESIGN-SYSTEM.md` instead.
+  evidence: The section links `docs/DESIGN-SYSTEM.md`, but DESIGN.md lives under `_bmad-output/planning-artifacts/ux-designs/…`. Agent-context file, deferred per workflow.
