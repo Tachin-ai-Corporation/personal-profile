@@ -23,13 +23,20 @@ async function loadPage(
     return Buffer.alloc(32)
   })
 
+  const computeBinding = vi.fn((sid: string) => `binding-for-${sid}`)
+
   vi.resetModules()
-  vi.doMock("@/lib/server/env", () => ({ ONEHEALTH_SECRET_KEY: "secret", PP_DISABLED: config.PP_DISABLED ?? false }))
+  vi.doMock("@/lib/server/env", () => ({
+    ONEHEALTH_SECRET_KEY: "secret",
+    PORTAL_URL: "https://portal.example/applications",
+    PP_DISABLED: config.PP_DISABLED ?? false,
+  }))
   vi.doMock("@/lib/server/launch", () => ({ deriveAesKey }))
   vi.doMock("@/lib/server/session", () => ({ requireSession }))
+  vi.doMock("@/lib/server/session-binding", () => ({ computeBinding }))
 
   const HomePage = (await import("./page")).default
-  return { HomePage, requireSession, deriveAesKey }
+  return { HomePage, requireSession, deriveAesKey, computeBinding }
 }
 
 afterEach(() => {
@@ -44,6 +51,14 @@ describe("home page guard", () => {
     expect(element).toBeTruthy()
     expect(requireSession).toHaveBeenCalledOnce()
     expect(redirect).not.toHaveBeenCalled()
+  })
+
+  it("embeds the binding for the session's sid and the portal URL", async () => {
+    const { HomePage, computeBinding } = await loadPage()
+    const element = (await HomePage()) as { props: { sessionBinding: string; portalUrl: string } }
+    expect(computeBinding).toHaveBeenCalledWith("abc")
+    expect(element.props.sessionBinding).toBe("binding-for-abc")
+    expect(element.props.portalUrl).toBe("https://portal.example/applications")
   })
 
   it("redirects to the session-expired screen when there is no session", async () => {

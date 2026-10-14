@@ -62,6 +62,9 @@ test("valid launch lands on /?tab=contacts#signature, lpl stripped, signed in", 
   await expect(page).toHaveURL(/\/\?tab=contacts#signature$/)
   expect(page.url()).not.toContain("lpl")
   await expect(page.getByRole("heading", { name: /personal profile/i })).toBeVisible()
+  // The name comes from an in-app `callApi` through the real proxy, so the page's
+  // embedded X-PP-Session binding round-tripped (AD-17, AD-19).
+  await expect(page.getByText("Test User", { exact: true })).toBeVisible()
 
   // The signed-in `/` page's CSP nonce must reach its rendered scripts (strict-dynamic),
   // and nothing must trip the policy.

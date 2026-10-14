@@ -218,7 +218,8 @@ A grid view is almost always **pre-scoped by an id** — pass it as the first
 - Point lookup / entity + relationships / custom projection → **`/api/v2/query`**.
 - A known list view with column filters + sort + pagination → **grid**.
 - Complex reads the platform exposes only via GraphQL (rare) → `POST /api/graphql`
-  (a third path; not wrapped here — use `callApiRaw` if you need it).
+  (a third path; never proxied — expose it as a named server operation under
+  `/api/pp/`, called through `callApi`).
 
 See also [GOTCHAS.md](GOTCHAS.md) for query-specific traps (prefix drift,
 unreliable server-side filters on nested JSON, pagination param inconsistency).
