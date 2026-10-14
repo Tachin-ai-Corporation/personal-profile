@@ -2,7 +2,7 @@
 title: 'F3-2 Section edit model: registry completion, useSectionForm, section chrome, key/value table, save runners'
 type: 'feature'
 created: '2026-10-14'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '5b4ed143dde8f204c66c2aef623311be2e3b8798'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -61,11 +61,11 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `features/shell/{nav-types,section-registry}.tsx` (+tests) -- registry completion.
-- [ ] `features/shell/use-section-form.ts`, `section-{header,container,footer}.tsx` (+tests, axe) -- edit model and chrome.
-- [ ] `features/shell/key-value-table.tsx` (+tests) -- read/edit table.
-- [ ] `features/shell/{run-save-steps,save-all}.ts`, `leave-guard.tsx`, `page-frame.tsx` (+tests) -- runners and guard refactor.
-- [ ] `features/shell/__fixtures__/fixture-section.tsx`, `app/test-fixtures/section/page.tsx`, `e2e/section.spec.ts` -- fixture and e2e.
+- [x] `features/shell/{nav-types,section-registry}.tsx` (+tests) -- registry completion.
+- [x] `features/shell/use-section-form.ts`, `section-{header,container,footer}.tsx` (+tests, axe) -- edit model and chrome.
+- [x] `features/shell/key-value-table.tsx` (+tests) -- read/edit table.
+- [x] `features/shell/{run-save-steps,save-all}.ts`, `leave-guard.tsx`, `page-frame.tsx` (+tests) -- runners and guard refactor.
+- [x] `features/shell/__fixtures__/fixture-section.tsx`, `app/test-fixtures/section/page.tsx`, `e2e/section.spec.ts` -- fixture and e2e.
 
 **Acceptance Criteria:**
 - Given the fixture Section on `/test-fixtures/section`, when a keyboard user edits, validates and saves, then focus, live regions and axe pass on desktop and 360 px.
@@ -80,6 +80,46 @@ context:
 
 ## Implementation Notes
 
+- **Registry:** `RegisteredSection` gains `saveAll` and the four optional draft hooks (delegated to the latest render). A throwing `validate()` counts as `invalidCount: 1`. `SaveError` is now `{ code?: SaveErrorCode (= TelemetryErrorCode), mapped?: MappedError, failedParts? }`; `SESSION_EXPIRED_CODE`, `isSessionExpired()`, `sectionHeadingId(id)` (`<id>-heading`, matches F3-3's `#email-heading`) live in `nav-types.ts`.
+- **`useSectionForm`:** no `<form>` element (Enter/Escape do nothing natively; all footer buttons are `type="button"`). The baseline is the `baseline` prop, overridden after a successful save or an explicit `rebase(next)` until the prop changes; an effect re-syncs RHF values (read view: reset; edit view: merge keeping fields that differ from the previous baseline). Focus moves synchronously through the controls registered by `field(name)` (RHF's `setFocus` defers with `setTimeout`). The registered `save()` shows the saving state and errors and fires `section_save` but never toasts or moves focus. Network failures from the Section's own Save also raise `toastError` with Retry (Story 1.12). Retry (banner and toast) always runs the latest render's submit, so it diffs against the rebased baseline. Options added beyond the spec: `fieldOrder`, `errorFields` (server field → form path), `describeError` (e.g. 7.5's "{Part} was not saved."), `describeDraftDiff`.
+- **`runSaveSteps`:** steps are `{ part, skip?, run }`; result `{ ok, succeeded, error?: { code, mapped, failedParts } }`. In `stop` mode `failedParts` = the failing step plus the never-run ones. Refetch + rebase run after any non-session failure (both modes); a failing refetch is swallowed.
+- **`runSaveAll`:** `{ order?, includeGuardOnly? }`; outcomes `clean | invalid | session | done`. The leave guard uses `includeGuardOnly: true` (guard-only participants validated up front, saved after the Save-all Sections). `save_all` telemetry counts every Section the run sent.
+- **Copy:** `SECTION_MESSAGES.noChanges` ("There are no changes"), `invalidOne` ("{section} has 1 field to fix"), `invalidMany` (DRAFT). The fixture schema needed a catalog validation string: `CONTACT_MESSAGES.phoneTenDigits` ("Enter a 10-digit US number", verbatim Voice and Tone; Epic 3 will reuse it).
+- **Shared helper:** `lib/shared/deep-equal.ts` (100 % covered; F4's `baseHash` can reuse it).
+- **Fixture:** `FixtureSection` (number + optional note, `save(values, baseline, rebase)`), `SectionFixturePage` (fail-next-save switch, saves counter), `app/test-fixtures/section`.
+- **Review fixes (round 1):** `runSaveAll` takes `trackTelemetry` (the leave guard passes `false`), and a participant without `save` defaults to `saveAll: false` (it isn't counted or queued). The leave guard takes an `order` (`PageFrame` `saveOrder`, default `displayOrder`); when a save fails it shows the `saveAllSummary` partial toast and focuses the first failed Section's `h2`. In `runSaveSteps`, `applySucceeded(parts)` rebases locally when there is no `refetch`, so a retry never re-sends a step that succeeded. `deepEqual` treats an `undefined`-valued key as absent. `useSectionForm` changes:
+  - One dirty predicate is shared by the footer, the registry and the no-changes check.
+  - Invalid count and first-invalid focus come from `schema.safeParse` issues: nested and list paths are focused by exact name or `name.` prefix, in page order. RHF's `formState` is a render snapshot and `trigger()` drops unmounted paths, so it can't be used here. A refine or root issue with no control shows as the Section error.
+  - The registered `save()` joins an in-flight save and sends schema-parsed values (raw values when they don't parse).
+  - The override baseline is cleared whenever the `baseline` prop changes (state adjusted during render).
+  - `applyDraft` is ignored while saving. Read → edit runs the same setup as Edit, and values are set with `shouldValidate`.
+  - Retry focuses Save (`<id>-save`) before re-running.
+  - The network error toast is dismissed on success or on return to read view.
+  - The literal session code in `showFailure` is replaced by `SESSION_EXPIRED_CODE`.
+
+  `KeyValueTable` pairs each value with its own key through `headers`/`id`; the row anchor doubles as the key id. The edit table drops native `required` (no `<form>`) and keeps `aria-required`. Other changes: a `/test-fixtures/section` gate test, e2e checks at 360 px for the stacked layout and for 44 px on Edit, Add row and Retry, `import type` moved to the top of `nav-types.ts`, and provenance comments on the new copy (all three strings are verbatim in EXPERIENCE.md).
+
 ## Spec Change Log
 
 ## Review Triage Log
+
+Review pass 1 (2026-10-14; Blind Hunter, Edge Case Hunter, Verification Gap).
+
+| # | Finding | Verdict | Route |
+|---|---|---|---|
+| 1 | Leave-guard Save fires save_all telemetry | low | patch (`trackTelemetry`) |
+| 2 | Failed leave-guard save gives no feedback | medium | patch (summary toast + focus first failed heading) |
+| 3 | Leave guard ignores page save order | low | patch (`saveOrder` prop) |
+| 4 | Participants without save always fail / counted dirty | high | patch (default `saveAll:false`) |
+| 5 | stop mode without refetch re-sends succeeded steps | medium | patch (`applySucceeded`) |
+| 6 | isDirty vs submit predicates differ; undefined keys dirty | medium | patch |
+| 7 | Nested/list invalid count and focus; root errors silent | medium | patch (schema issues, root error banner) |
+| 8 | Registered save: in-flight shape, raw vs parsed, untested failure path | medium | patch |
+| 9 | Stale override after server baseline change / A→B→A | medium | patch |
+| 10 | applyDraft during saving and without edit setup | low | patch |
+| 11 | Retry drops focus; stale error toast | low | patch |
+| 12 | KV read table header ambiguity; duplicate helper; native required | low | patch |
+| 13 | Section fixture gate untested; e2e desktop only; 44 px gaps | medium | patch |
+| 14 | Import order, copy provenance | low | patch |
+| 15 | KV table mobile-first hydration shift; remount on resize | low | reject (spec forbids CSS twins; minor impact) |
+

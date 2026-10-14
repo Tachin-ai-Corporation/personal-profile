@@ -12,6 +12,8 @@ export interface FixtureParticipantProps {
   readonly displayOrder: number
   /** `false` registers without `save` (a guard-only participant that can't save). */
   readonly canSave?: boolean
+  /** `false`: a guard-only participant (not counted or saved by Save all). */
+  readonly saveAll?: false
   readonly saveBehavior?: FixtureSaveBehavior
   readonly onSave?: (value: string) => void
 }
@@ -21,7 +23,7 @@ export interface FixtureParticipantProps {
  * that is dirty when it differs from its baseline, invalid when it reads
  * "invalid". Not app UI; its strings are fixture data, not catalog copy.
  */
-export function FixtureParticipant({ id, label, displayOrder, canSave = true, saveBehavior = "ok", onSave }: FixtureParticipantProps) {
+export function FixtureParticipant({ id, label, displayOrder, canSave = true, saveAll, saveBehavior = "ok", onSave }: FixtureParticipantProps) {
   const inputId = useId()
   const [baseline, setBaseline] = useState("")
   const [value, setValue] = useState("")
@@ -33,7 +35,7 @@ export function FixtureParticipant({ id, label, displayOrder, canSave = true, sa
     if (saveBehavior === "throw") throw new Error("fixture save failed")
     if (saveBehavior === "fail") {
       setStatus("not saved")
-      return { ok: false, error: { code: "FIXTURE" } }
+      return { ok: false, error: { code: "GENERIC" } }
     }
     setBaseline(value)
     setStatus("saved")
@@ -45,7 +47,8 @@ export function FixtureParticipant({ id, label, displayOrder, canSave = true, sa
     label,
     displayOrder,
     isDirty: value !== baseline,
-    validate: () => (value === "invalid" ? { valid: false, focusFirstInvalid: () => inputRef.current?.focus() } : { valid: true }),
+    saveAll,
+    validate: () => (value === "invalid" ? { valid: false, invalidCount: 1, focusFirstInvalid: () => inputRef.current?.focus() } : { valid: true }),
     save: canSave ? save : undefined,
     discard: () => setValue(baseline),
   })

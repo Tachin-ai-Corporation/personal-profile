@@ -2,7 +2,7 @@ import { act, fireEvent, render, renderHook, screen } from "@testing-library/rea
 import { describe, expect, it, vi } from "vitest"
 import { FixtureParticipant } from "./__fixtures__/fixture-participant"
 import type { SectionRegistration } from "./nav-types"
-import { createSectionRegistry, SectionRegistryProvider, useIsAnyDirty, useRegisterSection, useSectionRegistry } from "./section-registry"
+import { createSectionRegistry, SectionRegistryProvider, useDirtyCount, useIsAnyDirty, useRegisterSection, useSectionRegistry } from "./section-registry"
 
 const reg = (overrides: Partial<SectionRegistration> = {}): SectionRegistration => ({
   id: "phone",
@@ -97,7 +97,10 @@ describe("createSectionRegistry", () => {
     for (const section of registry.getAll()) {
       const result = await section.validate()
       expect(result.valid).toBe(false)
-      if (!result.valid) expect(() => result.focusFirstInvalid()).not.toThrow()
+      if (!result.valid) {
+        expect(result.invalidCount).toBe(1)
+        expect(() => result.focusFirstInvalid()).not.toThrow()
+      }
     }
   })
 
@@ -105,11 +108,108 @@ describe("createSectionRegistry", () => {
     const registry = createSectionRegistry()
     const discard = vi.fn()
     const focusFirstInvalid = vi.fn()
-    registry.register(reg({ discard, validate: () => ({ valid: false, focusFirstInvalid }) }))
+    registry.register(reg({ discard, validate: () => ({ valid: false, invalidCount: 2, focusFirstInvalid }) }))
     const [section] = registry.getAll()
     section.discard()
     expect(discard).toHaveBeenCalledTimes(1)
-    expect(await section.validate()).toEqual({ valid: false, focusFirstInvalid })
+    expect(await section.validate()).toEqual({ valid: false, invalidCount: 2, focusFirstInvalid })
+  })
+})
+
+describe("dirty count and saveAll", () => {
+  it("counts only dirty Save-all Sections; isAnyDirty includes guard-only participants", () => {
+    const registry = createSectionRegistry()
+    const listener = vi.fn()
+    registry.subscribe(listener)
+    const save = async () => ({ ok: true }) as const
+    registry.register(reg({ id: "phone", isDirty: true, save }))
+    registry.register(reg({ id: "email", isDirty: false, save }))
+    registry.register(reg({ id: "insurance", isDirty: true, saveAll: false, save }))
+    registry.register(reg({ id: "social", isDirty: true }))
+    expect(registry.getDirtyCount()).toBe(1)
+    expect(registry.isAnyDirty()).toBe(true)
+    expect(registry.getAll().map((s) => [s.id, s.saveAll])).toEqual([
+      ["phone", true],
+      ["email", true],
+      ["insurance", false],
+      ["social", false],
+    ])
+    registry.update(reg({ id: "email", isDirty: true, save }))
+    expect(registry.getDirtyCount()).toBe(2)
+    // A saveAll change alone notifies (the count changes); so does losing `save`.
+    listener.mockClear()
+    registry.update(reg({ id: "email", isDirty: true, saveAll: false, save }))
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(registry.getDirtyCount()).toBe(1)
+    registry.update(reg({ id: "phone", isDirty: true }))
+    expect(listener).toHaveBeenCalledTimes(2)
+    expect(registry.getDirtyCount()).toBe(0)
+  })
+
+  it("useDirtyCount re-renders with the count, ignoring guard-only participants", () => {
+    function Count() {
+      return <span data-testid="count">{useDirtyCount()}</span>
+    }
+    render(
+      <SectionRegistryProvider>
+        <FixtureParticipant id="phone" label="Phone" displayOrder={2} />
+        <FixtureParticipant id="email" label="Email" displayOrder={3} />
+        <FixtureParticipant id="insurance" label="Insurance" displayOrder={6} saveAll={false} />
+        <Count />
+      </SectionRegistryProvider>,
+    )
+    expect(screen.getByTestId("count").textContent).toBe("0")
+    fireEvent.change(screen.getByLabelText("Phone"), { target: { value: "1" } })
+    fireEvent.change(screen.getByLabelText("Insurance"), { target: { value: "1" } })
+    expect(screen.getByTestId("count").textContent).toBe("1")
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "1" } })
+    expect(screen.getByTestId("count").textContent).toBe("2")
+  })
+})
+
+describe("draft hooks (F4 contract)", () => {
+  it("are passed through, absent when not registered", () => {
+    const registry = createSectionRegistry()
+    registry.register(reg())
+    const [plain] = registry.getAll()
+    expect(plain.getDraftValues).toBeUndefined()
+    expect(plain.getDraftBase).toBeUndefined()
+    expect(plain.applyDraft).toBeUndefined()
+    expect(plain.describeDraftDiff).toBeUndefined()
+  })
+
+  it("always call the latest render's hooks through useRegisterSection", () => {
+    let registry: ReturnType<typeof createSectionRegistry> | undefined
+    const applied: unknown[] = []
+    function Section({ value }: { value: string }) {
+      registry = useSectionRegistry()
+      useRegisterSection(
+        reg({
+          draftFields: ["value"],
+          getDraftValues: () => ({ value }),
+          getDraftBase: () => ({ value: `base-${value}` }),
+          applyDraft: (values) => applied.push([value, values]),
+          describeDraftDiff: (draft, current) => [{ field: "value", label: "Value", mine: String(draft.value), current: `${String(current.value)}-${value}` }],
+        }),
+      )
+      return null
+    }
+    const view = render(
+      <SectionRegistryProvider>
+        <Section value="a" />
+      </SectionRegistryProvider>,
+    )
+    view.rerender(
+      <SectionRegistryProvider>
+        <Section value="b" />
+      </SectionRegistryProvider>,
+    )
+    const [section] = registry?.getAll() ?? []
+    expect(section.getDraftValues?.()).toEqual({ value: "b" })
+    expect(section.getDraftBase?.()).toEqual({ value: "base-b" })
+    section.applyDraft?.({ value: "x" })
+    expect(applied).toEqual([["b", { value: "x" }]])
+    expect(section.describeDraftDiff?.({ value: "x" }, { value: "y" })).toEqual([{ field: "value", label: "Value", mine: "x", current: "y-b" }])
   })
 })
 

@@ -5,6 +5,9 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { sessionEvents as defaultSessionEvents, type SessionEvents } from "@/lib/api"
 import { COMMON_MESSAGES, LEAVE_GUARD_MESSAGES } from "@/lib/shared/messages"
 import { isUnloadConfirmed, setLeaveGuard } from "./leave"
+import { sectionHeadingId, type SectionId } from "./nav-types"
+import { runSaveAll, saveAllSummary } from "./save-all"
+import { toastPartial } from "./toasts"
 import { useIsAnyDirty, useSectionRegistry } from "./section-registry"
 
 interface Pending {
@@ -28,9 +31,11 @@ function onBeforeUnload(event: BeforeUnloadEvent): void {
 export interface LeaveGuardProps {
   /** Test seam. */
   readonly events?: SessionEvents
+  /** The page's save order for Save (e.g. Team A's `SAVE_ORDER` on `/`); defaults to `displayOrder`. */
+  readonly order?: readonly SectionId[]
 }
 
-export function LeaveGuard({ events = defaultSessionEvents }: LeaveGuardProps = {}) {
+export function LeaveGuard({ events = defaultSessionEvents, order }: LeaveGuardProps = {}) {
   const registry = useSectionRegistry()
   const anyDirty = useIsAnyDirty()
   const [pending, setPending] = useState<Pending | null>(null)
@@ -84,21 +89,19 @@ export function LeaveGuard({ events = defaultSessionEvents }: LeaveGuardProps = 
     setBusy(true)
     let proceed = false
     try {
-      const dirty = registry.getDirty()
-      // Validate everything first: if anything is invalid, nothing is sent.
-      for (const section of dirty) {
-        const result = await section.validate()
-        if (!result.valid) {
-          focusAfterClose.current = result.focusFirstInvalid
-          return
-        }
+      // The Save-all runner: validates everything first (nothing sent if anything is invalid),
+      // saves the Save-all Sections, then the guard-only participants; stops on a session end.
+      // Not a Save-all run: no `save_all` telemetry.
+      const outcome = await runSaveAll(registry, { order, includeGuardOnly: true, trackTelemetry: false })
+      if (outcome.kind === "invalid") focusAfterClose.current = outcome.focusFirstInvalid
+      proceed = outcome.kind === "clean" || (outcome.kind === "done" && outcome.failed.length === 0)
+      if (outcome.kind === "done" && outcome.failed.length > 0) {
+        // Stay, say what failed ("1 saved, 1 failed") and land on the first failed Section.
+        const summary = saveAllSummary(outcome)
+        if (summary?.tone === "partial") toastPartial(summary.text)
+        const failedId = sectionHeadingId(outcome.failed[0].id)
+        focusAfterClose.current = () => document.getElementById(failedId)?.focus()
       }
-      let allSaved = true
-      for (const section of dirty) {
-        const result = await section.save()
-        if (!result.ok) allSaved = false
-      }
-      proceed = allSaved
     } finally {
       // Always settles, so the dialog never stays busy.
       settle(proceed)

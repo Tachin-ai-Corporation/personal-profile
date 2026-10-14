@@ -6,8 +6,12 @@ import { createSessionEvents } from "@/lib/api"
 import { FixtureParticipant, type FixtureParticipantProps } from "./__fixtures__/fixture-participant"
 import { confirmUnload, requestLeave, resetLeaveState } from "./leave"
 import { LeaveGuard } from "./leave-guard"
-import type { SaveResult } from "./nav-types"
+import type { SaveResult, SectionId } from "./nav-types"
 import { SectionRegistryProvider, useRegisterSection } from "./section-registry"
+import { setTelemetrySink } from "@/lib/shared/telemetry"
+import { toastPartial } from "./toasts"
+
+vi.mock("./toasts", async (importOriginal) => ({ ...(await importOriginal<typeof import("./toasts")>()), toastPartial: vi.fn() }))
 
 const TITLE = "You have unsaved changes"
 
@@ -24,12 +28,12 @@ function LeaveButton() {
   )
 }
 
-function Page({ children }: { children: ReactNode }) {
+function Page({ children, order }: { children: ReactNode; order?: readonly SectionId[] }) {
   return (
     <SectionRegistryProvider>
       {children}
       <LeaveButton />
-      <LeaveGuard />
+      <LeaveGuard order={order} />
     </SectionRegistryProvider>
   )
 }
@@ -117,6 +121,81 @@ describe("LeaveGuard", () => {
     await waitFor(() => expect(answer()).toBe("true"))
     expect(order).toEqual(["phone", "email"])
     expect(screen.queryByRole("alertdialog")).toBeNull()
+  })
+
+  it("Save runs the Save-all runner: Save-all Sections first, then guard-only participants", async () => {
+    const order: string[] = []
+    render(
+      <Page>
+        <FixtureParticipant id="insurance" label="Insurance" displayOrder={0} saveAll={false} onSave={() => order.push("insurance")} />
+        {phone({ onSave: () => order.push("phone") })}
+      </Page>,
+    )
+    type("Insurance", "x")
+    type("Phone", "1")
+    await leave()
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save" })))
+    await waitFor(() => expect(answer()).toBe("true"))
+    expect(order).toEqual(["phone", "insurance"])
+  })
+
+  it("Save follows the page's save order when given, and fires no save_all telemetry", async () => {
+    const order: string[] = []
+    const events: string[] = []
+    const restore = setTelemetrySink((event) => void events.push(event))
+    render(
+      <Page order={["email", "phone"]}>
+        {phone({ onSave: () => order.push("phone") })}
+        {email({ onSave: () => order.push("email") })}
+      </Page>,
+    )
+    type("Phone", "1")
+    type("Email", "a@b.co")
+    await leave()
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save" })))
+    await waitFor(() => expect(answer()).toBe("true"))
+    restore()
+    expect(order).toEqual(["email", "phone"])
+    expect(events).toEqual([])
+  })
+
+  it("a failed Save stays, shows the partial toast and focuses the first failed Section's heading", async () => {
+    vi.mocked(toastPartial).mockClear()
+    render(
+      <Page>
+        <h2 id="email-heading" tabIndex={-1}>
+          Email
+        </h2>
+        {phone()}
+        {email({ saveBehavior: "fail" })}
+      </Page>,
+    )
+    type("Phone", "1")
+    type("Email", "a@b.co")
+    await leave()
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save" })))
+    await waitFor(() => expect(answer()).toBe("false"))
+    await nextTask()
+    expect(toastPartial).toHaveBeenCalledWith("1 saved, 1 failed")
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Email" }))
+  })
+
+  it("Save with an invalid guard-only participant sends nothing", async () => {
+    const onSave = vi.fn()
+    render(
+      <Page>
+        <FixtureParticipant id="insurance" label="Insurance" displayOrder={6} saveAll={false} onSave={onSave} />
+        {phone({ onSave })}
+      </Page>,
+    )
+    type("Insurance", "invalid")
+    type("Phone", "1")
+    await leave()
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save" })))
+    await nextTask()
+    expect(answer()).toBe("false")
+    expect(onSave).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(screen.getByLabelText("Insurance"))
   })
 
   it("Save with an invalid field sends nothing, closes, cancels and focuses the first invalid field", async () => {

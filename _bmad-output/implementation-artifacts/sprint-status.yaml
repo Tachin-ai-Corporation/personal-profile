@@ -103,7 +103,7 @@ development_status:
   f1-shared-contracts-and-data-layer: done
   f2-bff-extension-kit: done  # absorbs former 7-0c-3 disabled screen
   f3-1-ui-primitives-and-toasts: done  # Tooltip, DisabledAction, InfoIconButton, InlineBanner, StatusBadge, busy Button, FormField, input-locked, toasts, focus-ring, select port
-  f3-2-section-edit-model: in-progress  # registry completion, useSectionForm, header/container/footer, KeyValueTable, runSaveSteps, Save-all runner
+  f3-2-section-edit-model: done  # registry completion, useSectionForm, header/container/footer, KeyValueTable, runSaveSteps, Save-all runner
   f3-3-states-and-section-navigation: in-progress  # StateFrame + skeletons + nouns, forbidden-scope, SignatureThumb, SectionNav port (former 7.0c-2), panels
   f4-drafts: backlog
   f5-1-select-date-input-popover: backlog  # aria-disabled Select + helper, DateInput + Calendar, Popover + info-popover

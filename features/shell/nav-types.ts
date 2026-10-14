@@ -3,6 +3,10 @@
  * enums: no component passes a bare tab string.
  */
 
+import type { MappedError } from "@/lib/api"
+import type { SectionId } from "@/lib/shared/section-ids"
+import type { TelemetryErrorCode } from "@/lib/shared/telemetry"
+
 export const PROFILE_TABS = ["contacts", "insurance", "medical"] as const
 export type ProfileTab = (typeof PROFILE_TABS)[number]
 export const DEFAULT_PROFILE_TAB: ProfileTab = "contacts"
@@ -39,26 +43,60 @@ export function pageOfPath(pathname: string): PageId | null {
 }
 
 /** Section ids (Story 1.11), shared with lib/api and telemetry. */
-import type { SectionId } from "@/lib/shared/section-ids"
-
 export type { SectionId }
+
+/** The id of a Section's `h2` (`tabIndex=-1`): the focus target after Save, Cancel and Section jumps. */
+export function sectionHeadingId(id: SectionId): string {
+  return `${id}-heading`
+}
 
 /** The parts of the `/account` Account settings save (Epic 7). */
 export type AccountSavePart = "details" | "timeZone" | "locale"
 
+/**
+ * A failed save's code: the PHI-free `section_save` telemetry code
+ * (`mappedErrorCode()` of the mapped error, or `UNEXPECTED` for a throw).
+ * `SESSION_EXPIRED` means the session ended: runners stop at once and the
+ * session-expired dialog takes over (no error, no toast).
+ */
+export type SaveErrorCode = TelemetryErrorCode
+
+export const SESSION_EXPIRED_CODE = "SESSION_EXPIRED" satisfies SaveErrorCode
+
 export interface SaveError {
-  /** `UNEXPECTED` when `save()` threw or rejected; otherwise a mapped code. */
-  readonly code?: string
+  /** `UNEXPECTED` when `save()` threw or rejected; otherwise the mapped error's code. */
+  readonly code?: SaveErrorCode
+  /** What the Section shows (field or Section-level error), when the failure was mapped. */
+  readonly mapped?: MappedError
   /** The `/account` Account settings parts that weren't saved (AD-7 exception). */
   readonly failedParts?: readonly AccountSavePart[]
 }
 
 export type SaveResult = { readonly ok: true } | { readonly ok: false; readonly error: SaveError }
 
+/** Whether a save failed because the session ended. */
+export function isSessionExpired(result: SaveResult): boolean {
+  return !result.ok && result.error.code === SESSION_EXPIRED_CODE
+}
+
 export type ValidateResult =
   | { readonly valid: true }
-  /** `focusFirstInvalid` moves focus to the Section's first invalid field. */
-  | { readonly valid: false; readonly focusFirstInvalid: () => void }
+  /**
+   * `invalidCount` is the number of fields to fix (Save all's "{Section} has
+   * {n} fields to fix"); `focusFirstInvalid` moves focus to the first one.
+   */
+  | { readonly valid: false; readonly invalidCount: number; readonly focusFirstInvalid: () => void }
+
+/** A draft's values: only the keys listed in `draftFields` (Story 1.15, F4). */
+export type DraftValues = Readonly<Record<string, unknown>>
+
+/** One changed field of a draft conflict compare: "Your version" vs "Current" (Story 1.15, F4). */
+export interface DraftDiffRow {
+  readonly field: string
+  readonly label: string
+  readonly mine: string
+  readonly current: string
+}
 
 /** What a Section (or a guard-only participant) registers (Story 1.11). */
 export interface SectionRegistration {
@@ -66,6 +104,13 @@ export interface SectionRegistration {
   readonly label: string
   readonly displayOrder: number
   readonly isDirty: boolean
+  /**
+   * `false` for a guard-only participant (e.g. the Insurance editor): never
+   * counted by `getDirtyCount()` nor saved by Save all, but the leave guard
+   * still asks for it, validates it and calls its `save()`. A registration
+   * without `save` is treated as `saveAll: false` too.
+   */
+  readonly saveAll?: false
   /** Defaults to valid. */
   readonly validate?: () => ValidateResult | Promise<ValidateResult>
   /** Omitted by a guard-only participant that can't save: it is then `canSave: false`. */
@@ -73,4 +118,12 @@ export interface SectionRegistration {
   readonly discard: () => void
   /** The fields a draft may hold (Story 1.15). */
   readonly draftFields?: readonly string[]
+  /** F4 drafts: the current values of `draftFields` (written while dirty). */
+  readonly getDraftValues?: () => DraftValues
+  /** F4 drafts: the server values of `draftFields` the edit started from (hashed into `baseHash`). */
+  readonly getDraftBase?: () => DraftValues
+  /** F4 drafts: opens edit view with a restored draft's values. */
+  readonly applyDraft?: (values: DraftValues) => void
+  /** F4 drafts: the changed fields between a draft and the current server values, for the conflict compare. */
+  readonly describeDraftDiff?: (draft: DraftValues, current: DraftValues) => readonly DraftDiffRow[]
 }

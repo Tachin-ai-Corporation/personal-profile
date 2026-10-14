@@ -14,10 +14,12 @@ vi.mock("@/features/shell", () => ({ PageFrame: () => null, PortalUrlProvider: (
 vi.mock("@/features/header", () => ({ ProfileHeader: () => null }))
 vi.mock("@/features/shell/__fixtures__/fixture-participant", () => ({ FixtureParticipant: () => null }))
 vi.mock("@/features/shell/__fixtures__/primitives-fixture", () => ({ PrimitivesFixture: () => null }))
+vi.mock("@/features/shell/__fixtures__/section-fixture-page", () => ({ SectionFixturePage: () => null }))
 
 /** Imported after the mocks above are registered. */
 const LeaveGuardFixturePage = async () => (await import("./test-fixtures/leave-guard/page")).default()
 const PrimitivesFixturePage = async () => (await import("./test-fixtures/primitives/page")).default()
+const SectionFixture = async () => (await import("./test-fixtures/section/page")).default()
 
 beforeEach(() => {
   notFound.mockClear()
@@ -51,5 +53,21 @@ describe("/test-fixtures/primitives gate", () => {
     fixturesOn = true
     await expect(PrimitivesFixturePage()).resolves.toBeTruthy()
     expect(notFound).not.toHaveBeenCalled()
+  })
+})
+
+describe("/test-fixtures/section gate", () => {
+  it("is a 404 unless PP_E2E_FIXTURES=1, before any session check", async () => {
+    fixturesOn = false
+    await expect(SectionFixture()).rejects.toThrow("NEXT_NOT_FOUND")
+    expect(notFound).toHaveBeenCalledTimes(1)
+    expect(requirePageSession).not.toHaveBeenCalled()
+  })
+
+  it("requires a session and renders when the flag is on", async () => {
+    fixturesOn = true
+    await expect(SectionFixture()).resolves.toBeTruthy()
+    expect(notFound).not.toHaveBeenCalled()
+    expect(requirePageSession).toHaveBeenCalledTimes(1)
   })
 })

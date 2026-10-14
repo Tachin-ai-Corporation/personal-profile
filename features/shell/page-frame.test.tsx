@@ -8,6 +8,7 @@ import { TestProviders, testIdle } from "@/test/providers"
 import { resetLeaveState } from "./leave"
 import { PageFrame } from "./page-frame"
 import { ProfileTabs } from "./page-tabs"
+import { useDirtyCount } from "./section-registry"
 
 vi.mock("next/navigation", async () => (await import("@/test/next-navigation")).nextNavigationMock)
 
@@ -79,5 +80,43 @@ describe("PageFrame", () => {
     await act(async () => undefined)
     expect(sessionEvents.hasPublished("session-expired")).toBe(false)
     expect(screen.queryByRole("alertdialog")).toBeNull()
+  })
+
+  it("renders the Save all slot after main on / (last in tab order), inside the page registry", async () => {
+    server.use(http.get(MYSELF, () => HttpResponse.json({ id: 1, firstName: "Ann", lastName: "Lee" })))
+    function Slot() {
+      return <span data-testid="save-all">{useDirtyCount()}</span>
+    }
+    render(
+      <TestProviders>
+        <PageFrame page="profile" header={null} idle={testIdle()} saveAllSlot={<Slot />}>
+          <ProfileTabs />
+        </PageFrame>
+      </TestProviders>,
+    )
+    const slot = screen.getByTestId("save-all")
+    expect(slot.textContent).toBe("0")
+    const main = screen.getByRole("main")
+    expect(main.contains(slot)).toBe(false)
+    expect(main.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    await act(async () => undefined)
+  })
+
+  it("accepts no Save all slot on /account (type error) and renders none even if forced", async () => {
+    server.use(http.get(MYSELF, () => HttpResponse.json({ id: 1, firstName: "Ann", lastName: "Lee" })))
+    const forced = { saveAllSlot: <span data-testid="save-all" /> } as unknown as { saveAllSlot?: never }
+    render(
+      <TestProviders>
+        {/* @ts-expect-error: Save all exists only on / (AD-8). */}
+        <PageFrame page="account" header={null} idle={testIdle()} saveAllSlot={<span />}>
+          <div />
+        </PageFrame>
+        <PageFrame page="account" header={null} idle={testIdle()} {...forced}>
+          <div />
+        </PageFrame>
+      </TestProviders>,
+    )
+    expect(screen.queryByTestId("save-all")).toBeNull()
+    await act(async () => undefined)
   })
 })
