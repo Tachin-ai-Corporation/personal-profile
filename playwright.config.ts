@@ -46,6 +46,9 @@ export default defineConfig({
       APP_ID: "dummy-app-id",
       ONEHEALTH_SECRET_KEY: "dummy-onehealth-secret",
       SESSION_SECRET: "dummy-session-secret-0123456789abcdef",
+      // Install the server-side 1health upstream mock (launch exchange + /myself)
+      // so the launch redirect-chain spec is deterministic. Never set in real envs.
+      PP_E2E_MOCK: "1",
     },
   },
 })

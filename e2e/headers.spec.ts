@@ -11,7 +11,10 @@ import { expect, test } from "@playwright/test"
 const PORTAL_ORIGIN = "https://dev.1hdev.io"
 
 const TARGETS = [
+  // `/` with no session redirects to the launch-error screen; follow it so we
+  // assert the AD-21 header set on the page the user actually sees.
   { name: "home", path: "/", expectStatus: 200 },
+  { name: "launch-error", path: "/launch-error", expectStatus: 200 },
   { name: "404 path", path: "/does-not-exist-abc123", expectStatus: 404 },
   { name: "static asset", path: "/favicon.png", expectStatus: 200 },
 ]
@@ -87,7 +90,10 @@ test("the response CSP nonce reaches the page scripts (strict-dynamic works)", a
     })
   })
 
-  const response = await page.goto("/", { waitUntil: "load" })
+  // `/` guards and redirects when there is no session (Story 1.2), which would
+  // destroy the init-script context; assert nonce/strict-dynamic on a page that
+  // renders directly. `/launch-error` carries the same AD-21 CSP.
+  const response = await page.goto("/launch-error", { waitUntil: "load" })
   const csp = response?.headers()["content-security-policy"] ?? ""
   const headerNonce = csp.match(/'nonce-([A-Za-z0-9+/=]{16,})'/)?.[1]
   expect(headerNonce, "response CSP carries a nonce").toBeTruthy()

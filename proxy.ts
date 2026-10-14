@@ -1,6 +1,7 @@
 import "server-only"
 import { NextResponse, type NextRequest } from "next/server"
 import { PORTAL_ORIGIN } from "@/lib/server/env"
+import { NO_STORE_HEADERS } from "@/lib/server/cache-headers"
 
 /**
  * =============================================================================
@@ -57,9 +58,30 @@ function applySecurityHeaders(res: NextResponse, nonce: string): NextResponse {
   return res
 }
 
+/**
+ * Launch surfaces that must never be cached (AD-18). Route handlers (`/launch`,
+ * `/launch/verify`) also set these on their own responses; the page surfaces
+ * (`/`, `/launch-error`) can only get them here. Static assets stay cacheable.
+ */
+const NO_STORE_PATHS = new Set(["/", "/launch", "/launch/verify", "/launch-error"])
+
 export function proxy(request: NextRequest): NextResponse {
   const nonce = generateNonce()
   const csp = buildCsp(nonce)
+
+  // AD-4: a request to `/` carrying `lpl` is 307-redirected to `/launch` with the
+  // full query string preserved, so `lpl` never reaches `app/page.tsx` or history.
+  if (request.nextUrl.pathname === "/" && request.nextUrl.searchParams.has("lpl")) {
+    const target = request.nextUrl.clone()
+    target.pathname = "/launch"
+    const redirect = NextResponse.redirect(target, 307)
+    applySecurityHeaders(redirect, nonce)
+    // This is a `/` response whose Location carries the single-use lpl — no-store it (AD-18).
+    for (const [name, value] of Object.entries(NO_STORE_HEADERS)) {
+      redirect.headers.set(name, value)
+    }
+    return redirect
+  }
 
   // Forward the nonce to the App Router. Next derives the nonce it stamps on its
   // own scripts from the request's `content-security-policy` header, so that must
@@ -72,7 +94,17 @@ export function proxy(request: NextRequest): NextResponse {
     request: { headers: requestHeaders },
   })
 
-  return applySecurityHeaders(response, nonce)
+  applySecurityHeaders(response, nonce)
+
+  // AD-18: no-store on the launch surfaces and the guarded home page. These page
+  // responses cannot set their own headers; route handlers set theirs too.
+  if (NO_STORE_PATHS.has(request.nextUrl.pathname)) {
+    for (const [name, value] of Object.entries(NO_STORE_HEADERS)) {
+      response.headers.set(name, value)
+    }
+  }
+
+  return response
 }
 
 /** Match every path, including 404s and static assets, so headers are universal (AD-21). */
