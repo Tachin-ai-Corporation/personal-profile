@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Next.js 14 (App Router) + React 18 + Tailwind v4 + shadcn/ui front end built from the **1health App Starter** (v0-generated). It runs inside the 1health platform: the portal launches it with an encrypted Launch Payload (LPL), and from then on the browser calls the 1health REST APIs directly with a Bearer token.
+A Next.js (App Router) + React + Tailwind v4 + shadcn/ui app that runs inside the 1health platform. The portal launches it with an encrypted Launch Payload (LPL). From then on the **browser never talks to 1health**: it calls only this app's own same-origin `/api/...` routes through `callApi`, and the Next server (a BFF) holds the tokens and proxies to 1health.
+
+The design of record is the architecture spine: `_bmad-output/planning-artifacts/architecture/architecture-personal-profile-2026-10-13/ARCHITECTURE-SPINE.md` (decisions are cited as `AD-n` in code comments).
 
 ## Commands
 
@@ -12,54 +14,37 @@ Package manager is **pnpm 12**, run through corepack. Use `corepack pnpm …` if
 
 ```bash
 pnpm install
-pnpm dev        # http://localhost:3000 (also the "dev" config in .claude/launch.json)
+pnpm dev        # https://localhost:3000 (also the "dev" config in .claude/launch.json)
 pnpm build
-pnpm lint       # eslint . (flat config in eslint.config.mjs, eslint-config-next)
+pnpm lint       # eslint . + scripts/check-forbidden.sh (forbidden-pattern gate)
 pnpm typecheck  # tsc --noEmit
+pnpm test       # Vitest (jsdom default; MSW mocks the same-origin /api boundary)
+pnpm test:e2e   # Playwright against `next build && next start` on :3100
 ```
 
-- Stack: Next.js 16 (App Router), React 19, Tailwind v4, zod 4, Node 24.
+- Stack: Next.js 16 (App Router), React 19, Tailwind v4, SWR 2, zod 4, iron-session, Node 24.
 - TypeScript is pinned to 6.x, because typescript-eslint doesn't support TS 7 yet.
-- There is **no test framework** and no test script.
-- `next.config.mjs` sets `typescript.ignoreBuildErrors`, so `pnpm build` passing does **not** mean the code type-checks. Run `pnpm typecheck`.
-- Required env vars (in `.env*`, which is gitignored): `ONEHEALTH_SECRET_KEY_DEMO`, `ONEHEALTH_SECRET_KEY_PROD`, `APP_ID_DEMO`, `APP_ID_PROD`. Base URLs are hardcoded: `https://demo.1health.io` and `https://app.1health.io`.
+- CI (`.github/workflows/ci.yml`) runs forbidden-pattern gate → lint → typecheck → test → e2e → build. Builds no longer ignore type errors.
+- Env vars are read **only** in `lib/server/env.ts` (lint-enforced; client code may read `NEXT_PUBLIC_APP_ENV` only in `lib/shared/app-env.ts`), and the boot fails if one is missing or invalid. Required: `APP_ENV` (`dev|demo|prod`), `APP_ORIGIN`, `APP_ID`, `ONEHEALTH_SECRET_KEY`, `SESSION_SECRET` (≥ 32 chars). Optional: `SESSION_SECRET_PREVIOUS`, `PLACES_ENABLED` + `GOOGLE_PLACES_KEY`, `PP_DISABLED` (kill switch). One deployment per environment, so there are no `_DEMO`/`_PROD` names. The 1health origin is fixed by `APP_ENV`, never by an env var. `pnpm build` needs these set too; CI uses dummy values.
 
 ## Architecture
 
-### Auth flow (`docs/AUTH-ARCHITECTURE.md`)
-- `app/auth/page.tsx` picks the environment (it auto-detects Demo or Prod from `document.referrer`, or the user picks one) and POSTs the LPL to `app/api/token/route.tsx`.
-- That route is the **only server-side 1health code**. It decrypts the LPL with the environment's secret key, exchanges the code for OAuth tokens, and stores the tokens, base URL, org, and user IDs in **cookies**.
-- `app/page.tsx` is a server component guard. With no access or refresh token cookie it redirects to `/auth`; otherwise it renders `components/home-page-client.tsx`.
-- Token refresh happens **client-side** in `lib/auth-client.ts` (`refreshToken()` calls `<base>/auth/oauth2/token` directly and has a concurrency guard). The README and `docs/api/CONVENTIONS.md` mention an `/api/token/refresh` route, but that route does not exist.
-- `authFetch()` attaches the Bearer token. On a 401 it refreshes and retries once, and if the refresh fails it throws `SessionExpiredError`, which `hooks/use-session-expired.ts` handles. It also logs every request and response to the browser console (see `docs/README-DEBUGGER.md`).
+### Launch and session (server only)
+- `app/launch/route.ts` exchanges the LPL once and seals tokens and ids into one `HttpOnly` cookie, `__Host-pp_s` (`lib/server/session.ts`). Tokens never reach the browser. Failures go to `app/launch-error` (`?reason=`). There is no login page.
+- `app/page.tsx` is the server guard (`requireSession()`). It embeds `sessionBinding` (`lib/server/session-binding.ts`) and `PORTAL_URL` in the page via `features/shell/client-config.tsx`.
+- `app/api/1h/[...path]/route.ts` is the only path to 1health (`lib/server/proxy.ts`). Every endpoint must be listed in `lib/server/proxy-allowlist.ts`, so **add an allowlist entry in the same change as the code that calls it**. Owner ids are sent as the literal `me` and filled in from the session. The proxy enforces CSRF + session binding (`lib/server/csrf.ts`) and no-store headers.
+- Token refresh is not built yet (Story 1.5). The proxy answers `401 TOKEN_EXPIRED` when the token is near expiry.
 
-### Client app shell
-- `HomePageClient` wraps everything in `SessionProvider` (`contexts/session-context.tsx`). `useSession()` returns `{ user, tenant, isLoading, error, refresh }`, fetched once through SWR.
-- Routing is a single page: the home page currently renders `SettingsPage`. Add new pages by wiring them into `home-page-client.tsx`, either through a navigation context or as Next.js routes.
-
-### API layer: `lib/api/` (always import from `"@/lib/api"`)
-**Read `docs/api/README.md` before building features.** It explains the platform's mental model, and `docs/api/GOTCHAS.md` lists platform quirks that the helpers already work around.
-- **Transport rule:** never call `fetch` directly for 1health endpoints. Use `callApi` or `callApiRaw` (`lib/api/client.ts`), which wrap `authFetch`. They resolve the base URL **per call** with `getOneHealthBaseUrl()`, so never cache it at module scope. They return `ApiResponse<T> = { success, data?, error?, statusCode? }`.
-- **New module pattern** (`docs/api/CONVENTIONS.md`):
-  - add the module as `lib/api/<feature>.ts`
-  - put endpoint path builders in `config.ts`
-  - export a clean domain type and map the raw wire shape inline
-  - pass a `"<module>/<fn>"` context string as the first argument to `callApi`
-  - re-export the module from `index.ts`
-- **Per-app config:** fill in `RECORD_TYPES` and `ATTRIBUTES` in `lib/api/config.ts` with the PascalCase type keys and schema attribute names this app uses.
-- **Generic engines are already built:**
-  - schema discovery (`schema.ts`)
-  - `/api/v2/query` with RSQL builders (`query.ts`) and grid endpoints (`grid.ts`)
-  - `customData` (`custom-data.ts`)
-  - workflows, built as Campaign → Template → Journey → Steps (`campaign.ts`, `workflow-template.ts`, `journey.ts`, `journey-step.ts`)
-  - self-provisioning (`workflow-provisioning.ts`)
-  - a data-driven step form renderer (`components/workflow/dynamic-step-form.tsx`)
-- Quirks to keep in mind (full list in `GOTCHAS.md`):
-  - **Step-field `fieldIdentifier` GUIDs differ between environments and tenants.** Resolve them by `label` at runtime and never hardcode them. Schema attributes are plain strings and are safe to hardcode.
-  - **Query responses prefix attributes as `ROOT.<Type>.<attr>`.** Read them with `getRootAttr`, `findAttr`, or `getRelatedAttr`, and use `parseCustomData` because `customData` can come back as a JSON string.
-  - **`appendCustomData` is a shallow merge.** For nested or namespaced keys use `mergeCustomData`, or the write will wipe sibling keys.
-  - **Dynamic-field step submits must echo every field** (`buildStepMetadata` does this). Submitting the actionable step is what advances a journey; there is no "complete" call.
-  - **There is no general HTTP DELETE.** Deletion is a flag in the request body, or omission followed by a REPLACE.
+### Client transport: `lib/api/` (always import from `"@/lib/api"`)
+- **`callApi(context, path, init)` (`lib/api/client.ts`) is the only browser→server transport.** `fetch` is lint-banned in `features/`, `components/` and `lib/api/` outside `client.ts`. Never call 1health origins from the browser.
+  - `path` must be a same-origin `/api/...` path; anything else resolves `errorCode: "BAD_PATH"` with no request.
+  - It alone sets the `X-PP-Session` binding header and sends `credentials: "same-origin"`.
+  - It never throws. It returns `ApiResponse<T> = { success, data?, error?, errorCode?, details?, statusCode? }`, where `errorCode` is the proxy's or backend's code and a network failure is `NETWORK_ERROR`.
+  - On `401 SESSION_EXPIRED` / `409 SESSION_CHANGED` it publishes `session-expired` / `session-changed` once per page on `lib/api/session-events.ts`. Nothing else publishes them.
+- **Reads go through SWR.** Build every key with `lib/api/keys.ts` (`["pp", resource, ...params]`); inline keys passed to `useSWR`/`mutate`/etc. are lint-banned. Use the shared `fetcher` (`lib/api/fetcher.ts`), which throws an `ApiError` carrying the `ApiResponse`; add a resolver there for each new key. Example: `features/shell/use-myself.ts`.
+- **New module pattern:** add `lib/api/<feature>.ts`, export a clean domain type and map the wire shape inline (see `lib/api/user.ts`), pass a `"<module>/<fn>"` context to `callApi`, re-export from `index.ts`, and add the proxy allowlist entry.
+- Feature code lives in `features/<section>/` (shell, header, personal, phone, email, social, addresses, insurance, medical).
+- `docs/api/` describes the 1health platform itself (data model, query, quirks) and is useful background. Its "generic engine" helpers were deleted in Story 1.1. `docs/AUTH-ARCHITECTURE.md`, `docs/ACTION-PATTERNS.md` and `docs/README-DEBUGGER.md` describe the removed `authFetch`/client-token design and are **outdated**; don't follow them.
 
 ### Design system (`docs/DESIGN-SYSTEM.md`)
 - All tokens live in `app/globals.css` in three tiers. To rebrand, change only the four `--brand-*` variables in the `TIER 2 · Brand layer` block.
