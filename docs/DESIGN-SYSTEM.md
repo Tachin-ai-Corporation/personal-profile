@@ -368,8 +368,9 @@ Target **WCAG 2.1 AA minimum**.
   for fills, borders, and icons.
 - Never signal state with **color alone** — pair with an icon or label (e.g. the
   token badges read "Active" / "Expired", not just green/red).
-- Focus is always visible: components use a `ring-ring` focus-visible ring.
-  Don't remove it.
+- Focus is always visible: interactive controls use the `focus-ring` utility
+  (`app/globals.css`), a 2px `--ring` outline with a 2px offset plus the
+  `--glow` shadow on `:focus-visible`. Don't remove it.
 - If you inject per-tenant brand colors at runtime, re-check that
   `--primary-foreground` (white by default) still contrasts against the new
   `--brand-primary`.

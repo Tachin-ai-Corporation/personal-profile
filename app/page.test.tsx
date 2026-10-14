@@ -53,7 +53,7 @@ afterEach(() => {
 })
 
 describe("home page guard", () => {
-  it("renders the placeholder when a session exists", async () => {
+  it("renders the shell when a session exists", async () => {
     const { HomePage, requireSession } = await loadPage()
     const element = await HomePage()
     expect(element).toBeTruthy()
@@ -123,5 +123,60 @@ describe("home page session dialogs (Story 1.7)", () => {
     const names = children.map((child) => (child?.type as { name?: string } | undefined)?.name)
     expect(names[0]).toBe(SessionDialogs.name)
     expect(names.indexOf(SessionDialogs.name)).toBeLessThan(names.indexOf(IdleWarning.name))
+  })
+})
+
+type Node = { type: unknown; props: Record<string, unknown> }
+
+function childrenOf(element: unknown): Node[] {
+  return ([] as unknown[]).concat((element as { props: { children: unknown } }).props.children).filter(Boolean) as Node[]
+}
+
+function typeName(node: Node): string | undefined {
+  return typeof node.type === "string" ? node.type : (node.type as { name?: string } | undefined)?.name
+}
+
+describe("home page shell (Story 1.8)", () => {
+  it("renders SessionDialogs, AppBar, main, IdleWarning in that order inside ClientConfig", async () => {
+    const { SessionDialogs } = await import("@/features/shell/session-dialogs")
+    const { AppBar } = await import("@/features/shell/app-bar")
+    const { IdleWarning } = await import("@/features/shell/idle-warning")
+    const { HomePage } = await loadPage()
+    const children = childrenOf(await HomePage())
+    expect(children.map(typeName)).toEqual([SessionDialogs.name, AppBar.name, "main", IdleWarning.name])
+    expect(children[1].props).toEqual({ portalUrl: "https://portal.example/applications" })
+  })
+
+  it("puts the header slot (single h1) before the tabbed shell inside main", async () => {
+    const { ProfileTabs } = await import("@/features/shell/profile-tabs")
+    const { HomePage } = await loadPage()
+    const main = childrenOf(await HomePage())[2]
+    const inner = childrenOf(main)
+    expect(inner.map(typeName)).toEqual(["section", ProfileTabs.name])
+    expect(inner[0].props["aria-label"]).toBe("Profile")
+    const header = childrenOf(inner[0])
+    expect(header.filter((n) => n.type === "h1")).toHaveLength(1)
+  })
+
+  async function initialTabFor(searchParams: Record<string, string | string[] | undefined> | undefined) {
+    const { ProfileTabs } = await import("@/features/shell/profile-tabs")
+    const { HomePage } = await loadPage()
+    const element = await HomePage(searchParams === undefined ? undefined : { searchParams: Promise.resolve(searchParams) })
+    const tabs = childrenOf(childrenOf(element)[2]).find((n) => typeName(n) === ProfileTabs.name)
+    return tabs?.props.initialTab
+  }
+
+  it("opens the tab named by ?tab=", async () => {
+    expect(await initialTabFor({ tab: "contacts" })).toBe("contacts")
+    expect(await initialTabFor({ tab: "insurance" })).toBe("insurance")
+    expect(await initialTabFor({ tab: "medical" })).toBe("medical")
+  })
+
+  it("falls back to contacts for a missing, unknown or repeated ?tab=", async () => {
+    expect(await initialTabFor({})).toBe("contacts")
+    expect(await initialTabFor(undefined)).toBe("contacts")
+    expect(await initialTabFor({ tab: "foo" })).toBe("contacts")
+    expect(await initialTabFor({ tab: "__proto__" })).toBe("contacts")
+    expect(await initialTabFor({ tab: ["insurance", "medical"] })).toBe("contacts")
   })
 })
