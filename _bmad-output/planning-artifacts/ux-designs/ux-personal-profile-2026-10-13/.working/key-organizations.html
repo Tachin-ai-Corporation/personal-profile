@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Key screen · My Organizations</title>
+<style>
+/* UPDATED 2026-10-13 (user overrides): app bar = wordmark + page nav "Personal Profile | Account"
+   (Account active, aria-current="page") + Return to 1health; mobile < 400 px wraps the nav as a
+   segmented control under the wordmark. The app is never framed: no framed variants, portal
+   hand-offs navigate the same tab (no external-arrow, no "(opens in a new tab)"). */
+/* ==========================================================================
+   KEY SCREEN · Profile module, My Organizations tab (/account?tab=organizations)
+   Governing spine sections (spine wins over this mock):
+     DESIGN.md  Profile module (/account) components: Organization search ·
+                Organization card · Info popover · Pagination ·
+                Organizations empty state · (Tooltip, Buttons, Inputs, Shapes,
+                Elevation & Depth: popover = elevation-2)
+                Frontmatter components: org-card, org-card-disabled, org-logo,
+                org-initials-tile, type-icon, overflow-chip, info-popover,
+                pagination, empty-card, empty-row, tooltip, button-aria-disabled
+     EXPERIENCE Information Architecture: Profile page /account · My Organizations ·
+                Primary contact popovers · Portal hand-off
+                Voice and Tone: My Organizations row
+                Component Patterns: Organization search · Organization card ·
+                Info popover · Pagination · Organizations empty state · Portal hand-off
+                State Patterns: No organizations · No results · Disabled organization ·
+                Focus
+                Key Flows: UJ-104 Monica jumps into one of her organizations
+     PRD FR-117, FR-118, FR-119, FR-120
+   LAYOUT CHOICES MADE HERE (need confirmation; purple "Layout choice" tags in-page):
+     O1 Primary contact popover opens below the (i) trigger, left edge aligned to it,
+        and may overlap the neighbouring card.
+     O2 The "+N" overflow chip carries a Tooltip listing the hidden type labels, in
+        FR-118 order (spine names the chip but not its tooltip).
+     O3 Pagination previous control is aria-disabled on page 1.
+     O4 Enter portal navigates the same tab (no external-arrow); the app is never
+        framed (2026-10-13), so there is no new-tab variant.
+   Content: user Daniel Garcia; org names other than 1health / DNN Healthcare Shared
+   Services / gotomarket2 shorty are illustrative. Light theme only.
+   ========================================================================== */
+/* ---- Shared Ledger base (copied from mockups/key-insurance.html) ---- */
+:root{
+  --graphite:#202833;--charcoal:#313b47;--slate:#566373;--mist:#aeb8c4;--cloud:#e6ebf0;
+  --trust-blue:#246b8f;--clinical-ice:#e8f7fa;--signal-aqua:#8fd8e6;
+  --background:#f4f7fa;--card:#ffffff;--secondary:#eaeff4;--muted:#edf1f5;--border:#e1e8ef;
+  --success:#3baa78;--success-strong:#1b7a4f;--info-strong:#256a8c;
+  --warning:#d6a83a;--warning-strong:#8a6511;--error:#d84f45;--error-strong:#b23a31;
+  --r-sm:6px;--r-md:10px;--r-lg:16px;
+  --font:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --elev-1:0 4px 16px rgba(0,0,0,.18);
+  --elev-2:0 12px 40px rgba(0,0,0,.24);
+  --glow:0 0 0 1px rgba(143,216,230,.32),0 0 24px rgba(143,216,230,.18);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--cloud);color:var(--graphite);font-family:var(--font);-webkit-font-smoothing:antialiased}
+a{color:var(--info-strong)}
+:focus-visible{outline:2px solid var(--trust-blue);outline-offset:2px;box-shadow:var(--glow)}
+.sr{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+
+/* presentation shell */
+.doc{max-width:1340px;margin:0 auto;padding:40px 30px 96px}
+.doc-head{max-width:880px;margin:0 0 32px}
+.eyebrow{font-size:12px;line-height:16px;letter-spacing:.08em;text-transform:uppercase;color:var(--slate);margin:0 0 8px}
+.doc-head h2{font-size:32px;line-height:40px;font-weight:600;margin:0 0 12px}
+.doc-head p{font-size:16px;line-height:24px;color:var(--charcoal);margin:0 0 8px}
+.frame-label{font-size:12px;line-height:16px;color:var(--slate);margin:0 0 8px;letter-spacing:.04em}
+.browser{width:1280px;margin:0 auto 48px;background:var(--card);border-radius:var(--r-lg);box-shadow:var(--elev-1);overflow:clip;position:relative}
+.chrome{height:40px;background:var(--secondary);display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid var(--border)}
+.chrome i{width:10px;height:10px;border-radius:50%;background:var(--mist);display:block}
+.url{margin-left:16px;flex:1;max-width:560px;height:26px;border-radius:var(--r-sm);background:var(--card);color:var(--slate);font-size:12px;display:flex;align-items:center;padding:0 12px}
+.ico{width:16px;height:16px;flex:none;vertical-align:-3px}
+.annot{display:inline-block;font-size:11px;line-height:16px;font-weight:600;color:var(--slate);border:1px dashed var(--mist);border-radius:var(--r-sm);padding:0 6px;background:var(--card);text-transform:none;letter-spacing:0;white-space:nowrap}
+.choice{display:inline-block;font-size:11px;line-height:16px;font-weight:600;color:#6b3fa0;border:1px dashed #b79ad8;border-radius:var(--r-sm);padding:0 6px;background:#faf6ff;text-transform:none;letter-spacing:0;white-space:nowrap}
+
+/* app */
+.app{background:var(--card);font-size:14px;line-height:20px}
+.appbar{height:52px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;padding:0 24px;background:var(--card)}
+.wordmark{font-weight:700;font-size:16px;color:var(--trust-blue)}
+.vr{width:1px;height:18px;background:var(--border)}
+.apptitle{font-weight:600;font-size:16px}
+/* App-bar page nav (DESIGN app-nav-item / app-nav-item-active; user override 2026-10-13) */
+.appnav{display:flex;align-items:stretch;gap:4px;align-self:stretch}
+.appnav a{min-height:44px;display:inline-flex;align-items:center;padding:0 12px;font-size:16px;font-weight:500;color:var(--slate);text-decoration:none;border-radius:var(--r-sm) var(--r-sm) 0 0;border-bottom:2px solid transparent}
+.appnav a:hover{background:var(--clinical-ice)}
+.appnav a[aria-current="page"]{color:var(--graphite);font-weight:600;border-bottom-color:var(--trust-blue)}
+.appnav.seg{align-self:auto;background:var(--muted);border-radius:var(--r-sm);padding:2px;gap:2px}
+.appnav.seg a{flex:1;justify-content:center;font-size:14px;border-radius:4px;border-bottom:0}
+.appnav.seg a[aria-current="page"]{background:var(--card);box-shadow:inset 0 -2px 0 var(--trust-blue)}
+.m .appbar.appbar-m{height:auto;flex-wrap:wrap;row-gap:0;padding:0 16px 8px}
+.appbar-m .appnav{order:3;width:100%}
+.return{margin-left:auto;min-height:44px;display:inline-flex;align-items:center;gap:6px;font-weight:500;text-decoration:none}
+.identity{display:flex;align-items:center;gap:12px;padding:16px 24px;border-bottom:1px solid var(--border);background:var(--background)}
+.avatar{width:40px;height:40px;border-radius:50%;background:var(--card);border:1px solid var(--border);color:var(--trust-blue);font-weight:600;font-size:16px;display:grid;place-items:center;flex:none}
+.name{font-size:20px;line-height:28px;font-weight:600;margin:0}
+.idline{margin-left:auto;display:flex;gap:24px;font-size:14px;color:var(--slate);font-variant-numeric:tabular-nums}
+.idline b{color:var(--graphite);font-weight:500}
+.tabs{display:flex;gap:4px;padding:0 24px;border-bottom:1px solid var(--border)}
+.tab{min-height:44px;display:inline-flex;align-items:center;gap:8px;padding:0 12px;border:0;background:none;font:inherit;color:var(--slate);border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;white-space:nowrap}
+.tab[aria-selected=true]{color:var(--graphite);font-weight:600;border-bottom-color:var(--trust-blue)}
+
+/* buttons */
+.btn{min-height:44px;padding:0 14px;border-radius:var(--r-md);font:inherit;font-weight:500;font-size:14px;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;border:1px solid transparent;white-space:nowrap;text-decoration:none}
+.btn-primary{background:var(--trust-blue);color:#fff}
+.btn-outline{background:var(--card);border-color:var(--border);color:var(--graphite)}
+.btn[aria-disabled=true]{background:var(--muted);color:var(--slate);border-color:var(--border);cursor:not-allowed}
+.iconbtn{width:44px;height:44px;padding:0;border:0;background:none;border-radius:var(--r-md);display:inline-grid;place-items:center;color:var(--slate);cursor:pointer}
+.iconbtn .ico{width:18px;height:18px}
+.iconbtn.open{background:var(--muted);color:var(--graphite)}
+.muted{color:var(--slate)}
+
+/* tooltip (type icons, +N chip and the full name show theirs on hover, focus or tap) */
+.tt .tip{display:none}
+.tt:hover .tip,.tt:focus-within .tip,.tt.show .tip{display:block}
+.tipwrap.namewrap{display:block;min-width:0}
+.tipwrap.namewrap .tip{left:0;transform:none}
+.tipwrap{position:relative;display:inline-flex}
+.tip{position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:var(--graphite);color:#fff;font-size:12px;line-height:16px;padding:6px 10px;border-radius:var(--r-sm);white-space:nowrap;box-shadow:var(--elev-1);z-index:3;font-weight:400}
+.tip::after{content:"";position:absolute;top:100%;left:50%;margin-left:-6px;border:6px solid transparent;border-top-color:var(--graphite)}
+
+/* inputs */
+.input{height:44px;width:100%;border:1px solid #7a8696;border-radius:var(--r-md);background:var(--card);padding:0 12px;font:inherit;font-size:16px;line-height:24px;display:flex;align-items:center;gap:8px;color:var(--graphite);min-width:0;white-space:nowrap;overflow:hidden}
+.input .ph{color:var(--slate)}
+.input>.ico{color:var(--slate)}
+
+/* ---- My Organizations ---- */
+.org-main{padding:16px 24px 32px}
+.searchrow{display:flex;gap:12px;align-items:center;margin-bottom:16px}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.ocard{position:relative;background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:16px;min-height:248px;display:flex;flex-direction:column}
+.ocard-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;height:72px;margin-bottom:16px}
+.ocard-top .iconbtn{margin:-10px -10px 0 0}
+.logo{height:72px;display:flex;align-items:center;font-weight:700;font-size:30px;letter-spacing:-.01em;color:var(--graphite)}
+.logo small{font-size:30px;font-weight:700;color:var(--slate)}
+.initials{width:72px;height:72px;border-radius:var(--r-md);background:var(--muted);color:var(--slate);font-weight:600;font-size:22px;display:grid;place-items:center;flex:none}
+.oname{margin:0 0 8px;font-size:16px;line-height:24px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.types{display:flex;align-items:center;gap:0;margin:0 0 12px -12px;min-height:44px}
+.type{width:44px;height:44px;display:grid;place-items:center;color:var(--slate);position:relative}
+.type svg{width:20px;height:20px}
+.ochip{height:22px;padding:0 8px;margin-left:4px;border:1px solid var(--border);border-radius:var(--r-sm);font-size:12px;line-height:20px;font-weight:600;color:var(--charcoal);background:var(--card);display:inline-flex;align-items:center}
+.ocard .foot{margin-top:auto;display:flex;align-items:center;gap:8px}
+.ocard.disabled .oname{color:var(--slate)}
+.ocard.disabled .initials{color:var(--slate)}
+.ocard .annot,.ocard .choice{position:absolute;bottom:20px;right:12px}
+.popover{position:absolute;top:56px;right:-268px;width:280px;background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:var(--elev-2);padding:16px;z-index:7;font-size:14px;line-height:20px}
+.popover h3{margin:0 0 8px;font-size:14px;line-height:20px;font-weight:600}
+.popover dl{margin:0;display:grid;gap:6px}
+.popover dt{position:absolute;left:-9999px}
+.popover dd{margin:0;display:flex;align-items:center;gap:8px}
+.popover dd .ico{color:var(--slate)}
+.popover .num{font-variant-numeric:tabular-nums;font-weight:500}
+.pager{display:flex;justify-content:center;align-items:center;gap:4px;margin-top:24px}
+.pg{width:44px;height:44px;border:0;border-radius:var(--r-md);background:none;font:inherit;font-size:14px;font-weight:500;color:var(--charcoal);display:grid;place-items:center;cursor:pointer;font-variant-numeric:tabular-nums}
+.pg[aria-current=page]{background:var(--muted);color:var(--graphite);font-weight:600}
+.pg[aria-disabled=true]{color:var(--mist);cursor:not-allowed}
+
+/* empty card */
+.empty-card{background:var(--card);border:1.5px dashed var(--border);border-radius:var(--r-md);padding:32px;max-width:720px;margin:24px auto 8px}
+.empty-card h2{margin:0 0 4px;font-size:16px;line-height:24px;font-weight:600}
+.empty-card .sub{margin:0 0 20px;color:var(--slate);font-size:14px}
+.feat{list-style:none;margin:0 0 24px;padding:0;display:grid;gap:16px}
+.feat li{display:grid;grid-template-columns:24px 1fr;gap:12px;align-items:start}
+.feat svg{width:24px;height:24px;color:var(--slate)}
+.feat b{display:block;font-weight:600;color:var(--graphite)}
+.feat span{color:var(--slate)}
+.noresults{border:1px solid var(--border);border-radius:var(--r-md);min-height:44px;display:flex;align-items:center;padding:0 12px;color:var(--slate)}
+
+/* mobile frame (390 inner) */
+.mobile-row{display:flex;gap:48px;justify-content:center;align-items:flex-start;flex-wrap:wrap}
+.phone{width:410px;border:10px solid var(--graphite);border-radius:44px;overflow:clip;background:var(--card);box-shadow:var(--elev-1);flex:none;position:relative}
+.status{height:36px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;font-size:12px;font-weight:600;background:var(--card)}
+.m .appbar{padding:0 16px}
+.m .identity{padding:12px 16px}
+.m .tabs{padding:0 8px;overflow-x:auto;scrollbar-width:none}
+.m .tab{padding:0 10px}
+.m .org-main{padding:12px 16px 32px}
+.m .grid{grid-template-columns:1fr}
+.mnotes{max-width:420px;font-size:14px;line-height:22px;color:var(--charcoal)}
+.mnotes h3{font-size:20px;line-height:28px;font-weight:600;margin:0 0 12px;color:var(--graphite)}
+.mnotes ul{padding-left:18px;margin:0}
+.mnotes li{margin-bottom:8px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-out" viewBox="0 0 16 16"><path d="M9 3h4v4M13 3 7 9M11.5 9.5V13h-9V4H6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.25v4M8 4.9v.1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-chev-l" viewBox="0 0 16 16"><path d="M10 4 6 8l4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chev-r" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-user" viewBox="0 0 16 16"><circle cx="8" cy="5.5" r="2.75" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M2.75 13.5c.6-2.6 2.7-4 5.25-4s4.65 1.4 5.25 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 16 16"><path d="M5.6 2.5H3.5c-.6 0-1 .45-1 1C2.6 9 7 13.4 12.5 13.5c.55 0 1-.4 1-1v-2.1l-2.6-1-1.3 1.3C8 10 6 8 5.3 6.4L6.6 5.1z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 16 16"><rect x="2" y="3.5" width="12" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="m2.5 4.5 5.5 4.25 5.5-4.25" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+  <!-- lucide-like outline approximations (24 grid) -->
+  <symbol id="t-flask" viewBox="0 0 24 24"><path d="M10 2v7.31M14 9.3V2M8.5 2h7M14 9.3a6.5 6.5 0 1 1-4 0M5.52 16h12.96" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="t-heart" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="t-truck" viewBox="0 0 24 24"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2M15 18H9M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="17" cy="18" r="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="7" cy="18" r="2" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="t-store" viewBox="0 0 24 24"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4M2 7h20M22 7v3a2 2 0 0 1-2 2 2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<div class="doc">
+  <header class="doc-head">
+    <p class="eyebrow">Key screen · Profile module (/account) · Ledger</p>
+    <h2>My Organizations, finding a portal</h2>
+    <p>Daniel belongs to six organizations across two pages. The grid shows logos or initials, type icons with an overflow chip, one organization where he is disabled, and the Primary contact popover open on another. Below: the empty state, the no-results state, and the 390 px layout.</p>
+    <p><span class="choice">Layout choice</span> tags mark compositions this mock decided; <span class="annot">State</span> tags name the spine row shown. See the comment block in the source.</p>
+  </header>
+
+  <!-- ================= A · Grid at rest ================= -->
+  <p class="frame-label">A · DESKTOP · 1280 px · My Organizations, page 1 of 2 (tooltips and popover shown open for review)</p>
+  <div class="browser">
+    <div class="chrome"><i></i><i></i><i></i><div class="url">profile.1health.app/account?tab=organizations</div></div>
+    <div class="app">
+      <header class="appbar">
+        <span class="wordmark">1health</span><span class="vr"></span><nav class="appnav" aria-label="Pages"><a href="/">Personal Profile</a><a href="/account" aria-current="page">Account</a></nav>
+        <a class="return" href="#">Return to 1health <svg class="ico"><use href="#i-out"/></svg></a>
+      </header>
+      <section class="identity" aria-label="Profile">
+        <div class="avatar" aria-hidden="true">DG</div>
+        <h1 class="name">Daniel Garcia</h1>
+        <div class="idline"><span>Primary phone <b>+1 (305) 555-0148</b></span><span>Primary email <b>daniel.garcia@example.com</b></span></div>
+      </section>
+      <nav class="tabs" role="tablist" aria-label="Profile areas">
+        <button class="tab" role="tab" aria-selected="false">Personal Account</button>
+        <button class="tab" role="tab" aria-selected="false">Individual Provider Registration</button>
+        <button class="tab" role="tab" aria-selected="true">My Organizations</button>
+      </nav>
+
+      <main class="org-main" style="padding-bottom:48px">
+        <div class="searchrow">
+          <label class="sr" for="q1">Search organizations</label>
+          <div class="input" id="q1" role="searchbox"><svg class="ico"><use href="#i-search"/></svg><span class="ph">Search organizations</span></div>
+        </div>
+        <p class="sr" aria-live="polite">6 organizations</p>
+
+        <div class="grid">
+          <!-- 1health · logo, 6 types -->
+          <article class="ocard" aria-labelledby="o1">
+            <div class="ocard-top">
+              <div class="logo" role="img" aria-label="1health logo">1health<small>.io</small></div>
+              <button class="iconbtn" aria-label="Primary contact for 1health" aria-haspopup="dialog" aria-expanded="false"><svg class="ico"><use href="#i-info"/></svg></button>
+            </div>
+            <h2 class="oname" id="o1">1health</h2>
+            <div class="types" aria-label="Organization types">
+              <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Lab"><svg aria-hidden="true"><use href="#t-flask"/></svg></span><span class="tip" role="tooltip">Lab</span></span>
+              <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Healthcare"><svg aria-hidden="true"><use href="#t-heart"/></svg></span><span class="tip" role="tooltip">Healthcare</span></span>
+              <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Supplier"><svg aria-hidden="true"><use href="#t-truck"/></svg></span><span class="tip" role="tooltip">Supplier</span></span>
+              <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Go To Market"><svg aria-hidden="true"><use href="#t-store"/></svg></span><span class="tip" role="tooltip">Go To Market</span></span>
+              <span class="tipwrap"><span class="ochip" tabindex="0" role="img" aria-label="2 more types: Insurance, Population Health">+2</span><span class="tip" role="tooltip" id="tp1">Insurance, Population Health</span></span>
+            </div>
+            <div class="foot"><a class="btn btn-primary" href="#">Enter portal</a></div>
+            <span class="choice">O2 · +N tooltip</span>
+          </article>
+
+          <!-- Bayview · disabled -->
+          <article class="ocard disabled" aria-labelledby="o2">
+            <div class="ocard-top">
+              <div class="initials" aria-hidden="true">BM</div>
+              <button class="iconbtn" aria-label="Primary contact for Bayview Medical Group" aria-haspopup="dialog" aria-expanded="false"><svg class="ico"><use href="#i-info"/></svg></button>
+            </div>
+            <h2 class="oname" id="o2">Bayview Medical Group</h2>
+            <div class="types" aria-label="Organization types">
+              <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Healthcare"><svg aria-hidden="true"><use href="#t-heart"/></svg></span><span class="tip" role="tooltip">Healthcare</span></span>
+            </div>
+            <div class="foot"><span class="tipwrap"><a class="btn btn-primary" aria-disabled="true" aria-describedby="tp2" role="link">Enter portal</a><span class="tip" role="tooltip" id="tp2" style="left:0;transform:none">You're disabled in this organization</span></span></div>
+            <span class="annot">Disabled organization</span>
+          </article>
+
+          <!-- DNN · long name, no logo -->
+          <article class="ocard" aria-labelledby="o3">
+            <div class="ocard-top">
+              <div class="initials" aria-hidden="true">DH</div>
+              <button class="iconbtn" aria-label="Primary contact for DNN Healthcare Shared Services" aria-haspopup="dialog" aria-expanded="false"><svg class="ico"><use href="#i-info"/></svg></button>
+            </div>
+            <div class="tipwrap tt namewrap"><h2 class="oname" id="o3">DNN Healthcare Shared Services</h2><span class="tip" role="tooltip">DNN Healthcare Shared Services</span></div>
+            <div class="types" aria-label="Organization types">
+              <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Lab"><svg aria-hidden="true"><use href="#t-flask"/></svg></span><span class="tip" role="tooltip">Lab</span></span>
+              <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Healthcare"><svg aria-hidden="true"><use href="#t-heart"/></svg></span><span class="tip" role="tooltip">Healthcare</span></span>
+              <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Supplier"><svg aria-hidden="true"><use href="#t-truck"/></svg></span><span class="tip" role="tooltip">Supplier</span></span>
+              <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Go To Market"><svg aria-hidden="true"><use href="#t-store"/></svg></span><span class="tip" role="tooltip">Go To Market</span></span>
+            </div>
+            <div class="foot"><a class="btn btn-primary" href="#">Enter portal</a></div>
+            <span class="annot">1 line · ellipsis if longer</span>
+          </article>
+
+          <!-- gotomarket2 shorty -->
+          <article class="ocard" aria-labelledby="o4">
+            <div class="ocard-top">
+              <div class="initials" aria-hidden="true">GS</div>
+              <button class="iconbtn" aria-label="Primary contact for gotomarket2 shorty" aria-haspopup="dialog" aria-expanded="false"><svg class="ico"><use href="#i-info"/></svg></button>
+            </div>
+            <h2 class="oname" id="o4">gotomarket2 shorty</h2>
+            <div class="types" aria-label="Organization types">
+              <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Lab"><svg aria-hidden="true"><use href="#t-flask"/></svg></span><span class="tip" role="tooltip">Lab</span></span>
+              <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Healthcare"><svg aria-hidden="true"><use href="#t-heart"/></svg></span><span class="tip" role="tooltip">Healthcare</span></span>
+              <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Supplier"><svg aria-hidden="true"><use href="#t-truck"/></svg></span><span class="tip" role="tooltip">Supplier</span></span>
+              <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Go To Market"><svg aria-hidden="true"><use href="#t-store"/></svg></span><span class="tip" role="tooltip">Go To Market</span></span>
+            </div>
+            <div class="foot"><a class="btn btn-primary" href="#">Enter portal</a></div>
+          </article>
+
+          <!-- Northside · popover open -->
+          <article class="ocard" aria-labelledby="o5">
+            <div class="ocard-top">
+              <div class="initials" aria-hidden="true">ND</div>
+              <button class="iconbtn open" aria-label="Primary contact for Northside Diagnostics Lab" aria-haspopup="dialog" aria-expanded="true" aria-controls="pop5"><svg class="ico"><use href="#i-info"/></svg></button>
+            </div>
+            <div class="popover" role="dialog" id="pop5" aria-labelledby="pop5h">
+              <h3 id="pop5h">Primary contact</h3>
+              <dl>
+                <dt>Name</dt><dd><svg class="ico"><use href="#i-user"/></svg>Priya Natarajan</dd>
+                <dt>Phone</dt><dd><svg class="ico"><use href="#i-phone"/></svg><span class="num">+1 (312) 555-0176</span></dd>
+                <dt>Email</dt><dd><svg class="ico"><use href="#i-mail"/></svg><a href="mailto:priya.natarajan@example.com">priya.natarajan@example.com</a></dd>
+              </dl>
+            </div>
+            <h2 class="oname" id="o5">Northside Diagnostics Lab</h2>
+            <div class="types" aria-label="Organization types">
+              <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Lab"><svg aria-hidden="true"><use href="#t-flask"/></svg></span><span class="tip" role="tooltip">Lab</span></span>
+            </div>
+            <div class="foot"><a class="btn btn-primary" href="#">Enter portal</a></div>
+            <span class="choice">O1 · popover below (i)</span>
+          </article>
+
+          <!-- Summit -->
+          <article class="ocard" aria-labelledby="o6">
+            <div class="ocard-top">
+              <div class="initials" aria-hidden="true">SS</div>
+              <button class="iconbtn" aria-label="Primary contact for Summit Supply Co." aria-haspopup="dialog" aria-expanded="false"><svg class="ico"><use href="#i-info"/></svg></button>
+            </div>
+            <h2 class="oname" id="o6">Summit Supply Co.</h2>
+            <div class="types" aria-label="Organization types">
+              <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Supplier"><svg aria-hidden="true"><use href="#t-truck"/></svg></span><span class="tip" role="tooltip">Supplier</span></span>
+            </div>
+            <div class="foot"><a class="btn btn-primary" href="#">Enter portal</a></div>
+          </article>
+        </div>
+
+        <nav class="pager" aria-label="Organizations pages">
+          <button class="pg" aria-label="Previous page" aria-disabled="true"><svg class="ico"><use href="#i-chev-l"/></svg></button>
+          <button class="pg" aria-current="page" aria-label="Page 1">1</button>
+          <button class="pg" aria-label="Page 2">2</button>
+          <button class="pg" aria-label="Next page"><svg class="ico"><use href="#i-chev-r"/></svg></button>
+          <span class="choice" style="margin-left:12px">O3 · prev aria-disabled on page 1</span>
+        </nav>
+      </main>
+    </div>
+  </div>
+
+  <!-- ================= B · Empty ================= -->
+  <p class="frame-label">B · DESKTOP · 1280 px · No organizations</p>
+  <div class="browser">
+    <div class="chrome"><i></i><i></i><i></i><div class="url">profile.1health.app/account?tab=organizations</div></div>
+    <div class="app">
+      <header class="appbar">
+        <span class="wordmark">1health</span><span class="vr"></span><nav class="appnav" aria-label="Pages"><a href="/">Personal Profile</a><a href="/account" aria-current="page">Account</a></nav>
+        <a class="return" href="#">Return to 1health <svg class="ico"><use href="#i-out"/></svg></a>
+      </header>
+      <section class="identity" aria-label="Profile">
+        <div class="avatar" aria-hidden="true">DG</div>
+        <h1 class="name">Daniel Garcia</h1>
+        <div class="idline"><span>Primary phone <b>+1 (305) 555-0148</b></span><span>Primary email <b>daniel.garcia@example.com</b></span></div>
+      </section>
+      <nav class="tabs" role="tablist" aria-label="Profile areas">
+        <button class="tab" role="tab" aria-selected="false">Personal Account</button>
+        <button class="tab" role="tab" aria-selected="false">Individual Provider Registration</button>
+        <button class="tab" role="tab" aria-selected="true">My Organizations</button>
+      </nav>
+      <main class="org-main">
+        <span class="annot">State · No organizations</span>
+        <section class="empty-card" aria-labelledby="e1">
+          <h2 id="e1">You aren't managing any organizations yet</h2>
+          <p class="sub">Register an organization with 1health to unlock the platform features listed below</p>
+          <ul class="feat">
+            <li><svg aria-hidden="true"><use href="#t-flask"/></svg><div><b>Lab</b><span>Add your tests offered and enable order management.</span></div></li>
+            <li><svg aria-hidden="true"><use href="#t-heart"/></svg><div><b>Healthcare</b><span>Order tests, get results, and manage your patients.</span></div></li>
+            <li><svg aria-hidden="true"><use href="#t-truck"/></svg><div><b>Supplier</b><span>Provide fulfillment and logistics for collection devices.</span></div></li>
+            <li><svg aria-hidden="true"><use href="#t-store"/></svg><div><b>Go To Market</b><span>Create and sell test products.</span></div></li>
+          </ul>
+          <a class="btn btn-primary" href="#" aria-label="Register organization (opens in a new tab)">Register organization <svg class="ico" aria-hidden="true"><use href="#i-out"/></svg></a>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- ================= C · No results ================= -->
+  <p class="frame-label">C · DESKTOP · 1280 px · No results for "zzz" (tab content only)</p>
+  <div class="browser">
+    <div class="chrome"><i></i><i></i><i></i><div class="url">profile.1health.app/account?tab=organizations</div></div>
+    <div class="app">
+      <nav class="tabs" role="tablist" aria-label="Profile areas">
+        <button class="tab" role="tab" aria-selected="false">Personal Account</button>
+        <button class="tab" role="tab" aria-selected="false">Individual Provider Registration</button>
+        <button class="tab" role="tab" aria-selected="true">My Organizations</button>
+      </nav>
+      <main class="org-main">
+        <div class="searchrow">
+          <label class="sr" for="q3">Search organizations</label>
+          <div class="input" id="q3" role="searchbox"><svg class="ico"><use href="#i-search"/></svg>zzz</div>
+        </div>
+        <p class="noresults" role="status">Sorry, no results were found</p>
+        <p style="margin:8px 0 0"><span class="annot">State · No results · no pagination</span></p>
+      </main>
+    </div>
+  </div>
+
+  <!-- ================= D · Mobile ================= -->
+  <p class="frame-label" style="text-align:center">D · MOBILE · 390 × 844 · single-column cards, top-level in its own tab</p>
+  <div class="mobile-row">
+    <div class="phone m" style="height:864px">
+      <div class="status"><span>9:41</span><span>100%</span></div>
+      <div class="app">
+        <header class="appbar appbar-m"><span class="wordmark">1health</span><a class="return" href="#">Return to 1health</a><nav class="appnav seg" aria-label="Pages"><a href="/">Personal Profile</a><a href="/account" aria-current="page">Account</a></nav></header>
+        <section class="identity"><div class="avatar" aria-hidden="true">DG</div><h1 class="name">Daniel Garcia</h1></section>
+        <nav class="tabs" role="tablist" aria-label="Profile areas">
+          <button class="tab" role="tab" aria-selected="false">Personal Account</button>
+          <button class="tab" role="tab" aria-selected="false">Individual Provider Registration</button>
+          <button class="tab" role="tab" aria-selected="true">My Organizations</button>
+        </nav>
+        <main class="org-main">
+          <div class="searchrow">
+            <div class="input" role="searchbox" aria-label="Search organizations"><svg class="ico"><use href="#i-search"/></svg><span class="ph">Search organizations</span></div>
+          </div>
+          <div class="grid">
+            <article class="ocard" aria-labelledby="m1">
+              <div class="ocard-top">
+                <div class="logo" role="img" aria-label="1health logo">1health<small>.io</small></div>
+                <button class="iconbtn" aria-label="Primary contact for 1health"><svg class="ico"><use href="#i-info"/></svg></button>
+              </div>
+              <h2 class="oname" id="m1">1health</h2>
+              <div class="types" aria-label="Organization types">
+                <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Lab"><svg aria-hidden="true"><use href="#t-flask"/></svg></span><span class="tip" role="tooltip">Lab</span></span>
+                <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Healthcare"><svg aria-hidden="true"><use href="#t-heart"/></svg></span><span class="tip" role="tooltip">Healthcare</span></span>
+                <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Supplier"><svg aria-hidden="true"><use href="#t-truck"/></svg></span><span class="tip" role="tooltip">Supplier</span></span>
+                <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Go To Market"><svg aria-hidden="true"><use href="#t-store"/></svg></span><span class="tip" role="tooltip">Go To Market</span></span>
+                <span class="tipwrap tt"><span class="ochip" tabindex="0" role="img" aria-label="2 more types: Insurance, Population Health">+2</span><span class="tip" role="tooltip">Insurance, Population Health</span></span>
+              </div>
+              <div class="foot"><a class="btn btn-primary" href="#" aria-label="Enter portal for 1health">Enter portal</a></div>
+            </article>
+            <article class="ocard disabled" aria-labelledby="m2">
+              <div class="ocard-top">
+                <div class="initials" aria-hidden="true">BM</div>
+                <button class="iconbtn" aria-label="Primary contact for Bayview Medical Group"><svg class="ico"><use href="#i-info"/></svg></button>
+              </div>
+              <h2 class="oname" id="m2">Bayview Medical Group</h2>
+              <div class="types" aria-label="Organization types">
+                <span class="tipwrap tt"><span class="type" tabindex="0" role="img" aria-label="Healthcare"><svg aria-hidden="true"><use href="#t-heart"/></svg></span><span class="tip" role="tooltip">Healthcare</span></span>
+              </div>
+              <div class="foot"><a class="btn btn-primary" aria-disabled="true" role="link" aria-describedby="tpm2">Enter portal</a><span class="sr" id="tpm2">You're disabled in this organization</span></div>
+            </article>
+            <article class="ocard" aria-labelledby="m3">
+              <div class="ocard-top">
+                <div class="initials" aria-hidden="true">DH</div>
+                <button class="iconbtn" aria-label="Primary contact for DNN Healthcare Shared Services"><svg class="ico"><use href="#i-info"/></svg></button>
+              </div>
+              <h2 class="oname" id="m3">DNN Healthcare Shared Services</h2>
+            </article>
+          </div>
+        </main>
+      </div>
+    </div>
+    <div class="mnotes" style="max-width:340px">
+      <h3>What changes at 390 px</h3>
+      <ul>
+        <li>The grid drops to one column below 640 px (4 / 3 / 2 / 1 at 1280 / 1024 / 640 px); cards keep full anatomy and the 248 px minimum height.</li>
+        <li>The tab strip scrolls horizontally; no section index on /account.</li>
+        <li>Search is full width. For internal users, "Create new organization" stacks below it (not shown: Daniel is not internal).</li>
+        <li>Enter portal navigates the same tab, with the leave guard if anything is dirty. The app is never framed, so there is no new-tab variant and "Return to 1health" always shows (PM11).</li>
+        <li>Below 400 px the app-bar page nav (Personal Profile · Account) wraps under the wordmark as a segmented control.</li>
+        <li>Type icons, the "+N" chip and the truncated name show their Tooltip on hover, focus or tap. Type labels follow the Organization Type map (Health Provider reads "Healthcare").</li>
+        <li>The Info popover opens on hover, focus or tap, below the (i); it closes on Escape, blur or outside tap and returns focus to (i).</li>
+        <li>Pagination stays centered under the grid, 44 px items.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</body>
+</html>

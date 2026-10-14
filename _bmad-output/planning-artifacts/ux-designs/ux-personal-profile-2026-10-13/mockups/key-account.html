@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Key screen · Personal Account</title>
+<style>
+/* UPDATED 2026-10-13 (user overrides): app bar = wordmark + page nav "Personal Profile | Account"
+   (Account active, aria-current="page") + Return to 1health; mobile < 400 px wraps the nav as a
+   segmented control under the wordmark. The app is never framed: no framed variants, portal
+   hand-offs navigate the same tab (no external-arrow, no "(opens in a new tab)"). */
+/* ==========================================================================
+   KEY SCREEN · Profile /account · Personal Account tab (Account settings + Authenticator app)
+   Governing spine sections (spine wins over this mock):
+     DESIGN.md  Profile module (/account) components: intro (app bar title "Profile",
+                three-tab strip, no section index) · Account settings (key/value) ·
+                Authenticator app section · Link authenticator dialog
+                Components: Key/value table (read 4-col, edit Field | Value, mobile 44 %) ·
+                Section header · Section table — edit (tfoot Unsaved changes, Cancel, Save) ·
+                Inputs (input-locked, Select, help-text, help-text-error) · Inline banner (info) ·
+                Row status badges (status-verified) · Disabled action · Tooltip · Toast ·
+                Confirm dialog anatomy · Focus
+                Frontmatter: mfa-tile, mfa-tile-inactive, qr-dialog, otp-input, kv-*, input-locked
+     EXPERIENCE IA rows: Profile page /account · Personal Account ?tab=personal ·
+                Link authenticator dialog
+                Voice and Tone: Account settings — locked / primary picker disabled /
+                first-change notice · Birth date help (account) · Authenticator — intro /
+                dialog
+                Component Patterns: Account settings (key/value) · Authenticator app section ·
+                Link authenticator dialog · Disabled action · Tooltip
+                State Patterns: Dirty / unsaved · Validation error · TOTP linked · Empty value
+                Key Flows: UJ-101 steps 2–3 · UJ-102 steps 1–2, wrong-code edge, step 4
+     PRD (prd-profile-account) FR-101–FR-112
+   SECTIONS IN THIS FILE
+     A  Desktop · Account settings in edit (email picked, first-change notice, phone picker
+        aria-disabled, language + time zone blank)
+     B  Desktop · Authenticator app, not linked (same frame as A)
+     C  Desktop · Account settings read, 4 columns
+     E  Desktop · Authenticator app linked (same frame as C) + toast
+     D  Desktop · Link your Microsoft authenticator dialog, wrong code
+     F  Mobile 390 · Personal Account read
+   VALUES NOT FIXED BY THE SPINE (illustrative, flagged in-page with dashed "Note" tags)
+     - Daniel's second verified email "daniel.garcia@baymedclinic.com" (UJ-101 "work address").
+     - Default time zone blank, like today's UI (imports/profile-current-ui/1.png).
+     - Read 4-col order is row-major per the "/" groups in DESIGN.md (Personal information
+       read view is column-major).
+   ========================================================================== */
+/* ---- Shared Ledger base (matches .working/direction-c-ledger.html) ----
+   Tokens: app/globals.css via DESIGN.md frontmatter. Approved a11y deltas applied:
+   destructive fill = error-strong #b23a31 · input borders = #7a8696 (status-neutral, 3.7:1) · link text = info-strong #256a8c.
+   Off-scale 13/15 px from the direction mock normalized to 14/16 px (DESIGN.md Typography). Light theme only. */
+:root{
+  --graphite:#202833;--charcoal:#313b47;--slate:#566373;--mist:#aeb8c4;--cloud:#e6ebf0;
+  --trust-blue:#246b8f;--clinical-ice:#e8f7fa;--signal-aqua:#8fd8e6;
+  --background:#f4f7fa;--card:#ffffff;--secondary:#eaeff4;--muted:#edf1f5;--border:#e1e8ef;
+  --success:#3baa78;--success-strong:#1b7a4f;--info-strong:#256a8c;
+  --warning:#d6a83a;--warning-strong:#8a6511;--error:#d84f45;--error-strong:#b23a31;
+  --r-sm:6px;--r-md:10px;--r-lg:16px;
+  --font:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --elev-1:0 4px 16px rgba(0,0,0,.18);
+  --elev-2:0 12px 40px rgba(0,0,0,.24);
+  --glow:0 0 0 1px rgba(143,216,230,.32),0 0 24px rgba(143,216,230,.18);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--cloud);color:var(--graphite);font-family:var(--font);-webkit-font-smoothing:antialiased}
+a{color:var(--info-strong)}
+:focus-visible{outline:2px solid var(--trust-blue);outline-offset:2px;box-shadow:var(--glow)}
+.focus-demo{outline:2px solid var(--trust-blue);outline-offset:2px;box-shadow:var(--glow)}
+.sr{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+
+/* presentation shell */
+.doc{max-width:1340px;margin:0 auto;padding:40px 30px 96px}
+.doc-head{max-width:880px;margin:0 0 32px}
+.eyebrow{font-size:12px;line-height:16px;letter-spacing:.08em;text-transform:uppercase;color:var(--slate);margin:0 0 8px}
+.doc-head h2{font-size:32px;line-height:40px;font-weight:600;margin:0 0 12px}
+.doc-head p{font-size:16px;line-height:24px;color:var(--charcoal);margin:0 0 8px}
+.frame-label{font-size:12px;line-height:16px;color:var(--slate);margin:0 0 8px;letter-spacing:.04em}
+.browser{width:1280px;margin:0 auto 48px;background:var(--card);border-radius:var(--r-lg);box-shadow:var(--elev-1);overflow:clip;position:relative}
+.chrome{height:40px;background:var(--secondary);display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid var(--border)}
+.chrome i{width:10px;height:10px;border-radius:50%;background:var(--mist);display:block}
+.url{margin-left:16px;flex:1;max-width:560px;height:26px;border-radius:var(--r-sm);background:var(--card);color:var(--slate);font-size:12px;display:flex;align-items:center;padding:0 12px}
+.ico{width:16px;height:16px;flex:none;vertical-align:-3px}
+.annot{display:inline-block;font-size:11px;line-height:16px;font-weight:600;color:var(--slate);border:1px dashed var(--mist);border-radius:var(--r-sm);padding:0 6px;background:var(--card);text-transform:none;letter-spacing:0}
+.choice{display:inline-block;font-size:11px;line-height:16px;font-weight:600;color:#6b3fa0;border:1px dashed #b79ad8;border-radius:var(--r-sm);padding:0 6px;background:#faf6ff;text-transform:none;letter-spacing:0}
+
+/* app */
+.app{background:var(--card);font-size:14px;line-height:20px}
+.appbar{height:52px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;padding:0 24px;background:var(--card)}
+.wordmark{font-weight:700;font-size:16px;color:var(--trust-blue)}
+.vr{width:1px;height:18px;background:var(--border)}
+.apptitle{font-weight:600;font-size:16px}
+/* App-bar page nav (DESIGN app-nav-item / app-nav-item-active; user override 2026-10-13) */
+.appnav{display:flex;align-items:stretch;gap:4px;align-self:stretch}
+.appnav a{min-height:44px;display:inline-flex;align-items:center;padding:0 12px;font-size:16px;font-weight:500;color:var(--slate);text-decoration:none;border-radius:var(--r-sm) var(--r-sm) 0 0;border-bottom:2px solid transparent}
+.appnav a:hover{background:var(--clinical-ice)}
+.appnav a[aria-current="page"]{color:var(--graphite);font-weight:600;border-bottom-color:var(--trust-blue)}
+.appnav.seg{align-self:auto;background:var(--muted);border-radius:var(--r-sm);padding:2px;gap:2px}
+.appnav.seg a{flex:1;justify-content:center;font-size:14px;border-radius:4px;border-bottom:0}
+.appnav.seg a[aria-current="page"]{background:var(--card);box-shadow:inset 0 -2px 0 var(--trust-blue)}
+.m .appbar.appbar-m{height:auto;flex-wrap:wrap;row-gap:0;padding:0 16px 8px}
+.appbar-m .appnav{order:3;width:100%}
+.return{margin-left:auto;min-height:44px;display:inline-flex;align-items:center;gap:6px;font-weight:500;text-decoration:none}
+.identity{display:flex;align-items:center;gap:12px;padding:16px 24px;border-bottom:1px solid var(--border);background:var(--background)}
+.avatar{width:40px;height:40px;border-radius:50%;background:var(--card);border:1px solid var(--border);color:var(--trust-blue);font-weight:600;font-size:16px;display:grid;place-items:center;flex:none}
+.name{font-size:20px;line-height:28px;font-weight:600;margin:0}
+.meta{margin:0 0 0 8px;color:var(--slate);font-size:14px}
+.idline{margin-left:auto;display:flex;gap:24px;font-size:14px;color:var(--slate);font-variant-numeric:tabular-nums}
+.idline b{color:var(--graphite);font-weight:500}
+.tabs{display:flex;gap:4px;padding:0 24px;border-bottom:1px solid var(--border)}
+.tab{min-height:44px;display:inline-flex;align-items:center;gap:8px;padding:0 12px;border:0;background:none;font:inherit;color:var(--slate);border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer}
+.tab[aria-selected=true]{color:var(--graphite);font-weight:600;border-bottom-color:var(--trust-blue)}
+.soon{font-size:12px;line-height:16px;color:var(--slate);background:var(--muted);border-radius:var(--r-sm);padding:0 6px}
+.layout{display:grid;grid-template-columns:200px 1fr;align-items:start}
+.index{position:sticky;top:0;padding:16px 0;border-right:1px solid var(--border);align-self:stretch}
+.index ol{list-style:none;margin:0;padding:0}
+.index a{display:grid;grid-template-columns:24px 1fr auto;align-items:center;min-height:44px;padding:0 16px 0 20px;color:var(--charcoal);text-decoration:none;font-variant-numeric:tabular-nums}
+.index .no,.index .c{font-family:var(--mono);font-size:12px;color:var(--slate)}
+.index a[aria-current=location]{background:var(--clinical-ice);color:var(--trust-blue);font-weight:600;box-shadow:inset 3px 0 0 var(--trust-blue)}
+.index a[aria-current=location] .no,.index a[aria-current=location] .c{color:var(--trust-blue)}
+main{padding:16px 24px 32px;display:grid;gap:32px;min-width:0}
+.sec-h{display:flex;align-items:center;gap:8px;min-height:44px;margin-bottom:8px}
+.sec-h h2{margin:0;font-size:16px;line-height:24px;font-weight:600}
+.sec-h .c{font-size:14px;color:var(--slate);font-variant-numeric:tabular-nums}
+.sec-h .tools{margin-left:auto;display:flex;gap:8px;align-items:center}
+
+/* buttons */
+.btn{min-height:44px;padding:0 14px;border-radius:var(--r-md);font:inherit;font-weight:500;font-size:14px;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;border:1px solid transparent;white-space:nowrap;text-decoration:none}
+.btn-primary{background:var(--trust-blue);color:#fff}
+.btn-outline{background:var(--card);border-color:var(--border);color:var(--graphite)}
+.btn-ghost{background:none;color:var(--trust-blue)}
+.btn-secondary{background:var(--secondary);color:var(--charcoal)}
+.btn-destructive{background:var(--error-strong);color:#fff}
+.btn[aria-disabled=true]{background:var(--muted);color:var(--slate);border-color:var(--border);cursor:not-allowed}
+.btn-cell{min-height:44px;padding:0 10px;font-size:14px}
+.kebab{width:44px;height:44px;padding:0;justify-content:center;background:none;color:var(--charcoal)}
+.linkbtn{min-height:44px;padding:0 6px;border:0;background:none;font:inherit;font-size:14px;font-weight:500;color:var(--info-strong);display:inline-flex;align-items:center;gap:4px;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+
+/* tables */
+.tbl-wrap{border:1px solid var(--border);border-radius:var(--r-md);overflow:visible;background:var(--card)}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{background:var(--muted);text-align:left;font-size:12px;line-height:16px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--slate);height:36px;padding:0 12px;border-bottom:1px solid var(--border)}
+thead tr:first-child th:first-child{border-top-left-radius:var(--r-md)}
+thead tr:first-child th:last-child{border-top-right-radius:var(--r-md)}
+td{height:44px;padding:0 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+tbody tr:last-child td{border-bottom:0}
+.chip{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:var(--r-sm);font-size:12px;font-weight:600;background:var(--muted);color:var(--charcoal);white-space:nowrap}
+.chip.primary{background:var(--trust-blue);color:#fff}
+.st{display:inline-flex;align-items:center;gap:6px;font-weight:500;white-space:nowrap}
+.st.ok{color:var(--success-strong)}.st.warn{color:var(--warning-strong)}
+.st .ico{width:14px;height:14px}
+.muted{color:var(--slate)}
+.mono{font-family:var(--mono);font-weight:500}
+.acts{display:flex;justify-content:flex-end;align-items:center;gap:4px;white-space:nowrap}
+.tipwrap{position:relative;display:inline-flex}
+.tip{position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:var(--graphite);color:#fff;font-size:12px;line-height:16px;padding:6px 10px;border-radius:var(--r-sm);white-space:nowrap;box-shadow:var(--elev-1);z-index:3;font-weight:400}
+.tip::after{content:"";position:absolute;top:100%;left:50%;margin-left:-6px;border:6px solid transparent;border-top-color:var(--graphite)}
+/* "?" help button (info-icon-button) + wrapping tooltip (D-UX1) */
+.qb{width:44px;height:44px;margin:-12px 0 -12px 0;padding:0;border:0;border-radius:var(--r-md);background:none;color:var(--slate);display:inline-grid;place-items:center;cursor:pointer;vertical-align:middle}
+.qb .ico{width:18px;height:18px}
+.qb.open{background:var(--muted);color:var(--charcoal)}
+.tip.wrap{white-space:normal;width:320px;left:0;transform:none;text-align:left}
+.tip.wrap::after{left:22px}
+
+/* edit */
+.editing{border-color:var(--trust-blue);box-shadow:0 0 0 3px var(--clinical-ice)}
+.edit td{height:auto;padding:16px 12px;vertical-align:top}
+.edit tr.new>td{background:var(--background)}
+.edit tfoot td{background:var(--card);border-top:1px solid var(--border);padding:8px 8px 8px 12px;border-bottom-left-radius:var(--r-md);border-bottom-right-radius:var(--r-md)}
+.edit-f{display:flex;align-items:center;gap:8px}
+.unsaved{display:inline-flex;align-items:center;gap:6px;color:var(--warning-strong);font-weight:600;font-size:14px;margin-right:auto}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.dot.warn{background:var(--warning)}
+.removed .strike{text-decoration:line-through;color:var(--slate)}
+.removed td{color:var(--slate)}
+
+/* inputs (border = mist, approved a11y fix) */
+.field{display:grid;gap:6px;min-width:0;position:relative}
+.lbl{font-size:14px;line-height:20px;font-weight:500;color:var(--charcoal)}
+.lbl .opt{font-weight:400;color:var(--slate)}
+.input{height:44px;width:100%;border:1px solid #7a8696;border-radius:var(--r-md);background:var(--card);padding:0 12px;font:inherit;font-size:16px;line-height:24px;display:flex;align-items:center;gap:8px;color:var(--graphite);min-width:0;white-space:nowrap;overflow:hidden}
+.input .ph{color:var(--slate)}
+.input.focus{border-color:var(--trust-blue);outline:2px solid var(--trust-blue);outline-offset:2px;box-shadow:var(--glow)}
+.input.locked{background:var(--muted);color:var(--charcoal)}
+.input.err{border:2px solid var(--error);padding:0 11px}
+.input.sel{justify-content:space-between}
+.input.sel .ico,.input .trail{margin-left:auto;color:var(--slate)}
+.help{font-size:14px;line-height:20px;color:var(--slate);margin:0;display:flex;gap:6px;align-items:flex-start}
+.help .ico{margin-top:2px}
+.help.err{color:var(--error-strong);font-weight:500}
+.check{display:inline-flex;align-items:center;gap:10px;min-height:44px;font-size:14px;font-weight:500;color:var(--charcoal)}
+.box{width:20px;height:20px;border:1.5px solid #7a8696;border-radius:4px;background:var(--card);flex:none;display:grid;place-items:center}
+.box.on{background:var(--trust-blue);border-color:var(--trust-blue);color:#fff}
+
+
+/* banners — from key-personal-info-edit.html */
+.banner{display:flex;gap:10px;align-items:flex-start;padding:12px;border-radius:var(--r-md);font-size:14px;line-height:20px}
+.banner.info{background:var(--clinical-ice);color:var(--graphite)}
+.banner.info>.ico{color:var(--info-strong);margin-top:2px}
+
+/* mobile frame (390 inner) — from key-personal-info-edit.html */
+.mobile-row{display:flex;gap:48px;justify-content:center;align-items:flex-start;flex-wrap:wrap}
+.phone{width:410px;border:10px solid var(--graphite);border-radius:44px;overflow:clip;background:var(--card);box-shadow:var(--elev-1);flex:none;position:relative}
+.status{height:36px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;font-size:12px;font-weight:600;background:var(--card)}
+.m .appbar{padding:0 16px}
+.m .identity{padding:12px 16px}
+.m .tabs{padding:0 8px}
+.m .tab{padding:0 10px}
+.m main{padding:12px 16px 32px}
+.mnotes{max-width:420px;font-size:14px;line-height:22px;color:var(--charcoal)}
+.mnotes h3{font-size:20px;line-height:28px;font-weight:600;margin:0 0 12px;color:var(--graphite)}
+.mnotes ul{padding-left:18px;margin:0}
+.mnotes li{margin-bottom:8px}
+.scrim{position:absolute;inset:0;background:rgba(32,40,51,.45);z-index:8}
+
+/* key/value read — from key-profile-picture.html */
+.kv td.k{color:var(--slate);width:16%;white-space:nowrap}
+.kv td.v{width:34%;font-weight:500}
+.kv td.k + td.v{border-right:1px solid var(--border)}
+.kv td.v:last-child{border-right:0}
+.empty{color:var(--slate);font-weight:400}
+.m .kv td.k{width:44%;white-space:normal}
+.m .kv td.v{width:auto;border-right:0;overflow-wrap:anywhere}
+
+/* key/value edit — from key-personal-info-edit.html */
+.pi td.k{width:240px;color:var(--slate);padding-top:28px}
+.pi td.k label{color:var(--charcoal);font-weight:500}
+.pi td.v{width:auto}
+.ctl{max-width:480px;display:grid;gap:6px}
+.input.locked .ico{color:var(--slate);margin-left:auto}
+.input[aria-disabled=true]{background:var(--muted);color:var(--slate);cursor:not-allowed}
+.input .mono{font-family:var(--mono);font-weight:500;letter-spacing:.08em}
+
+/* dialog — from key-profile-picture.html */
+.dialog{position:absolute;left:50%;top:96px;transform:translateX(-50%);width:440px;background:var(--card);border-radius:var(--r-lg);box-shadow:var(--elev-2);z-index:9}
+.dg-h{padding:20px 24px 4px;display:flex;align-items:center}
+.dg-h h2{margin:0;font-size:16px;line-height:24px;font-weight:600}
+.dg-h .kebab{margin-left:auto;margin-right:-12px}
+.dg-b{padding:8px 24px 20px;display:grid;gap:16px}
+.dg-b p{margin:0}
+.dg-f{padding:12px 24px 20px;display:flex;justify-content:flex-end;gap:8px}
+
+/* /account: single-column main (no section index) */
+.acct main{padding:16px 24px 32px}
+.panel{padding:16px}
+.intro{margin:0 0 16px;color:var(--slate);font-size:14px}
+
+/* mfa-tile 112 px, logo 48 px, label cell-strong */
+.tiles{display:flex;gap:16px;flex-wrap:wrap}
+.tile{width:112px;height:112px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;font:inherit;font-size:14px;line-height:20px;font-weight:500;color:var(--graphite);cursor:pointer;padding:0;position:relative}
+.tile.hover{background:var(--clinical-ice)}
+.tiles.inactive .tile{opacity:.55;cursor:not-allowed}
+.tiles.inactive .tile.tipped{opacity:1}
+.tiles.inactive .tile.tipped>.logo,.tiles.inactive .tile.tipped>.tl{opacity:.55}
+.logo{width:48px;height:48px;border-radius:12px;display:grid;place-items:center;color:#fff;font-weight:700;font-size:22px;line-height:1}
+/* vendor placeholder glyphs: the only non-token colors in the app (DESIGN.md Authenticator app section) */
+.lg-google{background:#4285f4}.lg-ms{background:#0067b8}.lg-authy{background:#d6312b}.lg-duo{background:#5aa63f}.lg-android{background:#2e8b57}
+.caption{margin:12px 0 0;color:var(--slate);font-size:14px;display:flex;gap:6px;align-items:flex-start}
+.caption .ico{margin-top:2px}
+.btn-outline.danger{color:var(--error-strong)}
+.m .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.m .tile{width:auto;height:auto;min-height:96px;aspect-ratio:1/1}
+
+/* QR placeholder: 184 px in 1 px border frame, white in both themes; CSS grid pattern */
+.qr{width:184px;height:184px;margin:0 auto;border:1px solid var(--border);border-radius:var(--r-sm);background:#fff;position:relative;padding:12px}
+.qr .mods{position:absolute;inset:12px;
+  background:
+    repeating-conic-gradient(#202833 0 25%,transparent 0 50%) 0 0/16px 16px,
+    repeating-conic-gradient(#202833 0 25%,transparent 0 50%) 4px 12px/24px 24px,
+    repeating-conic-gradient(transparent 0 25%,#202833 0 50%) 8px 0/40px 40px}
+.qr .fd{position:absolute;width:44px;height:44px;background:#fff;padding:4px}
+.qr .fd::before{content:"";display:block;width:36px;height:36px;border:6px solid #202833;box-sizing:border-box;background:#fff;box-shadow:inset 0 0 0 5px #fff,inset 0 0 0 20px #202833}
+.qr .fd.tl{left:8px;top:8px}.qr .fd.tr{right:8px;top:8px}.qr .fd.bl{left:8px;bottom:8px}
+
+/* otp-input: 44 px, 200 px, mono, 0.3em tracking */
+.otp{width:200px;font-family:var(--mono);letter-spacing:.3em}
+.otp .ph{font-family:var(--font);letter-spacing:0}
+.input.err.focus{outline:2px solid var(--trust-blue);outline-offset:2px;box-shadow:var(--glow)}
+
+/* toast */
+.toast{position:absolute;right:24px;bottom:24px;background:var(--card);border-radius:var(--r-md);box-shadow:var(--elev-2);padding:12px 16px;display:flex;gap:10px;align-items:center;font-size:14px;font-weight:500;z-index:7}
+.toast .ico{color:var(--success-strong)}
+
+.tabs.scroll{overflow:hidden;white-space:nowrap;flex-wrap:nowrap}
+.tabs.scroll .tab{flex:none}
+.note{display:inline-block;font-size:11px;line-height:16px;font-weight:600;color:var(--slate);border:1px dashed var(--mist);border-radius:var(--r-sm);padding:0 6px;background:var(--card);margin-left:8px;vertical-align:1px}
+.sec-label{display:inline-block;font-size:12px;font-weight:700;color:#fff;background:var(--slate);border-radius:var(--r-sm);padding:0 6px;margin-right:6px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-lock" viewBox="0 0 16 16"><path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="3.25" y="7" width="9.5" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 16 16"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 16 16"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M2.5 2.5l11 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.75v4M8 11.1v.1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-help" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.2 6.2a1.9 1.9 0 0 1 3.7.5c0 1.3-1.9 1.6-1.9 2.8M8 11.3v.1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.25v4M8 4.9v.1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5 8.25l2 2 4-4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-tick" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-out" viewBox="0 0 16 16"><path d="M9 3h4v4M13 3 7 9M11.5 9.5V13h-9V4H6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chev-r" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chev-up" viewBox="0 0 16 16"><path d="M4 10l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-back" viewBox="0 0 16 16"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-kebab" viewBox="0 0 16 16"><circle cx="8" cy="3.5" r="1.4" fill="currentColor"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/><circle cx="8" cy="12.5" r="1.4" fill="currentColor"/></symbol>
+  <symbol id="i-x" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 16 16"><rect x="2.5" y="3.5" width="11" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 16 16"><path d="M8 10.5V2.5M4.75 5.5 8 2.25l3.25 3.25M2.5 10.5v2.25c0 .4.35.75.75.75h9.5c.4 0 .75-.35.75-.75V10.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 16 16"><path d="M2 5.5c0-.55.45-1 1-1h2l1.2-1.6h3.6L11 4.5h2c.55 0 1 .45 1 1v6.5c0 .55-.45 1-1 1H3c-.55 0-1-.45-1-1z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="8" cy="8.5" r="2.4" fill="none" stroke="currentColor" stroke-width="1.4"/></symbol>
+  <symbol id="i-image" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="6" cy="6.5" r="1.2" fill="currentColor"/><path d="M2.5 12l3.5-3.5 2.5 2.5 2-2 3 3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+  <symbol id="i-sig" viewBox="0 0 160 44"><path d="M6 30c9-1 13-20 19-20s-3 24 5 24 9-16 15-16-2 13 4 13 8-9 13-9 2 7 8 7 10-5 18-5 14 3 24 1 20-7 30-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<div class="doc">
+  <header class="doc-head">
+    <p class="eyebrow">Key screen · Profile /account · Ledger</p>
+    <h2>Personal Account</h2>
+    <p>Daniel opens Profile from his clinic's portal. He switches his primary email to his verified work address and sees the login notice before saving (UJ-101). Below it, the Authenticator app section before and after linking Microsoft, the Link dialog after a wrong code (UJ-102), and the read view on a phone.</p>
+    <p><span class="note" style="margin-left:0">Note</span> tags mark illustrative values the spine does not fix; see the comment block in the source.</p>
+  </header>
+
+  <!-- ===================== A + B ===================== -->
+  <p class="frame-label"><span class="sec-label">A</span><span class="sec-label">B</span>DESKTOP · 1280 px · Account settings in edit (UJ-101 step 3) · Authenticator app not linked (UJ-102 step 1)</p>
+  <div class="browser">
+    <div class="chrome"><i></i><i></i><i></i><div class="url">profile.1health.app/account?tab=personal#account</div></div>
+    <div class="app acct">
+      <header class="appbar">
+        <span class="wordmark">1health</span><span class="vr"></span><nav class="appnav" aria-label="Pages"><a href="/">Personal Profile</a><a href="/account" aria-current="page">Account</a></nav>
+        <a class="return" href="#">Return to 1health <svg class="ico"><use href="#i-out"/></svg></a>
+      </header>
+      <section class="identity" aria-label="Profile">
+        <div class="avatar" aria-hidden="true">DG</div>
+        <h1 class="name">Daniel Garcia</h1>
+        <div class="idline"><span>Primary phone <b>+1 (415) 551-2125</b></span><span>Primary email <b>dg@panaton.com</b></span></div>
+      </section>
+      <nav class="tabs" role="tablist" aria-label="Profile areas">
+        <button class="tab" role="tab" aria-selected="true">Personal Account</button>
+        <button class="tab" role="tab" aria-selected="false">Individual Provider Registration</button>
+        <button class="tab" role="tab" aria-selected="false">My Organizations</button>
+      </nav>
+
+      <main>
+        <!-- A · Account settings, edit -->
+        <section id="account" aria-labelledby="h-acc">
+          <div class="sec-h"><h2 id="h-acc">Personal account settings</h2><span class="c">Editing</span></div>
+          <div class="tbl-wrap editing">
+            <table class="edit pi">
+              <thead><tr><th style="width:240px">Field</th><th>Value</th></tr></thead>
+              <tbody>
+                <tr><td class="k"><label for="fn">First name</label></td><td class="v"><div class="ctl"><div class="input" id="fn">Daniel</div></div></td></tr>
+                <tr><td class="k"><label for="ln">Last name</label></td><td class="v"><div class="ctl"><div class="input" id="ln">Garcia</div></div></td></tr>
+                <tr><td class="k"><label for="un">Username</label></td><td class="v"><div class="ctl">
+                  <div class="input locked" id="un" aria-readonly="true" aria-describedby="un-h">dg@panaton.com<svg class="ico"><use href="#i-lock"/></svg></div>
+                  <p class="help" id="un-h">Your username can't be changed here.</p></div></td></tr>
+                <tr><td class="k"><label for="pw">Password</label></td><td class="v"><div class="ctl">
+                  <div class="input locked" id="pw" aria-readonly="true" aria-describedby="pw-h"><span class="mono">********</span><svg class="ico"><use href="#i-lock"/></svg></div>
+                  <p class="help" id="pw-h">Password changes aren't available here.</p></div></td></tr>
+                <tr><td class="k"><label for="pe">Primary email address</label></td><td class="v"><div class="ctl">
+                  <div class="input sel" id="pe" role="combobox" aria-expanded="false" aria-describedby="pe-n">daniel.garcia@baymedclinic.com<svg class="ico"><use href="#i-chev"/></svg></div>
+                  <div class="banner info" id="pe-n" role="status"><svg class="ico"><use href="#i-info"/></svg><span>Changing your primary email will result in updating your login credentials. The next time you login you will have to use the new email.</span></div>
+                  <span><span class="note" style="margin-left:0">Note · work address is illustrative</span></span></div></td></tr>
+                <tr><td class="k"><label for="pp">Primary phone number</label></td><td class="v"><div class="ctl">
+                  <div class="input sel" id="pp" role="combobox" aria-disabled="true" aria-describedby="pp-h">+1 (415) 551-2125<svg class="ico"><use href="#i-chev"/></svg></div>
+                  <p class="help" id="pp-h"><span>Please add additional verified phone(s) in your <a href="#">personal profile</a> to change your current primary contact phone</span></p></div></td></tr>
+                <tr><td class="k"><label for="bd">Birth date</label><span class="tipwrap"><button class="qb open" aria-label="About birth date" aria-describedby="bd-tip"><svg class="ico"><use href="#i-help"/></svg></button><span class="tip wrap" role="tooltip" id="bd-tip">Your date of birth is an important identifying factor throughout the healthcare industry. Additionally, 1health requires all users to be over the age of 18.</span></span></td><td class="v"><div class="ctl">
+                  <div class="input" id="bd">06/01/1995<svg class="ico trail"><use href="#i-cal"/></svg></div></div></td></tr>
+                <tr><td class="k"><label for="pl">Preferred language</label></td><td class="v"><div class="ctl">
+                  <div class="input sel" id="pl" role="combobox" aria-expanded="false"><span class="ph">Select a value</span><svg class="ico"><use href="#i-chev"/></svg></div></div></td></tr>
+                <tr><td class="k"><label for="tz">Default time zone</label></td><td class="v"><div class="ctl">
+                  <div class="input sel" id="tz" role="combobox" aria-expanded="false"><span class="ph">Select a value</span><svg class="ico"><use href="#i-chev"/></svg></div></div></td></tr>
+                <tr><td class="k"><label for="lc">Preferred locale for date, time, and currency</label></td><td class="v"><div class="ctl">
+                  <div class="input sel" id="lc" role="combobox" aria-expanded="false">English - United States<svg class="ico"><use href="#i-chev"/></svg></div></div></td></tr>
+              </tbody>
+              <tfoot><tr><td colspan="2"><div class="edit-f">
+                <span class="unsaved" role="status"><span class="dot warn" aria-hidden="true"></span>Unsaved changes</span>
+                <button class="btn btn-secondary">Cancel</button>
+                <button class="btn btn-primary">Save</button>
+              </div></td></tr></tfoot>
+            </table>
+          </div>
+        </section>
+
+        <!-- B · Authenticator app, not linked -->
+        <section id="authenticator" aria-labelledby="h-mfa">
+          <div class="sec-h"><h2 id="h-mfa">Authenticator app</h2><div class="tools"><span class="muted">Not set up</span></div></div>
+          <div class="tbl-wrap panel">
+            <p class="intro">Link an authenticator app to get sign-in codes on your phone.</p>
+            <div class="tiles">
+              <button class="tile" aria-label="Link Google" aria-haspopup="dialog"><span class="logo lg-google" aria-hidden="true">G</span>Google</button>
+              <button class="tile hover" aria-label="Link Microsoft" aria-haspopup="dialog"><span class="logo lg-ms" aria-hidden="true">M</span>Microsoft</button>
+              <button class="tile" aria-label="Link Authy" aria-haspopup="dialog"><span class="logo lg-authy" aria-hidden="true">A</span>Authy</button>
+              <button class="tile" aria-label="Link DUO" aria-haspopup="dialog"><span class="logo lg-duo" aria-hidden="true">D</span>DUO</button>
+              <button class="tile" aria-label="Link Android OTP" aria-haspopup="dialog"><span class="logo lg-android" aria-hidden="true">A</span>Android OTP</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- ===================== C + E ===================== -->
+  <p class="frame-label"><span class="sec-label">C</span><span class="sec-label">E</span>DESKTOP · 1280 px · Account settings read, 4 columns (UJ-101 step 2) · Authenticator app linked, toast (UJ-102 step 4)</p>
+  <div class="browser">
+    <div class="chrome"><i></i><i></i><i></i><div class="url">profile.1health.app/account?tab=personal#authenticator</div></div>
+    <div class="app acct" style="position:relative">
+      <header class="appbar">
+        <span class="wordmark">1health</span><span class="vr"></span><nav class="appnav" aria-label="Pages"><a href="/">Personal Profile</a><a href="/account" aria-current="page">Account</a></nav>
+        <a class="return" href="#">Return to 1health <svg class="ico"><use href="#i-out"/></svg></a>
+      </header>
+      <section class="identity" aria-label="Profile">
+        <div class="avatar" aria-hidden="true">DG</div>
+        <h1 class="name">Daniel Garcia</h1>
+        <div class="idline"><span>Primary phone <b>+1 (415) 551-2125</b></span><span>Primary email <b>dg@panaton.com</b></span></div>
+      </section>
+      <nav class="tabs" role="tablist" aria-label="Profile areas">
+        <button class="tab" role="tab" aria-selected="true">Personal Account</button>
+        <button class="tab" role="tab" aria-selected="false">Individual Provider Registration</button>
+        <button class="tab" role="tab" aria-selected="false">My Organizations</button>
+      </nav>
+
+      <main style="padding-bottom:96px">
+        <!-- C · Account settings, read -->
+        <section aria-labelledby="h-acc2">
+          <div class="sec-h"><h2 id="h-acc2">Personal account settings</h2><span class="note">Note · row-major pairs, time zone blank</span><div class="tools"><button class="btn btn-outline">Edit</button></div></div>
+          <div class="tbl-wrap"><table class="kv"><tbody>
+            <tr><td class="k">First name</td><td class="v">Daniel</td><td class="k">Last name</td><td class="v">Garcia</td></tr>
+            <tr><td class="k">Username</td><td class="v">dg@panaton.com</td><td class="k">Password</td><td class="v"><span class="mono" aria-label="Password hidden">********</span></td></tr>
+            <tr><td class="k">Primary email address</td><td class="v">dg@panaton.com</td><td class="k">Primary phone number</td><td class="v">+1 (415) 551-2125</td></tr>
+            <tr><td class="k">Birth date</td><td class="v">06/01/1995</td><td class="k">Preferred language</td><td class="v empty">Not provided</td></tr>
+            <tr><td class="k">Default time zone</td><td class="v empty">Not provided</td><td class="k">Preferred locale for date, time, and currency</td><td class="v">English - United States</td></tr>
+          </tbody></table></div>
+        </section>
+
+        <!-- E · Authenticator app, linked -->
+        <section aria-labelledby="h-mfa2">
+          <div class="sec-h"><h2 id="h-mfa2" tabindex="-1">Authenticator app</h2>
+            <div class="tools"><span class="st ok"><svg class="ico"><use href="#i-check"/></svg>Enabled</span><button class="btn btn-outline danger" aria-haspopup="dialog">Disable</button></div></div>
+          <div class="tbl-wrap panel">
+            <p class="intro">Link an authenticator app to get sign-in codes on your phone.</p>
+            <div class="tiles inactive">
+              <button class="tile" aria-label="Link Google" aria-disabled="true" aria-describedby="cap-e"><span class="logo lg-google" aria-hidden="true">G</span>Google</button>
+              <button class="tile tipped" aria-label="Link Microsoft" aria-disabled="true" aria-describedby="cap-e"><span class="logo lg-ms" aria-hidden="true">M</span><span class="tl">Microsoft</span>
+                <span class="tip" role="tooltip">Disable the current authenticator to link another</span></button>
+              <button class="tile" aria-label="Link Authy" aria-disabled="true" aria-describedby="cap-e"><span class="logo lg-authy" aria-hidden="true">A</span>Authy</button>
+              <button class="tile" aria-label="Link DUO" aria-disabled="true" aria-describedby="cap-e"><span class="logo lg-duo" aria-hidden="true">D</span>DUO</button>
+              <button class="tile" aria-label="Link Android OTP" aria-disabled="true" aria-describedby="cap-e"><span class="logo lg-android" aria-hidden="true">A</span>Android OTP</button>
+            </div>
+            <p class="caption" id="cap-e"><svg class="ico"><use href="#i-info"/></svg>Disable the current authenticator to link another</p>
+          </div>
+        </section>
+      </main>
+
+      <div class="toast" role="status"><svg class="ico"><use href="#i-check"/></svg>Microsoft authenticator linked</div>
+    </div>
+  </div>
+
+  <!-- ===================== D ===================== -->
+  <p class="frame-label"><span class="sec-label">D</span>DESKTOP · 1280 px · Link your Microsoft authenticator after a wrong code (UJ-102 step 2, wrong-code edge)</p>
+  <div class="browser">
+    <div class="chrome"><i></i><i></i><i></i><div class="url">profile.1health.app/account?tab=personal#authenticator</div></div>
+    <div class="app acct" style="position:relative;height:720px;overflow:hidden">
+      <div aria-hidden="true">
+        <header class="appbar">
+          <span class="wordmark">1health</span><span class="vr"></span><nav class="appnav" aria-label="Pages"><a href="/">Personal Profile</a><a href="/account" aria-current="page">Account</a></nav>
+          <a class="return" href="#">Return to 1health <svg class="ico"><use href="#i-out"/></svg></a>
+        </header>
+        <section class="identity">
+          <div class="avatar">DG</div>
+          <h1 class="name">Daniel Garcia</h1>
+          <div class="idline"><span>Primary phone <b>+1 (415) 551-2125</b></span><span>Primary email <b>dg@panaton.com</b></span></div>
+        </section>
+        <nav class="tabs">
+          <button class="tab" aria-selected="true">Personal Account</button>
+          <button class="tab" aria-selected="false">Individual Provider Registration</button>
+          <button class="tab" aria-selected="false">My Organizations</button>
+        </nav>
+        <main>
+          <section>
+            <div class="sec-h"><h2>Authenticator app</h2><div class="tools"><span class="muted">Not set up</span></div></div>
+            <div class="tbl-wrap panel">
+              <p class="intro">Link an authenticator app to get sign-in codes on your phone.</p>
+              <div class="tiles">
+                <span class="tile"><span class="logo lg-google">G</span>Google</span>
+                <span class="tile"><span class="logo lg-ms">M</span>Microsoft</span>
+                <span class="tile"><span class="logo lg-authy">A</span>Authy</span>
+                <span class="tile"><span class="logo lg-duo">D</span>DUO</span>
+                <span class="tile"><span class="logo lg-android">A</span>Android OTP</span>
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+
+      <div class="scrim" aria-hidden="true"></div>
+
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dg-mfa" aria-describedby="dg-mfa-d">
+        <div class="dg-h"><h2 id="dg-mfa">Link your Microsoft authenticator</h2><button class="btn kebab" aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button></div>
+        <div class="dg-b">
+          <p id="dg-mfa-d">Use the Microsoft authenticator app installed on your device to scan this QR, then provide the code generated by the app in the field below.</p>
+          <div class="qr" role="img" aria-label="QR code to link your authenticator app"><span class="mods"></span><span class="fd tl"></span><span class="fd tr"></span><span class="fd bl"></span></div>
+          <div class="field">
+            <label class="lbl" for="otp">6-digit code</label>
+            <div class="input otp err focus" id="otp" role="textbox" inputmode="numeric" autocomplete="one-time-code" aria-invalid="true" aria-describedby="otp-err"></div>
+            <p class="help err" id="otp-err" role="alert"><svg class="ico"><use href="#i-alert"/></svg>Invalid code. Try again.</p>
+          </div>
+        </div>
+        <div class="dg-f"><button class="btn btn-secondary">Cancel</button><button class="btn btn-primary">Submit</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== F ===================== -->
+  <p class="frame-label" style="text-align:center"><span class="sec-label">F</span>MOBILE · 390 px · Personal Account read, full height</p>
+  <div class="mobile-row">
+    <div class="phone m">
+      <div class="status"><span>9:41</span><span>100%</span></div>
+      <div class="app acct">
+        <header class="appbar appbar-m"><span class="wordmark">1health</span><a class="return" href="#">Return to 1health</a><nav class="appnav seg" aria-label="Pages"><a href="/">Personal Profile</a><a href="/account" aria-current="page">Account</a></nav></header>
+        <section class="identity"><div class="avatar" aria-hidden="true">DG</div><h1 class="name">Daniel Garcia</h1></section>
+        <nav class="tabs scroll" role="tablist" aria-label="Profile areas">
+          <button class="tab" role="tab" aria-selected="true">Personal Account</button>
+          <button class="tab" role="tab" aria-selected="false">Individual Provider Registration</button>
+          <button class="tab" role="tab" aria-selected="false">My Organizations</button>
+        </nav>
+        <main style="display:grid;gap:32px">
+          <section aria-labelledby="m-acc">
+            <div class="sec-h"><h2 id="m-acc">Personal account settings</h2><div class="tools"><button class="btn btn-outline">Edit</button></div></div>
+            <div class="tbl-wrap"><table class="kv"><tbody>
+              <tr><td class="k">First name</td><td class="v">Daniel</td></tr>
+              <tr><td class="k">Last name</td><td class="v">Garcia</td></tr>
+              <tr><td class="k">Username</td><td class="v">dg@panaton.com</td></tr>
+              <tr><td class="k">Password</td><td class="v"><span class="mono" aria-label="Password hidden">********</span></td></tr>
+              <tr><td class="k">Primary email address</td><td class="v">dg@panaton.com</td></tr>
+              <tr><td class="k">Primary phone number</td><td class="v">+1 (415) 551-2125</td></tr>
+              <tr><td class="k">Birth date</td><td class="v">06/01/1995</td></tr>
+              <tr><td class="k">Preferred language</td><td class="v empty">Not provided</td></tr>
+              <tr><td class="k">Default time zone</td><td class="v empty">Not provided</td></tr>
+              <tr><td class="k">Preferred locale for date, time, and currency</td><td class="v">English - United States</td></tr>
+            </tbody></table></div>
+          </section>
+          <section aria-labelledby="m-mfa">
+            <div class="sec-h"><h2 id="m-mfa">Authenticator app</h2><div class="tools"><span class="muted">Not set up</span></div></div>
+            <div class="tbl-wrap panel">
+              <p class="intro">Link an authenticator app to get sign-in codes on your phone.</p>
+              <div class="tiles">
+                <button class="tile" aria-label="Link Google"><span class="logo lg-google" aria-hidden="true">G</span>Google</button>
+                <button class="tile" aria-label="Link Microsoft"><span class="logo lg-ms" aria-hidden="true">M</span>Microsoft</button>
+                <button class="tile" aria-label="Link Authy"><span class="logo lg-authy" aria-hidden="true">A</span>Authy</button>
+                <button class="tile" aria-label="Link DUO"><span class="logo lg-duo" aria-hidden="true">D</span>DUO</button>
+                <button class="tile" aria-label="Link Android OTP"><span class="logo lg-android" aria-hidden="true">A</span>Android OTP</button>
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <div class="mnotes" style="max-width:340px">
+      <h3>What the frames show</h3>
+      <ul>
+        <li>A: picking the work address shows the login notice under the Select; it stays until Save or Cancel. The phone picker is aria-disabled because Daniel has one verified phone, and the helper links to the Contacts tab.</li>
+        <li>A: blank language and time zone read "Select a value" and must be picked before Save.</li>
+        <li>B and F: each tile is a button "Link {App}". Tile hover uses the row-hover fill (Microsoft in A/B).</li>
+        <li>D: a wrong code clears the field and keeps focus in it; the QR is not re-requested while the dialog is open.</li>
+        <li>E: after linking, the status reads "Enabled", Disable opens "Turn off authenticator app?", and the tiles are inactive with the reason as caption and Tooltip.</li>
+        <li>F: the tab strip scrolls sideways; tiles sit in a 3-column grid.</li>
+        <li>All frames: the app bar shows the page nav "Personal Profile | Account" with Account current; on F (390 px) it wraps under the wordmark as a segmented control.</li>
+        <li>A: the Birth date help is a "?" button beside the label (edit view only); its Tooltip is drawn open for review.</li>
+        <li>Not drawn: below 768 px the Link authenticator dialog opens full-screen (header with close, QR and code field scroll, Cancel + Submit pinned to the bottom). It is the only full-screen dialog; the Disable confirm stays centered with 16 px gutters.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</body>
+</html>
