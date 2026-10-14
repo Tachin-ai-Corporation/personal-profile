@@ -13,3 +13,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/1-1-foundation-environment-config-security-headers-test-tooling.md`
   summary: Make the 404 page carry the per-request CSP nonce — `/_not-found` is statically prerendered so under `'strict-dynamic'` its scripts are un-nonced and won't hydrate.
   evidence: Observed in the Story 1.1 production build (`/_not-found` shown as static). Low harm for a placeholder 404 (HTML + security headers are correct; only JS hydration is blocked), same class as the home-page bug fixed in 1.1. Revisit when real routes are added (e.g. force the root layout/not-found dynamic or supply a custom not-found).
+- source_spec: `_bmad-output/implementation-artifacts/1-2-launch-from-the-portal-and-arrive-signed-in.md`
+  summary: Story 1.5 (token refresh) must consult `accessTokenExpiresAt` in the session guard and reject/replace a non-positive `expires_in` from the exchange (currently a missing `expires_in` seals an already-expired token, harmless in 1.2 since expiry is never read).
+  evidence: Raised by blind-hunter + edge-case review of Story 1.2; expiry consumption is explicitly out of scope for 1.2 (refresh = Story 1.5).
+- source_spec: `_bmad-output/implementation-artifacts/1-2-launch-from-the-portal-and-arrive-signed-in.md`
+  summary: Consider a shared deadline for the launch exchange — `exchangeCode` and `fetchIds` each use a 25s timeout, so a double-slow upstream can take ~50s and may exceed the serverless function's maxDuration, never rendering the error screen.
+  evidence: blind-hunter review of Story 1.2. Low/maybe-false; settle against the deployed function's maxDuration.
