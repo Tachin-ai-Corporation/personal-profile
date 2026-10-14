@@ -160,3 +160,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/1-1r-foundation-and-launch-rework.md`
   summary: "For R3: saveLoginIntent has no caller yet; requireSession() and the root proxy.ts expiry redirect drop ?tab= until R3 saves the intent; saveLoginIntent should store pathname + search without the hash (epics.md:1151)."
   evidence: The R1 spec assigns saving the intent to Story 1.7 (R3).
+- source_spec: none
+  summary: Login CSRF on /auth (auto-launch of any lpl in the URL) — resolved as accepted risk.
+  evidence: Human decision 2026-10-14 (recorded on D9 in epics.md): keep patient-vault behaviour, no "Continue" step for non-1health referrers.
