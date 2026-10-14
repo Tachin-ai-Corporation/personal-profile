@@ -2,9 +2,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createCipheriv, randomBytes } from "node:crypto"
 
-// `launch.ts` imports `API_ORIGIN` from env (validated at load); the tests always
-// pass an explicit origin, so a lightweight stub is enough.
-vi.mock("./env", () => ({ API_ORIGIN: "https://api.example" }))
+// `launch.ts` imports the key getters from env (validated at load); a stub
+// stands in, and detection tests pass their keys explicitly.
+vi.mock("./env", () => ({
+  getSecretKey: () => "unused",
+  getSecretKeyVarName: (env: string) => `KEY_VAR_${env}`,
+}))
 
 import {
   ExchangeError,
@@ -12,6 +15,7 @@ import {
   buildSignature,
   decryptLaunchPayload,
   deriveAesKey,
+  detectEnvironment,
   exchangeCode,
   fetchIds,
   mapUpstreamError,
@@ -103,6 +107,10 @@ describe("decryptLaunchPayload — malformed → invalid", () => {
     expect(() => decryptLaunchPayload("", SECRET)).toThrow(/invalid/)
   })
 
+  it("rejects a value that is not base64", () => {
+    expect(() => decryptLaunchPayload("not a payload!!*&^%$#@" + "x".repeat(40), SECRET)).toThrow(/invalid/)
+  })
+
   it("rejects cleartext JSON (not encrypted)", () => {
     const cleartext = Buffer.from(JSON.stringify(validPayloadObject())).toString("base64")
     expect(() => decryptLaunchPayload(cleartext, SECRET)).toThrow(/invalid/)
@@ -130,7 +138,7 @@ describe("decryptLaunchPayload — malformed → invalid", () => {
 })
 
 describe("decryptLaunchPayload — wrong app id is surfaced for the route gate", () => {
-  it("returns the apiKeyName so the route can compare it to APP_ID", () => {
+  it("returns the apiKeyName so the route can compare it to the detected environment's app id", () => {
     const lpl = encryptLpl(validPayloadObject({ apiKey: { name: "someone-elses-app" } }))
     expect(decryptLaunchPayload(lpl, SECRET).apiKeyName).toBe("someone-elses-app")
   })
@@ -162,6 +170,95 @@ describe("mapUpstreamError — recorded platform bodies", () => {
   })
   it("maps a 500 / empty body → invalid", () => {
     expect(mapUpstreamError(500, "")).toBe("invalid")
+  })
+})
+
+describe("detectEnvironment (D2)", () => {
+  const PROD_KEY = "prod-key-value"
+  const DEMO_KEY = "demo-key-value"
+  const keys = (overrides: Partial<Record<"demo" | "prod", string>> = {}) => {
+    const map = { prod: PROD_KEY, demo: DEMO_KEY, ...overrides }
+    return (env: "demo" | "prod") => map[env]
+  }
+  const varName = (env: "demo" | "prod") => `KEY_VAR_${env}`
+
+  it("a prod-key payload → prod, keyed by the stored prod key, no warning", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const detected = detectEnvironment(encryptLpl(validPayloadObject(), PROD_KEY), keys(), varName)
+    expect(detected.environment).toBe("prod")
+    expect(detected.secret).toBe(PROD_KEY)
+    expect(detected.trimmed).toBe(false)
+    expect(detected.payload.userId).toBe(42)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it("a demo-key payload → demo", () => {
+    const detected = detectEnvironment(encryptLpl(validPayloadObject(), DEMO_KEY), keys(), varName)
+    expect(detected.environment).toBe("demo")
+    expect(detected.secret).toBe(DEMO_KEY)
+  })
+
+  it("tolerates spaces for '+'", () => {
+    const lpl = encryptLpl(validPayloadObject(), DEMO_KEY)
+    expect(detectEnvironment(lpl.replace(/\+/g, " "), keys(), varName).environment).toBe("demo")
+  })
+
+  it.each(["demo", "prod"] as const)(
+    "only the trimmed variant of a padded %s key decrypts → that environment + one warning naming the variable, no value",
+    (env) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+      const padded = `  ${env === "prod" ? PROD_KEY : DEMO_KEY}\n`
+      // The platform encrypted with the clean key; the deployment stored it padded.
+      const lpl = encryptLpl(validPayloadObject(), padded.trim())
+      const detected = detectEnvironment(lpl, keys({ [env]: padded }), varName)
+      expect(detected.environment).toBe(env)
+      expect(detected.trimmed).toBe(true)
+      expect(detected.secret).toBe(padded.trim())
+      expect(warn).toHaveBeenCalledOnce()
+      const line = String(warn.mock.calls[0][0])
+      expect(line).toContain(`KEY_VAR_${env}`)
+      expect(line).not.toContain(padded.trim())
+    },
+  )
+
+  it("a payload sealed with the padded key itself decrypts as stored, without a warning", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const padded = ` ${PROD_KEY} `
+    const detected = detectEnvironment(encryptLpl(validPayloadObject(), padded), keys({ prod: padded }), varName)
+    expect(detected).toMatchObject({ environment: "prod", trimmed: false, secret: padded })
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["neither key", () => encryptLpl(validPayloadObject(), "some-other-key")],
+    ["missing", () => ""],
+    ["not base64", () => "%%%not-base64%%%".repeat(4)],
+    ["shorter than 28 bytes", () => Buffer.alloc(27).toString("base64")],
+    ["cleartext JSON", () => Buffer.from(JSON.stringify(validPayloadObject())).toString("base64")],
+    ["not JSON", () => encryptLpl("not json", PROD_KEY)],
+    ["missing a required field", () => encryptLpl({ required: { apiKey: { name: "a" } } }, DEMO_KEY)],
+  ])("%s → invalid", (_label, make) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    expect(() => detectEnvironment(make(), keys(), varName)).toThrow(LaunchError)
+    expect(() => detectEnvironment(make(), keys(), varName)).toThrow(/invalid/)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it.each(["required.apiKey.name", "required.tenant.id", "required.user.id", "required.oneTimeCode.value", "required.oneTimeCode.issuedAt"])(
+    "a payload without %s → invalid",
+    (path) => {
+      const obj = validPayloadObject() as { required: Record<string, Record<string, unknown>> }
+      const [, group, field] = path.split(".")
+      delete obj.required[group][field]
+      expect(() => detectEnvironment(encryptLpl(obj, PROD_KEY), keys(), varName)).toThrow(/invalid/)
+    },
+  )
+
+  it("a key that cannot become an AES key → config, before the payload is looked at", () => {
+    expect(() => detectEnvironment("", keys({ demo: "   " }), varName)).toThrow(/config/)
+    expect(() => detectEnvironment(encryptLpl(validPayloadObject(), PROD_KEY), keys({ demo: "   " }), varName)).toThrow(
+      /config/,
+    )
   })
 })
 
@@ -206,15 +303,65 @@ describe("exchangeCode", () => {
     await expect(exchangeCode(payload, SECRET, "https://api.example")).rejects.toMatchObject({ reason: "expired" })
   })
 
-  it("maps a network error to ExchangeError(invalid)", async () => {
+  it("maps a network error to a 502 ExchangeError(invalid)", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("boom")))
     await expect(exchangeCode(payload, SECRET, "https://api.example")).rejects.toBeInstanceOf(ExchangeError)
-    await expect(exchangeCode(payload, SECRET, "https://api.example")).rejects.toMatchObject({ reason: "invalid" })
+    await expect(exchangeCode(payload, SECRET, "https://api.example")).rejects.toMatchObject({
+      reason: "invalid",
+      status: 502,
+    })
   })
 
-  it("maps a 500 to ExchangeError(invalid)", async () => {
+  it("maps a timeout (abort) to a 502 ExchangeError(invalid)", async () => {
+    const abort = Object.assign(new Error("aborted"), { name: "AbortError" })
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(abort))
+    await expect(exchangeCode(payload, SECRET, "https://api.example")).rejects.toMatchObject({
+      reason: "invalid",
+      status: 502,
+    })
+  })
+
+  it("maps a 500 to a 502 ExchangeError(invalid)", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("oops", { status: 500 })))
-    await expect(exchangeCode(payload, SECRET, "https://api.example")).rejects.toMatchObject({ reason: "invalid" })
+    await expect(exchangeCode(payload, SECRET, "https://api.example")).rejects.toMatchObject({
+      reason: "invalid",
+      status: 502,
+    })
+  })
+
+  it("maps another 4xx and a 3xx to a 400 ExchangeError(invalid)", async () => {
+    for (const status of [400, 404, 302]) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ message: "Invalid signature provided." }), { status })))
+      await expect(exchangeCode(payload, SECRET, "https://api.example")).rejects.toMatchObject({
+        reason: "invalid",
+        status: 400,
+      })
+    }
+  })
+
+  it("maps a 2xx without tokens to a 502 ExchangeError(invalid)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ token_type: "Bearer" }), { status: 200 })))
+    await expect(exchangeCode(payload, SECRET, "https://api.example")).rejects.toMatchObject({ status: 502 })
+  })
+
+  it("used / expired bodies are 400", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ message: "code 'X' has already been redeemed." }), { status: 400 })),
+    )
+    await expect(exchangeCode(payload, SECRET, "https://api.example")).rejects.toMatchObject({ reason: "used", status: 400 })
+  })
+
+  it("sends cache no-store, redirect manual and an abort signal to the given apiRoot", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ access_token: "a", refresh_token: "r", expires_in: 1 }), { status: 200 }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    await exchangeCode(payload, SECRET, "https://1health.demo.1health.io")
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe("https://1health.demo.1health.io/api/v2/public/external-application/auth/oauth2/user/token")
+    expect(init).toMatchObject({ cache: "no-store", redirect: "manual" })
+    expect(init.signal).toBeInstanceOf(AbortSignal)
   })
 })
 

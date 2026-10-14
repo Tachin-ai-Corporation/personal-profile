@@ -9,7 +9,8 @@ import { callApi, getPortalUrl } from "@/lib/api"
  *   may leave; with no guard set it resolves `true` at once.
  * - `returnToPortal()` is the app-bar "Return to 1health" (Story 1.8): it asks
  *   the guard, then signs out (`POST /api/session/logout`, waited on for at most
- *   3 s, failures ignored) and navigates to the constant `PORTAL_URL`.
+ *   3 s, failures ignored) and navigates to the page-registered portal URL
+ *   (the session environment's `portalUrl`, D4).
  *
  * There is no `returnUrl`/`next` parameter anywhere (AD-5). The session-expired
  * dialog never calls these: its "Return to 1health" is a plain link.
@@ -36,7 +37,7 @@ export function requestLeave(): Promise<boolean> {
 
 /**
  * Leave for 1health: guard → logout (≤ 3 s, failures ignored) → navigate to
- * `PORTAL_URL`. Does nothing when the guard says no; does not navigate when no
+ * the registered portal URL. Does nothing when the guard says no; does not navigate when no
  * portal URL is registered.
  */
 export async function returnToPortal(): Promise<void> {

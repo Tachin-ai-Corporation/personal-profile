@@ -110,7 +110,7 @@ describe("callApi — path guard", () => {
     "/foo",
     "",
     "/api",
-    "/api/../launch",
+    "/api/../auth",
     "/api/%2e%2e/x",
     "/api/./../x",
   ])("rejects %j without a network call", async (path) => {
@@ -149,6 +149,28 @@ describe("callApi — errors", () => {
     capture(() => HttpResponse.json({ errorCode: "INVALID_ENUM_VALUE", details }, { status: 400 }))
     const res = await callApi("t/400", "/api/1h/v2/user/myself")
     expect(res).toMatchObject({ success: false, statusCode: 400, errorCode: "INVALID_ENUM_VALUE", details })
+  })
+
+  it("a BFF (source: proxy) body keeps its user-safe message and retryable flag in details", async () => {
+    capture(() =>
+      HttpResponse.json(
+        { ok: false, errorCode: "WRONG_TENANT", source: "proxy", message: "Safe copy.", retryable: false },
+        { status: 403 },
+      ),
+    )
+    const res = await callApi("t/token", "/api/1h/v2/user/myself", { method: "POST" })
+    expect(res).toMatchObject({
+      success: false,
+      statusCode: 403,
+      errorCode: "WRONG_TENANT",
+      details: { message: "Safe copy.", retryable: false },
+    })
+  })
+
+  it("an upstream body's message is not kept", async () => {
+    capture(() => HttpResponse.json({ message: "upstream text", code: 400 }, { status: 400 }))
+    const res = await callApi("t/up", "/api/1h/v2/user/myself")
+    expect(res.details).toBeUndefined()
   })
 
   it("prefers a string `code` over `errorCode`", async () => {

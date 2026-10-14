@@ -6,7 +6,7 @@ import { AppBar } from "./app-bar"
 
 /**
  * The app bar (Story 1.8): wordmark + title, and "Return to 1health", which is
- * absent when framed and otherwise prevents the default navigation and calls
+ * always rendered (never framed, D10), prevents the default navigation and calls
  * `returnToPortal()` (which runs the leave guard itself) exactly once.
  */
 
@@ -16,14 +16,7 @@ const { returnToPortal, requestLeave } = vi.hoisted(() => ({
 }))
 vi.mock("./leave", () => ({ returnToPortal, requestLeave }))
 
-const PORTAL = "https://portal.example/applications"
-
-let originalTop: PropertyDescriptor | undefined
-
-function setFramed(framed: boolean) {
-  originalTop ??= Object.getOwnPropertyDescriptor(window, "top")
-  Object.defineProperty(window, "top", { configurable: true, value: framed ? {} : window })
-}
+const PORTAL = "https://1health.demo.1health.io"
 
 beforeEach(() => {
   returnToPortal.mockClear()
@@ -32,12 +25,10 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
-  if (originalTop) Object.defineProperty(window, "top", originalTop)
 })
 
 describe("AppBar", () => {
   it("is a banner with the wordmark and the title, which is not a heading", () => {
-    setFramed(false)
     render(<AppBar portalUrl={PORTAL} />)
     const banner = screen.getByRole("banner")
     expect(banner).toHaveTextContent("1health")
@@ -47,7 +38,6 @@ describe("AppBar", () => {
   })
 
   it("renders Return to 1health as a 44 px link to the portal with the focus ring", () => {
-    setFramed(false)
     render(<AppBar portalUrl={PORTAL} />)
     const link = screen.getByRole("link", { name: SHELL_COPY.returnToPortal })
     expect(link).toHaveAttribute("href", PORTAL)
@@ -56,7 +46,6 @@ describe("AppBar", () => {
   })
 
   it("a click prevents the default navigation and calls returnToPortal once (not requestLeave first)", () => {
-    setFramed(false)
     render(<AppBar portalUrl={PORTAL} />)
     const link = screen.getByRole("link", { name: SHELL_COPY.returnToPortal })
     const click = createEvent.click(link, { button: 0 })
@@ -67,7 +56,6 @@ describe("AppBar", () => {
   })
 
   it("a modified or non-primary click keeps the browser's behavior and does not call returnToPortal", () => {
-    setFramed(false)
     render(<AppBar portalUrl={PORTAL} />)
     const link = screen.getByRole("link", { name: SHELL_COPY.returnToPortal })
     // Record whether the app prevented the default, then stop jsdom's (unimplemented) navigation.
@@ -88,20 +76,8 @@ describe("AppBar", () => {
     expect(returnToPortal).not.toHaveBeenCalled()
   })
 
-  it("framed: the link is not rendered at all", () => {
-    setFramed(true)
+  it("axe-core reports zero violations", async () => {
     render(<AppBar portalUrl={PORTAL} />)
-    expect(screen.queryByRole("link")).toBeNull()
-    expect(screen.queryByText(SHELL_COPY.returnToPortal)).toBeNull()
-    expect(screen.getByRole("banner")).toHaveTextContent(SHELL_COPY.appTitle)
-  })
-
-  it("axe-core reports zero violations, top-level and framed", async () => {
-    for (const framed of [false, true]) {
-      setFramed(framed)
-      const { unmount } = render(<AppBar portalUrl={PORTAL} />)
-      expect(await axeViolations()).toEqual([])
-      unmount()
-    }
+    expect(await axeViolations()).toEqual([])
   })
 })

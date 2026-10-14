@@ -120,7 +120,7 @@ const GUARD_BASE = "http://pp.invalid"
 
 /**
  * True only for a same-origin path that still lies under `/api/` after URL
- * normalization (so `/api/../launch` and `/api/%2e%2e/x` are rejected).
+ * normalization (so `/api/../auth` and `/api/%2e%2e/x` are rejected).
  */
 function isApiPath(path: unknown): path is string {
   if (typeof path !== "string" || !path.startsWith("/api/")) return false
@@ -146,7 +146,16 @@ function parseErrorBody(text: string): { errorCode?: string; details?: unknown }
   // Only a STRING code becomes errorCode; a numeric `code` is ignored.
   const errorCode =
     typeof obj.code === "string" ? obj.code : typeof obj.errorCode === "string" ? obj.errorCode : undefined
-  return "details" in obj ? { errorCode, details: obj.details } : { errorCode }
+  if ("details" in obj) return { errorCode, details: obj.details }
+  // A BFF body's user-safe `message` and `retryable` flag (e.g. `/api/token`, D9)
+  // are kept in `details`; an upstream body's message is not.
+  if (obj.source === "proxy" && ("message" in obj || "retryable" in obj)) {
+    const details: { message?: unknown; retryable?: unknown } = {}
+    if ("message" in obj) details.message = obj.message
+    if ("retryable" in obj) details.retryable = obj.retryable
+    return { errorCode, details }
+  }
+  return { errorCode }
 }
 
 /** Send one request and parse the result. Never throws; publishes nothing. */

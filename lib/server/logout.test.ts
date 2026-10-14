@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { TEST_SERVER_ENV } from "../../test/env-fixture"
 import { createHmac } from "node:crypto"
 import type { SessionData } from "./session"
 
@@ -11,22 +12,15 @@ import type { SessionData } from "./session"
  */
 
 const SESSION_SECRET = "logout-session-secret-0123456789abcdef"
-const APP_ORIGIN = "https://app.example"
-const API_ORIGIN = "https://demo.1health.io"
+const DEMO_ROOT = "https://1health.demo.1health.io" // environments.demo.apiRoot
 const SID = "sid-logout-123"
 const ACCESS = "logout-access-token-AAAA"
 const REFRESH = "logout-refresh-token-BBBB"
-const CLEARED = "__Host-pp_s=; HttpOnly; Secure; SameSite=None; Partitioned; Path=/; Max-Age=0"
+const CLEARED = "__Host-pp_s=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0"
 const T = 1_800_000_000_000
 const MIN = 60_000
 
-const BASE_ENV = {
-  APP_ENV: "demo",
-  APP_ORIGIN,
-  APP_ID: "app-id-123",
-  ONEHEALTH_SECRET_KEY: "onehealth-secret",
-  SESSION_SECRET,
-}
+const BASE_ENV = { ...TEST_SERVER_ENV, SESSION_SECRET }
 
 function binding(sid = SID): string {
   return createHmac("sha256", SESSION_SECRET).update(sid).digest("base64url")
@@ -39,6 +33,7 @@ function sessionData(overrides: Partial<SessionData> = {}): SessionData {
     accessTokenExpiresAt: T + 10 * MIN,
     userId: 42,
     personId: 7,
+    environment: "demo",
     tenantId: 1,
     sid: SID,
     gen: 2,
@@ -156,7 +151,7 @@ async function assertEmpty204(res: Response) {
 function assertRevokeCall() {
   expect(fetchMock).toHaveBeenCalledTimes(1)
   const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-  expect(url).toBe(`${API_ORIGIN}/auth/user/logout`)
+  expect(url).toBe(`${DEMO_ROOT}/auth/user/logout`)
   expect(init.method).toBe("POST")
   expect(new Headers(init.headers).get("authorization")).toBe(`Bearer ${ACCESS}`)
   expect(init.cache).toBe("no-store")
@@ -194,6 +189,13 @@ describe("handleLogout — ok", () => {
     assertRevokeCall()
     expect(errorSpy).not.toHaveBeenCalled()
     assertSingleRouteLog(204)
+  })
+
+  it("a prod session revokes at the prod root (D2)", async () => {
+    const { handleLogout } = await withSession(sessionData({ environment: "prod" }))
+    await handleLogout(makeRequest())
+    await runAfter()
+    expect((fetchMock.mock.calls[0] as [string])[0]).toBe("https://1health.app.1health.io/auth/user/logout")
   })
 
   it.each([

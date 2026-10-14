@@ -1,7 +1,5 @@
 import "server-only"
 
-import { APP_ENV } from "./env"
-
 /**
  * =============================================================================
  * PHI-free server logging (AD-15)
@@ -9,9 +7,8 @@ import { APP_ENV } from "./env"
  *
  * Proxy and BFF logs record ONLY the upstream path TEMPLATE (e.g.
  * `/v2/person/{personId}/ssn/expose`) — never the concrete path, the substituted
- * ids, query values, tokens, or bodies. Request/response bodies are logged only
- * when `APP_ENV=dev`, and even then tokens, SSN-shaped values and secrets are
- * redacted.
+ * ids, query values, tokens, or bodies. Server logs NEVER contain request or
+ * response bodies, in any environment and also under local `next dev` (D6).
  * =============================================================================
  */
 
@@ -79,33 +76,24 @@ export function logError(fields: ErrorLogFields): void {
   )
 }
 
-/**
- * Redact tokens, SSN-shaped values, and secret-ish key/values from a text body so
- * the dev body logger never emits them even in `dev`.
- */
-export function redactBody(text: string): string {
-  return (
-    text
-      // Bearer tokens.
-      .replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [REDACTED]")
-      // JWT-shaped values (three base64url segments).
-      .replace(/\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, "[REDACTED_JWT]")
-      // SSN-shaped values (###-##-#### or 9 consecutive digits).
-      .replace(/\b\d{3}-\d{2}-\d{4}\b/g, "[REDACTED_SSN]")
-      .replace(/\b\d{9}\b/g, "[REDACTED_SSN]")
-      // Token/secret/password JSON fields.
-      .replace(
-        /("(?:[a-z_]*(?:token|secret|password|signature)[a-z_]*)"\s*:\s*)"[^"]*"/gi,
-        '$1"[REDACTED]"',
-      )
-  )
+/** The `/api/token` launch log line (Story 1.2): never `lpl`, code, tokens, ids or upstream text. */
+export interface LaunchLogFields {
+  requestId: string
+  /** `OK` or the `errorCode` answered. */
+  outcome: string
+  /** The detected environment, once known. */
+  environment?: string
+  durationMs: number
 }
 
-/**
- * Dev-only body logger: emits a redacted body ONLY when `APP_ENV=dev`. A no-op in
- * demo/prod, so bodies never reach logs there (AD-15).
- */
-export function logBody(label: string, text: string): void {
-  if (APP_ENV !== "dev") return
-  console.debug(JSON.stringify({ label, body: redactBody(text) }))
+/** Log one launch outcome. Carries only request-id/route/outcome/environment/duration. */
+export function logLaunch(fields: LaunchLogFields): void {
+  const line: Record<string, unknown> = {
+    requestId: fields.requestId,
+    routeTemplate: "/api/token",
+    outcome: fields.outcome,
+  }
+  if (fields.environment) line.environment = fields.environment
+  line.durationMs = fields.durationMs
+  console.info(JSON.stringify(line))
 }

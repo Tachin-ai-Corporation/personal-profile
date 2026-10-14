@@ -1,14 +1,15 @@
 import "server-only"
 
 import { createDecipheriv, createHmac, hkdfSync } from "node:crypto"
-import { API_ORIGIN } from "./env"
+import { ENVIRONMENTS, type Environment } from "@/lib/shared/environments"
+import { getSecretKey, getSecretKeyVarName } from "./env"
 
 /**
  * =============================================================================
- * Launch crypto + one-shot exchange (AD-1, AD-4, AD-6)
+ * Launch crypto, environment detection + one-shot exchange (AD-1, AD-6, D2)
  * =============================================================================
  *
- * Pure, injectable helpers for the `/launch` server exchange. Byte-identical to
+ * Pure, injectable helpers for the `POST /api/token` launch. Byte-identical to
  * the platform (`KeyDerivationUtil` / `HmacSha256Util` / `JwtFieldEncryptor` in
  * `1h-ng-bo-core-be`):
  *   - AES key: HKDF-SHA256, IKM = raw secret (utf8), salt = 32 zero bytes,
@@ -16,6 +17,12 @@ import { API_ORIGIN } from "./env"
  *   - LPL wire format: base64( IV(12) ++ ciphertext ++ GCM tag(16) ).
  *   - exchange signature: base64 HMAC-SHA256 of the one-time code keyed by the
  *     RAW (un-derived) secret (utf8).
+ *
+ * Environment detection (D2): the payload is tried against the PROD key, then
+ * the DEMO key, each first as stored and then `.trim()`-ed. The first variant
+ * whose GCM tag authenticates decides the environment, and that same variant
+ * keys the exchange signature. Every upstream origin is passed in by the caller
+ * from `lib/shared/environments.ts`; nothing here has a default origin.
  *
  * NOTHING here logs a secret, token, lpl, code, user id, or upstream body.
  * =============================================================================
@@ -35,9 +42,16 @@ export class LaunchError extends Error {
   }
 }
 
-/** An exchange failure, mapped to the launch-error reason the user should see. */
+/**
+ * An exchange failure, mapped to the launch error the user should see, and the
+ * HTTP status `/api/token` answers with: 502 for an upstream 5xx, a timeout, a
+ * network error or an unusable 2xx; 400 otherwise.
+ */
 export class ExchangeError extends Error {
-  constructor(public readonly reason: "used" | "expired" | "invalid") {
+  constructor(
+    public readonly reason: "used" | "expired" | "invalid",
+    public readonly status: 400 | 502 = 400,
+  ) {
     super(reason)
     this.name = "ExchangeError"
   }
@@ -86,47 +100,127 @@ export function buildSignature(code: string, secret: string): string {
   return createHmac("sha256", Buffer.from(secret, "utf8")).update(code, "utf8").digest("base64")
 }
 
-/**
- * Decrypt and validate the launch payload. Throws `LaunchError('config')` when
- * the secret cannot form a key, and `LaunchError('invalid')` for any malformed,
- * tampered, cleartext, or field-missing payload.
- */
-export function decryptLaunchPayload(lpl: string, secret: string): LaunchPayload {
-  // `config` (bad key) is distinct from `invalid` (bad payload): derive first.
-  const key = deriveAesKey(secret)
+/** Base64 (standard or URL-safe alphabet, optional padding) — anything else is not a payload. */
+const BASE64 = /^[A-Za-z0-9+/_-]+={0,2}$/
 
+/**
+ * Decode the wire payload into its raw bytes, or throw `LaunchError('invalid')`
+ * for a non-base64 or too-short (< 28 bytes) value. Platform quirk: `+` in the
+ * base64 lpl can arrive as a space through the URL, so spaces become `+`.
+ */
+function decodeLpl(lpl: string): Buffer {
   if (typeof lpl !== "string" || lpl.length === 0) {
     throw new LaunchError("invalid")
   }
-
-  // Platform quirk: '+' in the base64 lpl can arrive as a space through the URL.
   const normalized = lpl.replace(/ /g, "+")
+  if (!BASE64.test(normalized)) {
+    throw new LaunchError("invalid")
+  }
   const buf = Buffer.from(normalized, "base64")
   if (buf.length < MIN_LPL_BYTES) {
     throw new LaunchError("invalid")
   }
+  return buf
+}
 
+/** AES-256-GCM open: the plaintext, or `null` when the tag does not authenticate under `key`. */
+function open(buf: Buffer, key: Buffer): string | null {
   const iv = buf.subarray(0, 12)
   const tag = buf.subarray(buf.length - 16)
   const ciphertext = buf.subarray(12, buf.length - 16)
-
-  let plaintext: string
   try {
     const decipher = createDecipheriv("aes-256-gcm", key, iv)
     decipher.setAuthTag(tag)
-    plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8")
+    return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8")
   } catch {
-    throw new LaunchError("invalid")
+    return null
   }
+}
 
+/** Parse + validate an authenticated plaintext; any fault is `invalid`. */
+function parsePayload(plaintext: string): LaunchPayload {
   let json: unknown
   try {
     json = JSON.parse(plaintext)
   } catch {
     throw new LaunchError("invalid")
   }
-
   return validatePayload(json)
+}
+
+/**
+ * Decrypt and validate the launch payload with ONE secret. Throws
+ * `LaunchError('config')` when the secret cannot form a key, and
+ * `LaunchError('invalid')` for any malformed, tampered, cleartext, or
+ * field-missing payload.
+ */
+export function decryptLaunchPayload(lpl: string, secret: string): LaunchPayload {
+  // `config` (bad key) is distinct from `invalid` (bad payload): derive first.
+  const key = deriveAesKey(secret)
+  const plaintext = open(decodeLpl(lpl), key)
+  if (plaintext === null) throw new LaunchError("invalid")
+  return parsePayload(plaintext)
+}
+
+/** The outcome of environment detection. */
+export interface DetectedLaunch {
+  /** The environment whose key decrypted the payload (D2). */
+  environment: Environment
+  /** The key variant that decrypted it (as stored, or trimmed): keys the exchange signature. */
+  secret: string
+  /** Whether only the trimmed variant decrypted (a warning was logged). */
+  trimmed: boolean
+  payload: LaunchPayload
+}
+
+/**
+ * Detect the environment by key (D2): try PROD then DEMO, each first as stored
+ * and then `.trim()`-ed. The first variant that authenticates wins.
+ *
+ * - Every key must be able to form an AES key, else `LaunchError('config')`
+ *   (checked up front, before the payload is looked at).
+ * - A payload that is missing, not base64, too short, decrypted by no variant,
+ *   not JSON, or missing a required field is `LaunchError('invalid')`.
+ * - When only a trimmed variant decrypts, ONE warning names the variable (never
+ *   its value) and detection continues with that variant.
+ *
+ * @param keyOf the stored secret per environment (defaults to `env.ts`).
+ */
+export function detectEnvironment(
+  lpl: string,
+  keyOf: (env: Environment) => string = getSecretKey,
+  varNameOf: (env: Environment) => string = getSecretKeyVarName,
+): DetectedLaunch {
+  // Config first: a key that cannot become an AES key is a deployment fault.
+  const variants: { environment: Environment; secret: string; trimmed: boolean; key: Buffer }[] = []
+  for (const environment of ENVIRONMENTS) {
+    const stored = keyOf(environment)
+    variants.push({ environment, secret: stored, trimmed: false, key: deriveAesKey(stored) })
+    const trimmed = typeof stored === "string" ? stored.trim() : stored
+    if (trimmed !== stored) {
+      variants.push({ environment, secret: trimmed, trimmed: true, key: deriveAesKey(trimmed) })
+    }
+  }
+
+  const buf = decodeLpl(lpl)
+  for (const variant of variants) {
+    const plaintext = open(buf, variant.key)
+    if (plaintext === null) continue
+    // The tag authenticated: this is the payload's environment. A JSON or field
+    // fault from here on is an invalid payload, not a reason to try other keys.
+    const payload = parsePayload(plaintext)
+    if (variant.trimmed) {
+      console.warn(
+        JSON.stringify({
+          routeTemplate: "/api/token",
+          warning: "LAUNCH_KEY_TRIMMED",
+          variable: varNameOf(variant.environment),
+        }),
+      )
+    }
+    return { environment: variant.environment, secret: variant.secret, trimmed: variant.trimmed, payload }
+  }
+  throw new LaunchError("invalid")
 }
 
 /** Pull and type-check the required fields; any miss is `invalid`. */
@@ -156,7 +250,7 @@ function validatePayload(json: unknown): LaunchPayload {
 }
 
 /**
- * Map an upstream exchange failure to a launch-error reason. Keyed off the
+ * Map an upstream exchange failure to a launch error reason. Keyed off the
  * recorded platform error bodies (`ErrorMessageDTO`): "already been redeemed"
  * → `used`, "has expired" → `expired`, everything else (not-found, invalid
  * signature, other 4xx/5xx/3xx) → `invalid`.
@@ -169,16 +263,16 @@ export function mapUpstreamError(_status: number, body: string): "used" | "expir
 }
 
 /**
- * Exchange the one-time code exactly once (no retry). Network/timeout/parse
- * faults and any non-2xx map through `mapUpstreamError` to an `ExchangeError`.
+ * Exchange the one-time code exactly once (no retry) at `<apiRoot>/api/...`.
+ * A 4xx/3xx maps through `mapUpstreamError` to a 400 `ExchangeError`; a 5xx, a
+ * network error, a timeout or an unusable 2xx is a 502 `ExchangeError('invalid')`.
+ *
+ * @param secret the key variant that decrypted the payload (keys the signature).
+ * @param apiRoot the detected environment's `apiRoot`.
  */
-export async function exchangeCode(
-  payload: LaunchPayload,
-  secret: string,
-  origin: string = API_ORIGIN,
-): Promise<ExchangeResult> {
+export async function exchangeCode(payload: LaunchPayload, secret: string, apiRoot: string): Promise<ExchangeResult> {
   const signature = buildSignature(payload.code, secret)
-  const url = `${origin}/api/v2/public/external-application/auth/oauth2/user/token`
+  const url = `${apiRoot}/api/v2/public/external-application/auth/oauth2/user/token`
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS)
@@ -194,34 +288,39 @@ export async function exchangeCode(
       signal: controller.signal,
     })
   } catch {
-    // Network error, timeout/abort, or a `redirect: manual` opaque redirect.
-    throw new ExchangeError("invalid")
+    // Network error or timeout/abort.
+    throw new ExchangeError("invalid", 502)
   } finally {
     clearTimeout(timer)
   }
 
-  if (res.status < 200 || res.status >= 300) {
+  if (res.status >= 500) {
+    await discard(res)
+    throw new ExchangeError("invalid", 502)
+  }
+  if (res.type === "opaqueredirect" || res.status < 200 || res.status >= 300) {
     let body = ""
     try {
       body = await res.text()
     } catch {
       body = ""
     }
-    throw new ExchangeError(mapUpstreamError(res.status, body))
+    // The body only selects a reason; it is never logged or returned.
+    throw new ExchangeError(mapUpstreamError(res.status, body), 400)
   }
 
   let data: { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown }
   try {
     data = (await res.json()) as typeof data
   } catch {
-    throw new ExchangeError("invalid")
+    throw new ExchangeError("invalid", 502)
   }
 
-  const accessToken = data.access_token
-  const refreshToken = data.refresh_token
-  const expiresIn = data.expires_in
+  const accessToken = data?.access_token
+  const refreshToken = data?.refresh_token
+  const expiresIn = data?.expires_in
   if (typeof accessToken !== "string" || typeof refreshToken !== "string") {
-    throw new ExchangeError("invalid")
+    throw new ExchangeError("invalid", 502)
   }
 
   return {
@@ -252,15 +351,27 @@ export function readTokenTenantId(accessToken: string): number | null {
   }
 }
 
+/** Drop an unread response body. Never throws. */
+async function discard(res: Response): Promise<void> {
+  try {
+    await res.body?.cancel()
+  } catch {
+    // ignore
+  }
+}
+
 /**
- * Derive the ids from `/myself` with the new Bearer (AD-1). Returns `null` on
- * any failure, so the caller sends `reason=invalid` without leaking detail.
+ * Derive the ids from one `GET <apiRoot>/api/v2/user/myself` with the new
+ * Bearer (AD-1). Returns `null` on any failure, so the caller answers
+ * `LAUNCH_INVALID` without leaking detail.
+ *
+ * @param apiRoot the detected environment's `apiRoot`.
  */
 export async function fetchIds(
   accessToken: string,
-  origin: string = API_ORIGIN,
+  apiRoot: string,
 ): Promise<{ userId: number; personId: number } | null> {
-  const url = `${origin}/api/v2/user/myself`
+  const url = `${apiRoot}/api/v2/user/myself`
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS)

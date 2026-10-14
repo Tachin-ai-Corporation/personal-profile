@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { TEST_SERVER_ENV } from "../../test/env-fixture"
 import { createHmac } from "node:crypto"
 
 /**
@@ -10,13 +11,7 @@ import { createHmac } from "node:crypto"
 
 const SECRET = "binding-session-secret-0123456789abcdef"
 
-const BASE_ENV = {
-  APP_ENV: "demo",
-  APP_ORIGIN: "https://personal-profile-demo.vercel.app",
-  APP_ID: "app-id-123",
-  ONEHEALTH_SECRET_KEY: "onehealth-secret",
-  SESSION_SECRET: SECRET,
-}
+const BASE_ENV = { ...TEST_SERVER_ENV, SESSION_SECRET: SECRET }
 
 let ORIGINAL_ENV: NodeJS.ProcessEnv
 

@@ -1,23 +1,25 @@
 import { expect, test } from "@playwright/test"
-import { freshCode, makeLpl } from "./fixtures"
+import { launch } from "./fixtures"
 
 /**
- * AD-21: every response — app routes, 404s and static assets — carries the full
- * security-header set with a fresh per-request CSP nonce, `frame-ancestors` is
- * exactly the portal origin, and `X-Frame-Options` is never sent.
- *
- * The webServer runs with APP_ENV=dev, so PORTAL_ORIGIN is https://dev.1hdev.io.
+ * AD-21 / D10: every response — app routes, 404s and static assets — carries the
+ * full security-header set with a fresh per-request CSP nonce,
+ * `frame-ancestors 'none'`, `X-Frame-Options: DENY` and COOP `same-origin`: the
+ * app is never framed, including by the portal.
  */
 
-const PORTAL_ORIGIN = "https://dev.1hdev.io"
-
 const TARGETS = [
-  // `/` with no session redirects to the launch-error screen; follow it so we
-  // assert the AD-21 header set on the page the user actually sees.
+  // `/` with no session redirects to `/auth`; follow it so we assert the AD-21
+  // header set on the page the user actually sees.
   { name: "home", path: "/", expectStatus: 200 },
-  { name: "launch-error", path: "/launch-error", expectStatus: 200 },
+  { name: "auth", path: "/auth", expectStatus: 200 },
+  // Not built yet (Epic 7): asserted on whatever they return (no status check).
+  { name: "account", path: "/account", expectStatus: undefined },
+  { name: "handoff/portal", path: "/handoff/portal", expectStatus: undefined },
   { name: "404 path", path: "/does-not-exist-abc123", expectStatus: 404 },
   { name: "static asset", path: "/favicon.png", expectStatus: 200 },
+  // The launch API answers GET with 405 and still carries the full set.
+  { name: "api/token", path: "/api/token", expectStatus: 405 },
 ]
 
 /** The exact CSP string (AD-21), with the per-request nonce as a placeholder. */
@@ -32,7 +34,7 @@ function expectedCsp(nonce: string): string {
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",
-    `frame-ancestors ${PORTAL_ORIGIN}`,
+    "frame-ancestors 'none'",
     "upgrade-insecure-requests",
   ].join("; ")
 }
@@ -51,16 +53,15 @@ function assertSecurityHeaders(headers: Record<string, string>) {
   expect(headers["x-content-type-options"]).toBe("nosniff")
   expect(headers["referrer-policy"]).toBe("no-referrer")
   expect(headers["permissions-policy"]).toBe("camera=(), microphone=(), geolocation=()")
-  expect(headers["cross-origin-opener-policy"]).toBe("same-origin-allow-popups")
-
-  // AD-21 / AD-5: framing is governed by CSP alone; X-Frame-Options is never set.
-  expect(headers["x-frame-options"]).toBeUndefined()
+  expect(headers["cross-origin-opener-policy"]).toBe("same-origin")
+  // D10: never framed — the legacy header backs up `frame-ancestors 'none'`.
+  expect(headers["x-frame-options"]).toBe("DENY")
 }
 
 for (const target of TARGETS) {
   test(`${target.name} carries the full AD-21 header set`, async ({ request }) => {
     const res = await request.get(target.path)
-    expect(res.status()).toBe(target.expectStatus)
+    if (target.expectStatus !== undefined) expect(res.status()).toBe(target.expectStatus)
     assertSecurityHeaders(res.headers())
   })
 }
@@ -93,8 +94,8 @@ test("the response CSP nonce reaches the page scripts (strict-dynamic works)", a
 
   // `/` guards and redirects when there is no session (Story 1.2), which would
   // destroy the init-script context; assert nonce/strict-dynamic on a page that
-  // renders directly. `/launch-error` carries the same AD-21 CSP.
-  const response = await page.goto("/launch-error", { waitUntil: "load" })
+  // renders directly. `/auth` carries the same AD-21 CSP.
+  const response = await page.goto("/auth", { waitUntil: "load" })
   const csp = response?.headers()["content-security-policy"] ?? ""
   const headerNonce = csp.match(/'nonce-([A-Za-z0-9+/=]{16,})'/)?.[1]
   expect(headerNonce, "response CSP carries a nonce").toBeTruthy()
@@ -135,9 +136,7 @@ function assertNoStore(headers: Record<string, string>) {
 
 test("an /api/1h error response carries AD-21 + no-store + nosniff (409 and 403)", async ({ page }) => {
   // Launch to seal a session cookie into this page's context.
-  const lpl = makeLpl(freshCode())
-  await page.goto(`/launch?lpl=${encodeURIComponent(lpl)}&tab=contacts`)
-  await expect(page).toHaveURL(/\/\?tab=contacts$/)
+  await launch(page)
 
   // 409 SESSION_CHANGED: a mismatched per-tab binding header.
   const mismatched = await page.request.get("/api/1h/v2/user/myself", {
@@ -195,6 +194,23 @@ test("POST /api/session/logout without CSRF headers → 403 with no-store + nosn
   expect(res.headers()["set-cookie"]).toBeUndefined()
   assertSecurityHeaders(res.headers())
   assertNoStore(res.headers())
+})
+
+/**
+ * Story 1.2: `POST /api/token` responses (error bodies here) carry the AD-21 set
+ * plus the no-store trio + `nosniff`, and never a token.
+ */
+test("POST /api/token error responses carry AD-21 + no-store + nosniff", async ({ request }) => {
+  const res = await request.post("/api/token", { data: { lpl: "not-a-valid-payload" } })
+  expect(res.status()).toBe(400)
+  expect(await res.json()).toMatchObject({ ok: false, errorCode: "LAUNCH_INVALID", source: "proxy", retryable: false })
+  assertSecurityHeaders(res.headers())
+  assertNoStore(res.headers())
+
+  const wrongType = await request.post("/api/token", { headers: { "Content-Type": "text/plain" }, data: "lpl=x" })
+  expect(wrongType.status()).toBe(415)
+  assertSecurityHeaders(wrongType.headers())
+  assertNoStore(wrongType.headers())
 })
 
 test("two requests to / produce different CSP nonces", async ({ request }) => {

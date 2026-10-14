@@ -3,30 +3,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createHmac } from "node:crypto"
 import type { NextRequest } from "next/server"
 import type { AllowlistEntry } from "./proxy-allowlist"
+import { TEST_SERVER_ENV } from "../../test/env-fixture"
 
 /**
  * Full-pipeline coverage for `createProxy` over an INJECTED fixture allowlist, with
  * `fetch` mocked (MSW never sees these server-side upstream calls). The real
- * `env.ts` loads from `process.env` (APP_ENV=demo → API_ORIGIN=demo.1health.io);
+ * `env.ts` loads from `process.env` (the D1 dummy set); the upstream root comes
+ * from the session's `environment` (demo by default here);
  * `session.ts` is partially mocked so `getSession` / `hasSessionCookie` are
  * controllable (the real `sealSession` etc. stay); `realSession: true` uses the
  * real module over a mocked `next/headers` cookie store instead.
  */
 
 const SESSION_SECRET = "proxy-session-secret-0123456789abcdef"
-const API_ORIGIN = "https://demo.1health.io" // ORIGIN_BY_ENV["demo"]
-const APP_ORIGIN = "https://app.example"
+const DEMO_ROOT = "https://1health.demo.1health.io" // environments.demo.apiRoot
 const SID = "sid-proxy-123"
 const PERSON_ID = 7
 const USER_ID = 42
 
-const BASE_ENV = {
-  APP_ENV: "demo",
-  APP_ORIGIN,
-  APP_ID: "app-id-123",
-  ONEHEALTH_SECRET_KEY: "onehealth-secret",
-  SESSION_SECRET,
-}
+const BASE_ENV = { ...TEST_SERVER_ENV, SESSION_SECRET }
 
 /** The injected fixture allowlist exercising every entry shape the spec names. */
 const FIXTURES: AllowlistEntry[] = [
@@ -44,6 +39,7 @@ function binding(sid = SID): string {
 }
 
 type Session = {
+  environment: "demo" | "prod"
   sid: string
   personId: number
   userId: number
@@ -59,6 +55,7 @@ type Session = {
 function freshSession(overrides: Partial<Session> = {}): Session {
   const now = Date.now()
   return {
+    environment: "demo",
     sid: SID,
     personId: PERSON_ID,
     userId: USER_ID,
@@ -202,7 +199,7 @@ describe("happy path", () => {
     // AD-2 forward contract.
     expect(fetchMock).toHaveBeenCalledOnce()
     const [url, fetchInit] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toBe(`${API_ORIGIN}/api/v2/user/myself`)
+    expect(url).toBe(`${DEMO_ROOT}/api/v2/user/myself`)
     expect(fetchInit.cache).toBe("no-store")
     expect(fetchInit.redirect).toBe("manual")
     expect(fetchInit.signal).toBeInstanceOf(AbortSignal)
@@ -211,6 +208,16 @@ describe("happy path", () => {
     expect(fwd.get("x-request-id")).toBeTruthy()
     expect(fwd.get("cookie")).toBeNull()
     expect(fwd.get("x-pp-session")).toBeNull()
+  })
+
+  it.each([
+    ["demo", "https://1health.demo.1health.io"],
+    ["prod", "https://1health.app.1health.io"],
+  ] as const)("a %s session goes to its own root only (D2)", async (environment, root) => {
+    const { proxy } = await loadProxy({ getSession: vi.fn(async () => freshSession({ environment })) })
+    const res = await proxy.GET(makeRequest("v2/user/myself", { headers: getHeaders() }))
+    expect(res.status).toBe(200)
+    expect((fetchMock.mock.calls[0] as [string])[0]).toBe(`${root}/api/v2/user/myself`)
   })
 
   it("does not forward a stale upstream Content-Length (gzip auto-decompress guard)", async () => {
@@ -359,7 +366,7 @@ describe("owner-id substitution", () => {
     const res = await proxy.GET(makeRequest("v2/person/me/ssn/expose", { headers: getHeaders() }))
     expect(res.status).toBe(200)
     expect(fetchMock).toHaveBeenCalledOnce()
-    expect((fetchMock.mock.calls[0] as [string])[0]).toBe(`${API_ORIGIN}/api/v2/person/${PERSON_ID}/ssn/expose`)
+    expect((fetchMock.mock.calls[0] as [string])[0]).toBe(`${DEMO_ROOT}/api/v2/person/${PERSON_ID}/ssn/expose`)
   })
 
   it("owner spoof (own numeric id, not `me`) → 403 NOT_ALLOWED, no upstream", async () => {
@@ -400,7 +407,7 @@ describe("query allowlist", () => {
     const { proxy } = await loadProxy()
     const res = await proxy.GET(makeRequest("v2/things?page=3", { headers: getHeaders() }))
     expect(res.status).toBe(200)
-    expect((fetchMock.mock.calls[0] as [string])[0]).toBe(`${API_ORIGIN}/api/v2/things?page=3`)
+    expect((fetchMock.mock.calls[0] as [string])[0]).toBe(`${DEMO_ROOT}/api/v2/things?page=3`)
   })
 
   it("server-fixed param overrides any client value", async () => {
@@ -409,7 +416,7 @@ describe("query allowlist", () => {
       makeRequest("v2/file/9?isPublic=true", { method: "PUT", headers: putHeaders(), body: "{}" }),
     )
     expect(res.status).toBe(200)
-    expect((fetchMock.mock.calls[0] as [string])[0]).toBe(`${API_ORIGIN}/api/v2/file/9?isPublic=false`)
+    expect((fetchMock.mock.calls[0] as [string])[0]).toBe(`${DEMO_ROOT}/api/v2/file/9?isPublic=false`)
   })
 })
 
@@ -507,7 +514,7 @@ describe("CSRF & session binding", () => {
     const res = await proxy.GET(makeRequest("v2/image/5"))
     expect(res.status).toBe(200)
     expect(fetchMock).toHaveBeenCalledOnce()
-    expect((fetchMock.mock.calls[0] as [string])[0]).toBe(`${API_ORIGIN}/api/v2/image/5`)
+    expect((fetchMock.mock.calls[0] as [string])[0]).toBe(`${DEMO_ROOT}/api/v2/image/5`)
   })
 })
 
@@ -612,7 +619,7 @@ describe("logging", () => {
 // Story 1.6 — idle logoff, activity re-seal
 // ---------------------------------------------------------------------------
 
-const CLEARED = "__Host-pp_s=; HttpOnly; Secure; SameSite=None; Partitioned; Path=/; Max-Age=0"
+const CLEARED = "__Host-pp_s=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0"
 const T0 = 1_800_000_000_000
 const MIN = 60_000
 
@@ -644,7 +651,7 @@ describe("activity re-seal", () => {
     expect(fwd.get("x-pp-activity")).toBeNull()
 
     expect(res.headers.get("x-pp-activity-at")).toBe(String(T0))
-    expect(res.headers.get("set-cookie")).toContain("HttpOnly; Secure; SameSite=None; Partitioned; Path=/")
+    expect(res.headers.get("set-cookie")).toContain("HttpOnly; Secure; SameSite=Lax; Path=/")
     expect(await unsealSetCookie(session, res)).toEqual({ ...before, lastSeen: T0 })
     assertNoStoreAndNosniff(res)
   })

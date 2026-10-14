@@ -1,15 +1,12 @@
 /**
- * Client-safe `APP_ENV`.
+ * The shared app-env helper (D6).
  *
- * This is the ONE place in client-reachable code allowed to read `process.env`,
- * and only the `NEXT_PUBLIC_APP_ENV` member (ESLint enforces this). Server code
- * must read the validated `APP_ENV` from `lib/server/env.ts` instead.
+ * The ONE place outside `lib/server/env.ts` allowed to read `process.env`, and
+ * only `process.env.NODE_ENV` (ESLint enforces both). It holds no environment
+ * choice: demo vs prod is per session, never per build (D1, D2).
  */
-export type AppEnv = "dev" | "demo" | "prod"
 
-// eslint-disable-next-line no-restricted-properties -- the sole allowed client process.env read
-const raw = process.env.NEXT_PUBLIC_APP_ENV
-
-/** The environment this build targets, or `undefined` when not configured. */
-export const APP_ENV: AppEnv | undefined =
-  raw === "dev" || raw === "demo" || raw === "prod" ? raw : undefined
+/** `true` only under local `next dev` (`NODE_ENV === "development"`). */
+export function isLocalDev(): boolean {
+  return process.env.NODE_ENV === "development"
+}

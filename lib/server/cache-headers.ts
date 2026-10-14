@@ -10,8 +10,8 @@ import "server-only"
  * cache, so every BFF/page response on a PHI-bearing surface overwrites its
  * caching headers with these values.
  *
- * `proxy.ts` applies these to the page surfaces (`/`, `/launch-error`); route
- * handlers (`/launch`, `/launch/verify`) apply them to their own responses.
+ * `proxy.ts` applies these to the page surfaces (`/`, `/auth`); route handlers
+ * (`/api/token`, `/api/session/*`, `/api/1h/*`) apply them to their own responses.
  * =============================================================================
  */
 

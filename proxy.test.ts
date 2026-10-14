@@ -2,27 +2,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import type { SessionData } from "@/lib/server/session"
+import { TEST_SERVER_ENV } from "./test/env-fixture"
 
 /**
- * The root request interceptor (AD-4, AD-18, AD-21, Story 1.6). The real env and
+ * The root request interceptor (AD-18, AD-21, D10, Story 1.6). The real env and
  * session modules run; `next/headers` / `next/navigation` are stubbed only so
  * importing `session.ts` works in node. The page's forwarded request headers
  * surface on the `NextResponse.next()` response as `x-middleware-request-*`.
  */
 
 const SESSION_SECRET = "root-proxy-session-secret-0123456789abcdef"
-const PORTAL_ORIGIN = "https://dev.1hdev.io"
-const CLEARED = "__Host-pp_s=; HttpOnly; Secure; SameSite=None; Partitioned; Path=/; Max-Age=0"
+const CLEARED = "__Host-pp_s=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0"
 const T0 = 1_800_000_000_000
 const MIN = 60_000
 
-const BASE_ENV = {
-  APP_ENV: "dev",
-  APP_ORIGIN: "https://localhost:3100",
-  APP_ID: "app-id-123",
-  ONEHEALTH_SECRET_KEY: "onehealth-secret",
-  SESSION_SECRET,
-}
+const BASE_ENV = { ...TEST_SERVER_ENV, SESSION_SECRET }
 
 let ORIGINAL_ENV: NodeJS.ProcessEnv
 
@@ -53,6 +47,7 @@ function sessionData(overrides: Partial<SessionData> = {}): SessionData {
     accessToken: "access",
     refreshToken: "refresh",
     accessTokenExpiresAt: T0 + 30 * MIN,
+    environment: "demo",
     userId: 42,
     personId: 7,
     tenantId: 1,
@@ -78,11 +73,13 @@ const NAVIGATE = { "sec-fetch-mode": "navigate", "sec-fetch-dest": "document" }
 function assertSecurityHeaders(res: Response) {
   const csp = res.headers.get("content-security-policy") ?? ""
   expect(csp).toMatch(/script-src 'self' 'nonce-[A-Za-z0-9+/=]{16,}' 'strict-dynamic'/)
-  expect(csp).toContain(`frame-ancestors ${PORTAL_ORIGIN}`)
+  expect(csp).toContain("frame-ancestors 'none'")
   expect(res.headers.get("strict-transport-security")).toBe("max-age=63072000; includeSubDomains")
   expect(res.headers.get("x-content-type-options")).toBe("nosniff")
   expect(res.headers.get("referrer-policy")).toBe("no-referrer")
-  expect(res.headers.get("x-frame-options")).toBeNull()
+  expect(res.headers.get("permissions-policy")).toBe("camera=(), microphone=(), geolocation=()")
+  expect(res.headers.get("cross-origin-opener-policy")).toBe("same-origin")
+  expect(res.headers.get("x-frame-options")).toBe("DENY")
 }
 
 function assertNoStore(res: Response) {
@@ -108,15 +105,27 @@ describe("existing behaviour", () => {
     expect(res.headers.get("x-middleware-request-x-nonce")).toBeTruthy()
   })
 
-  it("/?lpl= → 307 to /launch with the query preserved, security + no-store", async () => {
-    const { proxy, session } = await load()
-    const cookie = `__Host-pp_s=${await sealedValue(session, sessionData())}`
-    const res = await proxy(request("/?lpl=abc&tab=insurance", { ...NAVIGATE, cookie }))
-    expect(res.status).toBe(307)
-    expect(res.headers.get("location")).toBe("http://localhost:3000/launch?lpl=abc&tab=insurance")
-    expect(res.headers.get("set-cookie")).toBeNull()
+  it("/?lpl= is not redirected or rewritten (no lpl handling, D1)", async () => {
+    const { proxy } = await load()
+    const res = await proxy(request("/?lpl=abc&tab=insurance", NAVIGATE))
+    expect(res.status).toBe(200)
+    expect(res.headers.get("location")).toBeNull()
+    expect(res.headers.get("x-middleware-rewrite")).toBeNull()
+    assertSecurityHeaders(res)
+  })
+
+  it.each(["/auth", "/api/token"])("%s gets security + no-store headers", async (path) => {
+    const { proxy } = await load()
+    const res = await proxy(request(path, NAVIGATE))
     assertSecurityHeaders(res)
     assertNoStore(res)
+  })
+
+  it.each(["/launch", "/launch/verify", "/launch-error"])("%s is no longer a no-store launch surface", async (path) => {
+    const { proxy } = await load()
+    const res = await proxy(request(path))
+    assertSecurityHeaders(res)
+    expect(res.headers.get("cache-control")).toBeNull()
   })
 
   it("a static asset gets security headers but no no-store", async () => {
@@ -139,7 +148,7 @@ describe("/ navigate activity (Story 1.6)", () => {
     assertNoStore(res)
 
     const setCookie = res.headers.get("set-cookie") ?? ""
-    expect(setCookie.endsWith("; HttpOnly; Secure; SameSite=None; Partitioned; Path=/")).toBe(true)
+    expect(setCookie.endsWith("; HttpOnly; Secure; SameSite=Lax; Path=/")).toBe(true)
     const renewed = setCookie.slice("__Host-pp_s=".length, setCookie.indexOf(";"))
     expect(await session.unsealSession(renewed)).toEqual({ ...before, lastSeen: T0 })
 
@@ -160,12 +169,12 @@ describe("/ navigate activity (Story 1.6)", () => {
   it.each([
     ["idle 15:01", { lastSeen: T0 - (15 * MIN + 1_000) }],
     ["absolute 8 h + 1 s", { iat: T0 - (8 * 60 * MIN + 1_000), lastSeen: T0 - MIN }],
-  ])("%s → cookie cleared + 307 to /launch-error?reason=expired, security + no-store", async (_label, overrides) => {
+  ])("%s → cookie cleared + 307 to /auth, security + no-store", async (_label, overrides) => {
     const { proxy, session } = await load()
     const cookie = `__Host-pp_s=${await sealedValue(session, sessionData(overrides))}`
-    const res = await proxy(request("/", { ...NAVIGATE, cookie }))
+    const res = await proxy(request("/?tab=insurance", { ...NAVIGATE, cookie }))
     expect(res.status).toBe(307)
-    expect(res.headers.get("location")).toBe("http://localhost:3000/launch-error?reason=expired")
+    expect(res.headers.get("location")).toBe("http://localhost:3000/auth")
     expect(res.headers.get("set-cookie")).toBe(CLEARED)
     assertSecurityHeaders(res)
     assertNoStore(res)
@@ -179,11 +188,22 @@ describe("/ navigate activity (Story 1.6)", () => {
     expect(res.headers.get("set-cookie")).toBeTruthy()
   })
 
-  it("unsealable cookie → cleared + 307 expired", async () => {
+  it("unsealable cookie → cleared + 307 to /auth", async () => {
     const { proxy } = await load()
     const res = await proxy(request("/", { ...NAVIGATE, cookie: "__Host-pp_s=Fe26.2*garbage" }))
     expect(res.status).toBe(307)
-    expect(res.headers.get("location")).toBe("http://localhost:3000/launch-error?reason=expired")
+    expect(res.headers.get("location")).toBe("http://localhost:3000/auth")
+    expect(res.headers.get("set-cookie")).toBe(CLEARED)
+  })
+
+  it("a cookie sealed without an environment (pre-D1) → cleared + 307 to /auth", async () => {
+    const { proxy, session } = await load()
+    const { environment: _drop, ...legacy } = sessionData()
+    void _drop
+    const cookie = `__Host-pp_s=${await sealedValue(session, legacy as SessionData)}`
+    const res = await proxy(request("/", { ...NAVIGATE, cookie }))
+    expect(res.status).toBe(307)
+    expect(res.headers.get("location")).toBe("http://localhost:3000/auth")
     expect(res.headers.get("set-cookie")).toBe(CLEARED)
   })
 
@@ -210,7 +230,7 @@ describe("/ navigate activity (Story 1.6)", () => {
   it("a navigate to another path is not activity", async () => {
     const { proxy, session } = await load()
     const cookie = `__Host-pp_s=${await sealedValue(session, sessionData())}`
-    const res = await proxy(request("/launch-error", { ...NAVIGATE, cookie }))
+    const res = await proxy(request("/auth", { ...NAVIGATE, cookie }))
     expect(res.headers.get("set-cookie")).toBeNull()
   })
 })

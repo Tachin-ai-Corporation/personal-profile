@@ -4,34 +4,33 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 /**
  * `lib/server/env.ts` validates at module load, so each case sets `process.env`,
  * resets the module registry and imports it fresh. Boot errors must name the
- * offending variable and never print its value.
+ * offending variable and never print its value (D1).
  */
 
 const ENV_KEYS = [
-  "APP_ENV",
-  "APP_ORIGIN",
-  "APP_ID",
-  "ONEHEALTH_SECRET_KEY",
+  "ONEHEALTH_SECRET_KEY_DEMO",
+  "ONEHEALTH_SECRET_KEY_PROD",
+  "APP_ID_DEMO",
+  "APP_ID_PROD",
   "SESSION_SECRET",
   "SESSION_SECRET_PREVIOUS",
   "PLACES_ENABLED",
   "GOOGLE_PLACES_KEY",
   "PP_DISABLED",
-  "NEXT_PUBLIC_APP_ENV",
+  "ACCOUNT_DISABLED",
+  // Superseded names: present in the outer env must change nothing.
+  "APP_ENV",
+  "APP_ORIGIN",
+  "APP_ID",
+  "ONEHEALTH_SECRET_KEY",
 ] as const
 
-const SESSION_SECRET_VALUE = "a".repeat(40)
-const PLACES_KEY_VALUE = "super-secret-places-key"
-
-/** A complete, valid env for the given environment. */
-function validEnv(appEnv: string): Record<string, string> {
-  return {
-    APP_ENV: appEnv,
-    APP_ORIGIN: "https://personal-profile-demo.vercel.app",
-    APP_ID: "app-id-123",
-    ONEHEALTH_SECRET_KEY: "onehealth-secret",
-    SESSION_SECRET: SESSION_SECRET_VALUE,
-  }
+const VALID: Record<string, string> = {
+  ONEHEALTH_SECRET_KEY_DEMO: "demo-secret-value-1",
+  ONEHEALTH_SECRET_KEY_PROD: "prod-secret-value-2",
+  APP_ID_DEMO: "app-demo-value-3",
+  APP_ID_PROD: "app-prod-value-4",
+  SESSION_SECRET: "s".repeat(40),
 }
 
 let ORIGINAL_ENV: NodeJS.ProcessEnv
@@ -46,115 +45,153 @@ afterEach(() => {
 })
 
 /** Replace process.env with exactly the given vars, then import env.ts fresh. */
-async function loadEnv(vars: Record<string, string>) {
+async function loadEnv(vars: Record<string, string | undefined>) {
   vi.resetModules()
   const next: NodeJS.ProcessEnv = { ...ORIGINAL_ENV }
   for (const key of ENV_KEYS) delete next[key]
-  Object.assign(next, vars)
+  for (const [k, v] of Object.entries(vars)) if (v !== undefined) next[k] = v
   process.env = next
   return import("./env")
 }
 
-describe("env — valid boot per environment", () => {
-  it("resolves dev with the dev origin", async () => {
-    const env = await loadEnv(validEnv("dev"))
-    expect(env.APP_ENV).toBe("dev")
-    expect(env.API_ORIGIN).toBe("https://dev.1hdev.io")
-    expect(env.PORTAL_ORIGIN).toBe("https://dev.1hdev.io")
-    expect(env.PORTAL_URL).toBe("https://dev.1hdev.io/applications")
-    expect(env.DEFAULT_TENANT_ID).toBe(1)
-  })
+type BootCase = {
+  name: string
+  vars: Record<string, string | undefined>
+  /** `undefined` → boots; otherwise the variable the error must name. */
+  error?: RegExp
+  /** A value that must never appear in the error message. */
+  hidden?: string
+}
 
-  it("resolves demo with the demo origin", async () => {
-    const env = await loadEnv(validEnv("demo"))
-    expect(env.APP_ENV).toBe("demo")
-    expect(env.API_ORIGIN).toBe("https://demo.1health.io")
-    expect(env.PORTAL_URL).toBe("https://demo.1health.io/applications")
-    expect(env.DEFAULT_TENANT_ID).toBe(1)
-  })
+const SHORT_SECRET = "too-short-secret"
 
-  it("resolves prod with the prod origin", async () => {
-    const env = await loadEnv(validEnv("prod"))
-    expect(env.APP_ENV).toBe("prod")
-    expect(env.API_ORIGIN).toBe("https://app.1health.io")
-    expect(env.PORTAL_URL).toBe("https://app.1health.io/applications")
-  })
-})
+const BOOT_TABLE: BootCase[] = [
+  { name: "valid", vars: VALID },
+  {
+    name: "missing ONEHEALTH_SECRET_KEY_DEMO",
+    vars: { ...VALID, ONEHEALTH_SECRET_KEY_DEMO: undefined },
+    error: /ONEHEALTH_SECRET_KEY_DEMO/,
+  },
+  {
+    name: "missing ONEHEALTH_SECRET_KEY_PROD",
+    vars: { ...VALID, ONEHEALTH_SECRET_KEY_PROD: undefined },
+    error: /ONEHEALTH_SECRET_KEY_PROD/,
+  },
+  { name: "missing APP_ID_DEMO", vars: { ...VALID, APP_ID_DEMO: undefined }, error: /APP_ID_DEMO/ },
+  { name: "missing APP_ID_PROD", vars: { ...VALID, APP_ID_PROD: undefined }, error: /APP_ID_PROD/ },
+  { name: "empty APP_ID_PROD", vars: { ...VALID, APP_ID_PROD: "" }, error: /APP_ID_PROD/ },
+  { name: "missing SESSION_SECRET", vars: { ...VALID, SESSION_SECRET: undefined }, error: /SESSION_SECRET/ },
+  {
+    name: "SESSION_SECRET shorter than 32",
+    vars: { ...VALID, SESSION_SECRET: SHORT_SECRET },
+    error: /SESSION_SECRET/,
+    hidden: SHORT_SECRET,
+  },
+  {
+    name: "PLACES_ENABLED=1 without GOOGLE_PLACES_KEY",
+    vars: { ...VALID, PLACES_ENABLED: "1" },
+    error: /GOOGLE_PLACES_KEY/,
+  },
+  {
+    name: "whitespace-only ONEHEALTH_SECRET_KEY_DEMO",
+    vars: { ...VALID, ONEHEALTH_SECRET_KEY_DEMO: "  \t\n " },
+    error: /ONEHEALTH_SECRET_KEY_DEMO/,
+  },
+  {
+    name: "whitespace-only ONEHEALTH_SECRET_KEY_PROD",
+    vars: { ...VALID, ONEHEALTH_SECRET_KEY_PROD: "   " },
+    error: /ONEHEALTH_SECRET_KEY_PROD/,
+  },
+  {
+    name: "DEMO and PROD keys equal after trim",
+    vars: { ...VALID, ONEHEALTH_SECRET_KEY_DEMO: "shared-key-value-9", ONEHEALTH_SECRET_KEY_PROD: " shared-key-value-9\n" },
+    error: /ONEHEALTH_SECRET_KEY_DEMO \/ ONEHEALTH_SECRET_KEY_PROD/,
+    hidden: "shared-key-value-9",
+  },
+  {
+    name: "whitespace around the secret keys is not a boot error",
+    vars: { ...VALID, ONEHEALTH_SECRET_KEY_DEMO: "  demo-padded \n", ONEHEALTH_SECRET_KEY_PROD: "\tprod-padded " },
+  },
+  {
+    name: "superseded single-env vars alone do not boot",
+    vars: { APP_ENV: "demo", APP_ORIGIN: "https://x.example", APP_ID: "a", ONEHEALTH_SECRET_KEY: "k", SESSION_SECRET: "s".repeat(40) },
+    error: /ONEHEALTH_SECRET_KEY_DEMO/,
+  },
+]
 
-describe("env — missing required variables", () => {
-  const cases: Array<{ name: string; missing: keyof ReturnType<typeof validEnv> }> = [
-    { name: "APP_ENV", missing: "APP_ENV" },
-    { name: "APP_ORIGIN", missing: "APP_ORIGIN" },
-    { name: "APP_ID", missing: "APP_ID" },
-    { name: "ONEHEALTH_SECRET_KEY", missing: "ONEHEALTH_SECRET_KEY" },
-    { name: "SESSION_SECRET", missing: "SESSION_SECRET" },
-  ]
-
-  for (const { name, missing } of cases) {
-    it(`throws naming ${name} when it is unset`, async () => {
-      const vars = validEnv("demo")
-      delete vars[missing]
-      await expect(loadEnv(vars)).rejects.toThrow(new RegExp(name))
-    })
-  }
-})
-
-describe("env — invalid values (named, value never printed)", () => {
-  it("bad APP_ENV names APP_ENV", async () => {
-    await expect(loadEnv({ ...validEnv("demo"), APP_ENV: "staging" })).rejects.toThrow(/APP_ENV/)
-  })
-
-  it("non-https APP_ORIGIN names APP_ORIGIN and hides the value", async () => {
-    const bad = "http://insecure.example.com"
-    const promise = loadEnv({ ...validEnv("demo"), APP_ORIGIN: bad })
-    await expect(promise).rejects.toThrow(/APP_ORIGIN/)
-    await promise.catch((e: unknown) => {
-      expect((e as Error).message).not.toContain(bad)
-    })
-  })
-
-  it("APP_ORIGIN with a path names APP_ORIGIN", async () => {
-    await expect(
-      loadEnv({ ...validEnv("demo"), APP_ORIGIN: "https://example.com/launch" }),
-    ).rejects.toThrow(/APP_ORIGIN/)
-  })
-
-  it("short SESSION_SECRET names SESSION_SECRET and hides the value", async () => {
-    const shortSecret = "too-short"
-    const promise = loadEnv({ ...validEnv("demo"), SESSION_SECRET: shortSecret })
-    await expect(promise).rejects.toThrow(/SESSION_SECRET/)
-    await promise.catch((e: unknown) => {
-      expect((e as Error).message).not.toContain(shortSecret)
-    })
-  })
-
-  it("PLACES_ENABLED=1 without GOOGLE_PLACES_KEY names GOOGLE_PLACES_KEY", async () => {
-    await expect(
-      loadEnv({ ...validEnv("demo"), PLACES_ENABLED: "1" }),
-    ).rejects.toThrow(/GOOGLE_PLACES_KEY/)
-  })
-})
-
-describe("env — boolean parsing is '1'-only", () => {
-  it('PLACES_ENABLED is true only for "1"', async () => {
-    const enabled = await loadEnv({ ...validEnv("demo"), PLACES_ENABLED: "1", GOOGLE_PLACES_KEY: PLACES_KEY_VALUE })
-    expect(enabled.PLACES_ENABLED).toBe(true)
-    expect(enabled.GOOGLE_PLACES_KEY).toBe(PLACES_KEY_VALUE)
-
-    for (const v of ["true", "", "0", "yes"]) {
-      const env = await loadEnv({ ...validEnv("demo"), PLACES_ENABLED: v })
-      expect(env.PLACES_ENABLED).toBe(false)
+describe("env — boot table", () => {
+  it.each(BOOT_TABLE)("$name", async ({ vars, error, hidden }) => {
+    const promise = loadEnv(vars)
+    if (!error) {
+      await expect(promise).resolves.toBeTruthy()
+      return
     }
+    await expect(promise).rejects.toThrow(error)
+    const message = await promise.then(
+      () => "",
+      (e: unknown) => (e as Error).message,
+    )
+    for (const value of [hidden, ...Object.values(VALID)].filter(Boolean) as string[]) {
+      expect(message).not.toContain(value)
+    }
+  })
+})
 
-    const unset = await loadEnv(validEnv("demo"))
-    expect(unset.PLACES_ENABLED).toBe(false)
+describe("env — exports", () => {
+  it("exports exactly the D1 set plus the helpers", async () => {
+    const env = await loadEnv(VALID)
+    expect(Object.keys(env).sort()).toEqual(
+      [
+        "ACCOUNT_DISABLED",
+        "APP_ID_DEMO",
+        "APP_ID_PROD",
+        "DEFAULT_TENANT_ID",
+        "GOOGLE_PLACES_KEY",
+        "IS_LOCAL_DEV",
+        "ONEHEALTH_SECRET_KEY_DEMO",
+        "ONEHEALTH_SECRET_KEY_PROD",
+        "PLACES_ENABLED",
+        "PP_DISABLED",
+        "SESSION_SECRET",
+        "SESSION_SECRET_PREVIOUS",
+        "getAppId",
+        "getSecretKey",
+        "getSecretKeyVarName",
+      ].sort(),
+    )
+    expect(env.DEFAULT_TENANT_ID).toBe(1)
+    expect(env.SESSION_SECRET_PREVIOUS).toBeUndefined()
   })
 
-  it('PP_DISABLED is true only for "1"', async () => {
-    const on = await loadEnv({ ...validEnv("demo"), PP_DISABLED: "1" })
-    expect(on.PP_DISABLED).toBe(true)
+  it("getSecretKey / getAppId return each environment's value as stored", async () => {
+    const env = await loadEnv({ ...VALID, ONEHEALTH_SECRET_KEY_PROD: " padded-prod " })
+    expect(env.getSecretKey("demo")).toBe("demo-secret-value-1")
+    expect(env.getSecretKey("prod")).toBe(" padded-prod ")
+    expect(env.getAppId("demo")).toBe("app-demo-value-3")
+    expect(env.getAppId("prod")).toBe("app-prod-value-4")
+    expect(env.getSecretKeyVarName("prod")).toBe("ONEHEALTH_SECRET_KEY_PROD")
+    expect(env.getSecretKeyVarName("demo")).toBe("ONEHEALTH_SECRET_KEY_DEMO")
+  })
 
-    const off = await loadEnv({ ...validEnv("demo"), PP_DISABLED: "true" })
-    expect(off.PP_DISABLED).toBe(false)
+  it("IS_LOCAL_DEV follows NODE_ENV === development", async () => {
+    expect((await loadEnv({ ...VALID, NODE_ENV: "development" })).IS_LOCAL_DEV).toBe(true)
+    expect((await loadEnv({ ...VALID, NODE_ENV: "production" })).IS_LOCAL_DEV).toBe(false)
+    expect((await loadEnv({ ...VALID, NODE_ENV: "test" })).IS_LOCAL_DEV).toBe(false)
+  })
+})
+
+describe("env — boolean flags are '1'-only", () => {
+  it.each(["PLACES_ENABLED", "PP_DISABLED", "ACCOUNT_DISABLED"] as const)("%s", async (name) => {
+    const extra = name === "PLACES_ENABLED" ? { GOOGLE_PLACES_KEY: "places-key" } : {}
+    expect((await loadEnv({ ...VALID, ...extra, [name]: "1" }))[name]).toBe(true)
+    for (const v of ["true", "", "0", "yes", " 1"]) {
+      expect((await loadEnv({ ...VALID, [name]: v }))[name]).toBe(false)
+    }
+    expect((await loadEnv(VALID))[name]).toBe(false)
+  })
+
+  it("GOOGLE_PLACES_KEY is exported when set", async () => {
+    const env = await loadEnv({ ...VALID, PLACES_ENABLED: "1", GOOGLE_PLACES_KEY: "places-key" })
+    expect(env.GOOGLE_PLACES_KEY).toBe("places-key")
   })
 })

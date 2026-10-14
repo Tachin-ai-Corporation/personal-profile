@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, test, type Page } from "@playwright/test"
-import { freshCode, makeLpl } from "./fixtures"
+import { launch as launchViaAuth } from "./fixtures"
 
 /**
  * Story 1.8: the profile page shell in the real app (launched against the
@@ -12,10 +12,16 @@ import { freshCode, makeLpl } from "./fixtures"
 const TABS = ["contacts", "insurance", "medical"] as const
 const TAB_NAMES = { contacts: /^Contacts/, insurance: /^Insurance/, medical: /^Medical/ } as const
 
+/**
+ * Launch through `/auth` (lands on `/?tab=contacts`; there is no launch tab
+ * param), then open the deep link, if any.
+ */
 async function launch(page: Page, query = "tab=contacts", hash = "") {
-  const lpl = makeLpl(freshCode())
-  await page.goto(`/launch?lpl=${encodeURIComponent(lpl)}&${query}${hash}`)
-  await expect(page).toHaveURL(new RegExp(`/\\?tab=contacts${hash}$`))
+  await launchViaAuth(page)
+  if (query !== "tab=contacts" || hash) {
+    await page.goto(`/?${query}${hash}`)
+    await expect(page).toHaveURL(new RegExp(`/\\?tab=contacts${hash}$`))
+  }
   // The header slot's name arrives through callApi; wait so the layout is settled.
   await expect(page.getByText("Test User", { exact: true })).toBeVisible()
 }

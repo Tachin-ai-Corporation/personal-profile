@@ -1,6 +1,7 @@
 // @vitest-environment node
 //
-// Story 1.8a: the design-system color gate in scripts/check-forbidden.sh.
+// Story 1.8a + R1: the design-system color gate and the removed-symbol /
+// per-environment-secret bans in scripts/check-forbidden.sh.
 // The script runs from a temp copy of the repo layout (scripts/ + fixture
 // app/, components/, features/), so each case sees only its own fixtures. The
 // greps swallow their own errors, so this test (run in CI on GNU grep) is what
@@ -155,5 +156,87 @@ describe("check-forbidden color gate: allowed", () => {
     const res = spawnSync("bash", [SCRIPT], { encoding: "utf8" })
     expect(res.stdout + res.stderr).not.toContain("FORBIDDEN")
     expect(res.status).toBe(0)
+  })
+})
+
+// Names are assembled at runtime so this file itself never spells a
+// `_DEMO`/`_PROD` name (the gate scans scripts/ too).
+const DEMO_NAME = ["ONEHEALTH_SECRET_KEY", "DEMO"].join("_")
+const PROD_NAME = ["APP_ID", "PROD"].join("_")
+
+describe("check-forbidden: per-environment secret names (D1)", () => {
+  it.each([
+    ["features/x.ts", `export const k = "${DEMO_NAME}"\n`],
+    ["lib/server/launch.ts", `const k = process.env.${PROD_NAME}\n`],
+    ["app/api/token/route.ts", `// ${DEMO_NAME}\n`],
+    ["proxy.ts", `const k = "${PROD_NAME}"\n`],
+    ["instrumentation.ts", `const k = "${DEMO_NAME}"\n`],
+    ["e2e/launch.spec.ts", `const k = "${DEMO_NAME}"\n`],
+    ["lib/server/token.test.ts", `const k = "${PROD_NAME}"\n`],
+  ])("fails on a name in %s", (path, body) => {
+    const { code, out } = runGate({ [path]: body })
+    expect(code).toBe(1)
+    expect(out).toContain("FORBIDDEN [_DEMO/_PROD secret name]")
+    expect(out).toContain(path)
+  })
+
+  it("allows them in env.ts, its tests, .env.example and the CI/test fixtures", () => {
+    const line = `${DEMO_NAME}=x ${PROD_NAME}=y\n`
+    const { code, out } = runGate({
+      "lib/server/env.ts": line,
+      "lib/server/env.test.ts": line,
+      ".env.example": line,
+      ".github/workflows/ci.yml": line,
+      "playwright.config.ts": line,
+      "vitest.setup.ts": line,
+      "e2e/fixtures.ts": line,
+      "test/env-fixture.ts": line,
+    })
+    expect(out).not.toContain("FORBIDDEN")
+    expect(code).toBe(0)
+  })
+})
+
+describe("check-forbidden: removed symbols (D1, D4, D10, D13)", () => {
+  it.each([
+    ["APP_ENV", "const e = process.env.APP_ENV\n", "removed env/origin name"],
+    ["NEXT_PUBLIC_APP_ENV", "const e = process.env.NEXT_PUBLIC_APP_ENV\n", "removed env/origin name"],
+    ["API_ORIGIN", "import { API_ORIGIN } from './env'\n", "removed env/origin name"],
+    ["APP_ORIGIN", "const o = APP_ORIGIN\n", "removed env/origin name"],
+    ["PORTAL_URL", "// navigates to PORTAL_URL\n", "removed env/origin name"],
+    ["PORTAL_ORIGIN", "const o = PORTAL_ORIGIN\n", "removed env/origin name"],
+    ["PUBLIC_FILES_ORIGIN", "const o = PUBLIC_FILES_ORIGIN\n", "removed env/origin name"],
+    ["SameSite=None", 'const c = "x; SameSite=None; Secure"\n', "SameSite=None"],
+    ["Partitioned", 'const c = "x; Partitioned"\n', "Partitioned"],
+    ["window.top", "const framed = window.self !== window.top\n", "window.top"],
+  ])("fails on %s in features/x.ts", (_name, body, label) => {
+    const { code, out } = runGate({ "features/x.ts": body })
+    expect(code).toBe(1)
+    expect(out).toContain(`FORBIDDEN [${label}]`)
+    expect(out).toMatch(/features\/x\.ts:1:/)
+  })
+
+  it("fails on bg-black/50 in lib/ too", () => {
+    const { code, out } = runGate({ "lib/shared/x.ts": `export const c = "bg-black/50"\n` })
+    expect(code).toBe(1)
+    expect(out).toContain("FORBIDDEN [bg-black/50]")
+  })
+
+  it.each(["lib/server/env.ts", "lib/server/proxy.ts", "proxy.ts", "instrumentation.ts", "app/auth/page.tsx"])(
+    "scans %s",
+    (path) => {
+      const { code } = runGate({ [path]: "const o = APP_ORIGIN\n" })
+      expect(code).toBe(1)
+    },
+  )
+
+  it("skips test files and e2e/, and does not flag look-alikes", () => {
+    const { code, out } = runGate({
+      "features/x.test.tsx": "const e = APP_ENV; const t = window.top\n",
+      "e2e/headers.spec.ts": "const o = PORTAL_URL\n",
+      "features/ok.ts": "const portalUrl = env.portalUrl; const topWindow = window.topmost\n",
+    })
+    expect(out).not.toContain("FORBIDDEN")
+    expect(code).toBe(0)
   })
 })

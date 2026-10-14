@@ -2,8 +2,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 /**
- * The home page is a server-component guard (AD-1, AD-4): kill-switch and
- * bad-key checks first, then `requireSession()`. Each case re-mocks the server
+ * The home page is a server-component guard (AD-1, D1): the kill switch first
+ * (disabled screen, no redirect), then `requireSession()` (→ `/auth`). Each case re-mocks the server
  * deps and reimports the page so the guard's control flow can be asserted
  * without a real request/cookie. `redirect()` throws a sentinel we can assert.
  */
@@ -16,35 +16,37 @@ vi.mock("next/navigation", () => ({ redirect }))
 
 const IAT = 1_800_000_000_000
 const LAST_SEEN = IAT + 120_000
-const SESSION = { sid: "abc", iat: IAT, lastSeen: LAST_SEEN }
+const SESSION = { sid: "abc", iat: IAT, lastSeen: LAST_SEEN, environment: "demo" }
+const DEMO_PORTAL = "https://1health.demo.1health.io"
+const PROD_PORTAL = "https://1health.app.1health.io"
 
 async function loadPage(
-  config: { PP_DISABLED?: boolean; deriveThrows?: boolean; requireSession?: ReturnType<typeof vi.fn> } = {},
+  config: {
+    PP_DISABLED?: boolean
+    requireSession?: ReturnType<typeof vi.fn>
+    getSession?: ReturnType<typeof vi.fn>
+    remembered?: "demo" | "prod" | null
+  } = {},
 ) {
   const requireSession = config.requireSession ?? vi.fn().mockResolvedValue(SESSION)
-  const deriveAesKey = vi.fn(() => {
-    if (config.deriveThrows) throw new Error("bad key")
-    return Buffer.alloc(32)
-  })
+  const getSession = config.getSession ?? vi.fn().mockResolvedValue(null)
+  const readEnvironmentCookie = vi.fn().mockResolvedValue(config.remembered ?? null)
 
   const computeBinding = vi.fn((sid: string) => `binding-for-${sid}`)
 
   vi.resetModules()
-  vi.doMock("@/lib/server/env", () => ({
-    ONEHEALTH_SECRET_KEY: "secret",
-    PORTAL_URL: "https://portal.example/applications",
-    PP_DISABLED: config.PP_DISABLED ?? false,
-  }))
-  vi.doMock("@/lib/server/launch", () => ({ deriveAesKey }))
+  vi.doMock("@/lib/server/env", () => ({ PP_DISABLED: config.PP_DISABLED ?? false }))
+  vi.doMock("@/lib/server/environment-cookie", () => ({ readEnvironmentCookie }))
   vi.doMock("@/lib/server/session", () => ({
     requireSession,
+    getSession,
     IDLE_TIMEOUT_MS: 15 * 60 * 1000,
     ABSOLUTE_TIMEOUT_MS: 8 * 60 * 60 * 1000,
   }))
   vi.doMock("@/lib/server/session-binding", () => ({ computeBinding }))
 
   const HomePage = (await import("./page")).default
-  return { HomePage, requireSession, deriveAesKey, computeBinding }
+  return { HomePage, requireSession, getSession, computeBinding }
 }
 
 afterEach(() => {
@@ -61,33 +63,48 @@ describe("home page guard", () => {
     expect(redirect).not.toHaveBeenCalled()
   })
 
-  it("embeds the binding for the session's sid and the portal URL", async () => {
+  it("embeds the binding for the session's sid and the session environment's portal URL", async () => {
     const { HomePage, computeBinding } = await loadPage()
     const element = (await HomePage()) as { props: { sessionBinding: string; portalUrl: string } }
     expect(computeBinding).toHaveBeenCalledWith("abc")
     expect(element.props.sessionBinding).toBe("binding-for-abc")
-    expect(element.props.portalUrl).toBe("https://portal.example/applications")
+    expect(element.props.portalUrl).toBe(DEMO_PORTAL)
   })
 
-  it("redirects to the session-expired screen when there is no session", async () => {
+  it("a prod session gets the prod portal URL", async () => {
+    const { HomePage } = await loadPage({ requireSession: vi.fn().mockResolvedValue({ ...SESSION, environment: "prod" }) })
+    const element = (await HomePage()) as { props: { portalUrl: string } }
+    expect(element.props.portalUrl).toBe(PROD_PORTAL)
+  })
+
+  it("propagates requireSession's redirect to /auth when there is no session", async () => {
     const requireSession = vi.fn().mockImplementation(() => {
-      throw new Error("REDIRECT:/launch-error?reason=expired")
+      throw new Error("REDIRECT:/auth")
     })
     const { HomePage } = await loadPage({ requireSession })
-    await expect(HomePage()).rejects.toThrow("REDIRECT:/launch-error?reason=expired")
+    await expect(HomePage()).rejects.toThrow("REDIRECT:/auth")
   })
 
-  it("redirects to reason=disabled when PP_DISABLED is set, without reaching requireSession", async () => {
-    const { HomePage, requireSession } = await loadPage({ PP_DISABLED: true })
-    await expect(HomePage()).rejects.toThrow("REDIRECT:/launch-error?reason=disabled")
-    expect(requireSession).not.toHaveBeenCalled()
-  })
-
-  it("redirects to reason=config when the key cannot be derived", async () => {
-    const { HomePage, requireSession } = await loadPage({ deriveThrows: true })
-    await expect(HomePage()).rejects.toThrow("REDIRECT:/launch-error?reason=config")
-    expect(requireSession).not.toHaveBeenCalled()
-  })
+  it.each([
+    ["the session's environment", { environment: "prod" }, "demo", "prod"],
+    ["the remembered environment without a session", null, "demo", "demo"],
+    ["prod with neither", null, null, null],
+  ] as const)(
+    "PP_DISABLED renders the disabled screen directly (no redirect, no requireSession) with %s",
+    async (_label, session, remembered, expected) => {
+      const { DisabledScreen } = await import("@/features/shell/disabled-screen")
+      const { HomePage, requireSession } = await loadPage({
+        PP_DISABLED: true,
+        getSession: vi.fn().mockResolvedValue(session),
+        remembered,
+      })
+      const element = (await HomePage()) as { type: unknown; props: Record<string, unknown> }
+      expect((element.type as { name?: string }).name).toBe(DisabledScreen.name)
+      expect(element.props).toEqual({ environment: expected })
+      expect(requireSession).not.toHaveBeenCalled()
+      expect(redirect).not.toHaveBeenCalled()
+    },
+  )
 })
 
 describe("home page idle-warning props (Story 1.6)", () => {
@@ -110,14 +127,14 @@ describe("home page idle-warning props (Story 1.6)", () => {
 })
 
 describe("home page session dialogs (Story 1.7)", () => {
-  it("mounts SessionDialogs inside ClientConfig with exactly portalUrl = PORTAL_URL", async () => {
+  it("mounts SessionDialogs inside ClientConfig with exactly the session portalUrl", async () => {
     const { SessionDialogs } = await import("@/features/shell/session-dialogs")
     const { HomePage } = await loadPage()
     const element = (await HomePage()) as { props: { children: unknown } }
     const children = ([] as unknown[]).concat(element.props.children) as { type: unknown; props: Record<string, unknown> }[]
     const dialogs = children.filter((child) => child && (child.type as { name?: string })?.name === SessionDialogs.name)
     expect(dialogs).toHaveLength(1)
-    expect(dialogs[0].props).toEqual({ portalUrl: "https://portal.example/applications" })
+    expect(dialogs[0].props).toEqual({ portalUrl: DEMO_PORTAL })
     // It must subscribe before any publisher mounts: first child, before IdleWarning.
     const { IdleWarning } = await import("@/features/shell/idle-warning")
     const names = children.map((child) => (child?.type as { name?: string } | undefined)?.name)
@@ -144,7 +161,7 @@ describe("home page shell (Story 1.8)", () => {
     const { HomePage } = await loadPage()
     const children = childrenOf(await HomePage())
     expect(children.map(typeName)).toEqual([SessionDialogs.name, AppBar.name, "main", IdleWarning.name])
-    expect(children[1].props).toEqual({ portalUrl: "https://portal.example/applications" })
+    expect(children[1].props).toEqual({ portalUrl: DEMO_PORTAL })
   })
 
   it("puts the header slot (single h1) before the tabbed shell inside main", async () => {

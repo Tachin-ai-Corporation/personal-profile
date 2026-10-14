@@ -3,6 +3,7 @@ import "server-only"
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 import { sealData, unsealData } from "iron-session"
+import { isEnvironment, type Environment } from "@/lib/shared/environments"
 import { SESSION_SECRET, SESSION_SECRET_PREVIOUS } from "./env"
 
 /**
@@ -13,9 +14,15 @@ import { SESSION_SECRET, SESSION_SECRET_PREVIOUS } from "./env"
  * All session state lives in ONE AEAD-sealed cookie, `__Host-pp_s`. Tokens never
  * reach the browser as readable values and no response body carries a token.
  *
- * Cookie attributes are exactly: `HttpOnly; Secure; SameSite=None; Partitioned;
- * Path=/` — no `Domain`, no `Max-Age`, no `Expires` (a session cookie). The
- * `__Host-` prefix pins it to this host with `Secure` + `Path=/` + no `Domain`.
+ * Cookie attributes are exactly: `HttpOnly; Secure; SameSite=Lax; Path=/` — no
+ * `Domain`, no `Max-Age`, no `Expires` (a session cookie). The app is never
+ * framed (D10), so the cookie is first-party only. The `__Host-` prefix pins it
+ * to this host with `Secure` + `Path=/` + no `Domain`.
+ *
+ * The session holds the 1health `environment` its launch payload was sealed for
+ * (D2). Every upstream origin derives from it through `lib/shared/environments.ts`;
+ * the API root itself is never stored. A cookie without a valid `environment`
+ * (e.g. sealed before D1) counts as no session.
  *
  * Rotation (AD-20): the highest-id password seals; all are accepted for unseal.
  * `SESSION_SECRET` is id `2`; `SESSION_SECRET_PREVIOUS`, when set, is id `1`.
@@ -42,14 +49,16 @@ export const IDLE_TIMEOUT_MS = 15 * 60 * 1000
 export const ABSOLUTE_TIMEOUT_MS = 8 * 60 * 60 * 1000
 
 /** The exact attribute string appended to the sealed cookie (AD-1). */
-const COOKIE_ATTRIBUTES = "HttpOnly; Secure; SameSite=None; Partitioned; Path=/"
+const COOKIE_ATTRIBUTES = "HttpOnly; Secure; SameSite=Lax; Path=/"
 
-/** Everything the session holds. The environment and API origin are never stored. */
+/** Everything the session holds. The API origin and `id_token` are never stored. */
 export interface SessionData {
   accessToken: string
   refreshToken: string
   /** Access-token expiry as epoch milliseconds. */
   accessTokenExpiresAt: number
+  /** The 1health environment whose key decrypted the launch payload (D2). */
+  environment: Environment
   userId: number
   personId: number
   tenantId: number
@@ -106,6 +115,8 @@ export async function unsealSession(raw: string | undefined): Promise<SessionDat
     const data = await unsealData<SessionData>(raw, { password: passwords(), ...SEAL_OPTS })
     // An empty object comes back when unseal silently fails; require a sid.
     if (!data || typeof data.sid !== "string" || data.sid.length === 0) return null
+    // A seal without a valid environment has no known upstream root (D2).
+    if (!isEnvironment(data.environment)) return null
     return data
   } catch {
     return null
@@ -146,13 +157,13 @@ export async function hasSessionCookie(): Promise<boolean> {
 }
 
 /**
- * Require a valid session; redirect to the session-expired launch-error screen
- * when there is none. There is no login page (AD-4).
+ * Require a valid session; redirect to `/auth` (no query) when there is none.
+ * There is no login form (D1).
  */
 export async function requireSession(): Promise<SessionData> {
   const session = await getSession()
   if (!session) {
-    redirect("/launch-error?reason=expired")
+    redirect("/auth")
   }
   return session
 }

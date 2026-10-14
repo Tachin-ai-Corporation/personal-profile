@@ -10,7 +10,7 @@ import "server-only"
  * BESIDE the code that uses it; this story ships exactly one: `GET /v2/user/myself`.
  *
  * Templates are relative to the upstream `/api` prefix, so the browser's
- * `/api/1h/v2/user/myself` maps to `<API_ORIGIN>/api/v2/user/myself`.
+ * `/api/1h/v2/user/myself` maps to `<apiBase>/v2/user/myself` (the session environment's base).
  *
  * A template segment is one of:
  *   - a literal (compared exactly, case-sensitively);

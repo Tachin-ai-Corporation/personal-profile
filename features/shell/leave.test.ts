@@ -7,7 +7,7 @@ import { LOGOUT_WAIT_MS, requestLeave, returnToPortal, setLeaveGuard } from "./l
 
 /**
  * The leave helpers (Story 1.7): the single leave guard, and `returnToPortal()`
- * = guard → logout (≤ 3 s, failures ignored) → `location.assign(PORTAL_URL)`.
+ * = guard → logout (≤ 3 s, failures ignored) → `location.assign(portalUrl)`.
  * MSW mocks the same-origin logout route; `window.location` is stubbed so the
  * navigation can be observed.
  */
@@ -86,7 +86,7 @@ describe("requestLeave / setLeaveGuard", () => {
 })
 
 describe("returnToPortal", () => {
-  it("no guard: POST /api/session/logout with the binding, then navigates to PORTAL_URL", async () => {
+  it("no guard: POST /api/session/logout with the binding, then navigates to the portal URL", async () => {
     logoutOk()
     await returnToPortal()
     expect(logoutCalls).toHaveLength(1)

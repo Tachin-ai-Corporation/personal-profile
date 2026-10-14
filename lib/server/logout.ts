@@ -3,7 +3,8 @@ import "server-only"
 import { randomUUID } from "node:crypto"
 import { cookies } from "next/headers"
 import { after } from "next/server"
-import { API_ORIGIN, PP_DISABLED } from "./env"
+import { environments, type Environment } from "@/lib/shared/environments"
+import { PP_DISABLED } from "./env"
 import { clearSessionCookie, SESSION_COOKIE_NAME, unsealSession } from "./session"
 import { NO_STORE_HEADERS } from "./cache-headers"
 import { checkCsrf } from "./csrf"
@@ -28,7 +29,8 @@ import { logError, logRoute } from "./log"
  *
  * Revoke runs AFTER the response (`after()`), only when a session unsealed, its
  * access token has not expired, `PP_DISABLED` is off and `REVOKE_PATH` is set:
- * `POST <API_ORIGIN><REVOKE_PATH>` with the Bearer access token, aborted at 5 s.
+ * `POST <apiRoot><REVOKE_PATH>` (the session environment's root) with the Bearer
+ * access token, aborted at 5 s.
  * The 204 goes out first, so a client navigating away after its 3 s wait can
  * never lose the cookie-clearing `Set-Cookie`. Any revoke failure is swallowed
  * and logged with only `{requestId, routeTemplate, status, errorName}`.
@@ -69,11 +71,16 @@ function noContent(setCookie?: string): Response {
 }
 
 /** Best-effort upstream revoke of the access token. Never throws; logs only the error name. */
-async function revoke(accessToken: string, revokePath: string, requestId: string): Promise<void> {
+async function revoke(
+  environment: Environment,
+  accessToken: string,
+  revokePath: string,
+  requestId: string,
+): Promise<void> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), REVOKE_TIMEOUT_MS)
   try {
-    const res = await fetch(`${API_ORIGIN}${revokePath}`, {
+    const res = await fetch(`${environments[environment].apiRoot}${revokePath}`, {
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
       cache: "no-store",
@@ -116,8 +123,8 @@ async function run(request: Request, revokePath: string | null, requestId: strin
 
   // 4. Revoke after the response, only for a live token.
   if (session && session.accessTokenExpiresAt > Date.now() && !PP_DISABLED && revokePath !== null) {
-    const accessToken = session.accessToken
-    after(() => revoke(accessToken, revokePath, requestId))
+    const { accessToken, environment } = session
+    after(() => revoke(environment, accessToken, revokePath, requestId))
   }
 
   // 5. Clear the cookie whether or not a session existed.

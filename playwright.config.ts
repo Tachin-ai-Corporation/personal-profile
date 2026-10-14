@@ -5,8 +5,8 @@ const BASE_URL = `http://localhost:${PORT}`
 
 /**
  * Playwright drives a local production server (`next build` + `next start`)
- * started with dummy env (APP_ENV=dev and placeholder secrets — never real
- * credentials). Production is used deliberately: `next dev` injects `eval`-based
+ * started with dummy env (the D1 per-environment placeholder secrets — never
+ * real credentials). Production is used deliberately: `next dev` injects `eval`-based
  * HMR that trips the strict CSP, whereas the header/nonce behavior we assert is a
  * production concern. The header spec runs against a desktop Chromium project and
  * a 360×740 mobile project.
@@ -41,13 +41,14 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
     env: {
-      APP_ENV: "dev",
-      APP_ORIGIN: "https://localhost:3100",
-      APP_ID: "dummy-app-id",
-      ONEHEALTH_SECRET_KEY: "dummy-onehealth-secret",
+      // Must match e2e/fixtures.ts.
+      ONEHEALTH_SECRET_KEY_DEMO: "dummy-demo-secret",
+      ONEHEALTH_SECRET_KEY_PROD: "dummy-prod-secret",
+      APP_ID_DEMO: "dummy-app-demo",
+      APP_ID_PROD: "dummy-app-prod",
       SESSION_SECRET: "dummy-session-secret-0123456789abcdef",
       // Install the server-side 1health upstream mock (launch exchange + /myself)
-      // so the launch redirect-chain spec is deterministic. Never set in real envs.
+      // so the launch specs are deterministic. Never set in real envs.
       PP_E2E_MOCK: "1",
     },
   },

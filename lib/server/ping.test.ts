@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { TEST_SERVER_ENV } from "../../test/env-fixture"
 import { createHmac } from "node:crypto"
 import type { SessionData } from "./session"
 
@@ -10,21 +11,14 @@ import type { SessionData } from "./session"
  */
 
 const SESSION_SECRET = "ping-session-secret-0123456789abcdef"
-const APP_ORIGIN = "https://app.example"
 const SID = "sid-ping-123"
 const ACCESS = "ping-access-token-AAAA"
 const REFRESH = "ping-refresh-token-BBBB"
-const CLEARED = "__Host-pp_s=; HttpOnly; Secure; SameSite=None; Partitioned; Path=/; Max-Age=0"
+const CLEARED = "__Host-pp_s=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0"
 const T = 1_800_000_000_000
 const MIN = 60_000
 
-const BASE_ENV = {
-  APP_ENV: "demo",
-  APP_ORIGIN,
-  APP_ID: "app-id-123",
-  ONEHEALTH_SECRET_KEY: "onehealth-secret",
-  SESSION_SECRET,
-}
+const BASE_ENV = { ...TEST_SERVER_ENV, SESSION_SECRET }
 
 function binding(sid = SID): string {
   return createHmac("sha256", SESSION_SECRET).update(sid).digest("base64url")
@@ -38,6 +32,7 @@ function sessionData(overrides: Partial<SessionData> = {}): SessionData {
     accessTokenExpiresAt: T - 1_000,
     userId: 42,
     personId: 7,
+    environment: "demo",
     tenantId: 1,
     sid: SID,
     gen: 2,
@@ -155,7 +150,7 @@ describe("handlePing — ok", () => {
     expect(fetchMock).not.toHaveBeenCalled()
 
     const setCookie = res.headers.get("set-cookie") ?? ""
-    expect(setCookie).toContain("HttpOnly; Secure; SameSite=None; Partitioned; Path=/")
+    expect(setCookie).toContain("HttpOnly; Secure; SameSite=Lax; Path=/")
     const after = await session.unsealSession(setCookie.slice("__Host-pp_s=".length, setCookie.indexOf(";")))
     expect(after).toEqual({ ...before, lastSeen: T })
     assertSingleRouteLog(204)

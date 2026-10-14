@@ -1,7 +1,8 @@
 import "server-only"
 
 import { randomUUID } from "node:crypto"
-import { API_ORIGIN, PP_DISABLED } from "./env"
+import { environments, type Environment } from "@/lib/shared/environments"
+import { PP_DISABLED } from "./env"
 import {
   ACCESS_TOKEN_SKEW_MS,
   clearSessionCookie,
@@ -101,8 +102,9 @@ async function readOAuthError(res: Response): Promise<string | undefined> {
  * any 4xx other than 401 / 400 `invalid_grant`, and a 2xx without a string
  * `access_token` are all "unavailable" (session kept).
  */
-async function callIdp(refreshToken: string): Promise<IdpResult> {
-  const url = `${API_ORIGIN}/auth/oauth2/token`
+async function callIdp(environment: Environment, refreshToken: string): Promise<IdpResult> {
+  // The session's own environment decides the IdP root (D2).
+  const url = `${environments[environment].apiRoot}/auth/oauth2/token`
   const body = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: refreshToken,
@@ -206,7 +208,7 @@ async function run(request: Request): Promise<Response> {
   }
 
   // 6. Exactly one IdP call.
-  const result = await callIdp(session.refreshToken)
+  const result = await callIdp(session.environment, session.refreshToken)
   if (result.kind === "rejected") return errorResponse(401, "SESSION_EXPIRED", clearSessionCookie())
   if (result.kind === "unavailable") return errorResponse(503, "REFRESH_UNAVAILABLE")
 

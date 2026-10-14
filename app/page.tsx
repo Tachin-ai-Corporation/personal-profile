@@ -1,32 +1,33 @@
-import { redirect } from "next/navigation"
 import { AppBar } from "@/features/shell/app-bar"
 import { ClientConfig } from "@/features/shell/client-config"
+import { DisabledScreen } from "@/features/shell/disabled-screen"
 import { IdleWarning } from "@/features/shell/idle-warning"
 import { MyselfName } from "@/features/shell/myself-name"
 import { ProfileTabs } from "@/features/shell/profile-tabs"
 import { normalizeTab } from "@/features/shell/sections"
 import { SessionDialogs } from "@/features/shell/session-dialogs"
 import { SHELL_COPY } from "@/lib/shared/messages"
-import { ONEHEALTH_SECRET_KEY, PORTAL_URL, PP_DISABLED } from "@/lib/server/env"
-import { deriveAesKey } from "@/lib/server/launch"
-import { ABSOLUTE_TIMEOUT_MS, IDLE_TIMEOUT_MS, requireSession } from "@/lib/server/session"
+import { environments } from "@/lib/shared/environments"
+import { PP_DISABLED } from "@/lib/server/env"
+import { readEnvironmentCookie } from "@/lib/server/environment-cookie"
+import { ABSOLUTE_TIMEOUT_MS, IDLE_TIMEOUT_MS, getSession, requireSession } from "@/lib/server/session"
 import { computeBinding } from "@/lib/server/session-binding"
 
 /**
  * Home page: the session guard (AD-1, AD-4) and the profile page shell
  * (Story 1.8).
  *
- * The kill switch and bad-key guards run first (AD-20), then `requireSession()`
- * redirects to `/launch-error?reason=expired` when there is no valid session.
- * There is no login page and no `/auth` route. `app/page.tsx` never reads `lpl`;
- * `proxy.ts` redirects a `/?lpl=` request to `/launch` before this runs.
+ * The kill switch runs first: with `PP_DISABLED` the page renders the disabled
+ * screen directly, with no redirect (AD-20). Otherwise `requireSession()`
+ * redirects to `/auth` (no query) when there is no valid session; there is no
+ * login form (D1). This page never reads `lpl`.
  *
  * Rendered per request so the proxy's no-store headers and CSP nonce apply, and
  * the guard runs on every request (AD-18).
  *
  * The page embeds `sessionBinding = HMAC(SESSION_SECRET, sid)` for this cookie's
- * `sid` plus `PORTAL_URL`; `ClientConfig` registers both with `callApi` before
- * any child fetches (AD-17, AD-19).
+ * `sid` plus the session environment's `portalUrl` (D4); `ClientConfig`
+ * registers both with `callApi` before any child fetches (AD-17, AD-19).
  *
  * The idle warning gets only four numbers (Story 1.6): the idle limit in
  * seconds, the session's `lastSeen`, `iat + ABSOLUTE_TIMEOUT_MS` and the server
@@ -35,7 +36,7 @@ import { computeBinding } from "@/lib/server/session-binding"
  *
  * `SessionDialogs` (Story 1.7) is the shell's single listener for
  * `session-expired` / `session-changed`; its "Return to 1health" links to the
- * constant `PORTAL_URL`.
+ * session environment's `portalUrl`.
  *
  * The shell (Story 1.8), top to bottom: `AppBar`, then `<main>` with the header
  * slot (Story 1.9 fills it; it holds the page's single `h1`) and the tabbed
@@ -59,23 +60,21 @@ export default async function HomePage({
   searchParams?: Promise<Record<string, string | string[] | undefined>>
 } = {}) {
   if (PP_DISABLED) {
-    redirect("/launch-error?reason=disabled")
-  }
-  try {
-    deriveAesKey(ONEHEALTH_SECRET_KEY)
-  } catch {
-    redirect("/launch-error?reason=config")
+    // Display only (D4): the session's environment, else the remembered one, else prod.
+    const environment = (await getSession())?.environment ?? (await readEnvironmentCookie())
+    return <DisabledScreen environment={environment} />
   }
 
   const session = await requireSession()
   const serverNow = readServerClock()
   const initialTab = normalizeTab((await searchParams)?.tab)
+  const { portalUrl } = environments[session.environment]
 
   return (
-    <ClientConfig sessionBinding={computeBinding(session.sid)} portalUrl={PORTAL_URL}>
+    <ClientConfig sessionBinding={computeBinding(session.sid)} portalUrl={portalUrl}>
       {/* Must mount before any publisher (IdleWarning, SWR reads): publish never replays. */}
-      <SessionDialogs portalUrl={PORTAL_URL} />
-      <AppBar portalUrl={PORTAL_URL} />
+      <SessionDialogs portalUrl={portalUrl} />
+      <AppBar portalUrl={portalUrl} />
       <main className="flex min-h-[calc(100dvh-52px)] flex-col bg-card">
         <section aria-label={SHELL_COPY.profileRegion} className="border-b bg-background px-4 py-3 md:px-6 md:py-4">
           <h1 className="text-h4">{SHELL_COPY.appTitle}</h1>

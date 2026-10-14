@@ -1,6 +1,5 @@
 import "server-only"
 import { NextResponse, type NextRequest } from "next/server"
-import { PORTAL_ORIGIN } from "@/lib/server/env"
 import { NO_STORE_HEADERS } from "@/lib/server/cache-headers"
 import {
   SESSION_COOKIE_NAME,
@@ -21,12 +20,15 @@ import {
  * fresh per-request CSP nonce, and forwards that nonce to the App Router via the
  * `x-nonce` request header so Next's own scripts carry it.
  *
- * It also redirects `/?lpl=` to `/launch` (AD-4) and records a top-level
- * navigation to `/` as user activity (AD-16, Story 1.6): a `GET /` with
- * `Sec-Fetch-Mode: navigate` and a session cookie re-seals `lastSeen = now`
- * (aged or unsealable → clear the cookie + 307 to `reason=expired`). This lives
- * here because a server component cannot set cookies. Prefetch and RSC requests
- * are not activity.
+ * The app is never framed (D10): every response sends `frame-ancestors 'none'`,
+ * `X-Frame-Options: DENY` and COOP `same-origin`. `lpl` is never handled here:
+ * the portal launches `/auth?lpl=…` and `/auth` posts it to `/api/token` (D1).
+ *
+ * It records a top-level navigation to `/` as user activity (AD-16, Story 1.6):
+ * a `GET /` with `Sec-Fetch-Mode: navigate` and a session cookie re-seals
+ * `lastSeen = now` (aged, unsealable or environment-less → clear the cookie +
+ * 307 to `/auth`). This lives here because a server component cannot set
+ * cookies. Prefetch and RSC requests are not activity.
  * =============================================================================
  */
 
@@ -39,7 +41,7 @@ function generateNonce(): string {
   return btoa(binary)
 }
 
-/** Build the per-request CSP string with the nonce and the fixed portal origin (AD-21). */
+/** Build the per-request CSP string with the nonce (AD-21). */
 function buildCsp(nonce: string): string {
   return [
     "default-src 'self'",
@@ -51,7 +53,7 @@ function buildCsp(nonce: string): string {
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",
-    `frame-ancestors ${PORTAL_ORIGIN}`,
+    "frame-ancestors 'none'",
     "upgrade-insecure-requests",
   ].join("; ")
 }
@@ -63,18 +65,18 @@ function applySecurityHeaders(res: NextResponse, nonce: string): NextResponse {
   res.headers.set("X-Content-Type-Options", "nosniff")
   res.headers.set("Referrer-Policy", "no-referrer")
   res.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-  res.headers.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
-  // Note: X-Frame-Options is deliberately NOT set — framing is governed by
-  // the CSP `frame-ancestors` directive alone (AD-5, AD-21).
+  res.headers.set("Cross-Origin-Opener-Policy", "same-origin")
+  // Never framed (D10): the legacy header backs up `frame-ancestors 'none'`.
+  res.headers.set("X-Frame-Options", "DENY")
   return res
 }
 
 /**
- * Launch surfaces that must never be cached (AD-18). Route handlers (`/launch`,
- * `/launch/verify`) also set these on their own responses; the page surfaces
- * (`/`, `/launch-error`) can only get them here. Static assets stay cacheable.
+ * Launch and session surfaces that must never be cached (AD-18). The
+ * `/api/token` route handler also sets these on its own responses; the page
+ * surfaces (`/`, `/auth`) can only get them here. Static assets stay cacheable.
  */
-const NO_STORE_PATHS = new Set(["/", "/launch", "/launch/verify", "/launch-error"])
+const NO_STORE_PATHS = new Set(["/", "/auth", "/api/token"])
 
 /** Apply the no-store trio (AD-18). */
 function applyNoStore(res: NextResponse): void {
@@ -124,24 +126,14 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   const nonce = generateNonce()
   const csp = buildCsp(nonce)
 
-  // AD-4: a request to `/` carrying `lpl` is 307-redirected to `/launch` with the
-  // full query string preserved, so `lpl` never reaches `app/page.tsx` or history.
-  if (request.nextUrl.pathname === "/" && request.nextUrl.searchParams.has("lpl")) {
-    const target = request.nextUrl.clone()
-    target.pathname = "/launch"
-    const redirect = NextResponse.redirect(target, 307)
-    applySecurityHeaders(redirect, nonce)
-    // This is a `/` response whose Location carries the single-use lpl — no-store it (AD-18).
-    applyNoStore(redirect)
-    return redirect
-  }
-
   // Story 1.6: a top-level navigation to `/` is user activity.
   const activity = await homeActivity(request)
   if (activity.kind === "expired") {
+    // No valid session: clear the stale cookie and send the user to `/auth` (no query).
     const target = request.nextUrl.clone()
-    target.pathname = "/launch-error"
-    target.search = "?reason=expired"
+    target.pathname = "/auth"
+    target.search = ""
+    target.hash = ""
     const redirect = NextResponse.redirect(target, 307)
     redirect.headers.append("Set-Cookie", clearSessionCookie())
     applySecurityHeaders(redirect, nonce)
@@ -167,7 +159,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   applySecurityHeaders(response, nonce)
   if (activity.kind === "renewed") response.headers.append("Set-Cookie", activity.setCookie)
 
-  // AD-18: no-store on the launch surfaces and the guarded home page. These page
+  // AD-18: no-store on the launch surfaces and the guarded home page. Page
   // responses cannot set their own headers; route handlers set theirs too.
   if (NO_STORE_PATHS.has(request.nextUrl.pathname)) {
     applyNoStore(response)

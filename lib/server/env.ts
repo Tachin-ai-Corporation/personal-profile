@@ -1,32 +1,29 @@
 import "server-only"
 
+import type { Environment } from "@/lib/shared/environments"
+
 /**
  * =============================================================================
- * Server environment — the single reader of server `process.env`
+ * Server environment — the single reader of server `process.env` (D1)
  * =============================================================================
  *
  * This module (and only this module) reads server-side `process.env`. The one
- * client-side exception is `process.env.NEXT_PUBLIC_APP_ENV`, read only in
- * `lib/shared/app-env.ts`. ESLint enforces this (see `eslint.config.mjs`).
+ * other exception is `lib/shared/app-env.ts#isLocalDev()`, which reads only
+ * `process.env.NODE_ENV` (D6). ESLint enforces both (see `eslint.config.mjs`).
  *
  * Validation runs at module load. `instrumentation.ts` imports this module from
  * `register()` so a missing or invalid required variable fails the boot. Boot
- * errors name the offending variable but NEVER print its value (AD-3, AD-20).
+ * errors name the offending variable but NEVER print its value.
  *
- * Origins are fixed per `APP_ENV` (AD-3): they never come from an env var and
- * are never stored in the session cookie.
+ * One deployment serves demo and prod (D1). The environment of a session is the
+ * one whose key decrypted its launch payload (D2), so each secret exists once
+ * per environment. No 1health origin comes from an env var: origins live in
+ * `lib/shared/environments.ts` (D4).
+ *
+ * Secret keys are returned exactly as stored. Whitespace around a key is not a
+ * boot error: the launch tries the trimmed variant and warns (Story 1.2).
  * =============================================================================
  */
-
-/** The three deployment environments; each deployment is pinned to exactly one (AD-3). */
-export type AppEnv = "dev" | "demo" | "prod"
-
-/** API/portal origin fixed per environment — never read from an env var (AD-3). */
-const ORIGIN_BY_ENV: Record<AppEnv, string> = {
-  dev: "https://dev.1hdev.io",
-  demo: "https://demo.1health.io",
-  prod: "https://app.1health.io",
-}
 
 /** A boolean env flag is `true` only for the exact string "1"; everything else is `false`. */
 function bool(v: string | undefined): boolean {
@@ -48,31 +45,6 @@ function optional(name: string): string | undefined {
   return v ? v : undefined
 }
 
-function resolveAppEnv(): AppEnv {
-  const raw = required("APP_ENV")
-  if (raw !== "dev" && raw !== "demo" && raw !== "prod") {
-    throw new Error(`[env] Invalid value for APP_ENV (expected one of: dev, demo, prod)`)
-  }
-  return raw
-}
-
-function resolveAppOrigin(): string {
-  const raw = required("APP_ORIGIN")
-  let url: URL
-  try {
-    url = new URL(raw)
-  } catch {
-    throw new Error(`[env] Invalid value for APP_ORIGIN (must be an https:// origin with no path)`)
-  }
-  // Must be https, origin-only (no path, query, or fragment).
-  const isOriginOnly = url.protocol === "https:" && (url.pathname === "" || url.pathname === "/") && !url.search && !url.hash
-  if (!isOriginOnly) {
-    throw new Error(`[env] Invalid value for APP_ORIGIN (must be an https:// origin with no path)`)
-  }
-  // Normalize away any trailing slash.
-  return url.origin
-}
-
 function resolveSessionSecret(): string {
   const raw = required("SESSION_SECRET")
   if (raw.length < 32) {
@@ -89,42 +61,95 @@ function resolveGooglePlacesKey(placesEnabled: boolean): string | undefined {
   return key
 }
 
+/**
+ * Read a secret key: required, and not blank after `.trim()` (a blank key can
+ * never form an AES key, so every launch would fail). Surrounding whitespace on
+ * a non-blank key is kept as stored (the launch tries the trimmed variant).
+ */
+function secretKey(name: string): string {
+  const raw = required(name)
+  if (raw.trim().length === 0) {
+    throw new Error(`[env] Invalid value for ${name} (must not be blank)`)
+  }
+  return raw
+}
+
 // --- Resolve + validate at module load ---------------------------------------
 
-export const APP_ENV: AppEnv = resolveAppEnv()
+/** LPL decryption key + exchange-signature secret for the demo environment (secret). */
+export const ONEHEALTH_SECRET_KEY_DEMO: string = secretKey("ONEHEALTH_SECRET_KEY_DEMO")
 
-/** Upstream 1health API origin, fixed by `APP_ENV` (AD-3). */
-export const API_ORIGIN: string = ORIGIN_BY_ENV[APP_ENV]
+/** LPL decryption key + exchange-signature secret for the prod environment (secret). */
+export const ONEHEALTH_SECRET_KEY_PROD: string = secretKey("ONEHEALTH_SECRET_KEY_PROD")
 
-/** This deployment's own public origin (used for CSRF/origin checks, AD-17). */
-export const APP_ORIGIN: string = resolveAppOrigin()
+// Equal keys would detect every payload as prod (PROD is tried first, D2).
+if (ONEHEALTH_SECRET_KEY_DEMO.trim() === ONEHEALTH_SECRET_KEY_PROD.trim()) {
+  throw new Error(
+    `[env] Invalid value for ONEHEALTH_SECRET_KEY_DEMO / ONEHEALTH_SECRET_KEY_PROD (the two keys must differ)`,
+  )
+}
 
-/** The 1health portal origin, fixed by `APP_ENV`; the only allowed `frame-ancestors` (AD-5, AD-21). */
-export const PORTAL_ORIGIN: string = ORIGIN_BY_ENV[APP_ENV]
+/** The demo External Application id (`required.apiKey.name` must equal it). */
+export const APP_ID_DEMO: string = required("APP_ID_DEMO")
 
-/** The portal's applications listing — the constant "Return to 1health" target (AD-5). */
-export const PORTAL_URL: string = `${PORTAL_ORIGIN}/applications`
-
-/** This deployment's External Application id (secret-ish; never exposed to the client). */
-export const APP_ID: string = required("APP_ID")
-
-/** The required patient tenant (AD-6). */
-export const DEFAULT_TENANT_ID = 1 as const
-
-/** LPL decryption key for this environment (secret). */
-export const ONEHEALTH_SECRET_KEY: string = required("ONEHEALTH_SECRET_KEY")
+/** The prod External Application id (`required.apiKey.name` must equal it). */
+export const APP_ID_PROD: string = required("APP_ID_PROD")
 
 /** iron-session sealing key (secret, ≥ 32 chars). */
 export const SESSION_SECRET: string = resolveSessionSecret()
 
-/** Previous sealing key accepted during rotation overlap (optional, AD-20). */
+/** Previous sealing key accepted for unsealing during a rotation overlap (optional, AD-20). */
 export const SESSION_SECRET_PREVIOUS: string | undefined = optional("SESSION_SECRET_PREVIOUS")
 
-/** Whether Google Places address suggestions are enabled for this deployment (AD-14). */
+/** Whether Google Places address suggestions are enabled (AD-14). */
 export const PLACES_ENABLED: boolean = bool(optional("PLACES_ENABLED"))
 
 /** Google Places (New) server key (secret); required only when `PLACES_ENABLED` (AD-14). */
 export const GOOGLE_PLACES_KEY: string | undefined = resolveGooglePlacesKey(PLACES_ENABLED)
 
-/** Incident kill switch: when set, launch and the proxy return 503 SERVICE_DISABLED (AD-20). */
+/** Incident kill switch: launch, the proxy and the session routes answer 503 SERVICE_DISABLED (AD-20). */
 export const PP_DISABLED: boolean = bool(optional("PP_DISABLED"))
+
+/** Profile-module kill switch: proxy entries tagged `profile: true` answer 503 (D12, Story 1.3). */
+export const ACCOUNT_DISABLED: boolean = bool(optional("ACCOUNT_DISABLED"))
+
+/** `true` only under local `next dev` (`NODE_ENV === "development"`). */
+export const IS_LOCAL_DEV: boolean = process.env.NODE_ENV === "development"
+
+/** The required patient tenant (AD-6). */
+export const DEFAULT_TENANT_ID = 1 as const
+
+const SECRET_KEYS: Readonly<Record<Environment, string>> = {
+  demo: ONEHEALTH_SECRET_KEY_DEMO,
+  prod: ONEHEALTH_SECRET_KEY_PROD,
+}
+
+const APP_IDS: Readonly<Record<Environment, string>> = {
+  demo: APP_ID_DEMO,
+  prod: APP_ID_PROD,
+}
+
+/**
+ * The env var NAME holding each environment's secret key, for warnings that
+ * must name the variable without its value (Story 1.2). Names live here so no
+ * other module spells a `_DEMO`/`_PROD` name (forbidden-pattern gate, D1).
+ */
+const SECRET_KEY_VAR_NAMES: Readonly<Record<Environment, string>> = {
+  demo: "ONEHEALTH_SECRET_KEY_DEMO",
+  prod: "ONEHEALTH_SECRET_KEY_PROD",
+}
+
+/** The secret key of `env`, exactly as stored (never trimmed). */
+export function getSecretKey(env: Environment): string {
+  return SECRET_KEYS[env]
+}
+
+/** The External Application id of `env`. */
+export function getAppId(env: Environment): string {
+  return APP_IDS[env]
+}
+
+/** The NAME (never the value) of the variable holding `env`'s secret key. */
+export function getSecretKeyVarName(env: Environment): string {
+  return SECRET_KEY_VAR_NAMES[env]
+}

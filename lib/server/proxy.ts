@@ -2,7 +2,8 @@ import "server-only"
 
 import { randomUUID } from "node:crypto"
 import type { NextRequest } from "next/server"
-import { API_ORIGIN, PP_DISABLED } from "./env"
+import { environments, type Environment } from "@/lib/shared/environments"
+import { PP_DISABLED } from "./env"
 import {
   ACCESS_TOKEN_SKEW_MS,
   UPSTREAM_TIMEOUT_MS,
@@ -210,11 +211,14 @@ function resolveQuery(entry: AllowlistEntry, searchParams: URLSearchParams): Que
   return { ok: true, params: out }
 }
 
-/** Build the upstream URL from final segments; never `new URL(input, base)` (AD-2). */
-function buildUpstreamUrl(finalSegments: string[], params: URLSearchParams): string {
+/**
+ * Build the upstream URL under the session environment's `apiBase` from final
+ * segments; never `new URL(input, base)` (AD-2, D2).
+ */
+function buildUpstreamUrl(environment: Environment, finalSegments: string[], params: URLSearchParams): string {
   const path = finalSegments.map(encodeURIComponent).join("/")
   const qs = params.toString()
-  return `${API_ORIGIN}/api/${path}${qs ? `?${qs}` : ""}`
+  return `${environments[environment].apiBase}/${path}${qs ? `?${qs}` : ""}`
 }
 
 type ForwardResult =
@@ -369,8 +373,11 @@ async function handle(request: NextRequest, method: string, allowlist: readonly 
     }
 
     // 10. Build + assert the upstream URL.
-    const upstreamUrl = buildUpstreamUrl(finalSegments, query.params)
-    if (new URL(upstreamUrl).origin !== API_ORIGIN) throw new Error("UpstreamOriginAssertion")
+    // The origin must be exactly the session environment's root (D2).
+    const upstreamUrl = buildUpstreamUrl(session.environment, finalSegments, query.params)
+    if (new URL(upstreamUrl).origin !== new URL(environments[session.environment].apiRoot).origin) {
+      throw new Error("UpstreamOriginAssertion")
+    }
     if (!rematches(segments, finalSegments)) throw new Error("UpstreamTemplateAssertion")
 
     // 11. Forward + map.

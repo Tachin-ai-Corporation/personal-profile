@@ -78,14 +78,25 @@ docs/
 
 ## Environment Variables
 
+One deployment serves both 1health environments (D1). See `.env.example` for
+dummy values; `lib/server/env.ts` validates them at boot.
+
 | Variable | Description |
 |---|---|
-| `ONEHEALTH_SECRET_KEY_DEMO` | Server-side LPL decryption key for demo environment |
-| `ONEHEALTH_SECRET_KEY_PROD` | Server-side LPL decryption key for production environment |
-| `APP_ID_DEMO` | Application ID for demo environment |
-| `APP_ID_PROD` | Application ID for production environment |
+| `ONEHEALTH_SECRET_KEY_DEMO` | LPL decryption key + exchange-signature secret for demo (required) |
+| `ONEHEALTH_SECRET_KEY_PROD` | LPL decryption key + exchange-signature secret for production (required) |
+| `APP_ID_DEMO` | External Application id for demo (required) |
+| `APP_ID_PROD` | External Application id for production (required) |
+| `SESSION_SECRET` | iron-session sealing key, at least 32 characters (required) |
+| `SESSION_SECRET_PREVIOUS` | Previous sealing key, accepted for unsealing during a rotation (optional) |
+| `PLACES_ENABLED` / `GOOGLE_PLACES_KEY` | Google Places address suggestions (optional; the key is required when enabled) |
+| `PP_DISABLED` | Kill switch, on only for `"1"` |
+| `ACCOUNT_DISABLED` | Profile-module kill switch, on only for `"1"`; parsed only; enforced from the Story 1.3 rework (R2) |
 
-Base URLs are hardcoded: `https://demo.1health.io` (demo) and `https://app.1health.io` (prod).
+The environment of a session is the one whose key decrypts its launch payload.
+1health origins are fixed in `lib/shared/environments.ts`
+(`https://1health.demo.1health.io` for demo, `https://1health.app.1health.io` for
+production) and never come from an env var.
 
 ## Quick Start
 

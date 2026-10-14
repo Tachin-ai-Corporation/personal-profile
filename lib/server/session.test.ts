@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { sealData } from "iron-session"
+import { TEST_SERVER_ENV } from "../../test/env-fixture"
 
 /**
  * `lib/server/session.ts` reads `SESSION_SECRET` / `SESSION_SECRET_PREVIOUS` from
@@ -15,12 +16,7 @@ vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
 const CURRENT = "current-session-secret-0123456789abcdef"
 const PREVIOUS = "previous-session-secret-0123456789abcdef"
 
-const BASE_ENV = {
-  APP_ENV: "demo",
-  APP_ORIGIN: "https://personal-profile-demo.vercel.app",
-  APP_ID: "app-id-123",
-  ONEHEALTH_SECRET_KEY: "onehealth-secret",
-}
+const BASE_ENV = TEST_SERVER_ENV
 
 let ORIGINAL_ENV: NodeJS.ProcessEnv
 
@@ -46,9 +42,11 @@ async function loadSession(vars: Record<string, string>) {
 /** A session with a realistically large (≥ 1,224-byte) access token. */
 function largeSession() {
   return {
+    // Larger than the largest observed access token (1,224 bytes).
     accessToken: "x".repeat(1400),
     refreshToken: "r".repeat(600),
     accessTokenExpiresAt: 1_900_000_000_000,
+    environment: "prod" as const,
     userId: 4_294_967_295,
     personId: 4_294_967_294,
     tenantId: 1,
@@ -69,7 +67,10 @@ describe("sealSession — cookie attributes", () => {
     const { sealSession } = await loadSession({ SESSION_SECRET: CURRENT })
     const cookie = await sealSession(largeSession())
     expect(cookie.startsWith("__Host-pp_s=")).toBe(true)
-    expect(cookie.endsWith("; HttpOnly; Secure; SameSite=None; Partitioned; Path=/")).toBe(true)
+    expect(cookie.endsWith("; HttpOnly; Secure; SameSite=Lax; Path=/")).toBe(true)
+    // Top-level only (D10): no Partitioned / SameSite=None.
+    expect(cookie).not.toMatch(/Partitioned/i)
+    expect(cookie).not.toMatch(/SameSite=None/i)
     // No Domain / Max-Age / Expires on the live session cookie.
     expect(cookie).not.toMatch(/Domain/i)
     expect(cookie).not.toMatch(/Max-Age/i)
@@ -79,7 +80,7 @@ describe("sealSession — cookie attributes", () => {
   it("clearSessionCookie clears __Host-pp_s with Max-Age=0 and the same attributes", async () => {
     const { clearSessionCookie } = await loadSession({ SESSION_SECRET: CURRENT })
     const cookie = clearSessionCookie()
-    expect(cookie).toBe("__Host-pp_s=; HttpOnly; Secure; SameSite=None; Partitioned; Path=/; Max-Age=0")
+    expect(cookie).toBe("__Host-pp_s=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0")
   })
 })
 
@@ -87,6 +88,7 @@ describe("sealSession — cookie size budget", () => {
   it("serializes to ≤ 3,800 bytes with the largest fixtures", async () => {
     const { sealSession } = await loadSession({ SESSION_SECRET: CURRENT })
     const cookie = await sealSession(largeSession())
+    expect(largeSession().accessToken.length).toBeGreaterThanOrEqual(1224)
     expect(Buffer.byteLength(cookie, "utf8")).toBeLessThanOrEqual(3800)
   })
 })
@@ -96,7 +98,30 @@ describe("session — seal / unseal round-trip", () => {
     const { sealSession, unsealSession } = await loadSession({ SESSION_SECRET: CURRENT })
     const data = largeSession()
     const restored = await unsealSession(sealOf(await sealSession(data)))
-    expect(restored).toMatchObject({ sid: data.sid, userId: data.userId, personId: data.personId })
+    expect(restored).toEqual(data)
+  })
+
+  it.each([
+    ["missing", undefined],
+    ["dev", "dev"],
+    ["empty", ""],
+    ["a number", 1],
+  ])("a seal whose environment is %s counts as no session", async (_label, environment) => {
+    const { unsealSession } = await loadSession({ SESSION_SECRET: CURRENT })
+    const { environment: _drop, ...rest } = largeSession()
+    void _drop
+    const data = environment === undefined ? rest : { ...rest, environment }
+    // A pre-D1 seal: valid iron-session, no (valid) environment.
+    const seal = await sealData(data, { password: { "2": CURRENT }, ttl: 0 })
+    expect(await unsealSession(seal)).toBeNull()
+  })
+
+  it("never stores an API origin or id_token", async () => {
+    const { sealSession, unsealSession } = await loadSession({ SESSION_SECRET: CURRENT })
+    const restored = await unsealSession(sealOf(await sealSession(largeSession())))
+    expect(Object.keys(restored ?? {}).sort()).toEqual(
+      ["accessToken", "accessTokenExpiresAt", "environment", "gen", "iat", "lastSeen", "personId", "refreshToken", "sid", "tenantId", "userId"],
+    )
   })
 
   it("returns null for a missing or garbage cookie", async () => {
@@ -188,5 +213,19 @@ describe("session — idle / absolute limits (Story 1.6)", () => {
     const garbage = await getSessionAt(null, "garbage")
     expect(garbage.session).toBeNull()
     expect(garbage.hasCookie).toBe(true)
+  })
+})
+
+describe("requireSession", () => {
+  it("redirects to /auth with no query when there is no session", async () => {
+    const mod = await loadSession({ SESSION_SECRET: CURRENT })
+    const headers = await import("next/headers")
+    vi.mocked(headers.cookies).mockResolvedValue({ get: () => undefined } as never)
+    const navigation = await import("next/navigation")
+    vi.mocked(navigation.redirect).mockImplementation((url: string) => {
+      throw new Error(`REDIRECT:${url}`)
+    })
+    await expect(mod.requireSession()).rejects.toThrow("REDIRECT:/auth")
+    expect(navigation.redirect).toHaveBeenCalledWith("/auth")
   })
 })

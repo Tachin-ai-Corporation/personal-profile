@@ -1,15 +1,10 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { TEST_SERVER_ENV } from "../../test/env-fixture"
 
 /** `proxy-allowlist.ts` imports `server-only` only; env is still validated via the stub chain. */
 
-const BASE_ENV = {
-  APP_ENV: "demo",
-  APP_ORIGIN: "https://personal-profile-demo.vercel.app",
-  APP_ID: "app-id-123",
-  ONEHEALTH_SECRET_KEY: "onehealth-secret",
-  SESSION_SECRET: "allowlist-session-secret-0123456789abcdef",
-}
+const BASE_ENV = { ...TEST_SERVER_ENV, SESSION_SECRET: "allowlist-session-secret-0123456789abcdef" }
 
 let ORIGINAL_ENV: NodeJS.ProcessEnv
 

@@ -1,35 +1,20 @@
 // @vitest-environment node
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest"
 
-/** `csrf.ts` reads `APP_ORIGIN` from `env.ts` at load. */
+/**
+ * `csrf.ts` (interim until R2 deletes it): the `Origin` fallback compares with
+ * the request's own origin; there is no configured app origin (D1).
+ */
 
-const APP_ORIGIN = "https://personal-profile-demo.vercel.app"
-
-const BASE_ENV = {
-  APP_ENV: "demo",
-  APP_ORIGIN,
-  APP_ID: "app-id-123",
-  ONEHEALTH_SECRET_KEY: "onehealth-secret",
-  SESSION_SECRET: "csrf-session-secret-0123456789abcdef",
-}
-
-let ORIGINAL_ENV: NodeJS.ProcessEnv
-
-beforeEach(() => {
-  ORIGINAL_ENV = process.env
-  process.env = { ...ORIGINAL_ENV, ...BASE_ENV }
-})
-
-afterEach(() => {
-  process.env = ORIGINAL_ENV
-})
+/** The request's own origin. */
+const SELF_ORIGIN = "https://app.example"
 
 async function load() {
   return import("./csrf")
 }
 
-function req(headers: Record<string, string>): Request {
-  return new Request("https://app.example/api/1h/v2/x", { method: "POST", headers })
+function req(headers: Record<string, string>, url = `${SELF_ORIGIN}/api/1h/v2/x`): Request {
+  return new Request(url, { method: "POST", headers })
 }
 
 describe("checkCsrf — origin rules", () => {
@@ -45,12 +30,20 @@ describe("checkCsrf — origin rules", () => {
     expect(r).toEqual({ ok: false, code: "CSRF" })
   })
 
-  it("falls back to Origin === APP_ORIGIN when Sec-Fetch-Site is absent", async () => {
+  it("falls back to Origin === the request's own origin when Sec-Fetch-Site is absent", async () => {
     const { checkCsrf } = await load()
-    const ok = checkCsrf(req({ Origin: APP_ORIGIN, "X-PP-Session": "b" }), { requireBinding: true })
+    const ok = checkCsrf(req({ Origin: SELF_ORIGIN, "X-PP-Session": "b" }), { requireBinding: true })
     expect(ok.ok).toBe(true)
     const bad = checkCsrf(req({ Origin: "https://evil.example", "X-PP-Session": "b" }), { requireBinding: true })
     expect(bad).toEqual({ ok: false, code: "CSRF" })
+  })
+
+  it("follows the request host: another host's origin, or another scheme, is rejected", async () => {
+    const { checkCsrf } = await load()
+    const preview = "https://pp-preview-123.vercel.app"
+    expect(checkCsrf(req({ Origin: preview, "X-PP-Session": "b" }, `${preview}/api/x`)).ok).toBe(true)
+    expect(checkCsrf(req({ Origin: SELF_ORIGIN, "X-PP-Session": "b" }, `${preview}/api/x`)).ok).toBe(false)
+    expect(checkCsrf(req({ Origin: "http://app.example", "X-PP-Session": "b" })).ok).toBe(false)
   })
 
   it("rejects when neither Sec-Fetch-Site nor Origin is present", async () => {

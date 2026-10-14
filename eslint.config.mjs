@@ -5,12 +5,12 @@ import nextTs from "eslint-config-next/typescript"
 // later block redefines it, so every block that redefines one of these rules
 // spreads the shared entries back in.
 
-/** Server env is read only in lib/server/env.ts (AD-3). */
+/** Server env is read only in lib/server/env.ts (D1); the one other reader is lib/shared/app-env.ts (D6). */
 const PROCESS_ENV_RESTRICTION = {
   object: "process",
   property: "env",
   message:
-    "Read server env only via lib/server/env.ts; client code may read process.env.NEXT_PUBLIC_APP_ENV only in lib/shared/app-env.ts.",
+    "Read server env only via lib/server/env.ts; elsewhere use isLocalDev() from lib/shared/app-env.ts (the only other process.env reader, NODE_ENV only).",
 }
 
 const FETCH_MESSAGE = "Use callApi from @/lib/api — it is the only browser transport (AD-19)."
@@ -47,6 +47,22 @@ const RESTRICTED_SYNTAX = [
   })),
 ]
 
+/**
+ * `lib/shared/app-env.ts` may read `process.env.NODE_ENV` and nothing else (D6):
+ * any other member, a computed member or a bare `process.env` fails.
+ */
+const APP_ENV_ONLY_NODE_ENV = {
+  selector:
+    'MemberExpression[object.name="process"][property.name="env"]:not(MemberExpression[computed=false][property.name="NODE_ENV"] > MemberExpression.object)',
+  message: "lib/shared/app-env.ts may read only process.env.NODE_ENV (D6).",
+}
+
+/** Hand-off routes redirect with lib/server/http.ts#seeOther(), never NextResponse.redirect (AD-4). */
+const NO_NEXT_REDIRECT = {
+  selector: 'MemberExpression[object.name="NextResponse"][property.name="redirect"]',
+  message: "Use seeOther() from lib/server/http.ts in app/handoff/** (AD-4), not NextResponse.redirect.",
+}
+
 const eslintConfig = [
   ...nextVitals,
   ...nextTs,
@@ -63,9 +79,9 @@ const eslintConfig = [
     ],
   },
   {
-    // Server env is read only in lib/server/env.ts; client code reads only
-    // NEXT_PUBLIC_APP_ENV in lib/shared/app-env.ts. dangerouslySetInnerHTML is
-    // banned (AD-3, AD-11, AD-21). SWR keys come only from lib/api/keys.ts (AD-10).
+    // Server env is read only in lib/server/env.ts; lib/shared/app-env.ts reads
+    // only NODE_ENV (D1, D6). dangerouslySetInnerHTML is banned (AD-11, AD-21).
+    // SWR keys come only from lib/api/keys.ts (AD-10).
     rules: {
       "no-restricted-properties": ["error", PROCESS_ENV_RESTRICTION],
       "no-restricted-syntax": ["error", ...RESTRICTED_SYNTAX],
@@ -89,8 +105,23 @@ const eslintConfig = [
     },
   },
   {
+    // The shared app-env helper: process.env.NODE_ENV only (D6).
+    files: ["lib/shared/app-env.ts"],
+    rules: {
+      "no-restricted-properties": "off",
+      "no-restricted-syntax": ["error", ...RESTRICTED_SYNTAX, APP_ENV_ONLY_NODE_ENV],
+    },
+  },
+  {
+    // Hand-off routes (Epic 7) answer with seeOther(), never NextResponse.redirect (AD-4).
+    files: ["app/handoff/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": ["error", ...RESTRICTED_SYNTAX, NO_NEXT_REDIRECT],
+    },
+  },
+  {
     // Tests and tooling may set/read process.env to exercise the env reader.
-    files: ["**/*.test.{ts,tsx}", "vitest.config.ts", "playwright.config.ts"],
+    files: ["**/*.test.{ts,tsx}", "vitest.config.ts", "playwright.config.ts", "next.config.mjs", "eslint.config.mjs"],
     rules: {
       "no-restricted-properties": "off",
     },

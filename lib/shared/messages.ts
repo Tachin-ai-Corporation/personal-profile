@@ -1,88 +1,99 @@
 /**
  * =============================================================================
- * Copy catalog — launch-error screen (FR-1)
+ * Copy catalog
  * =============================================================================
  *
- * All launch-error strings live here (no copy in components). Strings that are
- * locked in EXPERIENCE.md are final; the rest are marked `// DRAFT COPY` for PM
- * review. The raw `reason` is never rendered — only the mapped copy below.
+ * Every user-facing string lives here (no copy in components). Strings quoted
+ * in EXPERIENCE.md are final; the rest are marked `// DRAFT COPY` (or
+ * `// ARCHITECTURE-ADDED COPY`) for PM review. Raw error codes, upstream text
+ * and exception strings are never rendered — only the mapped copy below.
  * =============================================================================
  */
 
-/** The launch-error reasons the screen understands. */
-export type LaunchErrorReason = "expired" | "used" | "invalid" | "tenant" | "cookies" | "config" | "disabled"
+import type { Environment } from "./environments"
 
-/** How the primary action behaves. */
-export type LaunchErrorAction =
-  /** Opens `PORTAL_URL`; same-tab when top-level, new-tab when framed. */
-  | "return"
-  /** Always opens `PORTAL_URL` in a new tab (the framed-cookie fallback). */
-  | "new-tab"
+/** The `/api/token` error codes (Story 1.2, D9). */
+export type LaunchErrorCode =
+  | "LAUNCH_INVALID"
+  | "LAUNCH_USED"
+  | "LAUNCH_EXPIRED"
+  | "WRONG_TENANT"
+  | "LAUNCH_CONFIG"
+  | "SERVICE_DISABLED"
+  | "UNSUPPORTED_MEDIA"
+  | "METHOD_NOT_ALLOWED"
 
-export interface LaunchErrorCopy {
-  title: string
-  body: string
-  actionLabel: string
-  action: LaunchErrorAction
-}
+// DRAFT COPY — not quoted in EXPERIENCE.md (PM review).
+const LINK_EXPIRED = "This link has expired. Open Personal Profile again from 1health."
+// DRAFT COPY — not quoted in EXPERIENCE.md (PM review).
+const UNAVAILABLE = "Personal Profile is unavailable right now. Use your profile in 1health for now."
 
 /**
- * The reason → copy map. `expired`, `used` and `invalid` all render the same
- * "This link has expired" variant (unknown/missing reasons map to `invalid`).
+ * The user-safe `message` every `/api/token` error body carries, chosen by
+ * `errorCode` (Story 1.2). `/auth` shows it in the error Alert.
  */
-export const LAUNCH_ERROR_COPY: Record<LaunchErrorReason, LaunchErrorCopy> = {
-  // Locked in EXPERIENCE.md.
-  invalid: {
-    title: "This link has expired",
-    body: "Open Personal Profile again from 1health.",
-    actionLabel: "Return to 1health",
-    action: "return",
-  },
-  expired: {
-    title: "This link has expired",
-    body: "Open Personal Profile again from 1health.",
-    actionLabel: "Return to 1health",
-    action: "return",
-  },
-  used: {
-    title: "This link has expired",
-    body: "Open Personal Profile again from 1health.",
-    actionLabel: "Return to 1health",
-    action: "return",
-  },
-  tenant: {
-    // DRAFT COPY — tenant title is not locked in EXPERIENCE.md (PM review).
-    title: "Switch to your personal account",
-    // Locked in AD-6 / epics.
-    body: "Personal Profile is available in your personal account. Switch to it in 1health and open the app again.",
-    actionLabel: "Return to 1health",
-    action: "return",
-  },
-  cookies: {
-    // DRAFT COPY — cookies title/body are not locked in EXPERIENCE.md (PM review).
-    title: "Open Personal Profile in a new tab",
-    // DRAFT COPY
-    body: "Your browser blocked the sign-in inside 1health. Open Personal Profile in a new tab to continue.",
-    actionLabel: "Open in a new tab",
-    action: "new-tab",
-  },
-  config: {
-    // DRAFT COPY — config/disabled copy is not locked in EXPERIENCE.md (PM review).
-    title: "Personal Profile is unavailable right now",
-    // DRAFT COPY
-    body: "Use your profile in 1health for now.",
-    actionLabel: "Return to 1health",
-    action: "return",
-  },
-  disabled: {
-    // DRAFT COPY — config/disabled copy is not locked in EXPERIENCE.md (PM review).
-    title: "Personal Profile is unavailable right now",
-    // DRAFT COPY
-    body: "Use your profile in 1health for now.",
-    actionLabel: "Return to 1health",
-    action: "return",
-  },
+export const LAUNCH_ERROR_MESSAGES: Readonly<Record<LaunchErrorCode, string>> = {
+  LAUNCH_INVALID: LINK_EXPIRED,
+  LAUNCH_USED: LINK_EXPIRED,
+  LAUNCH_EXPIRED: LINK_EXPIRED,
+  // Locked in EXPERIENCE.md (module-neutral tenant copy, AD-6, PA5).
+  WRONG_TENANT: "This is available in your personal account. Switch to it in 1health and open it again.",
+  LAUNCH_CONFIG: UNAVAILABLE,
+  SERVICE_DISABLED: UNAVAILABLE,
+  UNSUPPORTED_MEDIA: LINK_EXPIRED,
+  METHOD_NOT_ALLOWED: LINK_EXPIRED,
 }
+
+/** The display name of each environment (EXPERIENCE.md "{Demo|Production}"). */
+export const ENVIRONMENT_LABELS: Readonly<Record<Environment, string>> = {
+  // Locked in EXPERIENCE.md.
+  demo: "Demo",
+  // Locked in EXPERIENCE.md.
+  prod: "Production",
+}
+
+/** The `/auth` launch screen copy (Story 1.2, D9). Locked in EXPERIENCE.md unless marked. */
+export const AUTH_COPY = {
+  // Progress, attempt 1.
+  authenticating: "Authenticating...",
+  connectingTo: (env: Environment) => `Connecting to ${ENVIRONMENT_LABELS[env]} environment`,
+  // Progress, attempt 2 and later.
+  confirming: "Confirming your login...",
+  confirmingBody: "This can take a moment. Please wait while we finish confirming your login.",
+  // Success.
+  success: "Success!",
+  loadingApp: "Loading app...",
+  // Error Alert.
+  failedTitle: "Authentication Failed",
+  failedFallback: "Unable to authenticate. Please return to 1health and try again.",
+  connectionTitle: "Connection Error",
+  connectionBody: "Unable to connect to the authentication service. Please check your connection and try again.",
+  enterManually: "Enter LPL Manually",
+  switchEnvironment: "Switch Environment",
+  goTo1health: (env: Environment) => `Go to 1health (${ENVIRONMENT_LABELS[env]})`,
+  // Manual entry card.
+  manualTitle: "Authentication Required",
+  manualDescription: (env: Environment) =>
+    `Connected to ${ENVIRONMENT_LABELS[env]} environment. No launch payload detected.`,
+  lplLabel: "Launch Payload (LPL)",
+  lplPlaceholder: "Paste encrypted LPL here...",
+  submit: "Submit",
+  or: "Or",
+  // Choose Environment card.
+  chooseTitle: "Choose Environment",
+  // DRAFT COPY — patient-vault text, not quoted in EXPERIENCE.md (PM review).
+  chooseDescription: "Select which 1health environment to connect to.",
+} as const
+
+/** The kill-switch screen on `/` and `/auth` (Story 1.16). */
+export const DISABLED_COPY = {
+  // DRAFT COPY
+  title: "Personal Profile is unavailable right now",
+  // DRAFT COPY
+  body: "Use your profile in 1health for now.",
+  // DRAFT COPY
+  action: "Go to 1health",
+} as const
 
 // ARCHITECTURE-ADDED COPY — PM review
 /** Idle-logoff warning copy (AD-16, Story 1.6). */
@@ -99,8 +110,6 @@ export const SESSION_EXPIRED_COPY = {
   body: "Your changes are kept on this device. Relaunch from 1health to continue.",
   // Locked in EXPERIENCE.md.
   action: "Return to 1health",
-  // ARCHITECTURE-ADDED COPY — PM review
-  framedAction: "Close and reopen from 1health",
 } as const
 
 /** Session-changed dialog copy (AD-19, Story 1.7). */
@@ -155,13 +164,3 @@ export const SHELL_COPY = {
   // DRAFT COPY
   retry: "Retry",
 } as const
-
-/** Map a raw `reason` query value to a known reason; unknown/missing → `invalid`. */
-export function normalizeLaunchErrorReason(reason: string | undefined | null): LaunchErrorReason {
-  // Own-property check only: `"__proto__" in obj` is true, so `in` would let
-  // `?reason=__proto__` (or `constructor`) slip past and resolve to a non-copy.
-  if (reason && Object.prototype.hasOwnProperty.call(LAUNCH_ERROR_COPY, reason)) {
-    return reason as LaunchErrorReason
-  }
-  return "invalid"
-}

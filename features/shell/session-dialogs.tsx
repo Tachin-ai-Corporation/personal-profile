@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { subscribe } from "@/lib/api"
 import { SESSION_CHANGED_COPY, SESSION_EXPIRED_COPY } from "@/lib/shared/messages"
-import { useIsFramed } from "./use-is-framed"
 
 /**
  * =============================================================================
@@ -22,7 +21,7 @@ import { useIsFramed } from "./use-is-framed"
  * - **`session-expired`:** every `onBeforeSessionExpired` callback runs
  *   synchronously (drafts, Story 1.15), then "Your session ended" opens. Its
  *   action is a plain link to `portalUrl` (no logout, no leave guard, no draft
- *   deletion); when framed it is a button that does nothing.
+ *   deletion). The app is never framed (D10), so there is no framed variant.
  * - **`session-changed`:** every `onSessionChanged` callback runs (in-memory
  *   clearing, 2.x), the whole SWR cache is emptied without revalidating, and
  *   "This profile was opened by another account in another tab" opens with
@@ -86,7 +85,6 @@ export function SessionDialogs({ portalUrl }: { portalUrl: string }) {
   const [kind, setKind] = useState<Kind | null>(null)
   const handledRef = useRef(false)
   const { mutate } = useSWRConfig()
-  const framed = useIsFramed()
   const linkRef = useRef<HTMLAnchorElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
 
@@ -124,17 +122,11 @@ export function SessionDialogs({ portalUrl }: { portalUrl: string }) {
           <DialogTitle>{SESSION_EXPIRED_COPY.title}</DialogTitle>
           <DialogDescription>{SESSION_EXPIRED_COPY.body}</DialogDescription>
           <div className="flex justify-end">
-            {framed ? (
-              <Button ref={buttonRef} type="button" className={ACTION_CLASS}>
-                {SESSION_EXPIRED_COPY.framedAction}
-              </Button>
-            ) : (
-              <Button asChild className={ACTION_CLASS}>
-                <a ref={linkRef} href={portalUrl}>
-                  {SESSION_EXPIRED_COPY.action}
-                </a>
-              </Button>
-            )}
+            <Button asChild className={ACTION_CLASS}>
+              <a ref={linkRef} href={portalUrl}>
+                {SESSION_EXPIRED_COPY.action}
+              </a>
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

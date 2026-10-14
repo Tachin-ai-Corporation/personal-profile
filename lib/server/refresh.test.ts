@@ -1,19 +1,19 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { TEST_SERVER_ENV } from "../../test/env-fixture"
 import { createHmac } from "node:crypto"
 import type { SessionData } from "./session"
 
 /**
  * `POST /api/session/refresh` (AD-16) with `fetch` mocked. The real `env.ts`
- * loads from `process.env` (APP_ENV=demo → API_ORIGIN=demo.1health.io) and the
+ * loads from `process.env` (the D1 dummy set; sessions are demo) and the
  * real `session.ts` seals/unseals; only `next/headers` cookies are mocked, so the
  * re-sealed `Set-Cookie` can be unsealed and inspected.
  */
 
 const SESSION_SECRET = "refresh-session-secret-0123456789abcdef"
-const API_ORIGIN = "https://demo.1health.io"
-const APP_ORIGIN = "https://app.example"
-const IDP_URL = `${API_ORIGIN}/auth/oauth2/token`
+const DEMO_ROOT = "https://1health.demo.1health.io" // environments.demo.apiRoot
+const IDP_URL = `${DEMO_ROOT}/auth/oauth2/token`
 const SID = "sid-refresh-123"
 
 const OLD_ACCESS = "old-access-token-AAAA"
@@ -22,13 +22,7 @@ const NEW_ACCESS = "new-access-token-CCCC"
 const NEW_REFRESH = "new-refresh-token-DDDD"
 const TOKENS = [OLD_ACCESS, OLD_REFRESH, NEW_ACCESS, NEW_REFRESH]
 
-const BASE_ENV = {
-  APP_ENV: "demo",
-  APP_ORIGIN,
-  APP_ID: "app-id-123",
-  ONEHEALTH_SECRET_KEY: "onehealth-secret",
-  SESSION_SECRET,
-}
+const BASE_ENV = { ...TEST_SERVER_ENV, SESSION_SECRET }
 
 function binding(sid = SID): string {
   return createHmac("sha256", SESSION_SECRET).update(sid).digest("base64url")
@@ -42,6 +36,7 @@ function sessionData(overrides: Partial<SessionData> = {}): SessionData {
     accessTokenExpiresAt: now - 1_000,
     userId: 42,
     personId: 7,
+    environment: "demo",
     tenantId: 1,
     sid: SID,
     gen: 3,
@@ -111,7 +106,7 @@ async function withSession(data: SessionData | null, env: Record<string, string>
   return mods
 }
 
-const CLEARED = "__Host-pp_s=; HttpOnly; Secure; SameSite=None; Partitioned; Path=/; Max-Age=0"
+const CLEARED = "__Host-pp_s=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0"
 
 const GOOD_HEADERS = { "Sec-Fetch-Site": "same-origin", "X-PP-Session": binding() }
 
@@ -224,7 +219,7 @@ describe("handleRefresh — refresh ok", () => {
     expect(after!.refreshedAt).toBeGreaterThanOrEqual(startedAt)
     expect(after!.refreshedAt).toBeLessThanOrEqual(Date.now())
     expect(after!.accessTokenExpiresAt - after!.refreshedAt!).toBe(3_600_000)
-    expect(res.headers.get("set-cookie")).toContain("HttpOnly; Secure; SameSite=None; Partitioned; Path=/")
+    expect(res.headers.get("set-cookie")).toContain("HttpOnly; Secure; SameSite=Lax; Path=/")
     assertSingleRouteLog(200)
   })
 
@@ -276,6 +271,21 @@ describe("handleRefresh — refresh ok", () => {
     const after = await unsealSetCookie(session, res)
     expect(after!.accessTokenExpiresAt).toBeGreaterThanOrEqual(startedAt + 300_000)
     expect(after!.accessTokenExpiresAt).toBeLessThanOrEqual(Date.now() + 300_000)
+  })
+})
+
+describe("handleRefresh — per-environment IdP root (D2)", () => {
+  it.each([
+    ["demo", "https://1health.demo.1health.io/auth/oauth2/token"],
+    ["prod", "https://1health.app.1health.io/auth/oauth2/token"],
+  ] as const)("a %s session refreshes at its own root, keeping its environment", async (environment, url) => {
+    const { handleRefresh, session } = await withSession(sessionData({ environment }))
+    const res = await handleRefresh(makeRequest())
+    expect(res.status).toBe(200)
+    expect(fetchMock.mock.calls[0][0]).toBe(url)
+    const setCookie = res.headers.get("set-cookie") ?? ""
+    const resealed = await session.unsealSession(setCookie.slice("__Host-pp_s=".length, setCookie.indexOf(";")))
+    expect(resealed?.environment).toBe(environment)
   })
 })
 
@@ -389,7 +399,7 @@ describe("handleRefresh — IdP rejects", () => {
     const res = await handleRefresh(makeRequest())
     expect(res.status).toBe(401)
     expect((await readBody(res)).json).toEqual({ code: "SESSION_EXPIRED" })
-    expect(res.headers.get("set-cookie")).toBe("__Host-pp_s=; HttpOnly; Secure; SameSite=None; Partitioned; Path=/; Max-Age=0")
+    expect(res.headers.get("set-cookie")).toBe("__Host-pp_s=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0")
     expect(fetchMock).toHaveBeenCalledOnce()
     assertHeaders(res)
     assertSingleRouteLog(401)

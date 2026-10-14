@@ -14,22 +14,16 @@ import { onBeforeSessionExpired, onSessionChanged, SessionDialogs } from "./sess
 /**
  * `SessionDialogs` (Story 1.7): the single listener for `session-expired` /
  * `session-changed`, its hook registries, first-event-wins, the SWR clear on
- * `session-changed`, framing, non-dismissability and accessibility.
+ * `session-changed`, non-dismissability and accessibility.
  */
 
-const PORTAL = "https://portal.example/applications"
+const PORTAL = "https://1health.demo.1health.io"
 const URL_MYSELF = "http://localhost:3000/api/1h/v2/user/myself"
 
-let originalTop: PropertyDescriptor | undefined
 let unsubscribers: (() => void)[]
 let errorSpy: ReturnType<typeof vi.spyOn>
 let reload: ReturnType<typeof vi.fn<() => void>>
 let assign: ReturnType<typeof vi.fn<(url: string) => void>>
-
-function setFramed(framed: boolean) {
-  originalTop ??= Object.getOwnPropertyDescriptor(window, "top")
-  Object.defineProperty(window, "top", { configurable: true, value: framed ? {} : window })
-}
 
 beforeEach(() => {
   unsubscribers = []
@@ -59,10 +53,6 @@ afterEach(() => {
   for (const u of unsubscribers) u()
   __resetSessionEventsForTests()
   configureClient({})
-  if (originalTop) {
-    Object.defineProperty(window, "top", originalTop)
-    originalTop = undefined
-  }
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -118,7 +108,6 @@ describe("SessionDialogs — nothing until an event", () => {
 
 describe("SessionDialogs — session-expired", () => {
   it("runs every onBeforeSessionExpired callback in order, then opens the dialog with a focused link", async () => {
-    setFramed(false)
     const order: string[] = []
     track(
       onBeforeSessionExpired(() => {
@@ -147,7 +136,6 @@ describe("SessionDialogs — session-expired", () => {
   })
 
   it("clicking Return to 1health makes no logout call and never consults the leave guard", async () => {
-    setFramed(false)
     const guard = vi.fn(async () => true)
     setLeaveGuard(guard)
     let logoutCalls = 0
@@ -209,20 +197,6 @@ describe("SessionDialogs — session-expired", () => {
     expect(cb).not.toHaveBeenCalled()
   })
 
-  it("framed: the action is a 'Close and reopen from 1health' button that does nothing", async () => {
-    setFramed(true)
-    renderDialogs()
-    fire("session-expired")
-
-    expect(screen.queryByRole("link")).toBeNull()
-    const button = screen.getByRole("button", { name: SESSION_EXPIRED_COPY.framedAction })
-    await waitFor(() => expect(button).toHaveFocus())
-    fireEvent.click(button)
-    expect(dialog()).not.toBeNull()
-    expect(assign).not.toHaveBeenCalled()
-    expect(reload).not.toHaveBeenCalled()
-  })
-
   it("is non-dismissable: Escape and outside clicks keep it open, with no close button", () => {
     renderDialogs()
     fire("session-expired")
@@ -241,22 +215,12 @@ describe("SessionDialogs — session-expired", () => {
   })
 
   it("axe-core reports zero violations and the link has focus", async () => {
-    setFramed(false)
     renderDialogs()
     fire("session-expired")
     const link = screen.getByRole("link", { name: SESSION_EXPIRED_COPY.action })
     await waitFor(() => expect(link).toHaveFocus())
     expect(await axeViolations()).toEqual([])
     expect(link).toHaveFocus()
-  })
-
-  it("axe-core reports zero violations on the framed variant", async () => {
-    setFramed(true)
-    renderDialogs()
-    fire("session-expired")
-    const button = screen.getByRole("button", { name: SESSION_EXPIRED_COPY.framedAction })
-    await waitFor(() => expect(button).toHaveFocus())
-    expect(await axeViolations()).toEqual([])
   })
 })
 

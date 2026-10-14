@@ -56,6 +56,23 @@ describe("lint guards (ESLint API)", () => {
     )
   })
 
+  it.each([
+    ["process.env.SECRET", "export const a = process.env.SECRET"],
+    ['process.env["NODE_ENV"]', 'export const a = process.env["NODE_ENV"]'],
+    ["a bare process.env", "export const a = process.env"],
+  ])("reports %s in lib/shared/app-env.ts (NODE_ENV only, D6)", async (_name, code) => {
+    expect(await ruleIds(code, "lib/shared/app-env.ts")).toContain("no-restricted-syntax")
+  })
+
+  it("allows process.env.NODE_ENV in lib/shared/app-env.ts", async () => {
+    expect(await ruleIds("export const a = process.env.NODE_ENV", "lib/shared/app-env.ts")).toEqual([])
+  })
+
+  it("reports NextResponse.redirect in app/handoff/** (AD-4)", async () => {
+    const code = 'import { NextResponse } from "next/server"\nexport const GET = () => NextResponse.redirect("https://x.example")'
+    expect(await ruleIds(code, "app/handoff/x/route.ts")).toContain("no-restricted-syntax")
+  })
+
   it("allows fetch in lib/api/client.ts and test files", async () => {
     expect(await ruleIds('export const f = () => fetch("/api/x")', "lib/api/client.ts")).not.toContain(
       "no-restricted-globals",
