@@ -76,6 +76,7 @@ pnpm test:e2e   # Playwright against `next build && next start` on :3100
 ### Design system (`docs/DESIGN-SYSTEM.md`)
 - All tokens live in `app/globals.css` in three tiers. To rebrand, change only the four `--brand-*` variables in the `TIER 2 · Brand layer` block.
 - Components must use semantic tokens. Don't use hardcoded hex values or palette classes like `bg-red-500`.
+- `scripts/check-forbidden.sh` (in `pnpm lint` and CI) enforces this: it fails on any hex or palette class in `app/`, `components/` and `features/`, outside `app/globals.css` and `*.test.*`. Use the override tokens `link-text`, `destructive-fill`, `control-border`, `tooltip` and `scrim` as listed in the "Contrast overrides" table in `docs/DESIGN-SYSTEM.md`.
 - Red is reserved for errors and destructive actions, and glow only for focus or active states.
 - Respect reduced motion and meet WCAG 2.1 AA.
 - Dark mode is class-based (add `dark` to `<html>`) and is off by default.

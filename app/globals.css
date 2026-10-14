@@ -59,6 +59,21 @@
   --brand-highlight: var(--signal-aqua); /* focus glow / highlight source   */
 
   /* ---- TIER 3 · Semantic tokens · LIGHT (default) ------------------------- */
+  /* Design-system deviations (DESIGN.md "Ledger" deltas). Three overrides of
+     1health tokens for contrast; ratios as measured in DESIGN.md:
+       - Link text      --link-text        #256a8c (info-strong) replaces --link
+                        #2f80a8 for text links: 5.97:1 on card (was 4.40:1).
+       - Destructive    --destructive-fill #b23a31 (error-strong) replaces
+         button fill    --destructive #d84f45 behind white text: 5.93:1 (was
+                        4.10:1). Stays #b23a31 in dark: white on #f08a80 is 2.4:1.
+       - Control border --control-border   #7a8696 (status-neutral) replaces
+                        --input #e1e8ef for inputs/selects/Jump to/Signature pad:
+                        3.7:1 on card (was 1.24:1). Hairlines keep --border.
+     Report these upstream to the 1health design-system owners. Keep each override
+     until globals.css changes, i.e. until the upstream 1health tokens meet the
+     same ratios.
+     Delta for PM/design review: the dark --scrim is black at 60 %, not graphite
+     (graphite over the graphite dark canvas gives almost no dimming, ~1.07:1). */
   --background: #f4f7fa;
   --foreground: var(--graphite);
   --card: #ffffff;
@@ -81,6 +96,14 @@
   --input: #e1e8ef;
   --ring: var(--brand-primary);
   --link: var(--status-info);
+
+  /* Ledger deltas (see the deviation note above) + tooltip and scrim surfaces */
+  --link-text: var(--info-strong);
+  --destructive-fill: #b23a31;
+  --control-border: var(--status-neutral);
+  --tooltip: var(--graphite);
+  --tooltip-foreground: #ffffff;
+  --scrim: color-mix(in srgb, var(--graphite) 45%, transparent); /* drawer-scrim */
 
   /* Status — base hue (fills / borders / icons) + AA-readable text variant */
   --success: var(--status-success);
@@ -137,6 +160,16 @@
   --ring: var(--brand-highlight);
   --link: var(--signal-aqua);
 
+  /* Ledger deltas · dark. The destructive fill does NOT follow --error-strong
+     (#f08a80 here): white on it would be 2.4:1. */
+  --link-text: var(--signal-aqua);
+  --destructive-fill: #b23a31;
+  --control-border: var(--mist);
+  --tooltip: var(--cloud);
+  --tooltip-foreground: var(--graphite);
+  /* Delta for PM/design review: black, not graphite, so the dark canvas dims. */
+  --scrim: color-mix(in srgb, #000000 60%, transparent);
+
   /* Status text variants brightened for dark surfaces (AA) */
   --success-strong: #5fcb98;
   --info-strong: #6fb6d8;
@@ -167,6 +200,12 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-link: var(--link);
+  --color-link-text: var(--link-text);
+  --color-destructive-fill: var(--destructive-fill);
+  --color-control-border: var(--control-border);
+  --color-tooltip: var(--tooltip);
+  --color-tooltip-foreground: var(--tooltip-foreground);
+  --color-scrim: var(--scrim);
 
   /* Semantic status colors → utilities (bg-success, text-warning-strong, ...) */
   --color-success: var(--success);
