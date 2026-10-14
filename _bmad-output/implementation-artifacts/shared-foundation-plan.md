@@ -44,3 +44,38 @@ Goal: build once, before feature work by either team, every cross-cutting piece 
 ## Not in the foundation (single team)
 - Team A: Places, phone input, contact labels, person options, type/key lookups, RowActions/RowRemoval/DropdownMenu, Sheet + scoped `requestLeave`, uploads UI, `DELETE v2/file`, profile picture, Contact Point write engine, Save-all bar/pill.
 - Team B: time zones, profile constants, MFA UI, NPI, org cards, hand-off route (before Epics 9/10), single-use `profile: true` entries, 403 owner table contents.
+
+## Planning sync (required, human 2026-10-14)
+After each foundation spec (7.0a–7.0c-1 already done, then F1–F5) is committed, update the BMAD planning so neither team re-builds it:
+- `epics.md`: in every story that consumed a piece, add a dated note "*Built in <spec> (<files/exports>); use it, do not rebuild*" and strike or adjust ACs that the foundation already satisfies; keep the story's remaining feature work explicit.
+- `epic-N-context.md` (1–10): mark the foundation pieces as built with paths and public APIs.
+- `sprint-status.yaml`: foundation keys done; Epic 1 stories fully covered by the foundation marked done with a comment naming the spec; partially covered stories keep backlog with a comment listing what remains.
+- A final summary table (piece → spec → files → consuming stories) appended to this plan before the PR to `main`.
+
+## Built so far (2026-10-14)
+
+Specs 7.0a, 7.0b-1, 7.0b-2 and 7.0c-1 are done. `epics.md` carries a dated *Foundation 2026-10-14* line on every consuming story, the context files (`epic-1`, `epic-7`…`epic-10`) have a "Foundation already built" section, and `sprint-status.yaml` marks Stories 1.1–1.7 done.
+
+| Piece | Spec | Files / exports | Consuming stories (A = Epics 1–6, B = Epics 7–10) |
+|---|---|---|---|
+| Env, environment map, app env | 7.0a | `lib/server/env.ts`, `lib/shared/environments.ts`, `lib/shared/app-env.ts` (`isLocalDev`, `isProductionBuild`) | A: 1.1, 1.16, 4.3 · B: 7.2, 7.3, 10.2 |
+| Security headers, lint bans, test tooling, CI | 7.0a (+ token check 7.0b-1) | root `proxy.ts`, `lib/server/security/headers.ts`, `eslint.config.mjs`, Vitest/MSW/Playwright/axe, `ci.yml`, `scripts/check-forbidden.sh`, `scripts/check-tokens.sh` | all |
+| Launch and sealed session | 7.0a | `app/auth/page.tsx`, `features/shell/{auth-screen,launch-flow}`, `app/api/token/route.ts`, `lib/server/launch/*`, `lib/server/session/*`, `requirePageSession()`, `lib/shared/login-intent.ts` | A: 1.2 · B: 7.1, 7.3 |
+| Proxy (allowlist, deny list, `profile: true`, proxy-level `ACCOUNT_DISABLED`) | 7.0a | `app/api/1h/[...path]`, `lib/server/proxy/*`, `lib/shared/bff-contract.ts` | A: 1.3, 2.x–5.x entries · B: 7.2, 7.5, 7.6, 8.2, 8.3, 9.1, 9.2, 10.1 |
+| `callApi`, session events, keys, fetcher, root `SWRConfig`, `useMyself`, `logApiCall` | 7.0a | `@/lib/api` (`callApi`, `sessionEvents`, `keys`, `swrFetcher`, `logApiCall`), `features/shell/{swr-provider,use-myself,portal-url-provider}` | all |
+| Token refresh | 7.0a | `/api/session/refresh`, `lib/api/refresh-coordinator.ts` | all writes |
+| Logout + all-devices revoke | 7.0a | `/api/session/logout`, `lib/server/session/revoke.ts` | A: 1.7 · B: 7.1 |
+| Idle logoff and activity | 7.0c-1 | `isSessionAged`, `/api/session/ping`, `lib/api/activity.ts`, `recordUserActivity`, `IdleWarning` | A: 1.6 · B: 7.1 (via `PageFrame`) |
+| D13 tokens | 7.0b-1 | `app/globals.css` (`link-text`, `destructive-fill`, `primary-text`, `scrim`, `control-border`, `tooltip`) | all UI |
+| Message catalog + verbatim/voice tests | 7.0b-1 | `lib/shared/messages` (split by F1) | all |
+| `mapApiError(response)`, `mapFetchError` | 7.0b-1 | `lib/api/errors.ts` (v2 + split in F1) | A: 1.12, 2.2, 3.x · B: 7.1, 7.5, 7.6, 8.2, 9.2 |
+| `ConfirmDialog` | 7.0b-1 | `components/ui/confirm-dialog.tsx` | A: 1.11, 1.13, 2.4, 3.4, 3.6, 5.5 · B: 8.3 |
+| Read states | 7.0b-1 | `features/shell/read-state.tsx` (`LoadError`, `NoAccess`, `ReadStateFor`) | A: 1.8, 1.12 · B: 7.1, 8.1, 9.1, 10.1 (wrapped by the F3 `StateFrame`) |
+| `navigate()`, `requestLeave`, exit hooks, nav types | 7.0b-2 | `features/shell/{navigate,leave,exit-hooks,nav-types}.ts` | A: 1.7, 1.8, 1.13, 1.15, 5.2 · B: 7.1, 7.3, 7.6, 9.3, 10.1, 10.3 |
+| App bar, page nav, Return, tabs, `PageFrame` | 7.0b-2 | `features/shell/{app-bar,page-nav,return-link,page-tabs,page-frame}.tsx`, `components/ui/tabs.tsx` | A: 1.8 · B: 7.1, 7.2 |
+| Section registry | 7.0b-2 | `features/shell/section-registry.tsx` (`useRegisterSection`, `SaveResult` with `failedParts`) | A: 1.11, 1.14, 2.2, 3.2, 3.5, 3.7, 4.1, 5.2 · B: 7.5 |
+| Leave guard | 7.0b-2 | `features/shell/leave-guard.tsx` | A: 1.13, 1.14 · B: 7.1, 7.3, 7.5, 10.3 |
+| Session-expired dialog | 7.0b-2 | `features/shell/session-dialog.tsx` | A: 1.7, 1.15 · B: 7.1, 8.x |
+| Profile header (initials only), contact-point reads | 7.0b-2 | `features/header/*`, `lib/api/contact-points.ts`, `keys.contactPoints(type)` | A: 1.9, 3.1, 3.4, 3.5 · B: 7.1, 7.6 |
+
+**Epic 1 coverage:** 1.1–1.7 done; 1.8, 1.9, 1.11, 1.12, 1.13 partly (remaining work assigned to F1/F2/F3/F4/F5 or Team A in each story's Foundation line); 1.10, 1.14, 1.15, 1.16 not built. F1–F5 rows are added to this table as each spec is committed.

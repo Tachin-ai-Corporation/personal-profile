@@ -12,6 +12,39 @@ Give users an "Authenticator app" card on the `/account` Personal Account tab wh
 - Story 8.2: Link an authenticator app
 - Story 8.3: Turn off the authenticator app
 
+## Foundation already built (2026-10-14)
+
+Built on `feat/NG-9019-epic-7` by specs 7.0a, 7.0b-1, 7.0b-2 and 7.0c-1 (all `done`). Use these pieces; do not rebuild or fork them. The rest of the shared foundation comes from F1–F5 (`shared-foundation-plan.md`) before feature work by either team.
+
+| Piece | Spec | Paths and public API |
+|---|---|---|
+| Env, environment map, app env | 7.0a | `lib/server/env.ts` (named vars, `IS_LOCAL_DEV`, `DEFAULT_TENANT_ID`, `getSecretKey`, `getAppId`, `PP_DISABLED`, `ACCOUNT_DISABLED`, `PP_E2E_FIXTURES`); `lib/shared/environments.ts` (`apiRoot`, `apiBase`, `portalUrl`, `publicFilesOrigin`); `lib/shared/app-env.ts` (`isLocalDev`, `isProductionBuild`) |
+| Security headers, lint, tooling, CI | 7.0a, 7.0b-1 | root `proxy.ts` + `lib/server/security/headers.ts` (nonce CSP, AD-21); ESLint layering and AD-26 navigation bans; Vitest 5 + MSW 3 + Playwright + `@axe-core/playwright`; `.github/workflows/ci.yml`; `scripts/check-forbidden.sh`, `scripts/check-tokens.sh` |
+| Server HTTP helpers | 7.0a | `lib/server/http/{responses,cache-headers,content-type,fetch-with-timeout,guard-route}.ts` (`seeOther`, `jsonError`, `methodNotAllowed`, no-store headers, 415 check, `guardRoute`); `lib/server/log.ts` |
+| Launch and session | 7.0a | `/auth` (`features/shell/auth-screen.tsx`, `launch-flow.ts`), `POST /api/token` (`lib/server/launch/*`), `__Host-pp_s` (`lib/server/session/{session,types,environment-cookie,revoke}.ts`), `requirePageSession()` in `lib/server/page-session.ts` (returns `{ portalUrl, idle }`), `lib/shared/login-intent.ts` (`saveLoginIntent`, `consumeLoginIntent`, `consumeLaunchIntent`: relaunch lands only on `/`) |
+| Proxy | 7.0a | `/api/1h/[...path]` (`lib/server/proxy/*`): allowlist, exact deny list, normalization, `me` owner substitution, `profile: true` tag + proxy-level `ACCOUNT_DISABLED` 503, `asImage` forces `preview=true`; `lib/shared/bff-contract.ts` (`BffErrorCode`, `BFF_PATHS`, activity headers). Entries: `GET v2/user/myself`, `GET v2/user/contact-point/list`, `PUT v2/user/edit` |
+| Client transport | 7.0a | `@/lib/api`: `callApi` (never throws; `ApiResponse` with `errorCode`, `upstreamCode`, `platformMessage`, `source`), `configureApiClient`, `getPortalUrl`, `sessionEvents` (`session-expired` only), `keys` (`myself`, `contactPoints(type)`), `swrFetcher`, `logApiCall`, `startSession`/`endSession`; one root `SWRConfig` (`features/shell/swr-provider.tsx`); `useMyself`; `usePortalUrl` |
+| Token refresh | 7.0a | `/api/session/refresh`, `lib/api/refresh-coordinator.ts` (single-flight + `navigator.locks`; non-GET replayed only after a proxy `TOKEN_EXPIRED`) |
+| Logout | 7.0a | `/api/session/logout` (POST/GET; best-effort `logout/all-devices`; always 204) |
+| Idle logoff and activity | 7.0c-1 | 15 min / 8 h limits (`isSessionAged`), `POST /api/session/ping`, proxy and page-navigation `lastSeen` re-seal, `lib/api/activity.ts` (`pp-activity`), `recordUserActivity()`, `IdleWarning` (mounted once in `PageFrame`), `IDLE_MESSAGES` |
+| Design tokens | 7.0b-1 | `app/globals.css`: `link-text`, `destructive-fill`, `primary-text`, `scrim`, `control-border`, `tooltip`, `tooltip-foreground`; `Button` `touch` size and `destructive` variant; `dialog.tsx` on `bg-scrim` |
+| Copy and errors | 7.0b-1 | message catalog with verbatim + voice tests (`lib/shared/messages.ts`, being split into `lib/shared/messages/*` with `MESSAGE_CATALOG` by F1); `mapApiError(response)` → `forbidden \| generic \| network \| session` and `mapFetchError` (`lib/api/errors.ts`, moving to `lib/api/errors/` in F1) |
+| Confirm dialog and read states | 7.0b-1 | `components/ui/confirm-dialog.tsx` (`ConfirmDialog`: `standard \| destructive`, `extraAction`, `busy`, `cancelLabel`, `showConfirm`, `onCloseFocus`); `features/shell/read-state.tsx` (`LoadError`, `NoAccess`, `ReadStateFor`) |
+| Navigation | 7.0b-2 | `features/shell/navigate.ts` (`navigate`, `useNavigate`, `CurrentPageProvider`; targets `{page,tab?,hash?}`, `{external:"portal"}`, `{external:"handoff",href}`), `features/shell/leave.ts` (`requestLeave`, `setLeaveGuard`), `features/shell/exit-hooks.ts` (`onBeforeExit`, `onBeforeSessionExpired`), `features/shell/nav-types.ts` (`ProfileTab`, `AccountTab`, `PROFILE_TABS`, `ACCOUNT_TABS`, `PAGE_PATHS`, `SectionId`, `SectionRegistration`, `SaveResult` with `failedParts`, `ValidateResult`) |
+| Shell UI | 7.0b-2 | `AppBar`, `PageNav`, `ReturnLink`, `PageTabs`/`ProfileTabs` + `components/ui/tabs.tsx`, `PageFrame` (registry, leave guard, session dialog, idle warning), `useMediaQuery`/`DESKTOP_QUERY` |
+| Section registry | 7.0b-2 | `features/shell/section-registry.tsx` (`SectionRegistryProvider`, `useRegisterSection`, `useSectionRegistry`, `useIsAnyDirty`; dev throw on duplicate id; `UNEXPECTED` save wrapper; `canSave: false`) |
+| Leave guard and session dialog | 7.0b-2 | `LeaveGuard` (Keep editing / Discard / Save on `ConfirmDialog`, validate-first, `beforeunload` while dirty); `SessionDialog` ("Your session ended", saves the login intent) |
+| Header (initials only) | 7.0b-2 | `features/header` (`ProfileHeader`, `displayName`, `initials`), `lib/api/contact-points.ts` (`fetchContactPoints`, `findPrimary`, `ContactPoint`) |
+
+**Still to come (shared, before feature work):**
+- **F1 shared contracts and data layer (in progress):** per-area allowlist/messages/errors, `lib/api/myself.ts` with every field and `isTenantMember`/`isProctor`, all SWR keys + `mutateMyself`/`mutateContactPoints`, full `PUT v2/user/edit` schema, `Social Media` contact type, new BFF codes, error mapper v2 (`mapApiError(sectionId, response)`, field maps, MFA/NPI exact-message table), `lib/shared/{person-rules,dates,phone,safe-href,telemetry,initials}.ts`, lint rules.
+- **F2 BFF extension kit:** `lib/server/named-op.ts` for `/api/pp/*` and `/api/places/*`, image download hardening, one kill-switch matcher in root `proxy.ts` + disabled screen, upload entries.
+- **F3 Section edit kit:** final registry contract (`saveAll?: false`, `dirtyCount`, draft contract), edit primitives, `runSaveSteps` + Save-all runner, key/value table, toasts, Tooltip/`DisabledAction`/`info-icon-button`, `InlineBanner`, `StatusBadge`, one `StateFrame` + `forbidden-scope` in shell/lib, Section menu / Jump to / scroll-spy / deep links.
+- **F4 Drafts:** `features/shell/drafts.ts` (plugs into `onBeforeSessionExpired` and `onBeforeExit`).
+- **F5 Shared inputs:** Select, masked date input + calendar, async Combobox, Popover + `info-popover`.
+
+**Epic 8 status:** use `ConfirmDialog` (destructive) for 8.3, `mapApiError` (the MFA exact-message rows arrive with F1 mapper v2), `NoAccess`/`LoadError` (the shared `StateFrame` is F3), `scrim` for the QR dialog, toasts (F3) and the session dialog (built). Epic 1 is no longer "not implemented": the table under Cross-Story Dependencies lists where each piece now lives.
+
 ## Requirements & Constraints
 
 - **Status:** derived only from `myself.totpEnabled`, read through the shared `["pp","myself"]` SWR key, with no extra fetch on mount. `mfaEnabled` is read but never shows "Enabled" on its own. Enabled shows a check, "Enabled" and a "Disable" button. Not enabled shows a muted "Not set up".
@@ -87,7 +120,7 @@ Give users an "Authenticator app" card on the `/account` Personal Account tab wh
 ## Cross-Story Dependencies
 
 - **Order:** 8.1 builds the card, the status, the tiles, and the no-access and loading states. 8.2 and 8.3 set the no-access state from their calls and rely on the 8.1 rendering. 8.2 and 8.3 are otherwise independent.
-- **Status:** Epic 1 (foundation) is **not implemented**. Epic 7 is being built first and creates the minimal foundation Epic 8 needs. Before you start Epic 8, check that each piece below exists, and build any missing piece minimally inside Epic 8.
+- **Status:** *(2026-10-14: superseded; specs 7.0a–7.0c-1 built the shell, see "Foundation already built"; `account-state-frame`/`forbidden-scope` become the F3 `StateFrame` + `forbidden-scope`; `lib/api/myself.ts`, `telemetry.ts` come from F1; toasts from F3.)* Epic 1 (foundation) is **not implemented**. Epic 7 is being built first and creates the minimal foundation Epic 8 needs. Before you start Epic 8, check that each piece below exists, and build any missing piece minimally inside Epic 8.
 
 | Area | What Epic 8 needs | Where it comes from |
 |---|---|---|

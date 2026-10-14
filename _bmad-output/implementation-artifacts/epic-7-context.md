@@ -29,6 +29,39 @@ Add a second page, `/account`, reached from an app-bar "Account" item or a bookm
 - Story 7.5: Edit names, birth date and regional preferences
 - Story 7.6: Switch Primary email and phone
 
+## Foundation already built (2026-10-14)
+
+Built on `feat/NG-9019-epic-7` by specs 7.0a, 7.0b-1, 7.0b-2 and 7.0c-1 (all `done`). Use these pieces; do not rebuild or fork them. The rest of the shared foundation comes from F1–F5 (`shared-foundation-plan.md`) before feature work by either team.
+
+| Piece | Spec | Paths and public API |
+|---|---|---|
+| Env, environment map, app env | 7.0a | `lib/server/env.ts` (named vars, `IS_LOCAL_DEV`, `DEFAULT_TENANT_ID`, `getSecretKey`, `getAppId`, `PP_DISABLED`, `ACCOUNT_DISABLED`, `PP_E2E_FIXTURES`); `lib/shared/environments.ts` (`apiRoot`, `apiBase`, `portalUrl`, `publicFilesOrigin`); `lib/shared/app-env.ts` (`isLocalDev`, `isProductionBuild`) |
+| Security headers, lint, tooling, CI | 7.0a, 7.0b-1 | root `proxy.ts` + `lib/server/security/headers.ts` (nonce CSP, AD-21); ESLint layering and AD-26 navigation bans; Vitest 5 + MSW 3 + Playwright + `@axe-core/playwright`; `.github/workflows/ci.yml`; `scripts/check-forbidden.sh`, `scripts/check-tokens.sh` |
+| Server HTTP helpers | 7.0a | `lib/server/http/{responses,cache-headers,content-type,fetch-with-timeout,guard-route}.ts` (`seeOther`, `jsonError`, `methodNotAllowed`, no-store headers, 415 check, `guardRoute`); `lib/server/log.ts` |
+| Launch and session | 7.0a | `/auth` (`features/shell/auth-screen.tsx`, `launch-flow.ts`), `POST /api/token` (`lib/server/launch/*`), `__Host-pp_s` (`lib/server/session/{session,types,environment-cookie,revoke}.ts`), `requirePageSession()` in `lib/server/page-session.ts` (returns `{ portalUrl, idle }`), `lib/shared/login-intent.ts` (`saveLoginIntent`, `consumeLoginIntent`, `consumeLaunchIntent`: relaunch lands only on `/`) |
+| Proxy | 7.0a | `/api/1h/[...path]` (`lib/server/proxy/*`): allowlist, exact deny list, normalization, `me` owner substitution, `profile: true` tag + proxy-level `ACCOUNT_DISABLED` 503, `asImage` forces `preview=true`; `lib/shared/bff-contract.ts` (`BffErrorCode`, `BFF_PATHS`, activity headers). Entries: `GET v2/user/myself`, `GET v2/user/contact-point/list`, `PUT v2/user/edit` |
+| Client transport | 7.0a | `@/lib/api`: `callApi` (never throws; `ApiResponse` with `errorCode`, `upstreamCode`, `platformMessage`, `source`), `configureApiClient`, `getPortalUrl`, `sessionEvents` (`session-expired` only), `keys` (`myself`, `contactPoints(type)`), `swrFetcher`, `logApiCall`, `startSession`/`endSession`; one root `SWRConfig` (`features/shell/swr-provider.tsx`); `useMyself`; `usePortalUrl` |
+| Token refresh | 7.0a | `/api/session/refresh`, `lib/api/refresh-coordinator.ts` (single-flight + `navigator.locks`; non-GET replayed only after a proxy `TOKEN_EXPIRED`) |
+| Logout | 7.0a | `/api/session/logout` (POST/GET; best-effort `logout/all-devices`; always 204) |
+| Idle logoff and activity | 7.0c-1 | 15 min / 8 h limits (`isSessionAged`), `POST /api/session/ping`, proxy and page-navigation `lastSeen` re-seal, `lib/api/activity.ts` (`pp-activity`), `recordUserActivity()`, `IdleWarning` (mounted once in `PageFrame`), `IDLE_MESSAGES` |
+| Design tokens | 7.0b-1 | `app/globals.css`: `link-text`, `destructive-fill`, `primary-text`, `scrim`, `control-border`, `tooltip`, `tooltip-foreground`; `Button` `touch` size and `destructive` variant; `dialog.tsx` on `bg-scrim` |
+| Copy and errors | 7.0b-1 | message catalog with verbatim + voice tests (`lib/shared/messages.ts`, being split into `lib/shared/messages/*` with `MESSAGE_CATALOG` by F1); `mapApiError(response)` → `forbidden \| generic \| network \| session` and `mapFetchError` (`lib/api/errors.ts`, moving to `lib/api/errors/` in F1) |
+| Confirm dialog and read states | 7.0b-1 | `components/ui/confirm-dialog.tsx` (`ConfirmDialog`: `standard \| destructive`, `extraAction`, `busy`, `cancelLabel`, `showConfirm`, `onCloseFocus`); `features/shell/read-state.tsx` (`LoadError`, `NoAccess`, `ReadStateFor`) |
+| Navigation | 7.0b-2 | `features/shell/navigate.ts` (`navigate`, `useNavigate`, `CurrentPageProvider`; targets `{page,tab?,hash?}`, `{external:"portal"}`, `{external:"handoff",href}`), `features/shell/leave.ts` (`requestLeave`, `setLeaveGuard`), `features/shell/exit-hooks.ts` (`onBeforeExit`, `onBeforeSessionExpired`), `features/shell/nav-types.ts` (`ProfileTab`, `AccountTab`, `PROFILE_TABS`, `ACCOUNT_TABS`, `PAGE_PATHS`, `SectionId`, `SectionRegistration`, `SaveResult` with `failedParts`, `ValidateResult`) |
+| Shell UI | 7.0b-2 | `AppBar`, `PageNav`, `ReturnLink`, `PageTabs`/`ProfileTabs` + `components/ui/tabs.tsx`, `PageFrame` (registry, leave guard, session dialog, idle warning), `useMediaQuery`/`DESKTOP_QUERY` |
+| Section registry | 7.0b-2 | `features/shell/section-registry.tsx` (`SectionRegistryProvider`, `useRegisterSection`, `useSectionRegistry`, `useIsAnyDirty`; dev throw on duplicate id; `UNEXPECTED` save wrapper; `canSave: false`) |
+| Leave guard and session dialog | 7.0b-2 | `LeaveGuard` (Keep editing / Discard / Save on `ConfirmDialog`, validate-first, `beforeunload` while dirty); `SessionDialog` ("Your session ended", saves the login intent) |
+| Header (initials only) | 7.0b-2 | `features/header` (`ProfileHeader`, `displayName`, `initials`), `lib/api/contact-points.ts` (`fetchContactPoints`, `findPrimary`, `ContactPoint`) |
+
+**Still to come (shared, before feature work):**
+- **F1 shared contracts and data layer (in progress):** per-area allowlist/messages/errors, `lib/api/myself.ts` with every field and `isTenantMember`/`isProctor`, all SWR keys + `mutateMyself`/`mutateContactPoints`, full `PUT v2/user/edit` schema, `Social Media` contact type, new BFF codes, error mapper v2 (`mapApiError(sectionId, response)`, field maps, MFA/NPI exact-message table), `lib/shared/{person-rules,dates,phone,safe-href,telemetry,initials}.ts`, lint rules.
+- **F2 BFF extension kit:** `lib/server/named-op.ts` for `/api/pp/*` and `/api/places/*`, image download hardening, one kill-switch matcher in root `proxy.ts` + disabled screen, upload entries.
+- **F3 Section edit kit:** final registry contract (`saveAll?: false`, `dirtyCount`, draft contract), edit primitives, `runSaveSteps` + Save-all runner, key/value table, toasts, Tooltip/`DisabledAction`/`info-icon-button`, `InlineBanner`, `StatusBadge`, one `StateFrame` + `forbidden-scope` in shell/lib, Section menu / Jump to / scroll-spy / deep links.
+- **F4 Drafts:** `features/shell/drafts.ts` (plugs into `onBeforeSessionExpired` and `onBeforeExit`).
+- **F5 Shared inputs:** Select, masked date input + calendar, async Combobox, Popover + `info-popover`.
+
+**Epic 7 status:** 7.1–7.3 consume the shell above. Still owned by Team B: `app/account/page.tsx` on `PageFrame` with `AccountTab` tabs and anchors (7.1), Profile deny/traversal test rows and real-`/account` mobile/axe runs (7.2), `/handoff/portal` + `handoffHref` (7.3), and the Account settings Section (7.4–7.6). `features/account/account-state-frame.tsx` and `features/account/forbidden-scope.ts` are no longer built in Epic 7: F3 provides one `StateFrame` and `forbidden-scope` in `features/shell`/`lib/api`.
+
 ## Requirements & Constraints
 
 **Entry and navigation**
@@ -166,6 +199,8 @@ Add a second page, `/account`, reached from an app-bar "Account" item or a bookm
 
 ## Epic 1 foundation required (build minimally inside Epic 7)
 
+*2026-10-14: statuses refreshed; see "Foundation already built" above for paths and exports.*
+
 | Epic 1 piece | Minimum Epic 7 needs | Status | First needed by |
 | --- | --- | --- | --- |
 | **1.1 Foundation** | `lib/server/env.ts`, `lib/shared/environments.ts`, `lib/shared/app-env.ts`, the nonce CSP and headers in `proxy.ts`, the layering, navigation and redirect lint bans, Vitest/MSW/Playwright, CI, `check-forbidden.sh`, removal of the legacy template auth | **Built (7.0a)** | 7.1–7.3 |
@@ -173,18 +208,18 @@ Add a second page, `/account`, reached from an app-bar "Account" item or a bookm
 | **1.3 Proxy** | `/api/1h/[...path]`, the allowlist and deny list, normalization, the 415 check, no-store, `{errorCode, source}`, the `profile: true` tag and proxy-level `ACCOUNT_DISABLED`, the entries `myself`, `contact-point/list` and `user/edit` | **Built (7.0a)** | 7.2, 7.4–7.6 |
 | **1.4 callApi + SWR** | `callApi` (never throws, `upstreamCode`, `logApiCall`), `session-events.ts` (`session-expired` only), `keys.ts`, the root `SWRConfig`, `fetchMyself`, `useMyself` | **Built (7.0a)** | 7.1, 7.4 |
 | **1.5 Token refresh** | One refresh and one replay, with a non-GET replayed only after a proxy `TOKEN_EXPIRED` | **Built (7.0a)** | 7.5 |
-| **1.7 Logout + session dialog** | `/api/session/logout` (POST and GET, revokes all devices, always 204) and `lib/shared/login-intent.ts` are **built (7.0a)**. Still needed: the session-expired dialog that subscribes to `session-expired` and saves the login intent, and the `navigate({external:"portal"})` path | Dialog: **7.0b** | 7.1, 7.5, 7.6 |
-| **1.8 Page shell** | The app bar (plain-text wordmark in `primary-text`, the "Pages" nav, "Return to 1health"), shadcn Tabs with the `tab` tokens, `navigate()` page targets, `ProfileTab`, and the D13 tokens in `app/globals.css` (`link-text`, `destructive-fill`, `primary-text`, `scrim`; this removes the `bg-black/50` exemption in `components/ui/dialog.tsx`) | **7.0b** | 7.1 |
-| **1.9 Header view** | The shared profile header (name, picture, primaries) and `keys.contactPoints(type)` with a row type that carries `phoneNumberRegion` | **7.0b (if 7.1 needs it)** | 7.1 (layout), 7.6 |
-| **1.11 Section framework** | `SectionRegistry` per page; `useRegisterSection({id,label,displayOrder,form,validate,save,discard,draftFields})`; a `SectionId` that includes `account`; the edit-mode primitives (`input-locked`, the footer with "Unsaved changes", Cancel and Save); a `save()` error shape that allows `failedParts` | **7.0b** | 7.1, 7.5 |
-| **1.12 Errors, messages, toasts** | `lib/api/errors.ts` (`FORBIDDEN`, generic proxy errors, platform message, field mapping), the non-launch strings in `lib/shared/messages.ts` (today it holds only the launch and disabled draft copy) with the verbatim test, toasts, and a Retry pattern | **7.0b** | 7.1, 7.5, 7.6 |
-| **1.13 Leave guard** | The three-way dialog ("You have unsaved changes": Keep editing, Discard, Save) that `navigate()` invokes, plus `beforeunload` | **7.0b** | 7.1, 7.3, 7.5 |
-| **1.15 Drafts** | `pp:draft:v1:<userId>:<section>` with a 500 ms debounce and a write before the session-expired dialog; `baseHash` conflicts; the restore banner; `drafts.purgeUser(userId)` | **Not built; not in 7.0b.** Must land before 7.5. Until then, the portal path needs at least a `drafts.purgeUser` stub | 7.5, 7.6 |
-| **1.16 Disabled screen** | `features/shell/disabled-screen.tsx` for page-level 503s (the copy already exists in `messages.ts`) | Not built | 7.2 |
+| **1.7 Logout + session dialog** | `/api/session/logout` (POST and GET, revokes all devices, always 204) and `lib/shared/login-intent.ts` are **built (7.0a)**. Still needed: the session-expired dialog that subscribes to `session-expired` and saves the login intent, and the `navigate({external:"portal"})` path | **Built (7.0a + 7.0b-2)**: `SessionDialog`, `navigate({external:"portal"})` | 7.1, 7.5, 7.6 |
+| **1.8 Page shell** | The app bar (plain-text wordmark in `primary-text`, the "Pages" nav, "Return to 1health"), shadcn Tabs with the `tab` tokens, `navigate()` page targets, `ProfileTab`, and the D13 tokens in `app/globals.css` (`link-text`, `destructive-fill`, `primary-text`, `scrim`; this removes the `bg-black/50` exemption in `components/ui/dialog.tsx`) | **Built (7.0b-1 + 7.0b-2)** | 7.1 |
+| **1.9 Header view** | The shared profile header (name, picture, primaries) and `keys.contactPoints(type)` with a row type that carries `phoneNumberRegion` | **Built (7.0b-2)**, initials only (picture: F1/F2/Team A) | 7.1 (layout), 7.6 |
+| **1.11 Section framework** | `SectionRegistry` per page; `useRegisterSection({id,label,displayOrder,form,validate,save,discard,draftFields})`; a `SectionId` that includes `account`; the edit-mode primitives (`input-locked`, the footer with "Unsaved changes", Cancel and Save); a `save()` error shape that allows `failedParts` | Registry + `failedParts` **built (7.0b-2)**; edit primitives **F3** | 7.1, 7.5 |
+| **1.12 Errors, messages, toasts** | `lib/api/errors.ts` (`FORBIDDEN`, generic proxy errors, platform message, field mapping), the non-launch strings in `lib/shared/messages.ts` (today it holds only the launch and disabled draft copy) with the verbatim test, toasts, and a Retry pattern | Catalog, `mapApiError(response)`, read states **built (7.0b-1)**; mapper v2 **F1**; toasts **F3** | 7.1, 7.5, 7.6 |
+| **1.13 Leave guard** | The three-way dialog ("You have unsaved changes": Keep editing, Discard, Save) that `navigate()` invokes, plus `beforeunload` | **Built (7.0b-2)**; Save-all runner F3, drafts purge F4 | 7.1, 7.3, 7.5 |
+| **1.15 Drafts** | `pp:draft:v1:<userId>:<section>` with a 500 ms debounce and a write before the session-expired dialog; `baseHash` conflicts; the restore banner; `drafts.purgeUser(userId)` | **F4** (before 7.5); plugs into `onBeforeExit`/`onBeforeSessionExpired` (7.0b-2) | 7.5, 7.6 |
+| **1.16 Disabled screen** | `features/shell/disabled-screen.tsx` for page-level 503s (the copy already exists in `messages.ts`) | **F2** (with the kill-switch matcher) | 7.2 |
 
-**Not needed for Epic 7:** 1.6 Idle logoff, 1.10 Profile Picture, 1.14 Save all (`/account` must not mount one), and the 1.16 deployment work beyond the `ACCOUNT_DISABLED` env var.
+**Not needed for Epic 7:** 1.6 Idle logoff (built anyway in 7.0c-1; `IdleWarning` runs on `/account` through `PageFrame`), 1.10 Profile Picture, 1.14 Save all (`/account` must not mount one), and the 1.16 deployment work beyond the `ACCOUNT_DISABLED` env var.
 
-**Brownfield note:** `/` currently renders `features/shell/profile-placeholder.tsx`. The app bar and header can be built against `/account` first and reused on `/`.
+**Brownfield note:** *(superseded 2026-10-14)* `/` now renders `PageFrame` with the app bar, header and tabs (7.0b-2); `/account` reuses the same frame.
 
 **Known deferral from 7.0a:** an upstream 401 on a token that is still fresh by the clock ends the session instead of refreshing it. Revisit this when 7.0b touches the session events.
 
