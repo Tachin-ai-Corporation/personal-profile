@@ -1286,6 +1286,7 @@ So that I can find any part of my profile quickly, by mouse, touch or keyboard, 
 
 *Amended 2026-10-13 (architecture update: AD-10, AD-19).*
 *Foundation 2026-10-14: built in spec 7.0b-2 — `features/header/*` (`ProfileHeader`, `displayName`, `initials`; initials-only avatar, name `h1`, skeleton, primary phone/email ≥ 768 px via `use-primary-contacts.ts`), `lib/api/contact-points.ts` (`fetchContactPoints`, `findPrimary`, `ContactPoint`), `keys.myself()`, `keys.contactPoints(type)`. Use it; do not rebuild. Remaining for this story: F1: `keys.profilePictureId()`, `Social Media` in the `contact-point/list` entry, `formatPhoneDisplay` for the header phone, `lib/shared/initials`; F2: named-op wrapper for `GET /api/pp/profile-picture-id` and `asImage` download hardening; Team A: the picture route, the `profile-picture/preview` entry and the `<img>` avatar with `onerror` fallback.*
+*Foundation 2026-10-14: built in spec F1 — `keys.profilePictureId()` = `["pp","profile-picture-id"]` (declared, no loader yet), `Social Media` in the `GET v2/user/contact-point/list` entry (`lib/server/proxy/allowlist/contacts.ts` + `contacts.test.ts`), the header phone formatted with `formatPhoneDisplay(value, row.phoneNumberRegion)` (`lib/shared/phone.ts`), `initials()` moved to `lib/shared/initials.ts`, every key tuple asserted in `lib/api/keys.test.ts`, `mutateMyself()` / `mutateContactPoints(...types)`. Use it; do not rebuild. Remaining for this story: F2: named-op wrapper for `GET /api/pp/profile-picture-id` and `asImage` inline/attachment hardening; Team A: the picture route and its `profile-picture-id` loader, the `profile-picture/preview` entry in `lib/server/proxy/allowlist/files.ts`, the `<img>` avatar with `onerror` fallback, the mutate-refresh component test. Header copy goes in `lib/shared/messages/header.ts`.*
 
 As a Launching user,
 I want to see my name, Profile Picture and primary contacts in the profile header,
@@ -1295,11 +1296,11 @@ So that I can confirm whose profile I am editing at a glance.
 
 **Given** `lib/api/keys.ts`
 **When** this story is done
-**Then** it defines exactly these header keys, which every later story (Contacts and the `/account` pickers) reuses instead of defining its own: `keys.myself()` = `["pp","myself"]` (from Story 1.4), `keys.contactPoints(type)` = `["pp","contact-points",type]` with exactly one Contact Type per key — `contactPoints("Mobile")` (fetches `type=Mobile`), `contactPoints("Landline")` (fetches `type=Landline`), `contactPoints("Email")` (fetches `type=Email`) — and `keys.profilePictureId()` = `["pp","profile-picture-id"]` (AD-10, PA3)
+**Then** it defines exactly these header keys, which every later story (Contacts and the `/account` pickers) reuses instead of defining its own: `keys.myself()` = `["pp","myself"]` (from Story 1.4), `keys.contactPoints(type)` = `["pp","contact-points",type]` with exactly one Contact Type per key — `contactPoints("Mobile")` (fetches `type=Mobile`), `contactPoints("Landline")` (fetches `type=Landline`), `contactPoints("Email")` (fetches `type=Email`) — and `keys.profilePictureId()` = `["pp","profile-picture-id"]` (AD-10, PA3) *(built: spec F1)*
 **And** there is no combined key such as `["pp","contact-points","Phone"]`; a multi-type read (the header's primary phone) composes the `Mobile` and `Landline` keys *(built: spec 7.0b-2)*
 **And** `fetchContactPoints(type)` in `lib/api/contact-points.ts` issues one `callApi` `GET /api/1h/v2/user/contact-point/list?type=<type>` per key and returns typed rows `{id, value, type, label, isVerified, isNotificationEnabled, phoneNumberRegion}` *(built: spec 7.0b-2)*
-**And** the proxy allowlist entry for `GET /v2/user/contact-point/list` is added in this change (no body; allowed query: repeated `type` matching `^(Mobile|Landline|Email|Social Media)$`, any other param → 400 `BAD_QUERY`), with a proxy test
-**And** a unit test asserts the per-type key tuples above so Epic 3 Sections and the `/account` Account settings save (Epic 7) that `mutate` them refresh the header.
+**And** the proxy allowlist entry for `GET /v2/user/contact-point/list` is added in this change (no body; allowed query: repeated `type` matching `^(Mobile|Landline|Email|Social Media)$`, any other param → 400 `BAD_QUERY`), with a proxy test *(built: spec F1)*
+**And** a unit test asserts the per-type key tuples above so Epic 3 Sections and the `/account` Account settings save (Epic 7) that `mutate` them refresh the header. *(built: spec F1)*
 
 **Given** a signed-in user whose `["pp","myself"]` key (Story 1.4 `useMyself`) has resolved
 **When** the profile page renders
@@ -1343,6 +1344,7 @@ So that I can confirm whose profile I am editing at a glance.
 
 *Amended 2026-10-13 (architecture update: AD-19).*
 *Foundation 2026-10-14: nothing built yet by specs 7.0a–7.0c-1. Remaining for this story: everything: F2 adds the generic upload-entry mechanism (multipart, magic bytes, `maxBytes`, streaming cap) and image hardening; Team A builds the dialog, `image-reencode`, the upload/`DELETE v2/file` entries and the avatar button. Reuse `ConfirmDialog`-style anatomy, `scrim` and `Button` from 7.0b-1.*
+*Foundation 2026-10-14: built in spec F1 — `keys.profilePictureId()` (revalidate it after upload or removal), `lib/server/proxy/allowlist/files.ts` (the file-entry area file, with the `GET v2/file/{fileId}/download` image entry). Use it; do not rebuild. Remaining for this story: unchanged (F2 upload mechanism; Team A dialog, upload/`DELETE v2/file` entries in `allowlist/files.ts`, copy in `lib/shared/messages/header.ts`).*
 
 As a Launching user,
 I want to replace my Profile Picture from the header, with a preview before I save,
@@ -1421,6 +1423,7 @@ So that I can keep my photo current without leaving the app.
 
 *Amended 2026-10-13 (architecture update: AD-7, AD-8, AD-12).*
 *Foundation 2026-10-14: built in spec 7.0b-1 + 7.0b-2 — 7.0b-2: `features/shell/section-registry.tsx` (`SectionRegistryProvider` per page inside `PageFrame`, `useRegisterSection`, `useSectionRegistry`, `useIsAnyDirty`; dev throw on duplicate id; `save` wrapper → `UNEXPECTED`; `canSave: false`), `SectionId`, `SectionRegistration`, `SaveResult` (with `failedParts`), `ValidateResult`, `ProfileTab`/`AccountTab` in `features/shell/nav-types.ts`; 7.0b-1: `components/ui/confirm-dialog.tsx` (`ConfirmDialog`, incl. `cancelLabel`, `showConfirm`, `onCloseFocus`). Use it; do not rebuild. Remaining for this story: F3: final registry contract (`saveAll?: false`, `dirtyCount`, draft contract), anchor table, `runSaveSteps`, edit primitives (`useSectionForm`, `SectionHeader`, `SectionFooter`, `FormField`/`FieldError`, `input-locked`), `DisabledAction` + Tooltip, fixture Section; F1: zod message-key lint, `lib/shared/telemetry.ts`; Team A: `RowActions`, `RowRemoval`, DropdownMenu.*
+*Foundation 2026-10-14: built in spec F1 — the zod-message lint (string or template literals as zod messages in `features/**/schema.ts` fail `pnpm lint`; fixture `eslint.config.test.ts`), `lib/shared/telemetry.ts` (`telemetry.track`, no-op sink, `setTelemetrySink`, typed `section_save { sectionId, ok, code }` with the closed `TelemetryErrorCode` union), `mappedErrorCode()` for the `code`, `SectionId`/`SECTION_IDS` in `lib/shared/section-ids.ts`, `MessageKey`/`messageFor()` for schema message keys. Use it; do not rebuild. Remaining for this story: the F3 items above (the edit kit fires `section_save`); Team A: `RowActions`, `RowRemoval`, DropdownMenu.*
 
 As a user editing my profile,
 I want every Section to have a predictable read view and edit view with inline validation and consistent controls,
@@ -1472,7 +1475,7 @@ So that I can edit several parts of my profile with confidence that nothing is s
 **Given** a field with an invalid value
 **When** the field blurs, or the user activates Save
 **Then** the input (44 px, 16 px text, `rounded-md`, 1 px control-border) shows the 2 px error border, `aria-invalid="true"` and `aria-describedby` linking an error-strong help line with an alert icon whose text is the `lib/shared/messages.ts` entry for the zod issue (e.g. "Enter a valid email address")
-**And** zod schemas reference message keys only (a lint rule or test fails on string literals passed as zod messages in `features/**/schema.ts`) (AD-11)
+**And** zod schemas reference message keys only (a lint rule or test fails on string literals passed as zod messages in `features/**/schema.ts`) (AD-11) *(built: spec F1)*
 **And** on Save with any invalid field no request is sent and focus moves to the first invalid field (FR4).
 
 **Given** a valid dirty Section
@@ -1515,6 +1518,7 @@ So that I can edit several parts of my profile with confidence that nothing is s
 
 *Amended 2026-10-13 (architecture update: AD-11, AD-19, AD-23).*
 *Foundation 2026-10-14: built in spec 7.0b-1 — message catalog with verbatim + voice tests (was `lib/shared/messages.ts`; split into `lib/shared/messages/*` with `MESSAGE_CATALOG`, `messageFor`, `formatMessage` by F1), `lib/api/errors.ts` (moving to `lib/api/errors/` in F1; `mapApiError(response)` → `forbidden | generic | network | session`, `mapFetchError`), `ApiResponse.platformMessage`/`source`, `features/shell/read-state.tsx` (`LoadError`, `NoAccess`, `ReadStateFor`). Use it; do not rebuild. Remaining for this story: F1: error mapper v2 `mapApiError(sectionId, response)` with per-Section field maps and the MFA/NPI exact-message table; F3: `features/shell/toasts.ts` (`toastSuccess`, `toastPartial`, `toastError({onRetry})`, `TOAST_LIMIT` fix, `hooks/use-toast` lint), Section save-failure UI, `SectionFrame` per-Section load error, fixture Playwright spec.*
+*Foundation 2026-10-14: built in spec F1 — error mapper v2 in `lib/api/errors/` (`mapApiError(sectionId, response)` and `mapFetchError(sectionId, error)` → `forbidden | network | session | generic{message?} | field{field, messageKey} | coded{code}`; `ErrorScope` = `SectionId` ∪ `authenticator|provider|organizations|page`; `mappedErrorCode()`; `ERROR_RULES` aggregated from the per-area tables `{personal,contacts,addresses,insurance,account,mfa,npi,orgs}.ts`), the exact-message rows (MFA: `Mfa is not enabled for this user.` / `Mfa config is missing.` → `MFA_NOT_ENABLED`, `Totp is already enabled.` → `TOTP_ALREADY_ENABLED`; NPI: the real `Messages.*_NPI_IS_ALREADY_REGISTERED` text `Operation failed. The chosen (Personal|Practice) NPI Number: <n> is already registered.` → `NPI_ALREADY_REGISTERED`; SSN taken → `field ssn` / `person.ssnTaken`), tests that only `lib/api/errors/*` matches upstream text, migrated callers (`page-frame`, `read-state`), client codes `FORBIDDEN` + derived codes (`lib/api/errors-codes.ts`), the catalog split into `lib/shared/messages/*` (`MESSAGE_CATALOG`, `MessageKey`, `messageFor`, `formatMessage`, every area file pre-created), and the `@/hooks/use-toast` lint (only `features/shell/toasts.ts`). Use it; do not rebuild. Remaining for this story: F3: `features/shell/toasts.ts`, the Section save-failure UI (incl. the generic "Couldn't save {section}." copy and Retry), `SectionFrame` load error, fixture Playwright spec. New error rows go in the area table of the Section that needs them.*
 
 As a user saving or loading my profile,
 I want clear, consistent messages when something works or fails, with a way to retry,
@@ -1531,8 +1535,8 @@ So that I always know what happened and can recover without reloading the page.
 **When** `mapApiError(sectionId, response)` receives an `ApiResponse`
 **Then** `errors.ts` derives `errorCode` for upstream errors (`{ message, code: <int> }`, integer kept as `upstreamCode`) and never confuses it with a BFF `errorCode` (`source: "proxy"`) (AD-19)
 **And** an upstream 403 (no `source: "proxy"`) maps to `FORBIDDEN`, which drives the no-access panel scoped per the AD-23 owner table; a proxy `NOT_ALLOWED` maps to the generic Section error with Retry (logged by request id) and never to "no access" (there is no `CSRF` code, D5) *(built: spec 7.0b-1)*
-**And** the exact-message table is the only place that matches message text: `"Mfa is not enabled for this user."` and `"Mfa config is missing."` → `MFA_NOT_ENABLED`; `"Totp is already enabled."` → `TOTP_ALREADY_ENABLED`; messages starting `PERSONAL_NPI_IS_ALREADY_REGISTERED` or `PRACTICE_NPI_IS_ALREADY_REGISTERED` → `NPI_ALREADY_REGISTERED`; a unit test covers each row and asserts no other module matches message text
-**And** known backend codes map to `{ field, messageKey }` from a per-Section table (unit-tested with `SOCIAL_SECURITY_NUMBER_EXISTS` → field `ssn`, "This SSN belongs to another person", and `INVALID_ENUM_VALUE` → Section level), the message is shown at the field when a field is mapped and at Section level otherwise
+**And** the exact-message table is the only place that matches message text: `"Mfa is not enabled for this user."` and `"Mfa config is missing."` → `MFA_NOT_ENABLED`; `"Totp is already enabled."` → `TOTP_ALREADY_ENABLED`; messages starting `PERSONAL_NPI_IS_ALREADY_REGISTERED` or `PRACTICE_NPI_IS_ALREADY_REGISTERED` → `NPI_ALREADY_REGISTERED`; a unit test covers each row and asserts no other module matches message text *(built: spec F1)*
+**And** known backend codes map to `{ field, messageKey }` from a per-Section table (unit-tested with `SOCIAL_SECURITY_NUMBER_EXISTS` → field `ssn`, "This SSN belongs to another person", and `INVALID_ENUM_VALUE` → Section level), the message is shown at the field when a field is mapped and at Section level otherwise *(built: spec F1)*
 **And** network failures (no `statusCode`), `502 UPSTREAM_ERROR|UPSTREAM_REDIRECT`, `503 REFRESH_UNAVAILABLE|SERVICE_DISABLED` and `504 UPSTREAM_TIMEOUT` map to `{ kind: "network" }` *(built: spec 7.0b-1)*
 **And** any unknown code maps to a generic Section-level error "Couldn't save {section}." (draft copy) with Retry
 **And** `SESSION_EXPIRED` (proxy-originated only) maps to `{ kind: "session" }` and the Section shows no error or toast (the Story 1.7 dialog handles it; there is no `SESSION_CHANGED`, D5); no module other than `errors.ts` (and the `callApi` session branch) inspects `errorCode` or `upstreamCode`. *(built: spec 7.0b-1)*
@@ -1613,6 +1617,7 @@ So that I never lose edits by accident and can save them on the way out.
 
 *Amended 2026-10-13 (architecture update: AD-7, AD-8).*
 *Foundation 2026-10-14: nothing built yet by specs 7.0a–7.0c-1. Remaining for this story: everything: F3 builds the registry `dirtyCount` and the Save-all runner (`runSaveSteps(steps, {mode})`); Team A builds the bar, pill and `SAVE_ORDER`. Reuse `useRegisterSection`/`useSectionRegistry` (7.0b-2) and the leave guard (7.0b-2).*
+*Foundation 2026-10-14: built in spec F1 — `telemetry.track("save_all", { saved, failed })` with a numbers-only payload type (`lib/shared/telemetry.ts`). Use it; do not rebuild. Remaining for this story: unchanged (F3 runner + `dirtyCount`; Team A bar, pill, `SAVE_ORDER`).*
 
 As a user who has edited several Sections,
 I want one "Save all" action that validates everything first and then tells me honestly what saved and what didn't,
@@ -1827,6 +1832,7 @@ Users and providers keep their legal identity and demographics correct, reveal t
 ### Story 2.1: View Personal Information
 
 *Amended 2026-10-13 (architecture update: AD-2, AD-13).*
+*Foundation 2026-10-14: built in spec F1 — every `myself` field this Section reads (`lib/api/myself.ts`: names, `namePrefix`, `nameSuffix`, `otherNames`, `titles`, `birthDate` (`YYYY-MM-DD`, null = withheld), `cityOfBirth`, `race`, `ethnicity`, `biologicalGender`, `genderIdentity`, `sexualOrientation`, masked `socialSecurityNumber`, `signature {id,name}`), `keys.myself()`, `keys.typeKey("Person")` (declared), `lib/shared/dates.ts#wireToDisplayDate` (no timezone shift), the `GET v2/file/{fileId}/download` image entry (`lib/server/proxy/allowlist/files.ts`: numeric id, no client query, `preview=true` forced; `files.test.ts`). Use it; do not rebuild. Remaining for this story: F2 inline/attachment hardening of `asImage`; F3 key/value table, `StateFrame`, `SignatureThumb`; Team A: `lib/api/personal.ts`, the one `type-key` loader (shared with Story 3.1: `registerFetcher` allows one loader per key family, whichever story lands first adds it), `lib/shared/person-options.ts`, the `GET v2/type/key/Person` entry, the Section. Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/personal.ts`, copy `lib/shared/messages/person.ts`, errors `lib/api/errors/personal.ts`. A new `lib/api/<resource>.ts` registers its own loader with `registerFetcher()` and is re-exported from `lib/api/index.ts`.*
 
 As a Launching user (patient or provider),
 I want to see my legal name, birth details, demographics, Masked SSN and Signature in one table,
@@ -1918,6 +1924,7 @@ So that I can check that my identity record is correct at a glance.
 ### Story 2.2: Edit and save Personal Information
 
 *Amended 2026-10-13 (architecture update: AD-9, AD-11, AD-12; PA4).*
+*Foundation 2026-10-14: built in spec F1 — the full `PUT v2/user/edit` entry (`userEditBodySchema`, `RACES`, `ETHNICITIES`, `BIOLOGICAL_GENDERS` in `lib/server/proxy/allowlist/personal.ts`: backend lengths, enums, SSN/birth-date/language patterns, names forwarded trimmed, rejects `locale`/`username`/`enabled`/`receiveNotifications`, `phoneNumber` + `phoneNumberRegion` only together; table tests), `lib/shared/person-rules.ts` (`normalizeName`, `nameIssue`, `textIssue`, `NAME_MAX_LENGTH`, `PREFIX_SUFFIX_MAX_LENGTH`, `SHORT_TEXT_MAX_LENGTH`, `hasProctorRole`, `birthDateAgeRange`, `isBirthDateInRange` with the backend `minusYears` semantics), PA4 copy in `lib/shared/messages/person.ts` (`PERSON_MESSAGES`: required and too-long names, `birthDateRequired`, `birthDateFormat`, `ageRange` `{min}`/`{max}` template), `lib/shared/dates.ts` (`parseDisplayDate`, `displayToWireDate`, `localCalendarDate`), the `updateAccount` and zod-literal lint rules, `mutateMyself()`, `mapApiError("personal", …)`. Use it; do not rebuild. Remaining for this story: `personalSchema` on the shared rules (the printable-only copy goes in `messages/person.ts`), `savePersonalInformation` in `lib/api/personal.ts`, the payload type without email/phone and its test, the Section on the F3 kit, Select/Combobox/date input (F5), drafts (F4). Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/personal.ts`, copy `lib/shared/messages/person.ts`, errors `lib/api/errors/personal.ts`.*
 
 As a Launching user,
 I want to edit my name, birth details and demographics in place, with the rules explained before I save,
@@ -2015,8 +2022,8 @@ So that my legal identity is correct on the platform without guessing what is ac
 
 **Given** the endpoint this story writes
 **When** it is done
-**Then** the proxy allowlist entry for `PUT /v2/user/edit` is added in this change (method + path template + allowed query; server-forced params): no query params allowed (any → 400 `BAD_QUERY`), JSON body only (`Content-Type` other than `application/json` → 415 `UNSUPPORTED_MEDIA`), body schema rejects `locale` (accepts `email`, `phoneNumber`, `phoneNumberRegion` only because `updateAccount()` needs them; AD-9 restricts the caller), no CSRF or `X-PP-Session` check (D5), no server-forced params
-**And** a proxy test covers the happy path, a foreign `Content-Type` (415) and another method (405).
+**Then** the proxy allowlist entry for `PUT /v2/user/edit` is added in this change (method + path template + allowed query; server-forced params): no query params allowed (any → 400 `BAD_QUERY`), JSON body only (`Content-Type` other than `application/json` → 415 `UNSUPPORTED_MEDIA`), body schema rejects `locale` (accepts `email`, `phoneNumber`, `phoneNumberRegion` only because `updateAccount()` needs them; AD-9 restricts the caller), no CSRF or `X-PP-Session` check (D5), no server-forced params *(built: spec F1)*
+**And** a proxy test covers the happy path, a foreign `Content-Type` (415) and another method (405). *(built: spec F1)*
 
 **Given** the zod schema `personalSchema` in `features/personal/schema.ts`
 **When** unit tests run
@@ -2027,6 +2034,8 @@ So that my legal identity is correct on the platform without guessing what is ac
 ---
 
 ### Story 2.3: SSN entry and Reveal
+
+*Foundation 2026-10-14: built in spec F1 — the SSN-taken row in `lib/api/errors/personal.ts` (`Messages.SOCIAL_SECURITY_NUMBER_EXISTS` text → `mapApiError("personal", …)` = `{kind:"field", field:"ssn", messageKey:"person.ssnTaken"}`, "This SSN belongs to another person"), the SSN pattern `^(\d{3}-\d{2}-\d{4}|\d{9}|n/a)$` on `PUT v2/user/edit`, masked `myself.socialSecurityNumber`. Use it; do not rebuild. Remaining for this story: everything else (Team A): Reveal, the `ssn/expose` entry, the SSN input, focus on the mapped field. Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/personal.ts`, copy `lib/shared/messages/person.ts`, errors `lib/api/errors/personal.ts`.*
 
 As a Launching user,
 I want to add, change or clear my SSN and briefly reveal it on demand,
@@ -2107,6 +2116,7 @@ So that my SSN is correct while it stays hidden from anyone looking at my screen
 ### Story 2.4: Signature
 
 *Foundation 2026-10-14: built in spec 7.0b-1 — `components/ui/confirm-dialog.tsx` (`ConfirmDialog`, `variant: "destructive"`) for "Remove your signature?". Use it; do not rebuild. Remaining for this story: everything else (Team A; F3 edit kit, F2 upload entries).*
+*Foundation 2026-10-14: built in spec F1 — `myself.signature` (`{id,name}|null`), the `GET v2/file/{fileId}/download` image entry, `mutateMyself()`. Use it; do not rebuild. Remaining for this story: unchanged (Team A; F2 upload entries and hardening, F3 edit kit). Upload and `DELETE v2/file` entries go in `lib/server/proxy/allowlist/files.ts`; copy in `lib/shared/messages/person.ts`.*
 
 As a provider (or any Launching user),
 I want to draw or upload my Signature, replace it, or remove it with a confirmation,
@@ -2205,6 +2215,7 @@ Users keep every way to reach them current, verify numbers and emails, switch th
 
 *Amended 2026-10-13 (architecture update: AD-10; PA3).*
 *Foundation 2026-10-14: built in spec 7.0b-2 — `lib/api/contact-points.ts` (`fetchContactPoints`, `toContactPoints`, `findPrimary`, `ContactPoint`, `PRIMARY_LABEL`), `keys.contactPoints(type)`, the `contact-point/list` allowlist entry (7.0a). Use it; do not rebuild. Remaining for this story: Social Media in the entry and `mutateContactPoints` (F1), the Contact Point write engine and Phone Section (Team A), Section frame/edit kit (F3).*
+*Foundation 2026-10-14: built in spec F1 — `ContactPointType = "Email"|"Mobile"|"Landline"|"Social Media"`, `CONTACT_POINT_TYPES`, `isContactPointType`, `keys.contactPoints("Social Media")` (the Social key is `["pp","contact-points","Social Media"]`, not `"Social"`), `keys.typeKey("ContactPoint")` (declared), `mutateContactPoints(...types)`, `primaryPhoneRegion(rows, myself)`, `Social Media` in the `contact-point/list` entry (`contacts.test.ts`), `lib/shared/phone.ts` (`formatPhoneDisplay(value, region)`, `normalizeRegion`, `DEFAULT_PHONE_REGION`; US `+1 (415) 551-2125`, else international; already used by the header), the duplicate-value rows in `lib/api/errors/contacts.ts` (scopes `phone|email|social` → `field "value"` with `contacts.duplicatePhone|duplicateEmail|duplicateSocial`). Use it; do not rebuild. Remaining for this story: the `GET v2/type/key/ContactPoint` entry and the one `type-key` loader (shared with Story 2.1; whichever lands first adds it), `diffToManageDTO` and the write engine, the Phone Section (Team A), F3 kit. Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/contacts.ts`, copy `lib/shared/messages/contacts.ts`, errors `lib/api/errors/contacts.ts`.*
 
 As a patient or provider,
 I want to see all my phone numbers with their label, type, verification and notification status, with my primary number first,
@@ -2215,7 +2226,7 @@ So that I can check at a glance how 1health reaches me and which number I sign i
 **Given** the Contact Point API module `lib/api/contact-points.ts` and its `fetchContactPoints(type)` from Story 1.9
 **When** the Contact Point Sections read their lists
 **Then** Phone composes `fetchContactPoints("Mobile")` and `fetchContactPoints("Landline")` (two per-type reads merged in the Section, primary first), Email uses `fetchContactPoints("Email")` and Social `fetchContactPoints("Social Media")`, each one `callApi` `GET /api/1h/v2/user/contact-point/list?type=<type>`, returning typed rows `{id, value, type, label, isVerified, isNotificationEnabled, phoneNumberRegion}` with `id` as a number
-**And** SWR keys come only from `lib/api/keys.ts`: Phone reads exactly the Story 1.9 per-type keys `contactPoints("Mobile")` + `contactPoints("Landline")` and Email reads `contactPoints("Email")` (there is no combined `["pp","contact-points","Phone"]` key); these keys are shared with the profile header and the `/account` Account settings pickers through the one root SWR cache, so every later `mutate` after a Contacts save or Primary change refreshes both, and an `/account` save refreshes the Contacts lists (AD-10, PA3); this story adds `keys.contactPoints("Social")` = `["pp","contact-points","Social"]`; all use the shared `callApi` fetcher (AD-10)
+**And** SWR keys come only from `lib/api/keys.ts`: Phone reads exactly the Story 1.9 per-type keys `contactPoints("Mobile")` + `contactPoints("Landline")` and Email reads `contactPoints("Email")` (there is no combined `["pp","contact-points","Phone"]` key); these keys are shared with the profile header and the `/account` Account settings pickers through the one root SWR cache, so every later `mutate` after a Contacts save or Primary change refreshes both, and an `/account` save refreshes the Contacts lists (AD-10, PA3); this story adds `keys.contactPoints("Social")` = `["pp","contact-points","Social"]`; all use the shared `callApi` fetcher (AD-10) *(F1: built as `keys.contactPoints("Social Media")` = `["pp","contact-points","Social Media"]`)*
 **And** the proxy allowlist entries this story relies on are `GET /v2/user/contact-point/list` (the Story 1.9 entry, `type` allowlisted to `Mobile|Landline|Email|Social Media`, reused unchanged and covered by a proxy test here) and `GET /v2/type/key/ContactPoint`, which is added in this change (method + path template + allowed query: no query params, no body, no server-forced params) with a proxy test (AD-2); this story adds no POST entry
 
 **Given** a `before` list and an edited `after` list of rows
@@ -2289,6 +2300,7 @@ So that I can check at a glance how 1health reaches me and which number I sign i
 ### Story 3.2: Add, relabel and remove phones
 
 *Amended 2026-10-13 (architecture update: AD-10; PA3).*
+*Foundation 2026-10-14: built in spec F1 — the duplicate rows (`Messages.PERSON_ALREADY_HAS_CONTACT_POINT_ERROR`, `CONTACT_POINTS_DUPLICATE_FOUND`) → `mapApiError("phone", …)` = `field "value"` / `contacts.duplicatePhone` ("This number is already on your profile"), `mutateContactPoints("Mobile","Landline")` + `mutateMyself()`, `formatPhoneDisplay`, `normalizeRegion`, zod-literal lint. Use it; do not rebuild. Remaining for this story: everything else (Team A): phone input, `phoneSchema`, the `POST v2/health/contact-point` entry, limit and Primary-rule rows. Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/contacts.ts`, copy `lib/shared/messages/contacts.ts`, errors `lib/api/errors/contacts.ts`.*
 
 As a patient or provider,
 I want to add new phone numbers, change their labels and remove old ones in one edit of the Phone table,
@@ -2373,6 +2385,8 @@ So that my phone list stays current without calling support.
 
 ### Story 3.3: Verify phones
 
+*Foundation 2026-10-14: built in spec F1 — `mutateContactPoints(...types)`, `formatPhoneDisplay`. Use it; do not rebuild. Remaining for this story: everything else (Team A); the `contact-point/verify` entry goes in `allowlist/contacts.ts`. Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/contacts.ts`, copy `lib/shared/messages/contacts.ts`, errors `lib/api/errors/contacts.ts`.*
+
 As a patient or provider,
 I want new mobile numbers to get a verification link automatically and to resend it when needed,
 So that my numbers become Verified and can be used for sign-in and notifications.
@@ -2429,6 +2443,7 @@ So that my numbers become Verified and can be used for sign-in and notifications
 
 *Amended 2026-10-13 (architecture update: AD-10; PA3).*
 *Foundation 2026-10-14: built in spec 7.0b-1 — `ConfirmDialog` (standard variant) for "This changes how you sign in"; `keys.contactPoints` (7.0b-2). Use it; do not rebuild. Remaining for this story: everything else (Team A).*
+*Foundation 2026-10-14: built in spec F1 — `mutateContactPoints("Mobile","Landline")` + `mutateMyself()` (refresh the header and the `/account` phone picker), `formatPhoneDisplay` for row names. Use it; do not rebuild. Remaining for this story: unchanged (Team A); Primary-rule rows go in `lib/api/errors/contacts.ts`. Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/contacts.ts`, copy `lib/shared/messages/contacts.ts`, errors `lib/api/errors/contacts.ts`.*
 
 As a patient or provider,
 I want to make a verified mobile my primary phone with a clear warning, and turn its notifications on or off,
@@ -2489,6 +2504,7 @@ So that I can switch my sign-in number safely and control how 1health contacts m
 ### Story 3.5: View, add, relabel and remove emails
 
 *Amended 2026-10-13 (architecture update: AD-10; PA3).*
+*Foundation 2026-10-14: built in spec F1 — `mutateContactPoints("Email")` + `mutateMyself()`, the duplicate rows → `mapApiError("email", …)` = `field "value"` / `contacts.duplicateEmail` (DRAFT COPY), zod-literal lint. Use it; do not rebuild. Remaining for this story: everything else (Team A). Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/contacts.ts`, copy `lib/shared/messages/contacts.ts`, errors `lib/api/errors/contacts.ts`.*
 
 As a patient or provider,
 I want to see my email addresses and add, relabel or remove them in one edit of the Email table,
@@ -2543,6 +2559,7 @@ So that my emails on file are current.
 ### Story 3.6: Verify emails, make an email primary and manage notifications
 
 *Foundation 2026-10-14: built in spec 7.0b-1 — `ConfirmDialog` (standard variant) for the primary-email confirm; `keys.contactPoints("Email")` (7.0b-2). Use it; do not rebuild. Remaining for this story: everything else (Team A).*
+*Foundation 2026-10-14: built in spec F1 — `mutateContactPoints("Email")` + `mutateMyself()`. The "email used by another account" Primary rejection is not mapped yet: the F1 email-in-use row (`User with email '…' already exists.` → `account.primaryEmailInUse`) is scoped to `account` (Story 7.6) only. Use it; do not rebuild. Remaining for this story: unchanged (Team A); add this story's own row for scope `email` in `lib/api/errors/contacts.ts` once the backend message is confirmed. Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/contacts.ts`, copy `lib/shared/messages/contacts.ts`, errors `lib/api/errors/contacts.ts`.*
 
 As a patient or provider,
 I want new emails verified automatically, and to make a verified email my primary sign-in email with a clear warning,
@@ -2602,6 +2619,7 @@ So that I can change my login email safely and control email notifications.
 ### Story 3.7: Manage social media links
 
 *Amended 2026-10-13 (architecture update: AD-5 external-link exception; PA1).*
+*Foundation 2026-10-14: built in spec F1 — `lib/shared/safe-href.ts#safeHref(value, ["https:"])` (Stories 9.3 and 10.2 reuse it with the default `https:`/`mailto:`/`tel:`), `keys.contactPoints("Social Media")`, `fetchContactPoints("Social Media")` (one type per call, not an array), `Social Media` in the list entry, `mutateContactPoints("Social Media")`, the duplicate rows → `contacts.duplicateSocial` (DRAFT COPY). Use it; do not rebuild. Remaining for this story: everything else (Team A). Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/contacts.ts`, copy `lib/shared/messages/contacts.ts`, errors `lib/api/errors/contacts.ts`.*
 
 As a patient or provider,
 I want to add, change and remove links to my social media profiles, and open them from my profile,
@@ -2669,6 +2687,8 @@ Users keep their addresses current, using address suggestions, with exactly one 
 
 ### Story 4.1: View addresses
 
+*Foundation 2026-10-14: built in spec F1 — `keys.addresses()` = `["pp","addresses"]` (declared; this story's `lib/api/addresses.ts` registers the `addresses` loader), the empty Addresses area files. Use it; do not rebuild. Remaining for this story: everything else (Team A). The `GET v2/person/location/list` entry goes in `lib/server/proxy/allowlist/addresses.ts`, not `lib/server/proxy-allowlist.ts`. Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/addresses.ts`, copy `lib/shared/messages/addresses.ts`, errors `lib/api/errors/addresses.ts`. A new `lib/api/<resource>.ts` registers its own loader with `registerFetcher()` and is re-exported from `lib/api/index.ts`.*
+
 As a patient or provider,
 I want to see every address on my profile with the Primary one first,
 So that I can check at a glance which address 1health uses and whether each one is verified.
@@ -2724,6 +2744,8 @@ So that I can check at a glance which address 1health uses and whether each one 
 **Covers:** FR25, NFR4, NFR5, AD-2, AD-7, AD-10, UX-DR8, UX-DR18, UX-DR19, UX-DR20, UX-DR21, UX-DR25, UX-DR26, UX-DR33, UX-DR34, UX-DR35, UX-DR49, UX-DR62, UX-DR67 · **Jira:** NG-9026
 
 ### Story 4.2: Add and edit addresses
+
+*Foundation 2026-10-14: built in spec F1 — `keys.addresses()` (mutate after save), `telemetry.track("section_save", …)` (`lib/shared/telemetry.ts`), `mapApiError("addresses", …)` (field rows go in `lib/api/errors/addresses.ts`, extending its `Field` type), zod-literal lint. Use it; do not rebuild. Remaining for this story: everything else (Team A; countries entry, `addressesSchema`, write entries). Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/addresses.ts`, copy `lib/shared/messages/addresses.ts`, errors `lib/api/errors/addresses.ts`.*
 
 As a patient or provider,
 I want to add new addresses and correct existing ones in place,
@@ -2805,6 +2827,7 @@ So that my addresses on file are complete and accurate.
 ### Story 4.3: Address suggestions via server
 
 *Amended 2026-10-13 (architecture update: AD-19; PA2).*
+*Foundation 2026-10-14: built in spec F1 — the empty Places copy file `lib/shared/messages/places.ts`. Use it; do not rebuild. Remaining for this story: everything (F2 named-op wrapper for `/api/places/*`; Team A). Copy goes in `lib/shared/messages/places.ts`; address-field copy in `lib/shared/messages/addresses.ts`.*
 
 As a patient or provider in the US, Canada or Australia,
 I want address line 1 to suggest complete addresses as I type,
@@ -2880,6 +2903,8 @@ So that I can fill an address quickly and have it marked Verified.
 
 ### Story 4.4: Primary address and removal
 
+*Foundation 2026-10-14: built in spec F1 — `keys.addresses()` (mutate after save), `mapApiError("addresses", …)`. Use it; do not rebuild. Remaining for this story: everything else (Team A); the `DELETE v2/person/location/{id}` entry goes in `allowlist/addresses.ts`. Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/addresses.ts`, copy `lib/shared/messages/addresses.ts`, errors `lib/api/errors/addresses.ts`.*
+
 As a patient or provider,
 I want exactly one Primary address that I can change, and to remove addresses safely,
 So that 1health always has one main address for me and I can't leave my profile without one.
@@ -2935,6 +2960,7 @@ Users put their insurance policies on file, with subscriber details and card pho
 ### Story 5.1: View policies and card images
 
 *Amended 2026-10-13 (architecture update: AD-2, AD-13).*
+*Foundation 2026-10-14: built in spec F1 — `keys.insurance()` = `["pp","insurance"]` (declared; this story's `lib/api/insurance.ts` registers the `insurance` loader), the empty Insurance area files. Use it; do not rebuild. Remaining for this story: everything else (Team A; card-image `asImage` hardening is F2). The policy list and card-image entries go in `lib/server/proxy/allowlist/insurance.ts`. Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/insurance.ts`, copy `lib/shared/messages/insurance.ts`, errors `lib/api/errors/insurance.ts`. A new `lib/api/<resource>.ts` registers its own loader with `registerFetcher()` and is re-exported from `lib/api/index.ts`.*
 
 As a patient,
 I want to see each insurance policy on file as a card with its card images,
@@ -2993,6 +3019,7 @@ So that I can confirm my coverage is current before a visit.
 ### Story 5.2: Add and edit a policy
 
 *Amended 2026-10-13 (architecture update: AD-26).*
+*Foundation 2026-10-14: built in spec F1 — `keys.insurance()` (mutate after save), `telemetry.track("section_save", …)`, `mapApiError("insurance", …)` (field rows such as `INVALID_ENUM_VALUE` go in `lib/api/errors/insurance.ts`), `lib/shared/dates.ts` (`YYYY-MM-DD` ↔ `MM/DD/YYYY`), zod-literal lint. Use it; do not rebuild. Remaining for this story: everything else (Team A; Combobox/date input F5). Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/insurance.ts`, copy `lib/shared/messages/insurance.ts`, errors `lib/api/errors/insurance.ts`.*
 
 As a patient,
 I want to add a new insurance policy or correct an existing one in a focused editor,
@@ -3073,6 +3100,8 @@ So that my coverage details, including who holds the policy, are right on file.
 
 ### Story 5.3: Card image upload with retry
 
+*Foundation 2026-10-14: built in spec F1 — `keys.insurance()` (revalidate after upload). Use it; do not rebuild. Remaining for this story: everything else (F2 upload mechanism; Team A). Upload entries go in `allowlist/insurance.ts`. Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/insurance.ts`, copy `lib/shared/messages/insurance.ts`, errors `lib/api/errors/insurance.ts`.*
+
 As a patient,
 I want to add photos of the front and back of my insurance card, and retry if an upload fails,
 So that my clinic has my card on file without me losing the policy I just saved.
@@ -3127,6 +3156,8 @@ So that my clinic has my card on file without me losing the policy I just saved.
 
 ### Story 5.4: Primary per type with demote offer
 
+*Foundation 2026-10-14: built in spec F1 — `keys.insurance()` (mutate after save), `mapApiError("insurance", …)`. Use it; do not rebuild. Remaining for this story: everything else (Team A). Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/insurance.ts`, copy `lib/shared/messages/insurance.ts`, errors `lib/api/errors/insurance.ts`.*
+
 As a patient,
 I want the editor to offer to make my current primary policy secondary when I add a new primary of the same type,
 So that I never end up with two primary policies of one type.
@@ -3169,6 +3200,7 @@ So that I never end up with two primary policies of one type.
 ### Story 5.5: Delete a policy
 
 *Foundation 2026-10-14: built in spec 7.0b-1 — `ConfirmDialog` (`variant: "destructive"`, `bg-destructive-fill`) for "Delete this insurance policy?". Use it; do not rebuild. Remaining for this story: everything else (Team A).*
+*Foundation 2026-10-14: built in spec F1 — `keys.insurance()` (mutate after delete), `mapApiError("insurance", …)`. Use it; do not rebuild. Remaining for this story: unchanged (Team A); the `DELETE v2/health/insurance/{id}` entry goes in `allowlist/insurance.ts`. Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/insurance.ts`, copy `lib/shared/messages/insurance.ts`, errors `lib/api/errors/insurance.ts`.*
 
 As a patient,
 I want to delete an insurance policy I no longer have, after confirming,
@@ -3224,6 +3256,7 @@ Users go to **Account** from the app bar and keep their name, sign-in email and 
 *Amended 2026-10-14 (decisions D1, D4): no-session redirect goes to `/auth`; no `proxy.ts` `lpl` redirect; portal URL from the environment map.*
 *Amended 2026-10-14 (decisions D5, D9): no session-binding embed and no `CSRF` code; the no-session screen is the `/auth` manual-entry card.*
 *Foundation 2026-10-14: built in spec 7.0a + 7.0b-1 + 7.0b-2 — `requirePageSession()` (`lib/server/page-session.ts`), relaunch only to `/` (`consumeLaunchIntent`), `navigate()` with `{page}`, `{external:"portal"}` and `{external:"handoff",href}` + `useNavigate`/`CurrentPageProvider`, `AccountTab`/`ACCOUNT_TABS`/`isAccountTab`, `AppBar`/`PageNav`/`ReturnLink`, `ProfileHeader` (`features/header`), `PageTabs` + `components/ui/tabs.tsx`, `PageFrame` (own `SectionRegistryProvider`, `LeaveGuard`, `SessionDialog`, `IdleWarning`), `mapApiError`/`mapFetchError` (`@/lib/api`), `ReadStateFor`/`LoadError`/`NoAccess`, AD-26 lint bans. Use it; do not rebuild. Remaining for this story: `app/account/page.tsx` and `features/account/account-page.tsx` on `PageFrame` with `AccountTab` tabs and anchors (Team B); `StateFrame` skeleton variants and `forbidden-scope` in `features/shell`/`lib/api` (F3, replaces the planned `features/account/account-state-frame.tsx` and `features/account/forbidden-scope.ts`); account copy in `lib/shared/messages/account.ts` (F1).*
+*Foundation 2026-10-14: built in spec F1 — the `/account` area files (`lib/server/proxy/allowlist/account.ts`, empty, for single-story `profile: true` entries; `lib/shared/messages/account.ts`; `lib/api/errors/account.ts`), `ErrorScope` incl. `authenticator|provider|organizations|page` for `mapApiError(scope, …)`, the complete `Myself` behind `keys.myself()`. Use it; do not rebuild. Remaining for this story: unchanged; page and tab copy goes in `lib/shared/messages/account.ts`. Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/account.ts`, copy `lib/shared/messages/account.ts`, errors `lib/api/errors/account.ts`.*
 
 As a Launching user who wants to manage my account, provider registration or organizations,
 I want an **Account** page I can reach from the app bar or a bookmark, with three deep-linkable tabs that each load only when opened and show loading, error and no-access states on their own,
@@ -3426,6 +3459,7 @@ So that leaving to an organization's portal always works the same way and safely
 ### Story 7.4: View Personal account settings
 
 **Jira:** [NG-9033](https://1hio.atlassian.net/browse/NG-9033)
+*Foundation 2026-10-14: built in spec F1 — `lib/api/myself.ts` complete (every field incl. `username`, `email`, `phoneNumber`, `birthDate`, `roles`, `preferredLanguage`, `timeZone`, `locale`; `toMyself`, `fetchMyself`, `loadMyself`, `isProctor`; no `phoneNumberRegion`), so this story neither creates nor extends it; `lib/api/contact-points.ts#primaryPhoneRegion(mobileRows, myself)` (Primary Mobile row, or the row equal to `myself.phoneNumber`; default `"us"`), `lib/shared/phone.ts#formatPhoneDisplay(value, region)`, `lib/shared/person-rules.ts` (`birthDateAgeRange`, `isBirthDateInRange`), `lib/shared/dates.ts` (`wireToDisplayDate`, `parseWireDate`, `localCalendarDate`). Use it; do not rebuild. Remaining for this story: `lib/shared/time-zones.ts`, `features/account/view-model.ts#toAccountView`, the read Section (F3 key/value table and `StateFrame`). Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/account.ts`, copy `lib/shared/messages/account.ts`, errors `lib/api/errors/account.ts`.*
 
 As a Launching user checking my account,
 I want to see my name, username, sign-in email and phone, birth date and regional preferences in one table,
@@ -3455,7 +3489,7 @@ So that I can confirm at a glance what 1health has on file and spot what's missi
 
 **Given** `lib/api/myself.ts`, created in this story as the Profile module's `myself` domain module on top of Story 1.4's `fetchMyself()` (same `["pp","myself"]` key, no second fetcher)
 **When** it maps the payload
-**Then** it exposes the fields this story reads (`firstName`, `lastName`, `username`, `email`, `phoneNumber`, `birthDate`, `roles`, `preferredLanguage`, `timeZone`, `locale`); Stories 8.1 and 9.3 extend it with the fields they need. *(Amended 2026-10-14, validated against agents.md + backend: `myself` has no `phoneNumberRegion`; the region comes from the `GET v2/user/contact-point/list` row of type `Mobile` labelled `Primary` (or whose `value` equals `myself.phoneNumber`), falling back to `"us"` when empty or `"n/a"`.)*
+**Then** it exposes the fields this story reads (`firstName`, `lastName`, `username`, `email`, `phoneNumber`, `birthDate`, `roles`, `preferredLanguage`, `timeZone`, `locale`); Stories 8.1 and 9.3 extend it with the fields they need. *(Amended 2026-10-14, validated against agents.md + backend: `myself` has no `phoneNumberRegion`; the region comes from the `GET v2/user/contact-point/list` row of type `Mobile` labelled `Primary` (or whose `value` equals `myself.phoneNumber`), falling back to `"us"` when empty or `"n/a"`.)* *(built: spec F1)*
 
 **Given** a `myself` payload
 **When** values are mapped by `toAccountView(myself)` in `features/account/view-model.ts`
@@ -3492,6 +3526,7 @@ So that I can confirm at a glance what 1health has on file and spot what's missi
 **Jira:** [NG-9034](https://1hio.atlassian.net/browse/NG-9034)
 
 *Foundation 2026-10-14: built in spec 7.0b-2 — `useRegisterSection` with `SectionId` `account`, `SaveResult` with `failedParts` (`AccountSavePart`), the per-page registry and leave guard in `PageFrame`. Use it; do not rebuild. Remaining for this story: edit primitives, `runSaveSteps({mode:"attemptAll"})` and toasts (F3), `lib/shared/{person-rules,dates}` and the full `PUT v2/user/edit` schema (F1), drafts (F4), Select/date inputs (F5), the Section itself (Team B).*
+*Foundation 2026-10-14: built in spec F1 — `lib/shared/person-rules.ts` (names 1–24 after trim, printable only; age range incl. Proctor) + `PERSON_MESSAGES` ("Birth date is required", "Enter a date as MM/DD/YYYY", the `ageRange` template), `lib/shared/dates.ts` (`parseDisplayDate` rejects `02/30/1990` and `13/01/1990`; `displayToWireDate`; `minusYears` for the calendar bounds), the full `PUT v2/user/edit` schema (already rejects `locale`, with a table row), the `updateAccount` and zod-literal lint rules, `mutateMyself()` / `mutateContactPoints(...)`, `mapApiError("account", …)`. Use it; do not rebuild. Remaining for this story: `lib/api/account.ts` (`updateAccount`, `setTimeZone`, `setLocale`), the `POST v2/user/time-zone` and `POST v2/user/locale` entries (`profile: true`) in `lib/server/proxy/allowlist/account.ts`, the Section (F3 kit, F4 drafts, F5 inputs). Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/account.ts`, copy `lib/shared/messages/account.ts`, errors `lib/api/errors/account.ts`.*
 
 As a Launching user whose account details are wrong or incomplete,
 I want to edit my name, birth date, language, time zone and locale in place and be told exactly which part failed if a save goes wrong,
@@ -3603,6 +3638,7 @@ So that my account is correct without guessing what was saved.
 **Jira:** [NG-9035](https://1hio.atlassian.net/browse/NG-9035)
 
 *Foundation 2026-10-14: built in spec 7.0b-2 — `keys.contactPoints(type)` + `fetchContactPoints` (shared with the header and Contacts), `navigate({ page: "profile", tab: "contacts", hash })`. Use it; do not rebuild. Remaining for this story: opening `email`/`phoneNumber`/`phoneNumberRegion` in `PUT v2/user/edit`, `mutateMyself`/`mutateContactPoints` and mapper v2 (F1); the pickers (Team B).*
+*Foundation 2026-10-14: built in spec F1 — `PUT v2/user/edit` accepts `email`, `phoneNumber` and `phoneNumberRegion` (the two phone fields only together; rows in `allowlist/personal.test.ts`), the `updateAccount` import lint incl. dynamic imports (fixture `eslint.config.test.ts`), the email-in-use row (`User with email '…' already exists.` → `mapApiError("account", …)` = `field "primaryEmail"` / `account.primaryEmailInUse`, DRAFT COPY), `mutateMyself()` + `mutateContactPoints("Email","Mobile","Landline")`, `primaryPhoneRegion`, `formatPhoneDisplay`. Use it; do not rebuild. Remaining for this story: the email/phone diff in `updateAccount()`, the pickers, the Personal-information payload type test (needs Story 2.2's type). Do not edit `allowlist/personal.ts` (shared with Team A). Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/account.ts`, copy `lib/shared/messages/account.ts`, errors `lib/api/errors/account.ts`.*
 
 As a Launching user who has verified a new email or phone in Contacts,
 I want to pick it as my Primary email or Primary phone from Personal account settings,
@@ -3612,7 +3648,7 @@ So that I sign in and get notifications with the address and number I use now.
 
 **Given** the `PUT v2/user/edit` allowlist entry
 **When** this story is done
-**Then** its body schema also accepts `email`, `phoneNumber` and `phoneNumberRegion` (strings; `phoneNumberRegion` only together with `phoneNumber`, else 400), with proxy table rows for each (AD-2, AD-9 exception).
+**Then** its body schema also accepts `email`, `phoneNumber` and `phoneNumberRegion` (strings; `phoneNumberRegion` only together with `phoneNumber`, else 400), with proxy table rows for each (AD-2, AD-9 exception). *(built: spec F1)*
 
 **Given** edit view from Story 7.5
 **When** it opens
@@ -3685,6 +3721,7 @@ Users link an authenticator app by scanning a QR code and entering a code, see t
 ### Story 8.1: Authenticator status and app tiles
 
 **Jira:** [NG-9036](https://1hio.atlassian.net/browse/NG-9036)
+*Foundation 2026-10-14: built in spec F1 — `myself.mfaEnabled` and `myself.totpEnabled` in `lib/api/myself.ts` (this story does not extend the type), `keys.myself()`, `ErrorScope "authenticator"`. Use it; do not rebuild. Remaining for this story: the card (Team B), `StateFrame` (F3). Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/mfa.ts`, copy `lib/shared/messages/mfa.ts`, errors `lib/api/errors/mfa.ts`.*
 
 As a Launching user on the Personal Account tab,
 I want to see whether an authenticator app is linked to my account and which apps I can link,
@@ -3758,6 +3795,7 @@ So that I know if my sign-in is protected by a code and where to start if it isn
 ### Story 8.2: Link an authenticator app
 
 **Jira:** [NG-9037](https://1hio.atlassian.net/browse/NG-9037)
+*Foundation 2026-10-14: built in spec F1 — the MFA rows in `lib/api/errors/mfa.ts` (scope `authenticator`, upstream 4xx only: `Mfa is not enabled for this user.` / `Mfa config is missing.` → `{kind:"coded", code:"MFA_NOT_ENABLED"}`; `Totp is already enabled.` → `TOTP_ALREADY_ENABLED`), `telemetry.track("mfa_link", { ok, attempt })` typed in `lib/shared/telemetry.ts`, `mutateMyself()`. Use it; do not rebuild. Remaining for this story: the `POST v2/mfa/enable/totp` entry, the `/api/pp/mfa/validate` named op (F2 wrapper), `lib/api/mfa.ts`, the dialog. Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/mfa.ts`, copy `lib/shared/messages/mfa.ts`, errors `lib/api/errors/mfa.ts`.*
 
 As a Launching user without an authenticator linked (e.g. Ana, UJ-102),
 I want to pick my authenticator app, scan a QR code and enter the code it shows,
@@ -3859,6 +3897,7 @@ So that my account asks for a code from my phone when I sign in.
 **Jira:** [NG-9038](https://1hio.atlassian.net/browse/NG-9038)
 
 *Foundation 2026-10-14: built in spec 7.0b-1 — `ConfirmDialog` (`variant: "destructive"`, `scrim`) for "Turn off authenticator app?". Use it; do not rebuild. Remaining for this story: everything else (Team B; MFA exact messages in F1 mapper v2).*
+*Foundation 2026-10-14: built in spec F1 — `mutateMyself()`, `mapApiError("authenticator", …)`. Use it; do not rebuild. Remaining for this story: unchanged (Team B); the `POST v2/mfa/disable/totp` entry goes in `allowlist/mfa.ts`. Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/mfa.ts`, copy `lib/shared/messages/mfa.ts`, errors `lib/api/errors/mfa.ts`.*
 
 As a Launching user with an authenticator app linked,
 I want to turn it off after confirming,
@@ -3921,6 +3960,7 @@ Providers find their personal and practice NPIs, register them, and see their re
 ### Story 9.1: Registration state and NPI search
 
 **Jira:** [NG-9039](https://1hio.atlassian.net/browse/NG-9039)
+*Foundation 2026-10-14: built in spec F1 — `keys.npi()` = `["pp","npi"]` (declared; this story's `lib/api/npi.ts` registers the `npi` loader), `ErrorScope "provider"`. Use it; do not rebuild. Remaining for this story: everything else (Team B). Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/npi.ts`, copy `lib/shared/messages/npi.ts`, errors `lib/api/errors/npi.ts`. A new `lib/api/<resource>.ts` registers its own loader with `registerFetcher()` and is re-exported from `lib/api/index.ts`.*
 
 As Dr. Ruiz, a family physician who has not yet registered as a provider on 1health,
 I want the Individual Provider Registration tab to show whether I'm registered and, if I'm not, to let me search the national registry for my personal NPI and my clinic's NPI,
@@ -4048,6 +4088,7 @@ So that I can find the right NPI records before I register.
 ### Story 9.2: Register
 
 **Jira:** [NG-9040](https://1hio.atlassian.net/browse/NG-9040)
+*Foundation 2026-10-14: built in spec F1 — the NPI-taken row in `lib/api/errors/npi.ts`: the real backend text `Operation failed. The chosen (Personal|Practice) NPI Number: <n> is already registered.` (not a `PERSONAL_NPI_…` prefix) → `mapApiError("provider", …)` = `{kind:"coded", code:"NPI_ALREADY_REGISTERED"}`; the result does not say which NPI, so this story picks the field from its own request; `keys.npi()` (mutate after register). Use it; do not rebuild. Remaining for this story: everything else (Team B). Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/npi.ts`, copy `lib/shared/messages/npi.ts`, errors `lib/api/errors/npi.ts`.*
 
 As Dr. Ruiz, having picked my personal NPI and my clinic's NPI,
 I want to press Register and have my 1health account linked to them, with a clear message if either is already taken or the registration fails,
@@ -4134,6 +4175,7 @@ So that I'm recognized as a provider without accidentally claiming someone else'
 **Jira:** [NG-9041](https://1hio.atlassian.net/browse/NG-9041)
 
 *Foundation 2026-10-14: built in spec 7.0b-2 — `navigate({ external: "handoff", href })` and `navigate({ page: "profile", tab: "contacts", hash: "signature" })`. Use it; do not rebuild. Remaining for this story: everything else (Team B; `/api/pp/practice-support` on the F2 named-op wrapper; `#signature` scrolling is F3).*
+*Foundation 2026-10-14: built in spec F1 — `isTenantMember(myself, tenantId)`, `myself.tenants` and `myself.signature` in `lib/api/myself.ts` (this story does not extend it), `keys.practiceSupport()` (declared), `NO_PRACTICE` in `lib/shared/bff-contract.ts`, `lib/shared/safe-href.ts#safeHref`, `formatPhoneDisplay(value, phoneRegion)`, the `GET v2/file/{fileId}/download` image entry in `lib/server/proxy/allowlist/files.ts` (this story does not add it). Use it; do not rebuild. Remaining for this story: `/api/pp/practice-support` (F2 named-op wrapper) and its loader, `info-popover` (F5), the view (Team B). Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/npi.ts`, copy `lib/shared/messages/npi.ts`, errors `lib/api/errors/npi.ts`.*
 
 As Dr. Ruiz, now registered as a provider,
 I want to see my registered credentials, my practice's support contact, my signature and, when it applies, a way to register my practice,
@@ -4168,7 +4210,7 @@ So that I can confirm what 1health has on file and know my next step for my prac
 
 **Given** `lib/shared/safe-href.ts`
 **When** this story needs it for the support email
-**Then** it exports `safeHref(value)` returning the value only when its protocol is `https:`, `mailto:` or `tel:`, else `undefined` (spine AD-11); it is created here if Story 3.7 or Story 10.2 hasn't already, and whichever lands later reuses it.
+**Then** it exports `safeHref(value)` returning the value only when its protocol is `https:`, `mailto:` or `tel:`, else `undefined` (spine AD-11); it is created here if Story 3.7 or Story 10.2 hasn't already, and whichever lands later reuses it. *(built: spec F1)*
 
 **Given** the named operation `GET /api/pp/practice-support` (AD-25)
 **When** `app/api/pp/practice-support/route.ts` is added
@@ -4243,6 +4285,7 @@ Users search and page through their organizations, recognize them by logo and ty
 **Jira:** [NG-9042](https://1hio.atlassian.net/browse/NG-9042)
 
 *Foundation 2026-10-14: built in spec 7.0b-2 — `navigate({ external: "handoff", href: "/handoff/portal?to=create-org" })` with the leave guard. Use it; do not rebuild. Remaining for this story: everything else (Team B; `keys.orgs` in F1).*
+*Foundation 2026-10-14: built in spec F1 — `keys.orgs(name, page)` = `["pp","orgs",name,page]` (declared; `lib/api/organizations.ts` registers the `orgs` loader), `ErrorScope "organizations"`. `lib/shared/initials.ts#initials(...names)` takes the first letter of each name; it does not implement the org rule (first two words, one word → its first two letters, non-letters skipped, `"?"`), so add that rule as a second export of `lib/shared/initials.ts`, not a new module. Use it; do not rebuild. Remaining for this story: everything else (Team B). Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/orgs.ts`, copy `lib/shared/messages/orgs.ts`, errors `lib/api/errors/orgs.ts`. A new `lib/api/<resource>.ts` registers its own loader with `registerFetcher()` and is re-exported from `lib/api/index.ts`.*
 
 As Mónica, a lab owner who belongs to several 1health organizations,
 I want the My Organizations tab to list my organizations, let me search them by name and page through them,
@@ -4254,7 +4297,7 @@ So that I can find the organization I need in a few keystrokes, or learn how to 
 **When** this story lands
 **Then** the passthrough entry `GET v2/user/organization/portal` is added (tagged `profile: true`; Story 1.3 proxy-level `ACCOUNT_DISABLED` 503) with exactly `name` (string ≤ 100 chars, may be empty), `page` (`^\d{1,4}$`) and `size` (≤ 12); a request outside those bounds gets 400 from the proxy and is never forwarded (proxy table rows: `size=13` → 400, `page=12345` → 400, 101-char `name` → 400, valid request → forwarded)
 **And** `lib/api/organizations.ts#listOrganizations({name, page})` calls it through `callApi("organizations/list", …)` with `size=12` and 0-based `page`, maps the wire DTO to a domain type `{ tenantId, enabledInTenant, name, shortName, types: string[], personContacts }`, drops items whose `organization` is `null`, and sorts the rest by `shortOrganizationName ?? name` (case-insensitive, `localeCompare`) within the page (AD-23, R6)
-**And** the SWR key is `keys.orgs(name, page)` = `["pp","orgs",name,page]` (AD-10), where `name` is the trimmed search text
+**And** the SWR key is `keys.orgs(name, page)` = `["pp","orgs",name,page]` (AD-10), where `name` is the trimmed search text *(built: spec F1)*
 **And** `features/organizations` is the only consumer; `subdomain`, `tenantLogo.publicUrl` and every other unused DTO field are not exposed by the domain type.
 
 **Given** a signed-in user opens `/account?tab=organizations`
@@ -4332,6 +4375,7 @@ So that I can find the organization I need in a few keystrokes, or learn how to 
 
 *Amended 2026-10-14 (decisions D1, D4): the logo host check uses the per-environment `publicFilesOrigin` from `lib/shared/environments.ts`, not a `PUBLIC_FILES_ORIGIN` env var.*
 *Amended 2026-10-14 (decisions D5, D7): no `X-PP-Session` exists; the hardened route and CSP `img-src 'self' blob: data:` stay.*
+*Foundation 2026-10-14: built in spec F1 — `NO_LOGO` in `lib/shared/bff-contract.ts`, `lib/shared/safe-href.ts#safeHref`, the initials helper (see Story 10.1). Use it; do not rebuild. Remaining for this story: `/api/pp/org-logo` on the F2 named-op wrapper with image hardening, `info-popover` (F5), the card enrichment (Team B). Area files (edit only these, never the `index.ts` aggregators): allowlist `lib/server/proxy/allowlist/orgs.ts`, copy `lib/shared/messages/orgs.ts`, errors `lib/api/errors/orgs.ts`.*
 
 As Mónica, who manages a lab and a supplier on 1health,
 I want each organization card to show its logo, name, what kind of organization it is and who its primary contact is,

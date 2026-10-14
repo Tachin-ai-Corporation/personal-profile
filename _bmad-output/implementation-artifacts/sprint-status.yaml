@@ -49,10 +49,10 @@ development_status:
   1-3r-transport-and-proxy-rework: done  # 2026-10-14: covered by spec-7-0a (proxy: no CSRF/binding, {errorCode,source}, exact deny list, profile tag, ACCOUNT_DISABLED, root SWRConfig, logApiCall) on feat/NG-9019-epic-7
   1-7r-logout-and-session-expired-rework: done  # 2026-10-14: covered by spec-7-0a + 7-0b-2 (all-devices logout, navigate(), session-expired dialog only, login intent saved) on feat/NG-9019-epic-7
   1-8r-app-bar-and-shell-rework: done  # 2026-10-14: covered by spec-7-0b-1 + 7-0b-2 (page nav, primary-text span wordmark, ProfileTab/AccountTab, tokens) on feat/NG-9019-epic-7
-  1-9-profile-header-view-name-picture-and-primary-contacts: backlog  # 2026-10-14: initials-only header, keys.contactPoints, fetchContactPoints built in spec-7-0b-2. Remaining: keys.profilePictureId, Social Media entry, formatPhoneDisplay (F1); /api/pp/profile-picture-id on named-op + asImage hardening (F2); picture route, preview entry, <img> avatar (Team A)
+  1-9-profile-header-view-name-picture-and-primary-contacts: backlog  # 2026-10-14: initials-only header, keys.contactPoints, fetchContactPoints built in spec-7-0b-2. F1 (spec-f1) built keys.profilePictureId, Social Media entry, formatPhoneDisplay, lib/shared/initials. Remaining: /api/pp/profile-picture-id on named-op + asImage hardening (F2); picture route, preview entry, <img> avatar (Team A)
   1-10-change-profile-picture: backlog  # 2026-10-14: nothing built; upload entries in F2, rest Team A
-  1-11-section-framework-registry-edit-model-inline-validation-and: backlog  # 2026-10-14: registry (useRegisterSection, SaveResult/failedParts, canSave) built in spec-7-0b-2, ConfirmDialog in 7-0b-1. Remaining: final registry contract, runSaveSteps, edit primitives, DisabledAction/Tooltip, fixture Section (F3); zod message lint, telemetry (F1); RowActions/RowRemoval (Team A)
-  1-12-error-mapping-message-catalog-toasts-and-retry: backlog  # 2026-10-14: message catalog + verbatim/voice tests, mapApiError(response), read states built in spec-7-0b-1. Remaining: mapper v2 with field maps + exact-message table, catalog split (F1); toasts, Section save/load error UI (F3)
+  1-11-section-framework-registry-edit-model-inline-validation-and: backlog  # 2026-10-14: registry (useRegisterSection, SaveResult/failedParts, canSave) built in spec-7-0b-2, ConfirmDialog in 7-0b-1. Remaining: final registry contract, runSaveSteps, edit primitives, DisabledAction/Tooltip, fixture Section (F3); RowActions/RowRemoval (Team A). zod message lint + telemetry module built in spec-f1
+  1-12-error-mapping-message-catalog-toasts-and-retry: backlog  # 2026-10-14: message catalog + verbatim/voice tests, mapApiError(response), read states built in spec-7-0b-1. mapper v2 (field/coded, exact-message tables), catalog split, use-toast lint built in spec-f1. Remaining: toasts, Section save/load error UI, fixture spec (F3)
   1-13-leave-guard: backlog  # 2026-10-14: LeaveGuard, requestLeave/setLeaveGuard, beforeunload built in spec-7-0b-2. Remaining: drafts.purgeUser on Discard->Return (F4), Save via the Save-all runner (F3), scoped requestLeave({scope}) with the Sheet (Team A)
   1-14-save-all: backlog  # 2026-10-14: nothing built; runner + dirtyCount in F3, bar/pill/SAVE_ORDER Team A
   1-15-drafts-keep-unsaved-edits-across-an-expired-session: backlog  # 2026-10-14: nothing built; whole story is F4 (hooks onBeforeSessionExpired/onBeforeExit exist from 7-0b-2)
@@ -101,8 +101,10 @@ development_status:
   7-0c-1-idle-logoff-and-activity: done  # port of main Story 1.6
   # Shared foundation (approved 2026-10-14): built once before feature work by either team; see shared-foundation-plan.md
   f1-shared-contracts-and-data-layer: done
-  f2-bff-extension-kit: backlog  # absorbs former 7-0c-3 disabled screen
-  f3-section-edit-kit: backlog  # absorbs former 7-0c-2 section navigation / SectionFrame / select
+  f2-bff-extension-kit: in-progress  # absorbs former 7-0c-3 disabled screen
+  f3-1-ui-primitives-and-toasts: backlog  # Tooltip, DisabledAction, InfoIconButton, InlineBanner, StatusBadge, busy Button, FormField, input-locked, toasts, focus-ring, select port
+  f3-2-section-edit-model: backlog  # registry completion, useSectionForm, header/container/footer, KeyValueTable, runSaveSteps, Save-all runner
+  f3-3-states-and-section-navigation: backlog  # StateFrame + skeletons + nouns, forbidden-scope, SignatureThumb, SectionNav port (former 7.0c-2), panels
   f4-drafts: backlog
   f5-shared-input-controls: backlog
   7-1-account-page-route-tabs-deep-links-and-states: backlog

@@ -54,7 +54,7 @@ After each foundation spec (7.0a–7.0c-1 already done, then F1–F5) is committ
 
 ## Built so far (2026-10-14)
 
-Specs 7.0a, 7.0b-1, 7.0b-2 and 7.0c-1 are done. `epics.md` carries a dated *Foundation 2026-10-14* line on every consuming story, the context files (`epic-1`, `epic-7`…`epic-10`) have a "Foundation already built" section, and `sprint-status.yaml` marks Stories 1.1–1.7 done.
+Specs 7.0a, 7.0b-1, 7.0b-2, 7.0c-1 and F1 are done. `epics.md` carries dated *Foundation 2026-10-14* lines on every consuming story (F1 lines also name the story's own area files), the context files (`epic-1`, `epic-7`…`epic-10`) have a "Foundation already built" section, and `sprint-status.yaml` marks Stories 1.1–1.7 done.
 
 | Piece | Spec | Files / exports | Consuming stories (A = Epics 1–6, B = Epics 7–10) |
 |---|---|---|---|
@@ -77,5 +77,16 @@ Specs 7.0a, 7.0b-1, 7.0b-2 and 7.0c-1 are done. `epics.md` carries a dated *Foun
 | Leave guard | 7.0b-2 | `features/shell/leave-guard.tsx` | A: 1.13, 1.14 · B: 7.1, 7.3, 7.5, 10.3 |
 | Session-expired dialog | 7.0b-2 | `features/shell/session-dialog.tsx` | A: 1.7, 1.15 · B: 7.1, 8.x |
 | Profile header (initials only), contact-point reads | 7.0b-2 | `features/header/*`, `lib/api/contact-points.ts`, `keys.contactPoints(type)` | A: 1.9, 3.1, 3.4, 3.5 · B: 7.1, 7.6 |
+| Per-area allowlist / messages / errors files + aggregators | F1 | `lib/server/proxy/allowlist/*` (`ALLOWLIST`), `lib/shared/messages/*` (`MESSAGE_CATALOG`, `MessageKey`, `messageFor`, `formatMessage`), `lib/api/errors/*` (`ERROR_RULES`); every planned area file pre-created | all feature stories (each edits only its own area file) |
+| Full `PUT v2/user/edit` schema | F1 | `allowlist/personal.ts` (`userEditBodySchema`, `RACES`, `ETHNICITIES`, `BIOLOGICAL_GENDERS`; `email`, `phoneNumber` + `phoneNumberRegion` together) | A: 2.2, 2.3 · B: 7.5, 7.6 |
+| `Social Media` contact type, file download image entry | F1 | `allowlist/contacts.ts`, `allowlist/files.ts` (`v2/file/{fileId}/download`, `asImage`, `preview=true` forced) | A: 1.9, 2.1, 2.4, 3.1, 3.7 · B: 9.3 |
+| `Myself` domain module | F1 | `lib/api/myself.ts` (`Myself` with every planned field, `toMyself`, `fetchMyself`, `loadMyself`, `isProctor`, `isTenantMember`) | A: 2.1–2.4 · B: 7.4–7.6, 8.1, 9.3 |
+| SWR keys, revalidate helpers, fetcher registry | F1 | `lib/api/keys.ts` (`profilePictureId`, `typeKey`, `contactPoints` incl. `Social Media`, `addresses`, `insurance`, `npi`, `practiceSupport`, `orgs`; `mutateMyself`, `mutateContactPoints`), `lib/api/fetcher.ts#registerFetcher`, `primaryPhoneRegion` | A: 1.9, 1.10, 2.1, 3.x, 4.x, 5.x · B: 7.4, 7.6, 9.1, 9.3, 10.1 |
+| Error mapper v2 + codes | F1 | `mapApiError(scope, response)` → `field` / `coded` results; SSN, email-in-use, contact-duplicate, MFA, NPI rows; `mappedErrorCode`; BFF `NO_LOGO`, `NO_PRACTICE`; client `FORBIDDEN`, `MFA_NOT_ENABLED`, `TOTP_ALREADY_ENABLED`, `NPI_ALREADY_REGISTERED` | A: 1.12, 2.2, 2.3, 3.2, 3.5, 3.7, 4.x, 5.x · B: 7.5, 7.6, 8.2, 8.3, 9.2, 9.3, 10.2 |
+| Shared rules and formatters | F1 | `lib/shared/{person-rules,dates,phone,safe-href,telemetry,initials,section-ids}.ts` (header phone now via `formatPhoneDisplay`) | A: 1.9, 1.11, 1.14, 2.1, 2.2, 3.1–3.7, 5.2 · B: 7.4, 7.5, 7.6, 8.2, 9.3, 10.1, 10.2 |
+| Ownership lint | F1 | `eslint.config.mjs` + `eslint.config.test.ts` (`updateAccount` only in `features/account`, `hooks/use-toast` only in `features/shell/toasts.ts`, no zod message literals) | A: 1.11, 1.12, 2.2 · B: 7.5, 7.6 |
 
-**Epic 1 coverage:** 1.1–1.7 done; 1.8, 1.9, 1.11, 1.12, 1.13 partly (remaining work assigned to F1/F2/F3/F4/F5 or Team A in each story's Foundation line); 1.10, 1.14, 1.15, 1.16 not built. F1–F5 rows are added to this table as each spec is committed.
+**Epic 1 coverage:** 1.1–1.7 done; 1.8, 1.9, 1.11, 1.12, 1.13 partly (F1 closed its parts of 1.9, 1.11 and 1.12; none is fully covered yet) (remaining work assigned to F1/F2/F3/F4/F5 or Team A in each story's Foundation line); 1.10, 1.14, 1.15, 1.16 not built. F1–F5 rows are added to this table as each spec is committed.
+
+## F3 split (2026-10-14)
+F3 is delivered as three specs: F3-1 UI primitives and toasts → (F3-2 section edit model ∥ F3-3 states and section navigation) → F4. Story-specific variations are parameters, not decisions: cancel focus (`heading` for Profile Sections per 1.11, `edit` for 7.5), no-changes Save (`close` for 2.2, `status` "There are no changes" for 7.5), success toast text, signature fallback text ("Not provided" 2.1 / "No signature available" 9.3). Defaults chosen: toast radius per DESIGN.md token (`rounded-md`), partial toast 5 s, locked inputs `readOnly` + `aria-readonly` (focusable, with help line).
