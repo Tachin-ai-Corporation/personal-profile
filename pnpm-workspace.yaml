@@ -7,3 +7,4 @@ minimumReleaseAgeExclude:
   - postcss@8.5.30
 allowBuilds:
   unrs-resolver: false
+  esbuild: true

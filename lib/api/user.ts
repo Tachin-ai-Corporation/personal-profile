@@ -1,64 +1,39 @@
 /**
- * Client-side User API
- *
- * Replaces: app/actions/user-actions.ts
+ * =============================================================================
+ * User — the signed-in user (`GET /v2/user/myself`)
+ * =============================================================================
  */
 
-import { authFetch, getOneHealthBaseUrl } from "@/lib/auth-client"
+import { callApi, type ApiResponse } from "./client"
 
-export interface UserInfo {
+/** The signed-in user, as the app uses it. */
+export interface Myself {
   id: number
-  username: string
+  personId: number
   firstName: string
   lastName: string
-  email: string
-  roles: string[]
-  tenantContext: { id: number; name: string }
-  systemAdministrator: boolean
 }
 
-export interface MyselfResult {
-  success: boolean
-  data?: UserInfo
-  error?: string
+/** Raw wire shape (only the fields we read). */
+interface MyselfWire {
+  id?: number
+  personId?: number
+  firstName?: string | null
+  lastName?: string | null
 }
 
-export async function fetchMyself(): Promise<MyselfResult> {
-  try {
-    const baseUrl = getOneHealthBaseUrl()
-    const url = `${baseUrl}/api/v2/user/myself`
-
-    const response = await authFetch(url, { method: "GET" })
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error("[1health API] fetchMyself error:", response.status, errorText)
-      return { success: false, error: `Failed to fetch user info: ${response.status}` }
-    }
-
-    const data = await response.json()
-
-    return {
-      success: true,
-      data: {
-        id: data.id,
-        username: data.username,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        email: data.email,
-        roles: data.roles || [],
-        tenantContext: data.tenantContext,
-        systemAdministrator: data.systemAdministrator || false,
-      },
-    }
-  } catch (error) {
-    console.error("[1health API] fetchMyself exception:", error)
-    return { success: false, error: error instanceof Error ? error.message : "Unknown error" }
+function toMyself(wire: MyselfWire | undefined): Myself {
+  return {
+    id: Number(wire?.id),
+    personId: Number(wire?.personId),
+    firstName: typeof wire?.firstName === "string" ? wire.firstName : "",
+    lastName: typeof wire?.lastName === "string" ? wire.lastName : "",
   }
 }
 
-export async function isSystemAdmin(): Promise<boolean> {
-  const result = await fetchMyself()
-  if (!result.success || !result.data) return false
-  return result.data.roles.includes("System Admin") || result.data.systemAdministrator
+/** Fetch the signed-in user through the proxy. */
+export async function fetchMyself(): Promise<ApiResponse<Myself>> {
+  const res = await callApi<MyselfWire>("user/fetchMyself", "/api/1h/v2/user/myself")
+  if (!res.success) return res as ApiResponse<never>
+  return { ...res, data: toMyself(res.data) }
 }

@@ -3,169 +3,36 @@
  * 1health API — public surface
  * =============================================================================
  *
- * One import site for the whole API layer:  import { runQuery } from "@/lib/api"
+ * One import site for the whole API layer:  import { callApi } from "@/lib/api"
  *
- * When you add a new module, re-export it here under a banner so it's
- * discoverable. See docs/api/CONVENTIONS.md.
+ * `callApi` is the only browser transport (AD-19). Reads go through SWR with
+ * keys from `keys.ts` and the shared `fetcher` (AD-10).
  * =============================================================================
  */
 
-// --- Core client + shared types -------------------------------------------
-export { callApi, callApiRaw, ok, err, type ApiResponse } from "./client"
-export * from "./types"
+// --- Core client -----------------------------------------------------------
+export {
+  callApi,
+  configureClient,
+  getPortalUrl,
+  ok,
+  err,
+  ApiError,
+  type ApiResponse,
+  type CallApiInit,
+} from "./client"
+// `publish` is deliberately not re-exported: only `callApi` and the idle warning
+// (`features/shell/idle-warning.tsx`) publish (AD-19, Story 1.6).
+export { subscribe, type SessionEvent } from "./session-events"
+// Activity the server recorded (this tab or another), for the idle warning (Story 1.6).
+export { subscribeActivity, lastActivityAt } from "./activity"
+
+// --- SWR -------------------------------------------------------------------
+export { keys, type SwrKey } from "./keys"
+export { fetcher } from "./fetcher"
+
+// --- Resources -------------------------------------------------------------
+export { fetchMyself, type Myself } from "./user"
+
+// --- App config ------------------------------------------------------------
 export { endpoints, RECORD_TYPES, TYPE_REST_PATH, ATTRIBUTES } from "./config"
-
-// --- Generic engines -------------------------------------------------------
-export {
-  runQuery,
-  runQueryRows,
-  runQueryAll,
-  getRootAttr,
-  findAttr,
-  getRelated,
-  getRelatedAttr,
-  parseCustomData,
-  // RSQL filter builders
-  eq,
-  neq,
-  gt,
-  ge,
-  lt,
-  le,
-  range,
-  inList,
-  ilike,
-  contains,
-  containsI,
-  notContains,
-  like,
-  re,
-  nre,
-  jsonContains,
-  hasKey,
-  hasAnyKey,
-  hasAllKeys,
-  pathExists,
-  pathMatches,
-  and,
-  or,
-  buildFilter,
-} from "./query"
-export {
-  fetchAllTypes,
-  fetchTypeDetails,
-  prefetchTypeDetails,
-  getCachedTypeDetails,
-  clearTypeCache,
-  getRelationshipTargetType,
-  formatRelationshipPath,
-  relationshipPath,
-  operatorsForType,
-  BASELINE_ATTRIBUTES,
-  type TypeSummary,
-  type TypeDefinition,
-  type TypeAttribute,
-  type TypeRelationship,
-  type AttributeValue,
-  type AttributeType,
-} from "./schema"
-export { runGridQuery, fetchAllGridPages, type GridPageOptions } from "./grid"
-export {
-  updateCustomData,
-  appendCustomData,
-  mergeCustomData,
-  replaceCustomData,
-  readCustomData,
-  deleteCustomDataKeys,
-  appData,
-} from "./custom-data"
-
-// --- Workflows -------------------------------------------------------------
-export {
-  fetchCampaignGroupId,
-  fetchTemplateIdFromGroup,
-  resolveTemplate,
-  resolveCampaignTemplates,
-  fetchCampaignBaseTemplateId,
-  fetchWorkflowTemplate,
-  flattenTemplateNodes,
-  fetchStepConfiguration,
-  getDynamicFields,
-  findFieldByLabel,
-  resolveFieldsByLabel,
-} from "./workflow-template"
-export {
-  createJourney,
-  fetchJourney,
-  listJourneys,
-  updateJourneyStatus,
-  assignUsersToJourneys,
-  unassignUsersFromJourneys,
-  type JourneyDetail,
-} from "./journey"
-export {
-  fetchJourneySteps,
-  fetchStepInfo,
-  findStepByName,
-  findActionableStep,
-  buildStepMetadata,
-  submitStep,
-  submitStepFields,
-  submitStepWithFile,
-  deleteStepFile,
-  updateStepDueDate,
-} from "./journey-step"
-export {
-  fetchJourneyDocuments,
-  uploadStepAttachment,
-  downloadFile,
-  deleteFile,
-  type JourneyDocuments,
-} from "./attachments"
-export { fetchJourneyComments, postJourneyComment, type JourneyComment } from "./comments"
-
-// --- Campaigns & provisioning (the "define/bootstrap" side) ---------------
-export {
-  createCampaign,
-  activateCampaign,
-  shareCampaign,
-  shareCampaignWithPartner,
-  fetchCampaign,
-  fetchCampaignDashboard,
-  dashboardCountsByStatus,
-  listCampaigns,
-  findCampaignByName,
-} from "./campaign"
-export {
-  findTemplateGroupByName,
-  findPublishedTemplateByName,
-  cloneTemplateGroup,
-  getTemplateGroupDetail,
-  getDraftTemplateConfig,
-  publishDraftTemplate,
-  ensurePublishedVersion,
-  ensureTemplateGroup,
-  ensureWorkflow,
-  type EnsureWorkflowOptions,
-} from "./workflow-provisioning"
-export {
-  fetchPartnerships,
-  type PartnerOrganization,
-  type Partnership,
-  type PartnershipsPage,
-  type FetchPartnershipsOptions,
-} from "./partnerships"
-export {
-  resolveCampaignSteps,
-  updateStepConfiguration,
-  setStepNotificationEmails,
-  setStepWebhook,
-  WHEN_ON_STEP_COMPLETION,
-  MAX_NOTIFICATION_EMAILS,
-  type CampaignStep,
-  type ResolvedCampaignSteps,
-} from "./step-config"
-
-// --- Existing entity modules ----------------------------------------------
-export { fetchMyself, isSystemAdmin, type UserInfo, type MyselfResult } from "./user"
-export { fetchTenantConfig, type TenantConfig, type TenantConfigResult } from "./tenant"

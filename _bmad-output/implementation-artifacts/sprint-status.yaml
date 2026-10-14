@@ -1,0 +1,121 @@
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created, ready for development
+#   - in-progress: Developer actively working on implementation
+#   - review: Implementation complete, ready for review
+#   - done: Story completed
+
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+
+# Action Item Status:
+#   - open: Committed during a retrospective, not yet addressed
+#   - in-progress: Actively being worked on
+#   - done: Completed
+
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when its first story starts (via build's sprint sync)
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates the next story after the previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+# - Retrospective appends its action items to action_items; the status view surfaces open ones
+generated: 10-13-2026 15:00
+last_updated: 10-14-2026 10:00
+project: personal-profile
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+development_status:
+  epic-1: in-progress
+  1-1-foundation-environment-config-security-headers-test-tooling: review
+  1-2-launch-from-the-portal-and-arrive-signed-in: review
+  1-3-secure-1health-proxy-allowlist-normalization-csrf-no-store-a: review
+  1-4-callapi-transport-swr-keys-and-usemyself: review
+  1-5-client-coordinated-token-refresh: review
+  1-6-idle-logoff-activity-ping-and-cross-tab-activity: review
+  1-7-logout-and-session-expired-session-changed-dialogs: review
+  1-8-profile-page-shell-tokens-app-bar-tabs-and-section-navigatio: review
+  1-1r-foundation-and-launch-rework: review
+  1-3r-transport-and-proxy-rework: backlog
+  1-7r-logout-and-session-expired-rework: backlog
+  1-8r-app-bar-and-shell-rework: backlog
+  1-9-profile-header-view-name-picture-and-primary-contacts: backlog
+  1-10-change-profile-picture: backlog
+  1-11-section-framework-registry-edit-model-inline-validation-and: backlog
+  1-12-error-mapping-message-catalog-toasts-and-retry: backlog
+  1-13-leave-guard: backlog
+  1-14-save-all: backlog
+  1-15-drafts-keep-unsaved-edits-across-an-expired-session: backlog
+  1-16-deployments-environments-and-operations-runbooks: backlog
+  epic-1-retrospective: optional
+
+  epic-2: backlog
+  2-1-view-personal-information: backlog
+  2-2-edit-and-save-personal-information: backlog
+  2-3-ssn-entry-and-reveal: backlog
+  2-4-signature: backlog
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-contact-point-engine-and-phone-read-view: backlog
+  3-2-add-relabel-and-remove-phones: backlog
+  3-3-verify-phones: backlog
+  3-4-make-a-phone-primary-and-manage-notifications: backlog
+  3-5-view-add-relabel-and-remove-emails: backlog
+  3-6-verify-emails-make-an-email-primary-and-manage-notifications: backlog
+  3-7-manage-social-media-links: backlog
+  epic-3-retrospective: optional
+
+  epic-4: backlog
+  4-1-view-addresses: backlog
+  4-2-add-and-edit-addresses: backlog
+  4-3-address-suggestions-via-server: backlog
+  4-4-primary-address-and-removal: backlog
+  epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-view-policies-and-card-images: backlog
+  5-2-add-and-edit-a-policy: backlog
+  5-3-card-image-upload-with-retry: backlog
+  5-4-primary-per-type-with-demote-offer: backlog
+  5-5-delete-a-policy: backlog
+  epic-5-retrospective: optional
+
+  epic-6: backlog
+  epic-6-retrospective: optional
+
+  epic-7: backlog
+  7-1-account-page-route-tabs-deep-links-and-states: backlog
+  7-2-account-page-hardening-denies-kill-switch-headers-mobile-and-a: backlog
+  7-3-portal-hand-off-route: backlog
+  7-4-view-personal-account-settings: backlog
+  7-5-edit-names-birth-date-and-regional-preferences: backlog
+  7-6-switch-primary-email-and-phone: backlog
+  epic-7-retrospective: optional
+
+  epic-8: backlog
+  8-1-authenticator-status-and-app-tiles: backlog
+  8-2-link-an-authenticator-app: backlog
+  8-3-turn-off-the-authenticator-app: backlog
+  epic-8-retrospective: optional
+
+  epic-9: backlog
+  9-1-registration-state-and-npi-search: backlog
+  9-2-register: backlog
+  9-3-registered-view: backlog
+  epic-9-retrospective: optional
+
+  epic-10: backlog
+  10-1-list-search-and-pagination-of-my-organizations: backlog
+  10-2-organization-card-logo-name-types-and-primary-contact: backlog
+  10-3-enter-portal: backlog
+  epic-10-retrospective: optional

@@ -16,8 +16,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files
+# env files (the dummy-valued template is tracked)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -25,3 +26,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# test output
+/test-results/
+/playwright-report/
+/playwright/.cache/
+/coverage/

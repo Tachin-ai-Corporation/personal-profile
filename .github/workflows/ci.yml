@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Dummy values only — never real 1health credentials (AD-20). These satisfy the
+# boot-time env validator so build and e2e can run.
+env:
+  ONEHEALTH_SECRET_KEY_DEMO: dummy-demo-secret
+  ONEHEALTH_SECRET_KEY_PROD: dummy-prod-secret
+  APP_ID_DEMO: dummy-app-demo
+  APP_ID_PROD: dummy-app-prod
+  SESSION_SECRET: dummy-session-secret-0123456789abcdef
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Forbidden-pattern gate
+        run: bash scripts/check-forbidden.sh
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        run: pnpm test:e2e
+
+      - name: Build
+        run: pnpm build
