@@ -94,6 +94,12 @@ all re-skin, while the layout, density, and motion stay identical.
 > `text-green-500`) in components. Always go through a token so a rebrand stays a
 > one-file change. Legacy `slate-*` / `green-*` classes have been removed from
 > this template for exactly this reason.
+>
+> This is enforced: `scripts/check-forbidden.sh` (run by `pnpm lint` and CI)
+> fails on any hex color or palette class (`bg-red-500`, `dark:text-white`,
+> `bg-black/50`, ...) in `app/`, `components/` and `features/`, skipping
+> `app/globals.css` and `*.test.*` files. `transparent`, `current`, `inherit`
+> and the bare 1health `neutral` token are allowed.
 
 ### Per-customer theming at runtime (pattern)
 
@@ -175,10 +181,33 @@ These are what you actually use in components. Each maps to a utility such as
 | `secondary` | `#eaeff4` | charcoal | Secondary buttons |
 | `muted` / `muted-foreground` | `#edf1f5` / slate | charcoal / mist | Info panels, meta text |
 | `accent` / `accent-foreground` | clinical-ice / graphite | `#2a3c46` / clinical-ice | Hover surfaces |
-| `border` / `input` | `#e1e8ef` | `#3a4552` | Hairlines, field borders |
+| `border` / `input` | `#e1e8ef` | `#3a4552` | Hairlines only: table rules, card edges (`dark:bg-input/30` field fill). Field borders use `control-border` |
 | `ring` | brand-primary | signal-aqua | Focus rings |
-| `destructive` | error | error | Destructive actions |
-| `link` | info | signal-aqua | Text links |
+| `destructive` | error | error | Destructive accents: borders, rings, invalid states. Not a fill behind text; use `destructive-fill` |
+| `link` | info | signal-aqua | Upstream link color. Text links use `link-text` |
+| `link-text` | info-strong `#256a8c` | signal-aqua | Text links (`text-link-text`, Button `link`) |
+| `destructive-fill` | `#b23a31` | `#b23a31` | Destructive button fill behind white text |
+| `control-border` | status-neutral `#7a8696` | mist | Input / select / Jump to / Signature pad boundaries |
+| `tooltip` / `tooltip-foreground` | graphite / `#ffffff` | cloud / graphite | Tooltip surface and text |
+| `scrim` | graphite at 45 % | black at 60 % | Dialog / drawer overlay (`bg-scrim`) |
+
+### Contrast overrides (DESIGN.md deltas)
+
+Three tokens override 1health values for WCAG AA. They are to be reported
+upstream to the design-system owners, and each is kept until the upstream
+1health tokens meet the same ratios (the same rule is in the comment above the
+Tier 3 light tokens in `app/globals.css`).
+
+| Token | Replaces | Ratio (was → now) | Criterion |
+|---|---|---|---|
+| `link-text` `#256a8c` | `--link` `#2f80a8` | 4.40:1 → 5.97:1 on card | WCAG 1.4.3 text |
+| `destructive-fill` `#b23a31` | `--destructive` `#d84f45` | white text 4.10:1 → 5.93:1 | WCAG 1.4.3 text |
+| `control-border` `#7a8696` | `--input` `#e1e8ef` | 1.24:1 → 3.7:1 on card | WCAG 1.4.11 boundary |
+
+The destructive fill stays `#b23a31` in dark mode because white on the dark
+`--error-strong` (`#f08a80`) is 2.4:1. The dark `scrim` (black at 60 %, not
+graphite) is a fourth delta pending PM/design review: graphite over the graphite
+dark canvas barely dims it.
 
 ### Status utilities
 
@@ -356,14 +385,14 @@ two competing primary buttons side by side.
 **Cards** — `rounded-lg`, `shadow-sm` at rest, one clear purpose each. Group
 related info; don't exceed ~5 content groups per screen.
 
-**Inputs** — `rounded-md`, visible border, brand focus ring. Always pair with a
-`<Label>`.
+**Inputs** — `rounded-md`, visible `control-border` boundary, brand focus ring.
+Always pair with a `<Label>`.
 
 **Badges / status chips** — pill-shaped. Solid `default`/`secondary` for
 emphasis; soft `success`/`warning`/`info` for status.
 
 **Dialogs** — `rounded-lg`, `shadow-lg`, `ease-premium` entrance, dimmed
-overlay. One decision per dialog.
+`bg-scrim` overlay. One decision per dialog.
 
 **Empty states** — every empty state needs three things: **what** it is, **why**
 it's empty, and the **next action**.
@@ -388,7 +417,8 @@ The command-center feel comes as much from restraint as from styling:
 - ❌ No competing primary actions.
 - ❌ No decorative red — red means error/destructive, nothing else.
 - ❌ No ambient glow — glow is for focus/active only.
-- ❌ No hardcoded hex or `bg-*-500` palette classes in components — use tokens.
+- ❌ No hardcoded hex or `bg-*-500` palette classes in components — use tokens
+  (enforced by `scripts/check-forbidden.sh`).
 - ✅ Respect reduced motion. ✅ Meet WCAG 2.1 AA. ✅ Keep the brand lowercase.
 
 ---
