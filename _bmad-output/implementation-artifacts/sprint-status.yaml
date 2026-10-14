@@ -44,7 +44,7 @@ development_status:
   1-5-client-coordinated-token-refresh: done  # 2026-10-14: covered by spec-7-0a (refresh route, refresh-coordinator, replay rules)
   1-6-idle-logoff-activity-ping-and-cross-tab-activity: done  # 2026-10-14: covered by spec-7-0c-1 (limits, ping, activity re-seal, pp-activity channel, IdleWarning)
   1-7-logout-and-session-expired-session-changed-dialogs: done  # 2026-10-14: covered by spec-7-0a (logout + all-devices revoke, login intent) + 7-0b-2 (SessionDialog, onBeforeSessionExpired/onBeforeExit, navigate portal, requestLeave); draft flush/purge on those hooks is 1-15 (F4)
-  1-8-profile-page-shell-tokens-app-bar-tabs-and-section-navigatio: in-progress  # 2026-10-14: tokens built in spec-7-0b-1, app bar/page nav/Return/tabs/PageFrame/Medical panel in 7-0b-2. Remaining: Section menu, Jump to, scroll-spy, hash deep links, SectionFrame, Contacts/Insurance containers (F3); Select (F5); 2026-10-14: Select port (@radix-ui/react-select 2.3.7) + focus-ring utility built in spec-f3-1; Section menu/Jump to/scroll-spy/deep links/SectionFrame remain (F3-3); aria-disabled Select helper (F5)
+  1-8-profile-page-shell-tokens-app-bar-tabs-and-section-navigatio: done  # 2026-10-14: fully covered by specs 7.0b-1 (tokens), 7.0b-2 (app bar, page nav, tabs, page frame), F3-1 (select, focus-ring) and F3-3 (section menu, Jump to, scroll-spy, deep links, Contacts/Insurance panels) on feat/NG-9019-epic-7
   1-1r-foundation-and-launch-rework: review
   1-3r-transport-and-proxy-rework: done  # 2026-10-14: covered by spec-7-0a (proxy: no CSRF/binding, {errorCode,source}, exact deny list, profile tag, ACCOUNT_DISABLED, root SWRConfig, logApiCall) on feat/NG-9019-epic-7
   1-7r-logout-and-session-expired-rework: done  # 2026-10-14: covered by spec-7-0a + 7-0b-2 (all-devices logout, navigate(), session-expired dialog only, login intent saved) on feat/NG-9019-epic-7
@@ -105,7 +105,7 @@ development_status:
   f3-1-ui-primitives-and-toasts: done  # Tooltip, DisabledAction, InfoIconButton, InlineBanner, StatusBadge, busy Button, FormField, input-locked, toasts, focus-ring, select port
   f3-2-section-edit-model: done  # registry completion, useSectionForm, header/container/footer, KeyValueTable, runSaveSteps, Save-all runner
   f3-3-states-and-section-navigation: done  # StateFrame + skeletons + nouns, forbidden-scope, SignatureThumb, SectionNav port (former 7.0c-2), panels
-  f4-drafts: backlog
+  f4-drafts: in-progress
   f5-1-select-date-input-popover: in-progress  # aria-disabled Select + helper, DateInput + Calendar, Popover + info-popover
   f5-2-async-combobox: backlog  # ARIA 1.2 combobox (NPI, address, insurer, gender identity variants)
   7-1-account-page-route-tabs-deep-links-and-states: backlog
