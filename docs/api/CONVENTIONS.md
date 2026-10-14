@@ -12,23 +12,35 @@ How to add a new `lib/api/*.ts` module so it behaves like the rest.
 - `ApiResponse<T>` = `{ success, data?, error?, statusCode?, errorCode?, upstreamCode?, details? }`.
   BFF errors set `errorCode` (a string); upstream errors set `upstreamCode`
   (the backend integer) and `error` (the platform message).
-- [`endpoints`](../../lib/api/config.ts) — same-origin proxy paths
-  (`/api/1h/<path relative to the upstream /api>`). Owner ids are the literal
-  `me`.
-- [`keys`](../../lib/api/keys.ts) — every SWR key, shaped `["pp", resource, ...params]`.
+- [`proxyPath(path)`](../../lib/api/config.ts) — builds a same-origin proxy
+  path (`/api/1h/<path relative to the upstream /api>`). Each module owns its
+  own path builders (e.g. `myselfPath()`, `contactPointsPath(type)`). Owner ids
+  are the literal `me`.
+- [`keys`](../../lib/api/keys.ts) — every SWR key, shaped `["pp", resource, ...params]`
+  (every planned key is already declared), plus `mutateMyself()` and
+  `mutateContactPoints(...types)`.
+- [`registerFetcher(resource, loader)`](../../lib/api/fetcher.ts) — each module
+  registers the SWR loader of its own key family; `swrFetcher` dispatches on it.
+- [`mapApiError(sectionId, response)`](../../lib/api/errors/index.ts) — the one
+  error mapping; upstream message text is matched only in `lib/api/errors/<area>.ts`.
 
 ## Adding an endpoint
 
-1. Add an allowlist entry in `lib/server/proxy/allowlist.ts`
-   (`{ method, template, query?, body?, ... }`) and its table-test rows.
-2. Add the path builder to `endpoints` in `lib/api/config.ts`.
-3. Write the module function on `callApi("<module>/<fn>", endpoints.x(), init)`
+1. Add an allowlist entry to its area file in `lib/server/proxy/allowlist/<area>.ts`
+   (`{ method, template, query?, body?, ... }`) and rows in that area's test.
+   Every planned area file exists and is aggregated once by `allowlist/index.ts`.
+2. In the module `lib/api/<resource>.ts`, add the path builder with
+   `proxyPath(...)`.
+3. Write the module function on `callApi("<module>/<fn>", xPath(), init)`
    with a `"<module>/<fn>"` context string, and map the raw wire shape to a
-   clean domain type (zod `safeParse`, no `as` casts). See `lib/api/user.ts`.
-4. For reads, add a key to `keys.ts` and a typed fetcher to `fetchers` in
-   `fetcher.ts`.
+   clean domain type (no `as` casts; one bad optional field degrades to
+   `null`, not a failed read). See `lib/api/myself.ts`.
+4. For reads, use the key already declared in `keys.ts` and call
+   `registerFetcher("<resource>", loader)` in the module.
 5. Re-export from `lib/api/index.ts`. Import from `"@/lib/api"` everywhere.
-6. Test it with Vitest + MSW at the `/api` boundary (`test/msw-server.ts`).
+6. Copy goes in `lib/shared/messages/<area>.ts`; upstream messages your
+   feature must recognise go in `lib/api/errors/<area>.ts` (anchored `^…$`).
+7. Test it with Vitest + MSW at the `/api` boundary (`test/msw-server.ts`).
 
 ## Rules
 

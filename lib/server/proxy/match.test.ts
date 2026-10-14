@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest"
-import { ALLOWLIST, userEditBodySchema } from "./allowlist"
 import { buildUpstreamQuery, logTemplate, matchEntry, upstreamSegments } from "./match"
 import type { AllowlistEntry } from "./types"
 
@@ -55,51 +54,5 @@ describe("buildUpstreamQuery", () => {
 
   it("forces preview=true on image entries", () => {
     expect(buildUpstreamQuery(FIXTURES[4], q("preview=false"))?.toString()).toBe("preview=true")
-  })
-
-  it("accepts repeatable contact-point types from the shipped allowlist", () => {
-    const entry = ALLOWLIST[1]
-    expect(buildUpstreamQuery(entry, q("type=Email&type=Mobile&type=Landline"))?.getAll("type")).toEqual(["Email", "Mobile", "Landline"])
-    expect(buildUpstreamQuery(entry, q("type=Fax"))).toBeNull()
-  })
-})
-
-describe("shipped allowlist", () => {
-  it("ships exactly myself, contact-point/list and user/edit", () => {
-    expect(ALLOWLIST.map((e) => `${e.method} ${e.template}`)).toEqual([
-      "GET v2/user/myself",
-      "GET v2/user/contact-point/list",
-      "PUT v2/user/edit",
-    ])
-  })
-
-  it.each(["email", "phoneNumber", "phoneNumberRegion", "locale", "roleId", "receiveNotifications"])("user/edit rejects %s", (field) => {
-    expect(userEditBodySchema.safeParse({ firstName: "Ann", [field]: "x" }).success).toBe(false)
-  })
-
-  it("user/edit accepts personal fields", () => {
-    expect(userEditBodySchema.safeParse({ firstName: "Ann", lastName: "Lee", birthDate: "1990-01-31" }).success).toBe(true)
-  })
-
-  it.each([
-    [{ firstName: "A" }, true],
-    [{ firstName: "x".repeat(24) }, true],
-    [{ firstName: "" }, false],
-    [{ firstName: "x".repeat(25) }, false],
-    [{ lastName: "" }, false],
-    [{ lastName: "y".repeat(25) }, false],
-    [{ middleName: "n/a" }, true],
-    [{ middleName: "z".repeat(25) }, false],
-    [{ birthDate: "1990-01-31" }, true],
-    [{ birthDate: "n/a" }, false],
-    [{ birthDate: "01/31/1990" }, false],
-    [{ socialSecurityNumber: "123-45-6789" }, true],
-    [{ socialSecurityNumber: "123456789" }, true],
-    [{ socialSecurityNumber: "n/a" }, true],
-    [{ socialSecurityNumber: "12-345-6789" }, false],
-    [{ socialSecurityNumber: "12345678" }, false],
-    [{ socialSecurityNumber: "123-45-678x" }, false],
-  ])("user/edit %j → valid: %s", (body, expected) => {
-    expect(userEditBodySchema.safeParse(body).success).toBe(expected)
   })
 })

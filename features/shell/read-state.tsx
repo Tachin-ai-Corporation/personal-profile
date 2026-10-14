@@ -76,8 +76,11 @@ export function ReadStateFor({ error, onRetry, className }: ReadStateForProps): 
       return null
     case "forbidden":
       return <NoAccess className={className} />
+    // A read has no field to show `field`/`coded` at: the load error with Retry.
     case "generic":
     case "network":
+    case "field":
+    case "coded":
       return <LoadError onRetry={onRetry} className={className} />
   }
 }

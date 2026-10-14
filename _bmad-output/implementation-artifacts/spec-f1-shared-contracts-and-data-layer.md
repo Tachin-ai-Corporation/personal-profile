@@ -2,7 +2,8 @@
 title: 'F1 Shared contracts and data layer'
 type: 'refactor'
 created: '2026-10-14'
-status: 'draft'
+status: 'done'
+baseline_commit: '5f89aef3d3a9afb0bcc60332728889d92dbb9779'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -66,12 +67,12 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `lib/server/proxy/allowlist/*` (+tests) -- split, full `user/edit` schema, contact-point `Social Media`, file download entry.
-- [ ] `lib/shared/messages/*` + `messages.test.ts` -- split catalog, person messages.
-- [ ] `lib/api/myself.ts` (replaces `user.ts`), `keys.ts`, `fetcher.ts`, `config.ts`, `contact-points.ts`, `index.ts` (+tests) -- domain module, keys, revalidate helpers, fetcher registry.
-- [ ] `lib/api/errors/*`, `errors-codes.ts`, `lib/shared/bff-contract.ts` (+table tests) -- mapper v2 and codes; migrate callers.
-- [ ] `lib/shared/{person-rules,dates,phone,safe-href,telemetry,initials}.ts` (+tests) -- shared rules and formatters; header uses `formatPhoneDisplay`.
-- [ ] `eslint.config.mjs` (+ a lint fixture test) -- ownership rules.
+- [x] `lib/server/proxy/allowlist/*` (+tests) -- split, full `user/edit` schema, contact-point `Social Media`, file download entry.
+- [x] `lib/shared/messages/*` + `messages.test.ts` -- split catalog, person messages.
+- [x] `lib/api/myself.ts` (replaces `user.ts`), `keys.ts`, `fetcher.ts`, `config.ts`, `contact-points.ts`, `index.ts` (+tests) -- domain module, keys, revalidate helpers, fetcher registry.
+- [x] `lib/api/errors/*`, `errors-codes.ts`, `lib/shared/bff-contract.ts` (+table tests) -- mapper v2 and codes; migrate callers.
+- [x] `lib/shared/{person-rules,dates,phone,safe-href,telemetry,initials}.ts` (+tests) -- shared rules and formatters; header uses `formatPhoneDisplay`.
+- [x] `eslint.config.mjs` (+ a lint fixture test) -- ownership rules.
 
 **Acceptance Criteria:**
 - Given two stories adding an allowlist entry, a message group and an error table for different areas, when both land, then they touch different files only.
@@ -90,6 +91,38 @@ The backend's error body is `{message, code:int}` where `code` is the HTTP statu
 
 ## Implementation Notes
 
+- **Errors:** `MappedError` adds `field{field, messageKey}` (`messageKey` is a typed `"<group>.<key>"` catalog reference, resolved with `messageFor()`) and `coded{code}`. Field names: SSN taken → `personal` / `field:"ssn"` / `person.ssnTaken`; email in use → `account` / `field:"primaryEmail"` / `account.primaryEmailInUse`; contact duplicates (`PERSON_ALREADY_HAS_CONTACT_POINT_ERROR`, `CONTACT_POINTS_DUPLICATE_FOUND`) → `phone|email|social` / `field:"value"`. Rows match only for their own scope and only on an upstream 4xx (`MfaServiceImpl` throws `IllegalStateException` → 400/409). `ErrorScope` = shell `SectionId` ∪ `authenticator|provider|organizations|page` (lib/api can't import features). `mappedErrorCode()` gives the PHI-free `section_save` code (`FORBIDDEN`, …). `NPI_ALREADY_REGISTERED` doesn't say which NPI (Story 9.2 decides the field from its own request).
+- **Messages:** besides the listed area files, `contacts.ts` and `account.ts` hold the copy the error tables reference (`duplicatePhone` verbatim; `duplicateEmail`, `duplicateSocial`, `primaryEmailInUse` DRAFT COPY). `PERSON_MESSAGES.ageRange` is one `{min}`/`{max}` template matching both verbatim strings.
+- **Allowlist:** `PUT v2/user/edit` lives in `allowlist/personal.ts` (shared with Team B); `account.ts` is empty until single-story entries land. `phoneNumber` and `phoneNumberRegion` must come together in both directions. File entry template is `v2/file/{fileId}/download`.
+- **Keys/fetchers:** each module calls `registerFetcher(resource, loader)` at load; `@/lib/api` still exports `fetchers` (now composed in `index.ts`) and drops the `endpoints` aggregate (modules own `myselfPath()`, `contactPointsPath()`, via `proxyPath()`). `mutateMyself`/`mutateContactPoints` load SWR's global `mutate` on call, because `lib/api` is also imported by Server Components where `swr`'s `react-server` build has no `mutate`.
+- **Lint:** `components/ui/toaster.tsx` (the shadcn renderer) and `hooks/use-toast.ts` itself are exempt from the `use-toast` ban; fixture test is `eslint.config.test.ts`.
+- **Review fixes (2026-10-14):** every planned area file is pre-created (allowlist, messages, errors) and aggregated once; aggregator tests derive from the folders. `toMyself` reads each field on its own (only an integer `id` is required). Proxy person text fields use `lib/shared/person-rules#textIssue` (trimmed, code points, printable incl. `\p{Cf}`) and forward trimmed values; `phoneNumber` is `^\+?[0-9 ()-]{4,32}$`. Age check follows the backend's actual `OneHealthUtil.validateDate` (`today.minusYears(max) ≤ birth ≤ today.minusYears(min)`, Java `minusYears`): Feb 29 birthdays match `Period.between` (new age on Mar 1), and exactly 120 passes while 120 y 364 d is rejected, as the backend does. `SectionId` moved to `lib/shared/section-ids.ts`; telemetry payloads use closed unions and swallow sink errors. `registerFetcher` throws on a second loader for a family except under `next dev` (Fast Refresh). Every +1 number gets the `+1 (NXX) NXX-XXXX` style.
+- **Header:** the only behaviour change: the primary phone is shown through `formatPhoneDisplay(value, row.phoneNumberRegion)` (e2e expectation updated).
+
 ## Spec Change Log
 
 ## Review Triage Log
+
+Review pass 1 (2026-10-14; Blind Hunter, Edge Case Hunter, Verification Gap).
+
+| # | Finding | Verdict | Route |
+|---|---|---|---|
+| 1 | Aggregators/tests still force cross-story edits (hard-coded lists) | high | patch (pre-created area files, folder-derived tests) |
+| 2 | One bad optional myself field drops the whole user | medium | patch (per-field degrade) |
+| 3 | Client vs proxy name length counting differ; invisible chars accepted | medium | patch (shared trim + code points, \p{Cf}) |
+| 4 | `phoneNumber` unvalidated in proxy | low | patch |
+| 5 | `updateAccount` lint bypassable (relative / dynamic import) | medium | patch |
+| 6 | Zod-literal lint misses and false positives | medium | patch |
+| 7 | Telemetry payloads accept any string; sink can throw | low | patch (literal unions, shared SectionId) |
+| 8 | `field` untyped, NPI regex unanchored, missing near-miss tests | low | patch |
+| 9 | Fetcher registry silent overwrite / test leakage | low | patch |
+| 10 | `primaryPhoneRegion` semantics (type null, raw compare) | low | patch |
+| 11 | +1 numbers formatted inconsistently | low | patch |
+| 12 | Missing 120-year and Feb 29 edge tests | low | patch (backend `minusYears` semantics) |
+| 13 | `URL.canParse` unsupported in older browsers | low | patch |
+| 14 | Header region test can't detect a dropped region | medium | patch (national-format case) |
+| 15 | Docs point to removed modules | low | patch |
+| 16 | `PUT user/edit` now accepts email/phone at the BFF | low | reject (Story 7.6 requires it; AD-9 ownership enforced by lint, bypasses closed) |
+| 17 | Malformed birthDate collapses to null like "withheld" | low | reject (backend always sends YYYY-MM-DD) |
+| 18 | Schema lint block replaces shell exemptions in a future shell schema.ts | low | reject (no such file planned) |
+

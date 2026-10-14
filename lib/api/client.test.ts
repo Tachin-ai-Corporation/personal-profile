@@ -97,7 +97,7 @@ describe("callApi transport", () => {
     const res = await freshClient()("ctx", "/api/1h/x")
     expect(res).toMatchObject({ success: false, statusCode: 403, source: "proxy" })
     expect(res.errorCode).toBeUndefined()
-    expect(mapApiError(res)).toEqual({ kind: "generic" })
+    expect(mapApiError("page", res)).toEqual({ kind: "generic" })
   })
 
   it("keeps the user-safe message and retryable:false of an unknown-code proxy body", async () => {

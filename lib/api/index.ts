@@ -1,7 +1,12 @@
 /**
  * The client API layer's public surface. Import from `@/lib/api`.
- * Every call is same-origin through `callApi` (AD-19).
+ * Every call is same-origin through `callApi` (AD-19). Each resource module
+ * (`myself.ts`, `contact-points.ts`, …) owns its paths and registers its SWR
+ * fetcher; importing it from here is what registers it.
  */
+
+import { loadContactPoints } from "./contact-points"
+import { loadMyself } from "./myself"
 
 export {
   callApi,
@@ -14,8 +19,23 @@ export {
 } from "./client"
 export { activity, createActivity, ACTIVITY_CHANNEL, type Activity, type ActivityListener } from "./activity"
 export type { ApiResponse } from "./types"
-export { parseErrorBody, type ApiErrorCode, type ClientErrorCode, type ParsedError } from "./errors-codes"
-export { mapApiError, mapFetchError, type MappedError } from "./errors"
+export {
+  parseErrorBody,
+  type ApiErrorCode,
+  type ClientErrorCode,
+  type DerivedErrorCode,
+  type ParsedError,
+} from "./errors-codes"
+export {
+  ERROR_RULES,
+  mapApiError,
+  mapFetchError,
+  mappedErrorCode,
+  type ErrorField,
+  type ErrorScope,
+  type MappedError,
+  type MessageRule,
+} from "./errors"
 export {
   sessionEvents,
   createSessionEvents,
@@ -23,19 +43,46 @@ export {
   type SessionEventListener,
   type SessionEvents,
 } from "./session-events"
-export { keys, isSwrKey, type SwrKey } from "./keys"
-export { ApiResponseError, fetchers, swrFetcher, unwrap } from "./fetcher"
-export { endpoints } from "./config"
-export { fetchMyself, toMyself, type Myself } from "./user"
+export {
+  keys,
+  isSwrKey,
+  mutateContactPoints,
+  mutateMyself,
+  SWR_RESOURCES,
+  type SwrKey,
+  type SwrResource,
+} from "./keys"
+export { ApiResponseError, registerFetcher, swrFetcher, unwrap, type SwrLoader } from "./fetcher"
+export { proxyPath } from "./config"
+export {
+  fetchMyself,
+  isProctor,
+  isTenantMember,
+  loadMyself,
+  myselfPath,
+  toMyself,
+  type Myself,
+  type MyselfSignature,
+  type MyselfTenant,
+} from "./myself"
 export {
   CONTACT_POINT_TYPES,
   PRIMARY_LABEL,
+  contactPointsPath,
   fetchContactPoints,
   findPrimary,
   isContactPointType,
+  loadContactPoints,
+  primaryPhoneRegion,
   toContactPoints,
   type ContactPoint,
   type ContactPointType,
 } from "./contact-points"
 export { startSession, endSession, recordUserActivity, type LaunchAttempt } from "./session"
 export { logApiCall, redact, type ApiCallLog } from "./log-api-call"
+
+/** Typed loaders, one per registered key family. Hooks pass these to `useSWR`. */
+export const fetchers = {
+  myself: loadMyself,
+  contactPoints: loadContactPoints,
+} as const

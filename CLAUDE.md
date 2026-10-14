@@ -34,7 +34,7 @@ Read `docs/AUTH-ARCHITECTURE.md` and the architecture spine (`_bmad-output/plann
 ### Layers (lint-enforced in `eslint.config.mjs`)
 - `lib/server/` — server-only (`import "server-only"`): `env.ts`, `session/`, `launch/`, `proxy/`, `security/`, `http/`, `log.ts`. The only code that calls `fetch` upstream.
 - `lib/api/` — client transport and typed modules; same-origin `/api/*` only. `fetch(` is allowed only in `lib/api/client.ts`.
-- `lib/shared/` — pure and isomorphic (`environments.ts`, `bff-contract.ts`, `app-env.ts`, `login-intent.ts`, `messages.ts`). Imports nothing else from the app.
+- `lib/shared/` — pure and isomorphic (`environments.ts`, `bff-contract.ts`, `app-env.ts`, `login-intent.ts`, `messages/<area>.ts`, `section-ids.ts`, `person-rules.ts`, `dates.ts`, `phone.ts`, `safe-href.ts`, `telemetry.ts`, `initials.ts`). Imports nothing else from the app.
 - `features/<id>/` — Section features; may import `lib/api`, `lib/shared`, `components/ui` and `features/shell` only. `features/shell` is the shell.
 - `components/ui/` — shadcn/ui on the 1health tokens (`components.json`).
 
@@ -45,7 +45,8 @@ Read `docs/AUTH-ARCHITECTURE.md` and the architecture spine (`_bmad-output/plann
 - Refresh is client-coordinated: the proxy answers `401 TOKEN_EXPIRED`; `callApi` calls `/api/session/refresh` once (single-flight + `navigator.locks`) and replays. `POST`/`GET /api/session/logout` revokes best-effort (`<apiRoot>/auth/user/logout/all-devices`) and clears the cookie.
 
 ### Proxy and API layer (always import from `"@/lib/api"`)
-- All 1health traffic goes through `/api/1h/<path relative to upstream /api>`. Adding an endpoint = adding an entry to `lib/server/proxy/allowlist.ts` (with table tests) in the same change. Owner ids are the literal `me`.
+- All 1health traffic goes through `/api/1h/<path relative to upstream /api>`. Adding an endpoint = adding an entry to its area file `lib/server/proxy/allowlist/<area>.ts` (with that area's tests) in the same change. Owner ids are the literal `me`.
+- Each `lib/api/<resource>.ts` owns its paths (`proxyPath()`) and registers its SWR loader (`registerFetcher`); `lib/api/myself.ts` is the `Myself` domain module. Errors: `mapApiError(sectionId, response)`; upstream message text is matched only in `lib/api/errors/<area>.ts`. Copy: `lib/shared/messages/<area>.ts`.
 - `callApi(context, path, init)` never throws and returns `ApiResponse<T> = { success, data?, error?, statusCode?, errorCode?, upstreamCode?, details? }`. BFF errors are `{ errorCode, source: "proxy" }`; upstream errors pass through as `{ message, code }`.
 - SWR keys come only from `lib/api/keys.ts` (`["pp", ...]`); one root `SWRConfig` (`features/shell/swr-provider.tsx`). `useMyself()` reads `["pp","myself"]`.
 - Session signal: `lib/api/session-events.ts` (`session-expired` only), published once by `callApi`.

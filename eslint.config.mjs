@@ -40,17 +40,57 @@ const ban = {
     selector: "JSXAttribute[name.name='href'] Identifier[name=/portalUrl/i]",
     message: "Links to the portal go through features/shell navigate() (AD-26).",
   },
+  /** AD-9: a dynamic import could reach `updateAccount()` around the import rule. */
+  dynamicAccount: {
+    selector: "ImportExpression[source.value=/(^|\\/)lib\\/api(\\/index|\\/account)?(\\.ts)?$/]",
+    message: "lib/api is imported statically; updateAccount() is importable only in features/account (AD-9).",
+  },
   inlineSwrKey: {
     selector: "CallExpression[callee.name=/^(useSWR|useSWRImmutable|mutate)$/][arguments.0.type='ArrayExpression']",
     message: "Build SWR keys with lib/api/keys.ts (AD-10).",
   },
 }
 
+/**
+ * Zod messages come from the catalog (AD-11): in every feature `schema.ts` a
+ * string or template literal (also inside a conditional, `||`/`??`, or
+ * returned from an error function) may not be a message. Only zod's
+ * message-taking positions are checked, so `.padStart(2, "0")` or
+ * `.replace(x, " ")` are fine.
+ */
+const ZOD_LITERAL_MESSAGE = "Zod messages come from the message catalog (lib/shared/messages), not string literals (AD-11)."
+const LITERALS = ["Literal[raw=/^[\"']/]", "TemplateLiteral"]
+/** A literal at `node`, or as a branch of a conditional / logical expression at `node`. */
+const literalAt = (parent, position = "") =>
+  LITERALS.flatMap((literal) => [
+    `${parent} > ${literal}${position}`,
+    `${parent} > ConditionalExpression${position} > ${literal}`,
+    `${parent} > LogicalExpression${position} > ${literal}`,
+  ])
+/** Methods whose only argument is the message (`.email("x")`). */
+const MESSAGE_FIRST = "nonempty|email|url|uuid|guid|cuid|cuid2|ulid|nanoid|emoji|ipv4|ipv6|e164|jwt|base64|hostname|int|positive|negative|nonnegative|nonpositive|finite|safe|date|datetime|time|duration"
+/** Methods whose second argument is the message (`.min(1, "x")`). */
+const MESSAGE_SECOND = "min|max|length|size|regex|startsWith|endsWith|includes|gt|gte|lt|lte|multipleOf|step|refine|literal|enum"
+/** `z.<type>("x")` constructors that take the message first. */
+const Z_TYPES = "string|number|boolean|bigint|symbol|date|nan|email|url|uuid|guid|cuid|cuid2|ulid|nanoid|emoji|ipv4|ipv6|e164|jwt|base64|hostname|int|int32|float32|float64"
+const MESSAGE_PROPERTY = "Property[key.name=/^(message|error)$/]"
+const zodLiteralMessages = [
+  ...literalAt(`CallExpression[callee.property.name=/^(${MESSAGE_FIRST})$/]`, ":nth-child(1)"),
+  ...literalAt(`CallExpression[callee.property.name=/^(${MESSAGE_SECOND})$/]`, ":nth-child(2)"),
+  ...literalAt(`CallExpression[callee.object.name='z'][callee.property.name=/^(${Z_TYPES})$/]`, ":nth-child(1)"),
+  ...literalAt("CallExpression[callee.object.name='z']", ":nth-child(2)"),
+  ...literalAt("CallExpression[callee.object.property.name=/^(coerce|iso)$/]", ":nth-child(1)"),
+  ...literalAt(MESSAGE_PROPERTY),
+  ...literalAt(`${MESSAGE_PROPERTY} > :function`),
+  ...literalAt(`${MESSAGE_PROPERTY} :function ReturnStatement`),
+].map((selector) => ({ selector, message: ZOD_LITERAL_MESSAGE }))
+
 const syntax = (...rules) => ["error", ...rules]
 const ALL = Object.values(ban)
 const without = (...names) => Object.entries(ban).filter(([name]) => !names.includes(name)).map(([, rule]) => rule)
 
-const imports = (...patterns) => ["error", { patterns }]
+/** `no-restricted-imports` options: pattern groups plus exact-name `paths` (a block's options replace earlier blocks'). */
+const imports = (patterns, paths = []) => ["error", { patterns, paths }]
 const group = (list, message) => ({ group: list, message })
 
 const SERVER_ONLY = group(["@/lib/server", "@/lib/server/*", "server-only"], "lib/server is server-only.")
@@ -58,6 +98,16 @@ const FEATURES = group(["@/features", "@/features/*"], "This layer may not impor
 const CLIENT_API = group(["@/lib/api", "@/lib/api/*"], "This layer may not import lib/api.")
 const APP = group(["@/app", "@/app/*"], "Nothing imports from app/.")
 const COMPONENTS = group(["@/components", "@/components/*"], "This layer may not import components.")
+/**
+ * AD-9: `updateAccount()` is the sole builder of email/phoneNumber/phoneNumberRegion;
+ * only features/account imports it — by alias or relative path, from the
+ * module or the lib/api index (dynamic imports: the `dynamicAccount` ban).
+ */
+const UPDATE_ACCOUNT_MESSAGE = "updateAccount() is importable only in features/account (AD-9)."
+const ACCOUNT_MODULE = { regex: "(^|/)lib/api/account(\\.ts)?$", message: UPDATE_ACCOUNT_MESSAGE }
+const UPDATE_ACCOUNT = { regex: "(^|/)lib/api(/index(\\.ts)?)?$", importNames: ["updateAccount"], message: UPDATE_ACCOUNT_MESSAGE }
+/** Toasts go through features/shell/toasts.ts (Story 1.12); `components/ui/toaster.tsx` renders them. */
+const TOAST = { name: "@/hooks/use-toast", message: "Use the toast helpers of features/shell (toasts.ts); only it imports hooks/use-toast." }
 const OTHER_FEATURES = group(
   ["@/features/*", "!@/features/shell", "!@/features/shell/*"],
   "Features import only features/shell (relative imports inside a feature).",
@@ -104,18 +154,43 @@ const eslintConfig = [
   },
 
   // --- Import boundaries ---------------------------------------------------
+  { files: ["**/*.{ts,tsx,js,jsx,mjs}"], rules: { "no-restricted-imports": imports([ACCOUNT_MODULE, UPDATE_ACCOUNT], [TOAST]) } },
   {
     files: ["lib/shared/**"],
-    rules: { "no-restricted-imports": imports(SERVER_ONLY, FEATURES, CLIENT_API, APP, COMPONENTS) },
+    rules: { "no-restricted-imports": imports([SERVER_ONLY, FEATURES, CLIENT_API, APP, COMPONENTS, ACCOUNT_MODULE, UPDATE_ACCOUNT], [TOAST]) },
   },
-  { files: ["lib/api/**"], rules: { "no-restricted-imports": imports(SERVER_ONLY, FEATURES, APP, COMPONENTS) } },
-  { files: ["lib/server/**"], rules: { "no-restricted-imports": imports(FEATURES, CLIENT_API, APP, COMPONENTS) } },
-  { files: ["features/**"], rules: { "no-restricted-imports": imports(SERVER_ONLY, APP, OTHER_FEATURES) } },
-  { files: ["components/**", "hooks/**"], rules: { "no-restricted-imports": imports(SERVER_ONLY, FEATURES, APP) } },
+  { files: ["lib/api/**"], rules: { "no-restricted-imports": imports([SERVER_ONLY, FEATURES, APP, COMPONENTS], [TOAST]) } },
+  { files: ["lib/server/**"], rules: { "no-restricted-imports": imports([FEATURES, CLIENT_API, APP, COMPONENTS, ACCOUNT_MODULE, UPDATE_ACCOUNT], [TOAST]) } },
+  {
+    files: ["features/**"],
+    rules: { "no-restricted-imports": imports([SERVER_ONLY, APP, OTHER_FEATURES, ACCOUNT_MODULE, UPDATE_ACCOUNT], [TOAST]) },
+  },
+  { files: ["features/account/**"], rules: { "no-restricted-imports": imports([SERVER_ONLY, APP, OTHER_FEATURES], [TOAST]) } },
+  {
+    files: ["features/account/**"],
+    ignores: ["**/*.test.{ts,tsx}"],
+    rules: { "no-restricted-syntax": syntax(...without("dynamicAccount")) },
+  },
+  {
+    files: ["features/shell/toasts.ts"],
+    rules: { "no-restricted-imports": imports([SERVER_ONLY, APP, OTHER_FEATURES, ACCOUNT_MODULE, UPDATE_ACCOUNT]) },
+  },
+  {
+    files: ["components/**", "hooks/**"],
+    rules: { "no-restricted-imports": imports([SERVER_ONLY, FEATURES, APP, ACCOUNT_MODULE, UPDATE_ACCOUNT], [TOAST]) },
+  },
   {
     files: ["components/ui/**"],
-    rules: { "no-restricted-imports": imports(SERVER_ONLY, FEATURES, APP, CLIENT_API) },
+    rules: { "no-restricted-imports": imports([SERVER_ONLY, FEATURES, APP, CLIENT_API, ACCOUNT_MODULE, UPDATE_ACCOUNT], [TOAST]) },
   },
+  // The shadcn toast renderer and the hook itself.
+  {
+    files: ["components/ui/toaster.tsx", "hooks/use-toast.ts"],
+    rules: { "no-restricted-imports": imports([SERVER_ONLY, FEATURES, APP, CLIENT_API, ACCOUNT_MODULE, UPDATE_ACCOUNT]) },
+  },
+
+  // --- Zod schemas take their messages from the catalog (AD-11) ------------
+  { files: ["features/**/schema.ts"], rules: { "no-restricted-syntax": syntax(...ALL, ...zodLiteralMessages) } },
 ]
 
 export default eslintConfig

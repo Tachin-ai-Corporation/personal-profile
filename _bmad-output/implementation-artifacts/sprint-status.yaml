@@ -100,7 +100,7 @@ development_status:
   7-0b-2-shell-navigation: done
   7-0c-1-idle-logoff-and-activity: done  # port of main Story 1.6
   # Shared foundation (approved 2026-10-14): built once before feature work by either team; see shared-foundation-plan.md
-  f1-shared-contracts-and-data-layer: in-progress
+  f1-shared-contracts-and-data-layer: done
   f2-bff-extension-kit: backlog  # absorbs former 7-0c-3 disabled screen
   f3-section-edit-kit: backlog  # absorbs former 7-0c-2 section navigation / SectionFrame / select
   f4-drafts: backlog

@@ -9,7 +9,7 @@ import { keys } from "@/lib/api"
 import { stubViewport } from "@/test/media"
 import { server } from "@/test/msw-server"
 import { TestProviders } from "@/test/providers"
-import { displayName, initials, ProfileHeader } from "."
+import { displayName, ProfileHeader } from "."
 
 const MYSELF = "/api/1h/v2/user/myself"
 const LIST = "/api/1h/v2/user/contact-point/list"
@@ -64,17 +64,7 @@ describe("names", () => {
     expect(displayName({ firstName: " Ann ", lastName: "Lee", username: "u" })).toBe("Ann Lee")
     expect(displayName({ firstName: "Ann", lastName: "", username: "u" })).toBe("Ann")
     expect(displayName({ firstName: " ", lastName: "", username: " ann.lee " })).toBe("ann.lee")
-  })
-
-  it("builds one or two uppercase initials", () => {
-    expect(initials({ firstName: "ann", lastName: "lee" })).toBe("AL")
-    expect(initials({ firstName: "", lastName: "lee" })).toBe("L")
-    expect(initials({ firstName: " ", lastName: "" })).toBe("")
-  })
-
-  it("never splits an astral character into a lone surrogate", () => {
-    expect(initials({ firstName: "😀nn", lastName: "𝒜lee" })).toBe("😀𝒜")
-    expect(initials({ firstName: "😀", lastName: "" })).toBe("😀")
+    expect(displayName({ firstName: null, lastName: null, username: null })).toBe("")
   })
 })
 
@@ -130,11 +120,35 @@ describe("ProfileHeader", () => {
       Email: [{ id: 3, value: "ann@example.com", label: "Primary", type: "Email" }],
     })
     setup()
-    expect(await screen.findByText("+14155552125")).toBeTruthy()
+    expect(await screen.findByText("+1 (415) 555-2125")).toBeTruthy()
     expect(await screen.findByText("ann@example.com")).toBeTruthy()
     expect(screen.getByText("Primary phone")).toBeTruthy()
     expect(screen.getByText("Primary email")).toBeTruthy()
     expect(seen.toSorted()).toEqual(["Email", "Landline", "Mobile"])
+  })
+
+  it("formats the primary phone with its own row's region", async () => {
+    stubViewport(1280)
+    myself()
+    contacts({ Mobile: [{ id: 2, value: "+442071838750", label: "Primary", type: "Mobile", phoneNumberRegion: "GB" }], Landline: [], Email: [] })
+    setup()
+    expect(await screen.findByText("+44 20 7183 8750")).toBeTruthy()
+  })
+
+  it("formats a national-format primary phone with its row's region", async () => {
+    stubViewport(1280)
+    myself()
+    contacts({ Mobile: [{ id: 2, value: "02071838750", label: "Primary", type: "Mobile", phoneNumberRegion: "GB" }], Landline: [], Email: [] })
+    setup()
+    expect(await screen.findByText("+44 20 7183 8750")).toBeTruthy()
+  })
+
+  it("shows an unparsable primary phone as stored", async () => {
+    stubViewport(1280)
+    myself()
+    contacts({ Mobile: [{ id: 2, value: "12", label: "Primary", type: "Mobile", phoneNumberRegion: "n/a" }], Landline: [], Email: [] })
+    setup()
+    expect(await screen.findByText("12")).toBeTruthy()
   })
 
   it("takes the primary phone from Landline when Mobile has none", async () => {
@@ -142,7 +156,7 @@ describe("ProfileHeader", () => {
     myself()
     contacts({ Mobile: [], Landline: [{ id: 4, value: "+12125550100", label: "Primary" }], Email: [] })
     setup()
-    expect(await screen.findByText("+12125550100")).toBeTruthy()
+    expect(await screen.findByText("+1 (212) 555-0100")).toBeTruthy()
     expect(screen.queryByText("Primary email")).toBeNull()
   })
 
@@ -165,10 +179,10 @@ describe("ProfileHeader", () => {
     setup()
     await screen.findByRole("heading", { level: 1, name: "Ann Lee" })
     await act(async () => new Promise((resolve) => setTimeout(resolve, 20)))
-    expect(screen.queryByText("+12125550100")).toBeNull()
+    expect(screen.queryByText("+1 (212) 555-0100")).toBeNull()
     releaseMobile()
-    expect(await screen.findByText("+14155552125")).toBeTruthy()
-    expect(screen.queryByText("+12125550100")).toBeNull()
+    expect(await screen.findByText("+1 (415) 555-2125")).toBeTruthy()
+    expect(screen.queryByText("+1 (212) 555-0100")).toBeNull()
   })
 
   it("follows the viewport across 768 px both ways, fetching only on desktop", async () => {

@@ -1,15 +1,14 @@
 import { http, HttpResponse } from "msw"
 import { describe, expect, it, vi } from "vitest"
 import { server } from "@/test/msw-server"
-import { endpoints } from "./config"
+import { proxyPath } from "./config"
 import { parseErrorBody } from "./errors-codes"
-import { ApiResponseError, fetchers, swrFetcher, unwrap } from "./fetcher"
+import { ApiResponseError, registerFetcher, swrFetcher, unregisterFetcher, unwrap } from "./fetcher"
 import { isSwrKey, keys } from "./keys"
 import { browserLocks, createRefreshCoordinator, REFRESH_LOCK } from "./refresh-coordinator"
 import { activity } from "./activity"
 import { endSession, recordUserActivity, startSession } from "./session"
 import { createSessionEvents, sessionEvents } from "./session-events"
-import { fetchMyself, toMyself } from "./user"
 
 describe("session events", () => {
   it("publishes each event at most once per page lifetime and supports unsubscribe", () => {
@@ -105,33 +104,7 @@ describe("keys", () => {
     expect(isSwrKey(["pp", "myself"])).toBe(true)
     expect(isSwrKey(["x", "myself"])).toBe(false)
     expect(isSwrKey("pp")).toBe(false)
-    expect(endpoints.myself()).toBe("/api/1h/v2/user/myself")
-  })
-})
-
-describe("user", () => {
-  it("maps the wire shape to Myself with safe defaults", () => {
-    expect(toMyself({ id: 1, personId: 2, firstName: "Ann", lastName: null, roles: ["Patient"] })).toEqual({
-      id: 1,
-      personId: 2,
-      username: "",
-      firstName: "Ann",
-      lastName: "",
-      email: "",
-      roles: ["Patient"],
-    })
-    expect(toMyself({ id: "1" })).toBeNull()
-    expect(toMyself({ id: 3, personId: null })?.personId).toBeNull()
-    expect(toMyself({ id: 3 })?.personId).toBeNull()
-  })
-
-  it("fetchMyself returns the domain type, the error, or a shape error", async () => {
-    server.use(http.get("/api/1h/v2/user/myself", () => HttpResponse.json({ id: 1, personId: 2, firstName: "A", lastName: "B" })))
-    expect((await fetchMyself()).data).toMatchObject({ firstName: "A", lastName: "B" })
-    server.use(http.get("/api/1h/v2/user/myself", () => HttpResponse.json({ errorCode: "UPSTREAM_ERROR", source: "proxy" }, { status: 502 })))
-    expect(await fetchMyself()).toMatchObject({ success: false, errorCode: "UPSTREAM_ERROR", data: undefined })
-    server.use(http.get("/api/1h/v2/user/myself", () => HttpResponse.json({ nope: true })))
-    expect(await fetchMyself()).toMatchObject({ success: false, statusCode: 200 })
+    expect(proxyPath("v2/user/myself")).toBe("/api/1h/v2/user/myself")
   })
 })
 
@@ -143,13 +116,28 @@ describe("fetcher", () => {
     await expect(unwrap(Promise.resolve({ success: false }))).rejects.toThrow("Request failed")
   })
 
-  it("dispatches SWR keys to typed fetchers", async () => {
-    server.use(http.get("/api/1h/v2/user/myself", () => HttpResponse.json({ id: 1, personId: 2 })))
-    expect(await swrFetcher(keys.myself())).toMatchObject({ id: 1 })
-    expect(await fetchers.myself()).toMatchObject({ personId: 2 })
+  it("dispatches SWR keys to the loader each module registered", async () => {
+    const load = async (key: readonly unknown[]) => ["loaded", ...key]
+    registerFetcher("npi", load)
+    registerFetcher("npi", load)
+    expect(await swrFetcher(keys.npi())).toEqual(["loaded", "pp", "npi"])
+    unregisterFetcher("npi")
+    await expect(swrFetcher(keys.npi())).rejects.toThrow("No fetcher for npi")
+    await expect(swrFetcher(keys.addresses())).rejects.toThrow("No fetcher for addresses")
     await expect(swrFetcher("nope")).rejects.toBeInstanceOf(ApiResponseError)
     await expect(swrFetcher(["pp", "unknown"])).rejects.toThrow("No fetcher for unknown")
     await expect(swrFetcher(["pp", "constructor"])).rejects.toThrow("No fetcher for constructor")
+  })
+})
+
+describe("registerFetcher", () => {
+  it("throws on a second, different loader for a family, except under next dev", () => {
+    const first = async () => 1
+    registerFetcher("orgs", first)
+    expect(() => registerFetcher("orgs", async () => 2)).toThrow("A fetcher is already registered for orgs")
+    vi.stubEnv("NODE_ENV", "development")
+    expect(() => registerFetcher("orgs", async () => 3)).not.toThrow()
+    unregisterFetcher("orgs")
   })
 })
 

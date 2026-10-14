@@ -1,16 +1,20 @@
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
-import { formatMessage, LAUNCH_ERROR_MESSAGES, LAUNCH_MESSAGES, MESSAGE_CATALOG } from "./messages"
+import { formatMessage, LAUNCH_ERROR_MESSAGES, LAUNCH_MESSAGES, MESSAGE_CATALOG, messageFor, PERSON_MESSAGES } from "."
 
 const read = (relative: string): string => readFileSync(new URL(relative, import.meta.url), "utf8")
 
-const EXPERIENCE_URL = new URL("../../_bmad-output/planning-artifacts/ux-designs/ux-personal-profile-2026-10-13/EXPERIENCE.md", import.meta.url)
+const EXPERIENCE_URL = new URL("../../../_bmad-output/planning-artifacts/ux-designs/ux-personal-profile-2026-10-13/EXPERIENCE.md", import.meta.url)
 if (!existsSync(EXPERIENCE_URL)) {
   throw new Error(`EXPERIENCE.md source missing at ${fileURLToPath(EXPERIENCE_URL)}: update the path in messages.test.ts`)
 }
 const EXPERIENCE = readFileSync(EXPERIENCE_URL, "utf8")
-const SOURCE = read("./messages.ts")
+/** Every per-area catalog file (the launch strings and the aggregator are not catalog copy). */
+const AREA_FILES = readdirSync(new URL(".", import.meta.url))
+  .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts") && name !== "index.ts" && name !== "launch.ts")
+  .toSorted()
+const SOURCES = AREA_FILES.map((name) => read(`./${name}`))
 
 /** Every quoted string of the EXPERIENCE.md Voice and Tone table, whole and split on " · ". */
 function voiceAndToneStrings(): Set<string> {
@@ -33,9 +37,8 @@ interface CatalogLine {
 
 /** The app catalog's string entries as written in the source, with their DRAFT COPY markers. */
 function catalogLines(): CatalogLine[] {
-  const body = SOURCE.slice(SOURCE.indexOf("export const COMMON_MESSAGES"))
   const lines: CatalogLine[] = []
-  for (const match of body.matchAll(/^\s+(\w+): "((?:[^"\\]|\\.)*)",?[ \t]*(\/\/.*)?$/gm)) {
+  for (const match of SOURCES.join("\n").matchAll(/^\s+(\w+): "((?:[^"\\]|\\.)*)",?[ \t]*(\/\/.*)?$/gm)) {
     lines.push({ key: match[1], value: JSON.parse(`"${match[2]}"`), draft: (match[3] ?? "").includes("DRAFT COPY") })
   }
   return lines
@@ -57,6 +60,14 @@ function matchesTemplate(template: string, copy: string): boolean {
 const VOICE_AND_TONE = voiceAndToneStrings()
 
 describe("message catalog: verbatim against EXPERIENCE.md Voice and Tone", () => {
+  it("aggregates every area file's group into MESSAGE_CATALOG exactly once", async () => {
+    const groups = await Promise.all(AREA_FILES.map((name) => import(`./${name.replace(/\.ts$/, "")}`) as Promise<Record<string, object>>))
+    const exported = groups.flatMap((module) => Object.values(module))
+    expect(exported).toHaveLength(AREA_FILES.length)
+    expect(Object.values(MESSAGE_CATALOG)).toHaveLength(AREA_FILES.length)
+    for (const group of exported) expect(Object.values(MESSAGE_CATALOG)).toContain(group)
+  })
+
   it("parses every catalog string from the source, so none escapes the marker check", () => {
     const parsed = catalogLines().map((line) => line.value)
     expect(parsed.toSorted()).toEqual(catalogValues().toSorted())
@@ -89,6 +100,16 @@ describe("message catalog: verbatim against EXPERIENCE.md Voice and Tone", () =>
     "Your changes are kept on this device. Relaunch from 1health to continue.",
     "Phone saved.",
     "Couldn't save phone. Check your connection.",
+    "First name is required",
+    "Last name is required",
+    "First name can be up to 24 characters",
+    "Last name can be up to 24 characters",
+    "Birth date is required",
+    "Enter a date as MM/DD/YYYY",
+    "You must be between 18 and 120 years old",
+    "You must be between 21 and 120 years old",
+    "This SSN belongs to another person",
+    "This number is already on your profile",
   ])("holds the shell/state/dialog copy %j", (copy) => {
     expect(VOICE_AND_TONE.has(copy)).toBe(true)
     expect(catalogValues().some((value) => matchesTemplate(value, copy))).toBe(true)
@@ -115,10 +136,18 @@ describe("message catalog: voice rules", () => {
   })
 })
 
+describe("messageFor", () => {
+  it("resolves a typed group.key reference", () => {
+    expect(messageFor("person.ssnTaken")).toBe(PERSON_MESSAGES.ssnTaken)
+    expect(messageFor("common.retry")).toBe("Retry")
+  })
+})
+
 describe("formatMessage", () => {
   it("fills placeholders and leaves unknown ones as written", () => {
     expect(formatMessage(MESSAGE_CATALOG.section.saved, { section: "Phone" })).toBe("Phone saved.")
     expect(formatMessage("{N} unsaved sections", { N: 2 })).toBe("2 unsaved sections")
     expect(formatMessage("Couldn't save {section}.", {})).toBe("Couldn't save {section}.")
+    expect(formatMessage(PERSON_MESSAGES.ageRange, { min: 21, max: 120 })).toBe("You must be between 21 and 120 years old")
   })
 })

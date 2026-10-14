@@ -27,6 +27,10 @@ export const BFF_ERROR_CODES = [
   "LAUNCH_USED",
   "LAUNCH_CONFIG",
   "WRONG_TENANT",
+  /** Organization logo route (Story 10.2): any failure → 404. */
+  "NO_LOGO",
+  /** Practice support route (Story 9.3): no practice NPI organization → 404. */
+  "NO_PRACTICE",
 ] as const
 
 export type BffErrorCode = (typeof BFF_ERROR_CODES)[number]

@@ -56,6 +56,8 @@ describe("ReadStateFor", () => {
     ["generic with a platform message", { kind: "generic", message: "Raw platform text" }, LOAD_ERROR],
     ["network", { kind: "network" }, LOAD_ERROR],
     ["session", { kind: "session" }, null],
+    ["field", { kind: "field", field: "ssn", messageKey: "person.ssnTaken" }, LOAD_ERROR],
+    ["coded", { kind: "coded", code: "MFA_NOT_ENABLED" }, LOAD_ERROR],
   ])("renders %s", (_label, error, text) => {
     const { container } = render(<ReadStateFor error={error} onRetry={vi.fn()} />)
     if (text === null) expect(container.innerHTML).toBe("")
@@ -64,11 +66,11 @@ describe("ReadStateFor", () => {
   })
 
   it("never shows no access for a proxy NOT_ALLOWED, only for an upstream 403", () => {
-    const proxy = render(<ReadStateFor error={mapApiError(fail({ statusCode: 403, errorCode: "NOT_ALLOWED", source: "proxy" }))} onRetry={vi.fn()} />)
+    const proxy = render(<ReadStateFor error={mapApiError("page", fail({ statusCode: 403, errorCode: "NOT_ALLOWED", source: "proxy" }))} onRetry={vi.fn()} />)
     expect(proxy.container.textContent).toContain(LOAD_ERROR)
     expect(proxy.container.textContent).not.toContain(NO_ACCESS)
     proxy.unmount()
-    const upstream = render(<ReadStateFor error={mapApiError(fail({ statusCode: 403 }))} onRetry={vi.fn()} />)
+    const upstream = render(<ReadStateFor error={mapApiError("page", fail({ statusCode: 403 }))} onRetry={vi.fn()} />)
     expect(upstream.container.textContent).toContain(NO_ACCESS)
   })
 

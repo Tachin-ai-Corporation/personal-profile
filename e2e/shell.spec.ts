@@ -120,7 +120,8 @@ test.describe("/ page frame (Stories 1.8, 1.9)", () => {
       await expect(page.getByText("ann@example.com")).toHaveCount(0)
     } else {
       await expect(page.getByText("ann@example.com")).toBeVisible()
-      await expect(page.getByText("+12125550100")).toBeVisible()
+      // Shown through the shared formatter (spec F1), with the row's region (default us).
+      await expect(page.getByText("+1 (212) 555-0100")).toBeVisible()
       expect(seen.toSorted()).toEqual(["Email", "Landline", "Mobile"])
       await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0)
     }

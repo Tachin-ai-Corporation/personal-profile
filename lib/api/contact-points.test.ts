@@ -4,12 +4,13 @@ import { server } from "@/test/msw-server"
 import {
   ApiResponseError,
   CONTACT_POINT_TYPES,
-  endpoints,
+  contactPointsPath,
   fetchContactPoints,
   fetchers,
   findPrimary,
   isContactPointType,
   keys,
+  primaryPhoneRegion,
   swrFetcher,
   toContactPoints,
   type ContactPoint,
@@ -34,12 +35,15 @@ describe("contact-point keys and endpoints (Story 1.9)", () => {
     expect(keys.contactPoints("Mobile")).toEqual(["pp", "contact-points", "Mobile"])
     expect(keys.contactPoints("Landline")).toEqual(["pp", "contact-points", "Landline"])
     expect(keys.contactPoints("Email")).toEqual(["pp", "contact-points", "Email"])
-    expect(CONTACT_POINT_TYPES).toEqual(["Email", "Mobile", "Landline"])
-    expect(endpoints.contactPoints("Landline")).toBe(`${LIST}?type=Landline`)
+    expect(keys.contactPoints("Social Media")).toEqual(["pp", "contact-points", "Social Media"])
+    expect(CONTACT_POINT_TYPES).toEqual(["Email", "Mobile", "Landline", "Social Media"])
+    expect(contactPointsPath("Landline")).toBe(`${LIST}?type=Landline`)
+    expect(contactPointsPath("Social Media")).toBe(`${LIST}?type=Social%20Media`)
   })
 
   it("recognises only the allowlisted types", () => {
     expect(isContactPointType("Email")).toBe(true)
+    expect(isContactPointType("Social Media")).toBe(true)
     expect(isContactPointType("Phone")).toBe(false)
     expect(isContactPointType(3)).toBe(false)
   })
@@ -71,6 +75,35 @@ describe("findPrimary", () => {
     expect(findPrimary([row({ value: null })])).toBeUndefined()
     expect(findPrimary([row({ value: "" })])).toBeUndefined()
     expect(findPrimary(undefined)).toBeUndefined()
+  })
+})
+
+describe("primaryPhoneRegion", () => {
+  const myself = { phoneNumber: "+442071838750" }
+
+  it("takes the Primary Mobile row's region, normalized (a row without type counts as Mobile)", () => {
+    expect(primaryPhoneRegion([row({ id: 1, label: "Old", phoneNumberRegion: "CA" }), row({ id: 2, phoneNumberRegion: "GB" })], myself)).toBe("gb")
+    expect(primaryPhoneRegion([row({ type: null, phoneNumberRegion: "GB" })], undefined)).toBe("gb")
+  })
+
+  it("ignores a Primary row of another type", () => {
+    expect(primaryPhoneRegion([row({ type: "Landline", phoneNumberRegion: "CA" })], { phoneNumber: null })).toBe("us")
+  })
+
+  it("falls back to the Mobile row with the same digits as myself.phoneNumber", () => {
+    expect(primaryPhoneRegion([row({ label: "Home", value: "+44 20 7183 8750", phoneNumberRegion: "GB" })], myself)).toBe("gb")
+    expect(primaryPhoneRegion([row({ label: "Work", type: null, value: "+442071838750", phoneNumberRegion: "GB" })], myself)).toBe("gb")
+    expect(primaryPhoneRegion([row({ label: "Home", type: "Landline", value: "+442071838750", phoneNumberRegion: "GB" })], myself)).toBe("us")
+    expect(primaryPhoneRegion([row({ label: "Home", value: "+442071838751", phoneNumberRegion: "GB" })], myself)).toBe("us")
+  })
+
+  it("defaults to us", () => {
+    expect(primaryPhoneRegion([row({ phoneNumberRegion: null })], myself)).toBe("us")
+    expect(primaryPhoneRegion([row({ phoneNumberRegion: "n/a" })], undefined)).toBe("us")
+    expect(primaryPhoneRegion([row({ label: "Home", phoneNumberRegion: "GB" })], { phoneNumber: null })).toBe("us")
+    expect(primaryPhoneRegion([row({ label: "Home", value: null, phoneNumberRegion: "GB" })], { phoneNumber: "" })).toBe("us")
+    expect(primaryPhoneRegion([row({ value: null, phoneNumberRegion: "GB" })], myself)).toBe("us")
+    expect(primaryPhoneRegion(undefined, myself)).toBe("us")
   })
 })
 

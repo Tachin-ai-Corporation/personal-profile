@@ -1,14 +1,15 @@
 /**
- * The shared SWR fetcher (AD-10). SWR needs a rejected promise to surface an
- * error, so a failed `ApiResponse` is thrown as `ApiResponseError` (carrying
- * the response, `errorCode` included). Session events were already published
- * by `callApi`; nothing here publishes them again (AD-19).
+ * The shared SWR fetcher (AD-10). Each `lib/api/<resource>.ts` registers the
+ * loader of its own key family with `registerFetcher`, so adding a resource
+ * never edits this file. SWR needs a rejected promise to surface an error, so
+ * a failed `ApiResponse` is thrown as `ApiResponseError` (carrying the
+ * response, `errorCode` included). Session events were already published by
+ * `callApi`; nothing here publishes them again (AD-19).
  */
 
-import { fetchContactPoints, isContactPointType, type ContactPointType } from "./contact-points"
-import { isSwrKey, type SwrKey } from "./keys"
+import { isLocalDev } from "@/lib/shared/app-env"
+import { isSwrKey, type SwrKey, type SwrResource } from "./keys"
 import type { ApiResponse } from "./types"
-import { fetchMyself } from "./user"
 
 export class ApiResponseError extends Error {
   constructor(readonly response: ApiResponse<unknown>) {
@@ -24,27 +25,32 @@ export async function unwrap<T>(pending: Promise<ApiResponse<T>>): Promise<T | u
   return response.data
 }
 
-/** Typed fetchers, one per key family. Hooks use these directly. */
-export const fetchers = {
-  myself: () => unwrap(fetchMyself()),
-  contactPoints: (type: ContactPointType) => unwrap(fetchContactPoints(type)),
-} as const
+/** Loads the data of one key of a family. */
+export type SwrLoader = (key: SwrKey) => Promise<unknown>
 
-function contactPointsByKey(key: SwrKey): Promise<unknown> {
-  const type = key[2]
-  if (!isContactPointType(type)) return Promise.reject(new ApiResponseError({ success: false, error: `Unknown contact type ${String(type)}` }))
-  return fetchers.contactPoints(type)
+const registry = new Map<string, SwrLoader>()
+
+/**
+ * Registers the loader of a key family; its module calls this once, at load.
+ * A second, different loader for the same family throws (two modules
+ * claiming one family), except under `next dev`, where Fast Refresh
+ * re-evaluates the module with a new loader.
+ */
+export function registerFetcher(resource: SwrResource, load: SwrLoader): void {
+  const existing = registry.get(resource)
+  if (existing && existing !== load && !isLocalDev()) throw new Error(`A fetcher is already registered for ${resource}`)
+  registry.set(resource, load)
 }
 
-const byResource: ReadonlyMap<string, (key: SwrKey) => Promise<unknown>> = new Map<string, (key: SwrKey) => Promise<unknown>>([
-  ["myself", fetchers.myself],
-  ["contact-points", contactPointsByKey],
-])
+/** Test hook: forgets a family's loader (so a test's registration doesn't leak). */
+export function unregisterFetcher(resource: SwrResource): void {
+  registry.delete(resource)
+}
 
 /** The root `SWRConfig` fetcher: dispatches on the key's resource. */
 export async function swrFetcher(key: unknown): Promise<unknown> {
   if (!isSwrKey(key)) throw new ApiResponseError({ success: false, error: "Unknown SWR key" })
-  const load = byResource.get(key[1])
+  const load = registry.get(key[1])
   if (!load) throw new ApiResponseError({ success: false, error: `No fetcher for ${key[1]}` })
   return load(key)
 }

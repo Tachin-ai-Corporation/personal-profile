@@ -77,11 +77,14 @@ lib/api/
   session-events.ts    session-expired (published once)
   log-api-call.ts      dev-only console logger (redacted)
   refresh-coordinator.ts  single-flight refresh (+ navigator.locks)
-  keys.ts              SWR keys ["pp", ...]
-  fetcher.ts           shared SWR fetcher + typed fetchers
-  config.ts            same-origin proxy paths
-  user.ts              fetchMyself → Myself
+  keys.ts              SWR keys ["pp", ...] + mutateMyself / mutateContactPoints
+  fetcher.ts           shared SWR fetcher + registerFetcher (one loader per key family)
+  config.ts            proxyPath() (modules own their paths)
+  errors/<area>.ts     mapApiError(sectionId, …) core + per-area exact-message tables
+  myself.ts            fetchMyself → Myself, isProctor, isTenantMember
+  contact-points.ts    fetchContactPoints → ContactPoint[], primaryPhoneRegion
   session.ts           startSession (/api/token) / endSession (logout)
   index.ts             barrel — import everything from "@/lib/api"
-lib/server/proxy/      allowlist, deny list, normalization, forwarding
+lib/server/proxy/      allowlist/<area>.ts, deny list, normalization, forwarding
+lib/shared/messages/   message catalog, one <area>.ts per area
 ```

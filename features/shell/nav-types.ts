@@ -38,8 +38,10 @@ export function pageOfPath(pathname: string): PageId | null {
   return null
 }
 
-/** Section ids (Story 1.11). `authenticator` on `/account` is an anchor, not a Section. */
-export type SectionId = "personal" | "phone" | "email" | "social" | "addresses" | "insurance" | "account"
+/** Section ids (Story 1.11), shared with lib/api and telemetry. */
+import type { SectionId } from "@/lib/shared/section-ids"
+
+export type { SectionId }
 
 /** The parts of the `/account` Account settings save (Epic 7). */
 export type AccountSavePart = "details" | "timeZone" | "locale"

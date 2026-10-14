@@ -38,7 +38,7 @@ environment per request from the session; a request never carries one.
    `location.assign(consumeLoginIntent("/"))` (`lib/shared/login-intent.ts`).
 
 Failures answer `{ ok: false, errorCode, source: "proxy", message, retryable? }`
-with a user-safe `message` from `lib/shared/messages.ts` and clear any previous
+with a user-safe `message` from `lib/shared/messages/launch.ts` and clear any previous
 session. Decode, app-id and tenant failures, a missing `lpl` and
 `SERVICE_DISABLED` carry `retryable: false`; exchange and `myself` failures
 stay retryable. Without `lpl` the screen shows manual entry (environment known

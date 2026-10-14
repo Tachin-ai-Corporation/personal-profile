@@ -3,8 +3,10 @@
 import { UserRound } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DESKTOP_QUERY, useCurrentPage, useMediaQuery, useMyself } from "@/features/shell"
+import { initials } from "@/lib/shared/initials"
 import { HEADER_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
-import { displayName, initials } from "./names"
+import { formatPhoneDisplay } from "@/lib/shared/phone"
+import { displayName } from "./names"
 import { usePrimaryContacts } from "./use-primary-contacts"
 
 /** 40 px avatar: initials (primary-text, 600) on a card circle with a border; a user icon without a name. */
@@ -54,13 +56,18 @@ export function ProfileHeader() {
         </>
       ) : (
         <>
-          <Avatar text={myself ? initials(myself) : ""} />
+          <Avatar text={myself ? initials(myself.firstName, myself.lastName) : ""} />
           <h1 className="min-w-0 truncate text-h4 text-foreground">{name || <span className="sr-only">{pageName}</span>}</h1>
         </>
       )}
       {isDesktop && (phone || email) ? (
         <dl className="ml-auto flex gap-6">
-          {phone ? <ContactItem label={HEADER_MESSAGES.primaryPhone} value={phone.value} /> : null}
+          {phone ? (
+            <ContactItem
+              label={HEADER_MESSAGES.primaryPhone}
+              value={phone.value === null ? null : formatPhoneDisplay(phone.value, phone.phoneNumberRegion)}
+            />
+          ) : null}
           {email ? <ContactItem label={HEADER_MESSAGES.primaryEmail} value={email.value} /> : null}
         </dl>
       ) : null}

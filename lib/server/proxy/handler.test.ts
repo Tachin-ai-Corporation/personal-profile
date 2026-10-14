@@ -19,7 +19,6 @@ const FIXTURES: AllowlistEntry[] = [
   { method: "GET", template: "v2/person/{personId}/ssn/expose" },
   { method: "POST", template: "v2/mfa/enable/totp", profile: true },
   { method: "POST", template: "v2/mfa/disable/totp", profile: true },
-  { method: "GET", template: "v2/file/{id}/download", asImage: true },
   { method: "DELETE", template: "v2/file/{id}", fixedQuery: { hardDelete: "true" } },
   { method: "POST", template: "v2/small", body: z.object({ a: z.string() }), maxBytes: 20 },
 ]
@@ -84,6 +83,8 @@ describe("proxy: rejections before upstream", () => {
     ["__proto__", "v2/user/contact-point/list?__proto__=x", 400, "BAD_QUERY"],
     ["toString", "v2/user/contact-point/list?toString=x", 400, "BAD_QUERY"],
     ["bad type", "v2/user/contact-point/list?type=Fax", 400, "BAD_QUERY"],
+    ["a file download query", "v2/file/123/download?x=1", 400, "BAD_QUERY"],
+    ["a non-numeric file id", "v2/file/abc/download", 403, "NOT_ALLOWED"],
   ])("GET %s → %i %s", async (_label, path, status, errorCode) => {
     await expectError(await call({ path }), status, errorCode)
   })
@@ -134,7 +135,7 @@ describe("proxy: rejections before upstream", () => {
       method: "PUT",
       path: "v2/user/edit",
       headers: { "Sec-Fetch-Site": "cross-site", Origin: "https://evil.test", "Content-Type": "application/json" },
-      body: JSON.stringify({ email: "a@b.c" }),
+      body: JSON.stringify({ locale: "en-US" }),
     })
     await expectError(response, 400, "BAD_BODY")
   })
@@ -146,8 +147,11 @@ describe("proxy: rejections before upstream", () => {
 
   it.each([
     ["invalid JSON", "{nope"],
-    ["email field", JSON.stringify({ email: "a@b.c" })],
     ["locale field", JSON.stringify({ locale: "en-US" })],
+    ["username field", JSON.stringify({ username: "ann" })],
+    ["a name over 24 characters", JSON.stringify({ firstName: "x".repeat(25) })],
+    ["a race outside the enum", JSON.stringify({ race: "Martian" })],
+    ["phoneNumberRegion without phoneNumber", JSON.stringify({ phoneNumberRegion: "us" })],
   ])("answers 400 BAD_BODY for %s", async (_label, body) => {
     const response = await call({ method: "PUT", path: "v2/user/edit", headers: { "Content-Type": "application/json" }, body })
     await expectError(response, 400, "BAD_BODY")
@@ -300,10 +304,10 @@ describe("proxy: forwarding", () => {
       method: "PUT",
       path: "v2/user/edit",
       headers: { "Content-Type": "application/json; charset=utf-8" },
-      body: JSON.stringify({ firstName: "Ann" }),
+      body: JSON.stringify({ firstName: "Ann", phoneNumber: "+14155552125", phoneNumberRegion: "us", email: "ann@example.com" }),
     })
     expect(response.status).toBe(200)
-    expect(received).toEqual({ firstName: "Ann" })
+    expect(received).toEqual({ firstName: "Ann", phoneNumber: "+14155552125", phoneNumberRegion: "us", email: "ann@example.com" })
   })
 
   it("forwards a body-less POST", async () => {

@@ -5,12 +5,19 @@ import { BFF_ERROR_SOURCE, isBffErrorCode, type BffErrorCode } from "@/lib/share
  * Two envelopes, never mixed (AD-19):
  *   - BFF: `{ errorCode: "<STRING>", source: "proxy" }` → `errorCode`
  *   - upstream: `{ message, code: <int> }` → `upstreamCode` + `error`
- * Mapping a response to what the UI shows is `lib/api/errors.ts#mapApiError`,
+ * Mapping a response to what the UI shows is `lib/api/errors#mapApiError`,
  * the only reader of these codes outside this file and `client.ts`.
  */
 
-/** Client-side codes `callApi` adds on top of the BFF ones. */
-export type ClientErrorCode = "NETWORK_ERROR"
+/** Codes `mapApiError` derives from an upstream error (`coded` results, AD-19). */
+export type DerivedErrorCode = "MFA_NOT_ENABLED" | "TOTP_ALREADY_ENABLED" | "NPI_ALREADY_REGISTERED"
+
+/**
+ * Client-side codes on top of the BFF ones: `NETWORK_ERROR` (set by
+ * `callApi`), `FORBIDDEN` (an upstream 403) and the derived codes, both named
+ * only by `lib/api/errors` (e.g. for the `section_save` telemetry code).
+ */
+export type ClientErrorCode = "NETWORK_ERROR" | "FORBIDDEN" | DerivedErrorCode
 
 export type ApiErrorCode = BffErrorCode | ClientErrorCode
 

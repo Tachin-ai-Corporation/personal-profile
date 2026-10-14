@@ -65,8 +65,11 @@ bash scripts/check-forbidden.sh
 
 ## Adding an endpoint
 
-Add an allowlist entry in `lib/server/proxy/allowlist.ts`, then a module in
-`lib/api/` built on `callApi`. See `docs/api/CONVENTIONS.md`.
+Add an allowlist entry to its area file in `lib/server/proxy/allowlist/`, then a
+module `lib/api/<resource>.ts` built on `callApi` that owns its paths (via
+`proxyPath()`), registers its SWR fetcher (`registerFetcher`) and is re-exported
+from `lib/api/index.ts`. Copy goes in its area file under `lib/shared/messages/`,
+upstream-message matching in `lib/api/errors/<area>.ts`. See `docs/api/CONVENTIONS.md`.
 
 ## Design System
 

@@ -178,3 +178,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-f1-shared-contracts-and-data-layer.md`
   summary: RESOLVED 2026-10-14 — the three contact-point product questions were validated against agents.md (dev/demo/prod), the backend and 1health-fe: (1) Social Media is a valid patient type via POST /v2/health/contact-point; (2) Story 7.6 primary phone = verified Mobile only (Landline rejected by PUT v2/user/edit; 1health-fe's Landline option is a latent bug); (3) phone region comes from the contact-point list row, default "us". Stories 7.4/7.6 and the F1 spec are amended.
   evidence: agents.md v2/health/contact-point (demo), v2/user/contact-point/list, v2/user/myself; ContactPointServiceImpl.java:196-253,528-546,583-618,796-860; UserServiceImpl.java:625-648,2769-2786; 1health-fe PersonalAccountUtils.ts:53-62.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
+  summary: Backend follow-ups found while planning F2 — (1) hard DELETE v2/file targets the public bucket only, so private signature/insurance-card objects may stay in S3; (2) file uploads have no server-side ownership check on the person/insurance id (the BFF's `me` substitution and id regex are the only guard).
+  evidence: 1h-ng-bo-core-be FileServiceImpl.java:797-816; OneHealthServiceImpl.java:4552-4562. Report to the backend team.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
+  summary: Confirm publicFilesOrigin (bocore-public-files-{demo,prod}.s3.us-west-1.amazonaws.com, found only in 2022–2023 backend git history) against a live tenantLogo.publicUrl on demo and prod before Story 10.2; SVG tenant logos will always show initials.
+  evidence: 1h-ng-bo-core-be history (test-product.ftl, test.html); SimpleStorageService.java:346-353; TenantServiceImpl.java:738.

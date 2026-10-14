@@ -26,7 +26,7 @@ export async function startSession(lpl: string): Promise<LaunchAttempt> {
     if (isRecord(body) && body.ok === true && isEnvironment(body.environment)) return { kind: "ok", environment: body.environment }
     return { kind: "failed", retryable: true }
   }
-  // No HTTP status = the request never got an answer (lib/api/errors.ts owns the codes).
+  // No HTTP status = the request never got an answer (lib/api/errors owns the codes).
   if (res.statusCode === undefined) return { kind: "network" }
   return { kind: "failed", message: res.userMessage, retryable: res.retryable !== false }
 }

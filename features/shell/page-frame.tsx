@@ -17,7 +17,7 @@ import { useMyself } from "./use-myself"
 function MyselfReadState() {
   const { error, retry } = useMyself()
   if (!error) return null
-  return <ReadStateFor error={mapFetchError(error)} onRetry={retry} className="mx-4 mt-4 md:mx-6" />
+  return <ReadStateFor error={mapFetchError("page", error)} onRetry={retry} className="mx-4 mt-4 md:mx-6" />
 }
 
 export interface PageFrameProps {
