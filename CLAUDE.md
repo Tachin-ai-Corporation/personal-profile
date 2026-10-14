@@ -70,6 +70,14 @@ pnpm test:e2e   # Playwright against `next build && next start` on :3100
   - Both registries return an unsubscribe function, and each callback is isolated (a throw is logged by error name only). Both dialogs are non-dismissable `alertdialog`s; copy is `SESSION_EXPIRED_COPY` / `SESSION_CHANGED_COPY` in `lib/shared/messages.ts`.
 - **Leaving (`features/shell/leave.ts`):** `setLeaveGuard(fn | null)` sets the single leave guard (Story 1.13); `requestLeave()` resolves `true` with no guard, else the guard's result. `returnToPortal()` (the app-bar "Return to 1health", Story 1.8) calls `requestLeave()`, then `POST /api/session/logout` raced against 3 s (failures ignored), then `window.location.assign(getPortalUrl())`. No `returnUrl`/`next` parameter exists anywhere.
 - **Framing:** `useIsFramed()` (`features/shell/use-is-framed.ts`) is `window.self !== window.top`; a throwing `window.top` counts as framed, and the server snapshot is `false`.
+- **Page shell (Story 1.8):** inside `ClientConfig`, `app/page.tsx` renders `SessionDialogs` (first), `AppBar`, `<main>`, then `IdleWarning`. `<main>` holds the header slot (`<section aria-label="Profile">` with the page's single `h1`; Story 1.9 fills it) and `ProfileTabs`. The server reads `searchParams.tab`, and an unknown or missing value renders Contacts.
+  - **App bar (`features/shell/app-bar.tsx`):** "Return to 1health" is an `<a href={PORTAL_URL}>` whose click calls `preventDefault()` and `returnToPortal()` (which asks `requestLeave()` itself, so don't call it first). It isn't rendered when `useIsFramed()` is true.
+  - **Tabs (`features/shell/profile-tabs.tsx`):** Radix Tabs with manual activation. A switch awaits `requestLeave()`, then calls `history.replaceState(null, "", "?tab=<id>")`, which drops the hash. On mount a bad `?tab=` becomes `?tab=contacts` and the hash is kept. **Never use `useRouter`/`router.replace` for tab or hash changes**, because they re-render the server page.
+  - **Sections (`features/shell/sections.ts`):** the one definition of the Contacts Sections (`personal`, `phone`, `email`, `social`, `addresses`; sub-anchor `#signature`), their column headers and the tab ids.
+  - **Section navigation (`features/shell/section-nav.tsx`, Contacts only):** a sticky `<nav aria-label="Sections">` at ≥ 768 px, or a "Jump to" Select below 768 px. Activation scrolls (smooth, or instant under reduced motion), focuses the Section `h2` and calls `replaceState` with `#<id>`. The scroll-spy (IntersectionObserver) sets `aria-current="location"` on exactly one item. Deep links run on mount and on `hashchange`.
+  - **`SectionFrame` (`features/shell/section-frame.tsx`):** `<section id aria-labelledby>` + `h2` (`tabIndex={-1}`) + the card container in a `loading` (3 skeleton rows, `aria-busy`), `error` (banner + per-frame Retry) or `ready` (`children`) state. `anchors` holds deep-link targets that must exist before the frame is ready.
+  - Shell copy is `SHELL_COPY` in `lib/shared/messages.ts`.
+  - Tests stub `IntersectionObserver`, `scrollIntoView`, `matchMedia` and the APIs Radix Select needs with `test/dom-stubs.ts`. Component axe checks use `test/axe.ts`, which skips `color-contrast` because jsdom has no layout. `e2e/shell.spec.ts` covers contrast with `@axe-core/playwright` in both themes.
 - Feature code lives in `features/<section>/` (shell, header, personal, phone, email, social, addresses, insurance, medical).
 - `docs/api/` describes the 1health platform itself (data model, query, quirks) and is useful background. Its "generic engine" helpers were deleted in Story 1.1. `docs/AUTH-ARCHITECTURE.md`, `docs/ACTION-PATTERNS.md` and `docs/README-DEBUGGER.md` describe the removed `authFetch`/client-token design and are **outdated**; don't follow them.
 
@@ -80,7 +88,10 @@ pnpm test:e2e   # Playwright against `next build && next start` on :3100
 - Red is reserved for errors and destructive actions, and glow only for focus or active states.
 - Respect reduced motion and meet WCAG 2.1 AA.
 - Dark mode is class-based (add `dark` to `<html>`) and is off by default.
-- shadcn/ui components live in `components/ui/` (`components.json`).
+- **Focus ring:** use the `focus-ring` utility (`@utility` in `app/globals.css`). On `:focus-visible` it draws a 2 px `--ring` outline with a 2 px offset and `box-shadow: var(--glow)`. Every interactive control uses it, including the `Button` base, `TabsTrigger` and `SelectTrigger`. Never remove focus or trap it.
+- **`cn()` (`lib/utils.ts`)** uses a tailwind-merge that knows the type scale (`text-body`, `text-caption`, …). With the stock version, `cn("text-body", "text-muted-foreground")` would drop the font size.
+- **Primary-colored text in dark mode:** `text-primary` (trust-blue) fails AA on the dark surfaces, so pair it with `dark:text-info-strong`, as the wordmark and the active Section menu item do.
+- shadcn/ui components live in `components/ui/` (`components.json`), including Tabs (`@radix-ui/react-tabs`) and Select (`@radix-ui/react-select`).
 
 ## Project & related context
 This app rebuilds the **Personal Profile / Profile** screens of `1health-fe` with a new Tailwind UI. It is tracked in Jira as **NG-9019** (1hio.atlassian.net), and its sub-tasks NG-9020 to NG-9027 cover the tabs and each card.

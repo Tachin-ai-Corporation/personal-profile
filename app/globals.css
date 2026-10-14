@@ -286,6 +286,17 @@
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Focus ring (DESIGN.md {components.focus-ring}): 2 px ring outline, 2 px
+   offset and the aqua glow, on keyboard focus only. Applied to every interactive
+   control (Button, tabs, Section menu, Jump to, Return to 1health, Retry). */
+@utility focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    box-shadow: var(--glow);
+  }
+}
+
 /* Custom animations for auth flow */
 @keyframes pulse-subtle {
   0%, 100% { transform: scale(1); opacity: 1; }

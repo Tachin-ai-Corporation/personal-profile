@@ -1,15 +1,20 @@
 import { redirect } from "next/navigation"
+import { AppBar } from "@/features/shell/app-bar"
 import { ClientConfig } from "@/features/shell/client-config"
 import { IdleWarning } from "@/features/shell/idle-warning"
 import { MyselfName } from "@/features/shell/myself-name"
+import { ProfileTabs } from "@/features/shell/profile-tabs"
+import { normalizeTab } from "@/features/shell/sections"
 import { SessionDialogs } from "@/features/shell/session-dialogs"
+import { SHELL_COPY } from "@/lib/shared/messages"
 import { ONEHEALTH_SECRET_KEY, PORTAL_URL, PP_DISABLED } from "@/lib/server/env"
 import { deriveAesKey } from "@/lib/server/launch"
 import { ABSOLUTE_TIMEOUT_MS, IDLE_TIMEOUT_MS, requireSession } from "@/lib/server/session"
 import { computeBinding } from "@/lib/server/session-binding"
 
 /**
- * Home page (placeholder) with the session guard (AD-1, AD-4).
+ * Home page: the session guard (AD-1, AD-4) and the profile page shell
+ * (Story 1.8).
  *
  * The kill switch and bad-key guards run first (AD-20), then `requireSession()`
  * redirects to `/launch-error?reason=expired` when there is no valid session.
@@ -31,6 +36,11 @@ import { computeBinding } from "@/lib/server/session-binding"
  * `SessionDialogs` (Story 1.7) is the shell's single listener for
  * `session-expired` / `session-changed`; its "Return to 1health" links to the
  * constant `PORTAL_URL`.
+ *
+ * The shell (Story 1.8), top to bottom: `AppBar`, then `<main>` with the header
+ * slot (Story 1.9 fills it; it holds the page's single `h1`) and the tabbed
+ * shell. The server reads `?tab=`; an unknown or missing value renders
+ * Contacts, and `ProfileTabs` normalises the URL on mount.
  */
 export const dynamic = "force-dynamic"
 
@@ -43,7 +53,11 @@ function readServerClock(): number {
   return Date.now()
 }
 
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>
+} = {}) {
   if (PP_DISABLED) {
     redirect("/launch-error?reason=disabled")
   }
@@ -55,15 +69,19 @@ export default async function HomePage() {
 
   const session = await requireSession()
   const serverNow = readServerClock()
+  const initialTab = normalizeTab((await searchParams)?.tab)
 
   return (
     <ClientConfig sessionBinding={computeBinding(session.sid)} portalUrl={PORTAL_URL}>
       {/* Must mount before any publisher (IdleWarning, SWR reads): publish never replays. */}
       <SessionDialogs portalUrl={PORTAL_URL} />
-      <main className="flex min-h-screen flex-col items-center justify-center gap-2 p-6 text-center">
-        <h1 className="text-2xl font-semibold">Personal Profile</h1>
-        <MyselfName />
-        <p className="text-muted-foreground">Coming soon.</p>
+      <AppBar portalUrl={PORTAL_URL} />
+      <main className="flex min-h-[calc(100dvh-52px)] flex-col bg-card">
+        <section aria-label={SHELL_COPY.profileRegion} className="border-b bg-background px-4 py-3 md:px-6 md:py-4">
+          <h1 className="text-h4">{SHELL_COPY.appTitle}</h1>
+          <MyselfName />
+        </section>
+        <ProfileTabs initialTab={initialTab} />
       </main>
       <IdleWarning
         idleTimeoutSec={IDLE_TIMEOUT_MS / 1000}

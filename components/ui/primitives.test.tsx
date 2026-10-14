@@ -17,6 +17,20 @@ describe("primitive token classes", () => {
     expect(btn).not.toHaveClass("text-white")
   })
 
+  it("Button uses the shared focus-ring utility, not the shadcn ring classes (Story 1.8b)", () => {
+    render(
+      <>
+        <Button>Save</Button>
+        <Button variant="destructive">Remove</Button>
+      </>,
+    )
+    for (const name of ["Save", "Remove"]) {
+      const btn = screen.getByRole("button", { name })
+      expect(btn).toHaveClass("focus-ring")
+      expect(btn.className).not.toMatch(/focus-visible:ring/)
+    }
+  })
+
   it("link Button uses link-text", () => {
     render(<Button variant="link">Learn more</Button>)
     const btn = screen.getByRole("button", { name: "Learn more" })

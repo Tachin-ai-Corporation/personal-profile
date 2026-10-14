@@ -111,6 +111,51 @@ export const SESSION_CHANGED_COPY = {
   reload: "Reload",
 } as const
 
+/** Profile page shell copy: app bar, tabs, Section navigation (Story 1.8). */
+export const SHELL_COPY = {
+  // DRAFT COPY
+  appTitle: "Personal Profile",
+  // DRAFT COPY — the header slot's region name (Story 1.9 fills it).
+  profileRegion: "Profile",
+  // Locked in EXPERIENCE.md.
+  returnToPortal: "Return to 1health",
+  // Locked in EXPERIENCE.md.
+  tabs: { contacts: "Contacts", insurance: "Insurance", medical: "Medical" },
+  // DRAFT COPY
+  comingSoon: "Coming soon",
+  // DRAFT COPY
+  soon: "Soon",
+  // Locked in EXPERIENCE.md.
+  jumpTo: "Jump to",
+  // DRAFT COPY
+  sectionsNav: "Sections",
+  // Locked in EXPERIENCE.md.
+  sections: {
+    personal: "Personal information",
+    phone: "Phone",
+    email: "Email",
+    social: "Social media",
+    addresses: "Addresses",
+  },
+  // DRAFT COPY — column headers from DESIGN.md "Section table — read".
+  columns: {
+    phone: ["Number", "Label", "Type", "Status", "Notifications"],
+    email: ["Email address", "Label", "Status", "Notifications"],
+    social: ["Link"],
+    addresses: ["Address", "Label", "Type", "Status"],
+  },
+  // DRAFT COPY
+  signature: "Signature",
+  // DRAFT COPY
+  insurance: "Insurance",
+  // Locked (RC9).
+  medical: "Coming soon: your medical information will appear here.",
+  // Locked in EXPERIENCE.md: "Couldn't load {section} · Retry".
+  loadError: (section: string) => `Couldn't load ${section.toLowerCase()}`,
+  // DRAFT COPY
+  retry: "Retry",
+} as const
+
 /** Map a raw `reason` query value to a known reason; unknown/missing → `invalid`. */
 export function normalizeLaunchErrorReason(reason: string | undefined | null): LaunchErrorReason {
   // Own-property check only: `"__proto__" in obj` is true, so `in` would let
