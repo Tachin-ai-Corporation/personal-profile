@@ -2,7 +2,9 @@
 
 import type { ReactNode } from "react"
 import { mapFetchError } from "@/lib/api"
+import type { PageIdleTiming } from "@/lib/shared/bff-contract"
 import { AppBar } from "./app-bar"
+import { IdleWarning } from "./idle-warning"
 import { LeaveGuard } from "./leave-guard"
 import type { PageId } from "./nav-types"
 import { CurrentPageProvider } from "./navigate"
@@ -24,14 +26,17 @@ export interface PageFrameProps {
   readonly header: ReactNode
   /** The page's tabs and panels. */
   readonly children: ReactNode
+  /** The idle warning's deadlines, from `requirePageSession()` (Story 1.6). */
+  readonly idle: PageIdleTiming
 }
 
 /**
  * The page frame shared by `/` and `/account` (Stories 1.8, 7.1): app bar →
  * header → tabs → content, with the page's own Section registry, its leave
- * guard and the session dialog. Must sit inside `PortalUrlProvider`.
+ * guard, the idle warning and the session dialog. Must sit inside
+ * `PortalUrlProvider`.
  */
-export function PageFrame({ page, header, children }: PageFrameProps) {
+export function PageFrame({ page, header, children, idle }: PageFrameProps) {
   return (
     <CurrentPageProvider value={page}>
       <SectionRegistryProvider>
@@ -44,6 +49,7 @@ export function PageFrame({ page, header, children }: PageFrameProps) {
           </main>
         </div>
         <LeaveGuard />
+        <IdleWarning {...idle} />
         <SessionDialog />
       </SectionRegistryProvider>
     </CurrentPageProvider>

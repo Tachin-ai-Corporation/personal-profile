@@ -120,6 +120,13 @@ export const SESSION_EXPIRED_MESSAGES = {
   body: "Your changes are kept on this device. Relaunch from 1health to continue.",
 } as const
 
+/** The idle warning (Story 1.6, EXPERIENCE.md automatic logoff). */
+export const IDLE_MESSAGES = {
+  title: "You'll be signed out in 1 minute", // DRAFT COPY (architecture-added idle warning, PM review)
+  stay: "Stay signed in", // DRAFT COPY (architecture-added idle warning, PM review)
+  staying: "Keeping you signed in…", // DRAFT COPY (screen-reader status while "Stay signed in" is pending)
+} as const
+
 /** Every app-catalog group (not the launch strings), for the catalog tests. */
 export const MESSAGE_CATALOG = {
   common: COMMON_MESSAGES,
@@ -129,4 +136,5 @@ export const MESSAGE_CATALOG = {
   header: HEADER_MESSAGES,
   leaveGuard: LEAVE_GUARD_MESSAGES,
   sessionExpired: SESSION_EXPIRED_MESSAGES,
+  idle: IDLE_MESSAGES,
 } as const

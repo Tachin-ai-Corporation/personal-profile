@@ -1,6 +1,7 @@
 import { http, HttpResponse, delay } from "msw"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { server } from "@/test/msw-server"
+import { activity as defaultActivity, createActivity, type Activity } from "./activity"
 import { configureApiClient, createCallApi, getPortalUrl } from "./client"
 import { mapApiError } from "./errors"
 import { createSessionEvents, type SessionEvents } from "./session-events"
@@ -276,5 +277,96 @@ describe("callApi refresh (AD-16)", () => {
     const call = createCallApi({ events: createSessionEvents() })
     await call("ctx", "/api/1h/x")
     expect(request).toHaveBeenCalledWith("pp-refresh", expect.any(Function))
+  })
+})
+
+describe("callApi user activity (Story 1.6)", () => {
+  let activity: Activity
+
+  function activityClient() {
+    activity = createActivity()
+    return createCallApi({ events: createSessionEvents(), locks: () => undefined, activity })
+  }
+
+  function capture(method: "get" | "post" | "put" | "head" | "options", path: string, answer: () => Response = () => HttpResponse.json({})) {
+    const seen: (string | null)[] = []
+    server.use(
+      http[method](path, ({ request }) => {
+        seen.push(request.headers.get("X-PP-Activity"))
+        return answer()
+      }),
+    )
+    return seen
+  }
+
+  it.each([
+    ["POST", { method: "POST", body: "{}" }, "user"],
+    ["PUT (lower-case method)", { method: "put", body: "{}" }, "user"],
+    ["GET with userInitiated: true", { userInitiated: true }, "user"],
+    ["plain GET", {}, null],
+    ["GET with userInitiated: false", { userInitiated: false }, null],
+    ["GET with a caller-supplied header", { headers: { "X-PP-Activity": "user" } }, null],
+    ["HEAD", { method: "HEAD" }, null],
+    ["OPTIONS (lower-case)", { method: "options", headers: { "X-PP-Activity": "user" } }, null],
+    ["HEAD with userInitiated: true", { method: "HEAD", userInitiated: true }, "user"],
+  ] as const)("%s → X-PP-Activity %s", async (_label, init, expected) => {
+    const method = (("method" in init ? init.method : "GET") as string).toLowerCase() as "get" | "post" | "put" | "head" | "options"
+    const seen = capture(method, "/api/1h/x")
+    await activityClient()("ctx", "/api/1h/x", init)
+    expect(seen).toEqual([expected])
+  })
+
+  it("never passes userInitiated to fetch", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+    capture("get", "/api/1h/x")
+    await activityClient()("ctx", "/api/1h/x", { userInitiated: true })
+    const init = fetchSpy.mock.calls[0][1] as Record<string, unknown>
+    expect("userInitiated" in init).toBe(false)
+  })
+
+  it("the refresh POST never carries it; the replay carries the same header as the original", async () => {
+    let refreshHeader: string | null = "unset"
+    let refreshed = false
+    const seen: (string | null)[] = []
+    server.use(
+      http.post("/api/session/refresh", ({ request }) => {
+        refreshHeader = request.headers.get("X-PP-Activity")
+        refreshed = true
+        return HttpResponse.json({ ok: true })
+      }),
+      http.get("/api/1h/x", ({ request }) => {
+        seen.push(request.headers.get("X-PP-Activity"))
+        return refreshed ? HttpResponse.json({}) : proxyError("TOKEN_EXPIRED", 401)
+      }),
+    )
+    expect((await activityClient()("ctx", "/api/1h/x", { userInitiated: true })).success).toBe(true)
+    expect(refreshHeader).toBeNull()
+    expect(seen).toEqual(["user", "user"])
+  })
+
+  it("a numeric X-PP-Activity-At echo is noted, on success and on error answers", async () => {
+    const call = activityClient()
+    const noted = vi.fn()
+    activity.subscribe(noted)
+    capture("post", "/api/session/ping", () => new HttpResponse(null, { status: 204, headers: { "X-PP-Activity-At": "1800000000000" } }))
+    await call("session/ping", "/api/session/ping", { method: "POST" })
+    expect(activity.lastAt()).toBe(1_800_000_000_000)
+    capture("put", "/api/1h/y", () => HttpResponse.json({ message: "Nope" }, { status: 409, headers: { "X-PP-Activity-At": "1800000000500" } }))
+    await call("ctx", "/api/1h/y", { method: "PUT", body: "{}" })
+    expect(activity.lastAt()).toBe(1_800_000_000_500)
+    expect(noted).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(["", "abc", "-5", "1.5", "12345678901234567"])("a malformed echo %j is ignored", async (value) => {
+    const call = activityClient()
+    capture("post", "/api/session/ping", () => new HttpResponse(null, { status: 204, headers: { "X-PP-Activity-At": value } }))
+    await call("session/ping", "/api/session/ping", { method: "POST" })
+    expect(activity.lastAt()).toBe(0)
+  })
+
+  it("the app's callApi notes into the shared activity instance", async () => {
+    capture("post", "/api/session/ping", () => new HttpResponse(null, { status: 204, headers: { "X-PP-Activity-At": "42" } }))
+    await createCallApi({ events: createSessionEvents(), locks: () => undefined })("ping", "/api/session/ping", { method: "POST" })
+    expect(defaultActivity.lastAt()).toBe(42)
   })
 })

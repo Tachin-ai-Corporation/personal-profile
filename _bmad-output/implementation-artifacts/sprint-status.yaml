@@ -98,9 +98,13 @@ development_status:
   7-0a-bff-foundation-and-tooling: done
   7-0b-1-tokens-messages-errors: done
   7-0b-2-shell-navigation: done
-  7-0c-1-idle-logoff-and-activity: backlog  # port of main Story 1.6
-  7-0c-2-section-navigation: backlog  # port of main Story 1.8B (Section menu, Jump to, SectionFrame, select, panels)
-  7-0c-3-disabled-screen: backlog  # port of main disabled screen (PP_DISABLED, 503 if feasible)
+  7-0c-1-idle-logoff-and-activity: done  # port of main Story 1.6
+  # Shared foundation (approved 2026-10-14): built once before feature work by either team; see shared-foundation-plan.md
+  f1-shared-contracts-and-data-layer: backlog
+  f2-bff-extension-kit: backlog  # absorbs former 7-0c-3 disabled screen
+  f3-section-edit-kit: backlog  # absorbs former 7-0c-2 section navigation / SectionFrame / select
+  f4-drafts: backlog
+  f5-shared-input-controls: backlog
   7-1-account-page-route-tabs-deep-links-and-states: backlog
   7-2-account-page-hardening-denies-kill-switch-headers-mobile-and-a: backlog
   7-3-portal-hand-off-route: backlog

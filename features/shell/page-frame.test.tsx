@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { sessionEvents } from "@/lib/api"
 import { server } from "@/test/msw-server"
 import { setTestUrl } from "@/test/next-navigation"
-import { TestProviders } from "@/test/providers"
+import { TestProviders, testIdle } from "@/test/providers"
 import { resetLeaveState } from "./leave"
 import { PageFrame } from "./page-frame"
 import { ProfileTabs } from "./page-tabs"
@@ -17,7 +17,7 @@ const LOAD_ERROR = "Something went wrong while loading profile information"
 function setup() {
   return render(
     <TestProviders>
-      <PageFrame page="profile" header={<div data-testid="header-slot" />}>
+      <PageFrame page="profile" header={<div data-testid="header-slot" />} idle={testIdle()}>
         <ProfileTabs />
       </PageFrame>
     </TestProviders>,

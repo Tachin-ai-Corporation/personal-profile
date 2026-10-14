@@ -14,15 +14,17 @@ function setup(pathname = "/", overrides: Partial<NavigateDeps> = {}, search = "
   const assign = vi.fn((url: string) => void calls.push(`assign ${url}`))
   const replaceState = vi.fn((_state: unknown, _unused: string, url?: string | URL | null) => void calls.push(`replace ${String(url)}`))
   const logout = vi.fn(async () => void calls.push("logout"))
+  const recordActivity = vi.fn(() => void calls.push("activity"))
   const deps: NavigateDeps = {
     router: { push },
     portalUrl: PORTAL,
     location: { pathname, search, assign },
     history: { replaceState },
     logout,
+    recordActivity,
     ...overrides,
   }
-  return { deps, calls, push, assign, replaceState, logout }
+  return { deps, calls, push, assign, replaceState, logout, recordActivity }
 }
 
 beforeEach(() => resetLeaveState())
@@ -156,6 +158,40 @@ describe("navigate: pages and tabs", () => {
       expect(calls).toEqual([])
     },
   )
+})
+
+describe("navigate: user activity (Story 1.6)", () => {
+  it.each([
+    ["a page move", { page: "account" } as NavTarget],
+    ["a tab move on the current page", { page: "profile", tab: "insurance" } as NavTarget],
+  ])("%s records one activity ping after the leave check", async (_label, target) => {
+    const { deps, recordActivity } = setup("/")
+    expect(await navigate(target, deps)).toBe(true)
+    expect(recordActivity).toHaveBeenCalledOnce()
+  })
+
+  it("no activity when the leave is refused, for the current page's no-op, or for an exit", async () => {
+    const { deps, recordActivity } = setup("/")
+    expect(await navigate({ page: "profile" }, deps)).toBe(true)
+    setLeaveGuard(async () => false)
+    expect(await navigate({ page: "account" }, deps)).toBe(false)
+    resetLeaveState()
+    await navigate({ external: "portal" }, deps)
+    expect(recordActivity).not.toHaveBeenCalled()
+  })
+
+  it("pings /api/session/ping by default", async () => {
+    let pings = 0
+    server.use(
+      http.post("/api/session/ping", () => {
+        pings += 1
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const { deps } = setup("/", { recordActivity: undefined })
+    await navigate({ page: "profile", tab: "medical" }, deps)
+    await vi.waitFor(() => expect(pings).toBe(1))
+  })
 })
 
 describe("navigate: exits", () => {

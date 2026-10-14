@@ -4,7 +4,7 @@ import { AlertCircle, Lock } from "lucide-react"
 import type { JSX } from "react"
 
 import { Button } from "@/components/ui/button"
-import type { MappedError } from "@/lib/api"
+import { recordUserActivity, type MappedError } from "@/lib/api"
 import { COMMON_MESSAGES, STATE_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
 
@@ -26,7 +26,11 @@ export function LoadError({ onRetry, className }: LoadErrorProps): JSX.Element {
       <p role="alert" className="font-medium">
         {STATE_MESSAGES.loadError}
       </p>
-      <Button type="button" variant="link" size="touch" className="px-2" onClick={onRetry}>
+      <Button type="button" variant="link" size="touch" className="px-2" onClick={() => {
+          // Retrying is the user acting: record it, so reading alone isn't idled out (Story 1.6).
+          void recordUserActivity()
+          onRetry()
+        }}>
         {COMMON_MESSAGES.retry}
       </Button>
     </div>

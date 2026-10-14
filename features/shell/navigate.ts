@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation"
 import { createContext, useCallback, useContext } from "react"
-import { endSession } from "@/lib/api"
+import { endSession, recordUserActivity } from "@/lib/api"
 import { runBeforeExit } from "./exit-hooks"
 import { beginExit, cancelExit, confirmUnload, requestLeave } from "./leave"
 import { PAGE_PATHS, pageOfPath, type NavTarget, type PageId } from "./nav-types"
@@ -31,6 +31,8 @@ export interface NavigateDeps {
   readonly history?: Pick<History, "replaceState">
   readonly logout?: () => Promise<unknown>
   readonly logoutTimeoutMs?: number
+  /** Records a page/tab move as user activity (Story 1.6); fire and forget. */
+  readonly recordActivity?: () => unknown
 }
 
 /** `?…` with `tab` set (or left as is), every other param kept. */
@@ -63,6 +65,7 @@ async function logoutWithin(logout: () => Promise<unknown>, timeoutMs: number): 
  * The app's one navigation (AD-26). Every target first passes `requestLeave()`.
  * Resolves `true` when the move went ahead.
  *
+ * - page and tab moves count as user activity (an activity ping, Story 1.6).
  * - page: `router.push`, which keeps the root SWR cache.
  * - tab on the current page: `?tab=` by history replace (other params kept), the old hash dropped, no scroll.
  * - portal: before-exit callbacks → logout (≤ 3 s, failures ignored) → same-tab `location.assign(portalUrl)`.
@@ -94,6 +97,7 @@ export async function navigate(target: NavTarget, deps: NavigateDeps): Promise<b
   // The current page's item with no tab or hash does nothing.
   if (samePage && !target.tab && !target.hash) return true
   if (!(await requestLeave())) return false
+  void (deps.recordActivity ?? recordUserActivity)()
 
   if (samePage) {
     const history = deps.history ?? window.history

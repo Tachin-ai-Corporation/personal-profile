@@ -47,6 +47,7 @@ export {
 } from "./section-registry"
 export { LeaveGuard, type LeaveGuardProps } from "./leave-guard"
 export { SessionDialog } from "./session-dialog"
+export { IdleWarning, IDLE_PING_TIMEOUT_MS, IDLE_SAFETY_MARGIN_MS, IDLE_WARNING_LEAD_MS, type IdleWarningProps } from "./idle-warning"
 export { AppBar } from "./app-bar"
 export { PageNav } from "./page-nav"
 export { ReturnLink } from "./return-link"

@@ -2,7 +2,7 @@ import "server-only"
 
 import { z } from "zod"
 import { environmentConfig } from "@/lib/shared/environments"
-import { discardBody, fetchWithTimeout } from "@/lib/server/http/fetch-with-timeout"
+import { discardBody, fetchWithTimeout, UPSTREAM_TIMEOUT_MS } from "@/lib/server/http/fetch-with-timeout"
 import type { SessionPayload } from "./types"
 
 /** AD-2/AD-16: an access token this close to expiry counts as expired. */
@@ -10,6 +10,18 @@ export const EXPIRY_SKEW_MS = 30_000
 
 export function isAccessTokenFresh(session: SessionPayload, now: number): boolean {
   return session.accessExpiresAt - now > EXPIRY_SKEW_MS
+}
+
+/**
+ * Activity re-seal race guard (Story 1.6): the token must outlive skew +
+ * upstream timeout (55 s). No normal refresh (in any tab) can then rotate the
+ * tokens while this request is in flight, so its late `Set-Cookie` never
+ * writes back pre-rotation tokens.
+ */
+export const ACTIVITY_RESEAL_MIN_MS = EXPIRY_SKEW_MS + UPSTREAM_TIMEOUT_MS
+
+export function canRenewLastSeen(session: SessionPayload, now: number): boolean {
+  return session.accessExpiresAt - now > ACTIVITY_RESEAL_MIN_MS
 }
 
 const tokenResponseSchema = z.object({

@@ -6,7 +6,8 @@ import { parseErrorBody } from "./errors-codes"
 import { ApiResponseError, fetchers, swrFetcher, unwrap } from "./fetcher"
 import { isSwrKey, keys } from "./keys"
 import { browserLocks, createRefreshCoordinator, REFRESH_LOCK } from "./refresh-coordinator"
-import { endSession, startSession } from "./session"
+import { activity } from "./activity"
+import { endSession, recordUserActivity, startSession } from "./session"
 import { createSessionEvents, sessionEvents } from "./session-events"
 import { fetchMyself, toMyself } from "./user"
 
@@ -179,5 +180,21 @@ describe("session calls", () => {
   it("endSession posts logout", async () => {
     server.use(http.post("/api/session/logout", () => new HttpResponse(null, { status: 204 })))
     expect((await endSession()).statusCode).toBe(204)
+  })
+
+  it("recordUserActivity posts the ping as user activity, passes the signal, and notes the echo", async () => {
+    let flag: string | null = null
+    server.use(
+      http.post("/api/session/ping", ({ request }) => {
+        flag = request.headers.get("X-PP-Activity")
+        return new HttpResponse(null, { status: 204, headers: { "X-PP-Activity-At": "77" } })
+      }),
+    )
+    expect((await recordUserActivity()).statusCode).toBe(204)
+    expect(flag).toBe("user")
+    expect(activity.lastAt()).toBe(77)
+    const controller = new AbortController()
+    controller.abort()
+    expect(await recordUserActivity({ signal: controller.signal })).toMatchObject({ success: false, errorCode: "NETWORK_ERROR" })
   })
 })

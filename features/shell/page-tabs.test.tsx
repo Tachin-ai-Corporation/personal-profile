@@ -1,7 +1,8 @@
-import { act, fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { http, HttpResponse } from "msw"
 import axe from "axe-core"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { trackAllRequests } from "@/test/msw-server"
+import { server, trackAllRequests } from "@/test/msw-server"
 import { setTestUrl } from "@/test/next-navigation"
 import { TestProviders } from "@/test/providers"
 import { FixtureParticipant } from "./__fixtures__/fixture-participant"
@@ -132,11 +133,19 @@ describe("ProfileTabs", () => {
     expect(selected()).toBe("Contacts")
   })
 
-  it("shows the Medical copy and sends no request when switching to Medical", async () => {
+  it("shows the Medical copy and sends no data request when switching to Medical (only the activity ping)", async () => {
     setup()
     const requests = trackAllRequests()
+    let pings = 0
+    server.use(
+      http.post("/api/session/ping", () => {
+        pings += 1
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
     await act(async () => fireEvent.mouseDown(tab(MEDICAL), { button: 0 }))
     expect(screen.getByText("Coming soon: medications, allergies and conditions will appear here")).toBeTruthy()
+    await waitFor(() => expect(pings).toBe(1))
     expect(requests()).toBe(0)
   })
 

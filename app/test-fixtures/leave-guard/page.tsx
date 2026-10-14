@@ -15,11 +15,11 @@ export const dynamic = "force-dynamic"
  */
 export default async function LeaveGuardFixturePage() {
   if (!serverEnv().PP_E2E_FIXTURES) notFound()
-  const { portalUrl } = await requirePageSession()
+  const { portalUrl, idle } = await requirePageSession()
 
   return (
     <PortalUrlProvider portalUrl={portalUrl}>
-      <PageFrame page="profile" header={<ProfileHeader />}>
+      <PageFrame page="profile" header={<ProfileHeader />} idle={idle}>
         <div className="flex flex-col gap-2 px-4 pt-4 md:px-6">
           <FixtureParticipant id="phone" label="Fixture phone" displayOrder={2} />
           <FixtureParticipant id="insurance" label="Fixture insurance" displayOrder={6} canSave={false} />

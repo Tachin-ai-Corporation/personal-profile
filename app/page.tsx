@@ -6,11 +6,11 @@ export const dynamic = "force-dynamic"
 
 /** Personal Profile (`/`): app bar → header → Contacts / Insurance / Medical tabs (Story 1.8). */
 export default async function HomePage() {
-  const { portalUrl } = await requirePageSession()
+  const { portalUrl, idle } = await requirePageSession()
 
   return (
     <PortalUrlProvider portalUrl={portalUrl}>
-      <PageFrame page="profile" header={<ProfileHeader />}>
+      <PageFrame page="profile" header={<ProfileHeader />} idle={idle}>
         <ProfileTabs />
       </PageFrame>
     </PortalUrlProvider>

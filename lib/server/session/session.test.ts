@@ -1,15 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { stubServerEnv, TEST_ENV } from "@/test/env-fixture"
-import { makeSession } from "@/test/session-fixture"
+import { makeSession, NOW } from "@/test/session-fixture"
 import { rememberedEnvironment, requirePageSession } from "@/lib/server/page-session"
 import { ENVIRONMENT_COOKIE, environmentSetCookie, parseEnvironmentCookie, resolveEnvironment } from "./environment-cookie"
 import {
+  ABSOLUTE_TIMEOUT_MS,
   buildSessionSetCookie,
   clearSessionSetCookie,
   getSession,
+  hasSessionCookie,
+  IDLE_TIMEOUT_MS,
+  isSessionAged,
   MAX_SET_COOKIE_BYTES,
   newSid,
   readCookie,
+  renewLastSeen,
   requireSession,
   sealSession,
   SESSION_COOKIE,
@@ -115,8 +120,8 @@ describe("reading the session", () => {
     expect(readCookie("x=1", "a")).toBeUndefined()
   })
 
-  it("getSession reads the request cookie", async () => {
-    const session = makeSession()
+  it("getSession reads the request cookie (real clock by default)", async () => {
+    const session = makeSession({ iat: Date.now(), lastSeen: Date.now() })
     const seal = await sealSession(session)
     const request = new Request("http://localhost/api", { headers: { cookie: `other=1; ${SESSION_COOKIE}=${seal}` } })
     expect(await getSession(request)).toEqual(session)
@@ -125,15 +130,25 @@ describe("reading the session", () => {
 
   it("requireSession returns the session or redirects to /auth", async () => {
     await expect(requireSession()).rejects.toThrow("REDIRECT:/auth")
-    const session = makeSession({ environment: "prod" })
+    const session = makeSession({ environment: "prod", iat: Date.now(), lastSeen: Date.now() })
     cookieJar.set(SESSION_COOKIE, await sealSession(session))
     expect(await requireSession()).toEqual(session)
   })
 
-  it("requirePageSession embeds only the session's portal URL, never a token or binding", async () => {
-    await expect(requirePageSession()).rejects.toThrow("REDIRECT:/auth")
-    cookieJar.set(SESSION_COOKIE, await sealSession(makeSession({ environment: "demo" })))
-    expect(await requirePageSession()).toEqual({ portalUrl: "https://1health.demo.1health.io" })
+  it("requirePageSession embeds only the portal URL and the four idle numbers, never a token or binding", async () => {
+    await expect(requirePageSession(NOW)).rejects.toThrow("REDIRECT:/auth")
+    cookieJar.set(SESSION_COOKIE, await sealSession(makeSession({ environment: "demo", iat: NOW - 60_000, lastSeen: NOW - 5_000 })))
+    expect(await requirePageSession(NOW)).toEqual({
+      portalUrl: "https://1health.demo.1health.io",
+      idle: { idleTimeoutSec: 900, lastSeen: NOW - 5_000, absoluteExpiresAt: NOW - 60_000 + 8 * 3600_000, serverNow: NOW },
+    })
+  })
+
+  it("requirePageSession uses the real clock by default", async () => {
+    const before = Date.now()
+    cookieJar.set(SESSION_COOKIE, await sealSession(makeSession({ iat: before, lastSeen: before })))
+    const { idle } = await requirePageSession()
+    expect(idle.serverNow).toBeGreaterThanOrEqual(before)
   })
 
   it("rememberedEnvironment reads only a known onehealth_environment value", async () => {
@@ -142,6 +157,48 @@ describe("reading the session", () => {
     expect(await rememberedEnvironment()).toBe("demo")
     cookieJar.set(ENVIRONMENT_COOKIE, "dev")
     expect(await rememberedEnvironment()).toBeNull()
+  })
+})
+
+describe("idle and absolute limits (Story 1.6, AD-16)", () => {
+  const MIN = 60_000
+  const sealed = async (overrides: Parameters<typeof makeSession>[0]) =>
+    new Request("http://localhost/api", { headers: { cookie: `${SESSION_COOKIE}=${await sealSession(makeSession(overrides))}` } })
+
+  it("limits are 15 min idle and 8 h absolute", () => {
+    expect(IDLE_TIMEOUT_MS).toBe(15 * MIN)
+    expect(ABSOLUTE_TIMEOUT_MS).toBe(8 * 60 * MIN)
+  })
+
+  it.each([
+    ["idle 14:59", { lastSeen: NOW - (15 * MIN - 1_000) }, false],
+    ["idle 15:00 exactly", { lastSeen: NOW - 15 * MIN }, false],
+    ["idle 15:01", { lastSeen: NOW - (15 * MIN + 1_000) }, true],
+    ["absolute 8 h exactly", { iat: NOW - 8 * 60 * MIN, lastSeen: NOW - MIN }, false],
+    ["absolute 8 h + 1 s with recent activity", { iat: NOW - (8 * 60 * MIN + 1_000), lastSeen: NOW - MIN }, true],
+  ])("%s → aged %s, and getSession treats an aged session as none", async (_label, overrides, aged) => {
+    expect(isSessionAged(makeSession(overrides), NOW)).toBe(aged)
+    const session = await getSession(await sealed(overrides), NOW)
+    expect(session === null).toBe(aged)
+  })
+
+  it("requireSession redirects an aged session to /auth", async () => {
+    cookieJar.set(SESSION_COOKIE, await sealSession(makeSession({ lastSeen: NOW - 16 * MIN })))
+    await expect(requireSession(NOW)).rejects.toThrow("REDIRECT:/auth")
+    await expect(requirePageSession(NOW)).rejects.toThrow("REDIRECT:/auth")
+  })
+
+  it("hasSessionCookie is true for any sent session cookie, valid or not", () => {
+    expect(hasSessionCookie(new Request("http://localhost/api"))).toBe(false)
+    expect(hasSessionCookie(new Request("http://localhost/api", { headers: { cookie: "other=1" } }))).toBe(false)
+    expect(hasSessionCookie(new Request("http://localhost/api", { headers: { cookie: `${SESSION_COOKIE}=garbage` } }))).toBe(true)
+  })
+
+  it("renewLastSeen re-seals with lastSeen = now and nothing else changed", async () => {
+    const session = makeSession({ lastSeen: NOW - 5 * MIN })
+    const header = await renewLastSeen(session, NOW)
+    expect(header).toMatch(new RegExp(`^${SESSION_COOKIE}=.+; Path=/; HttpOnly; Secure; SameSite=Lax$`))
+    expect(await unsealSession(header.slice(SESSION_COOKIE.length + 1, header.indexOf(";")))).toEqual({ ...session, lastSeen: NOW })
   })
 })
 

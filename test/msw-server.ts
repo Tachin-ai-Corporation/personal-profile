@@ -1,8 +1,12 @@
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 
-/** One MSW server for every test: handlers are added per test with `server.use()`. */
-export const server = setupServer()
+/**
+ * One MSW server for every test: handlers are added per test with
+ * `server.use()`. The activity ping (Retry, page/tab moves) answers 204 by
+ * default; tests that care override it.
+ */
+export const server = setupServer(http.post("/api/session/ping", () => new HttpResponse(null, { status: 204 })))
 
 /**
  * Counts every request that reaches the network layer (each answered with a

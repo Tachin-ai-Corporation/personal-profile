@@ -1,13 +1,15 @@
 import "server-only"
 
-import { BFF_PATHS, type BffErrorCode } from "@/lib/shared/bff-contract"
+import { ACTIVITY_AT_HEADER, ACTIVITY_HEADER, ACTIVITY_USER, BFF_PATHS, type BffErrorCode } from "@/lib/shared/bff-contract"
 import { environmentConfig } from "@/lib/shared/environments"
 import { serverEnv, type ServerEnv } from "@/lib/server/env"
 import { jsonError } from "@/lib/server/http/responses"
 import { isJsonRequest } from "@/lib/server/http/content-type"
 import { logRequest, newRequestId } from "@/lib/server/log"
-import { isAccessTokenFresh } from "@/lib/server/session/refresh"
-import { getSession } from "@/lib/server/session/session"
+import { canRenewLastSeen, isAccessTokenFresh } from "@/lib/server/session/refresh"
+import { getSession, renewLastSeen } from "@/lib/server/session/session"
+import { sessionExpiredResponse } from "@/lib/server/session/session-routes"
+import type { SessionPayload } from "@/lib/server/session/types"
 import { ALLOWLIST } from "./allowlist"
 import { DENY_RULES, isDenied } from "./deny-list"
 import { buildUpstreamUrl, forward } from "./forward"
@@ -61,10 +63,30 @@ async function readEntryBody(request: Request, method: ProxyMethod, entry: Allow
 }
 
 /**
+ * Story 1.6 activity: a forwarded request flagged `X-PP-Activity: user`
+ * re-seals `lastSeen = at` and echoes `X-PP-Activity-At`, under the race guard.
+ * A re-seal that fails leaves the upstream answer untouched.
+ */
+async function recordActivity(request: Request, response: Response, session: SessionPayload, at: number): Promise<Response> {
+  if (request.headers.get(ACTIVITY_HEADER) !== ACTIVITY_USER) return response
+  if (!canRenewLastSeen(session, at)) return response
+  let cookie: string
+  try {
+    cookie = await renewLastSeen(session, at)
+  } catch {
+    return response
+  }
+  response.headers.append("Set-Cookie", cookie)
+  response.headers.set(ACTIVITY_AT_HEADER, String(at))
+  return response
+}
+
+/**
  * Story 1.3 proxy, built by a factory so tests can inject fixture allowlists.
  * Order: kill switch → method → path → deny → allowlist → Profile switch →
- * session → query → body (415/413/400) → token expiry → upstream. There is no
- * CSRF or session-binding check (D5); bodies are never logged (D6).
+ * session → query → body (415/413/400) → token expiry → upstream → activity
+ * re-seal. There is no CSRF or session-binding check (D5); bodies are never
+ * logged (D6). `X-PP-Activity` is never forwarded upstream.
  */
 export function createProxyHandler(deps: ProxyHandlerDeps = {}): (request: Request) => Promise<Response> {
   const allowlist = deps.allowlist ?? ALLOWLIST
@@ -102,8 +124,8 @@ export function createProxyHandler(deps: ProxyHandlerDeps = {}): (request: Reque
 
     if (entry.profile && env.ACCOUNT_DISABLED) return fail(503, "SERVICE_DISABLED")
 
-    const session = await getSession(request)
-    if (!session) return fail(401, "SESSION_EXPIRED")
+    const session = await getSession(request, now())
+    if (!session) return done(sessionExpiredResponse(request))
 
     const query = buildUpstreamQuery(entry, url.searchParams)
     if (!query) return fail(400, "BAD_QUERY")
@@ -111,7 +133,8 @@ export function createProxyHandler(deps: ProxyHandlerDeps = {}): (request: Reque
     const body = await readEntryBody(request, method, entry)
     if (!body.ok) return fail(body.status, body.errorCode)
 
-    if (!isAccessTokenFresh(session, now())) return fail(401, "TOKEN_EXPIRED")
+    const checkedAt = now()
+    if (!isAccessTokenFresh(session, checkedAt)) return fail(401, "TOKEN_EXPIRED")
 
     const upstreamUrl = buildUpstreamUrl(
       environmentConfig(session.environment).apiRoot,
@@ -123,6 +146,6 @@ export function createProxyHandler(deps: ProxyHandlerDeps = {}): (request: Reque
 
     const result = await forward({ url: upstreamUrl, method, request, body: body.body, accessToken: session.accessToken, requestId })
     if (result.kind === "token-expired") return fail(401, "TOKEN_EXPIRED")
-    return done(result.response)
+    return done(await recordActivity(request, result.response, session, checkedAt))
   }
 }

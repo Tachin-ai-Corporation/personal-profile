@@ -1,12 +1,22 @@
 import "server-only"
 
+import { ACTIVITY_AT_HEADER } from "@/lib/shared/bff-contract"
 import { environmentConfig } from "@/lib/shared/environments"
 import { serverEnv, type ServerEnv } from "@/lib/server/env"
 import { jsonError, jsonOk, noContent } from "@/lib/server/http/responses"
 import { logRequest, newRequestId } from "@/lib/server/log"
-import { isAccessTokenFresh, refreshSession } from "./refresh"
+import { canRenewLastSeen, isAccessTokenFresh, refreshSession } from "./refresh"
 import { REVOKE_TIMEOUT_MS, revokeAllDevices } from "./revoke"
-import { buildSessionSetCookie, clearSessionSetCookie, getSession } from "./session"
+import {
+  buildSessionSetCookie,
+  clearSessionSetCookie,
+  getSession,
+  hasSessionCookie,
+  readCookie,
+  renewLastSeen,
+  SESSION_COOKIE,
+  unsealSession,
+} from "./session"
 
 export interface SessionRouteDeps {
   readonly env?: () => ServerEnv
@@ -17,6 +27,15 @@ export interface SessionRouteDeps {
 
 const REFRESH_ROUTE = "/api/session/refresh"
 const LOGOUT_ROUTE = "/api/session/logout"
+const PING_ROUTE = "/api/session/ping"
+
+/**
+ * 401 `SESSION_EXPIRED` for a request with no usable session (missing,
+ * unsealable or aged). Clears the cookie only when the request sent one.
+ */
+export function sessionExpiredResponse(request: Request): Response {
+  return jsonError(401, "SESSION_EXPIRED", hasSessionCookie(request) ? new Headers({ "Set-Cookie": clearSessionSetCookie() }) : undefined)
+}
 
 /**
  * POST /api/session/refresh (Story 1.5, AD-16). A still-valid token answers
@@ -40,8 +59,8 @@ export function createRefreshHandler(deps: SessionRouteDeps = {}): (request: Req
     const env = getEnv()
     if (env.PP_DISABLED) return done(jsonError(503, "SERVICE_DISABLED"))
 
-    const session = await getSession(request)
-    if (!session) return done(jsonError(401, "SESSION_EXPIRED"))
+    const session = await getSession(request, now())
+    if (!session) return done(sessionExpiredResponse(request))
 
     if (isAccessTokenFresh(session, now())) return done(jsonOk({ ok: true }))
 
@@ -63,10 +82,54 @@ export function createRefreshHandler(deps: SessionRouteDeps = {}): (request: Req
 }
 
 /**
+ * POST /api/session/ping (Story 1.6, AD-16): the idle warning's "Stay signed
+ * in", plus app-bar page/tab moves and Retry). Re-seals the session with
+ * `lastSeen = now` and nothing else, then 204 echoing `X-PP-Activity-At`.
+ * Race guard: within 55 s of token expiry it answers 401 `TOKEN_EXPIRED`
+ * without re-sealing, so the client refreshes first and replays the ping (a
+ * re-seal racing another tab's refresh could write back rotated-away tokens).
+ * No CSRF or session-binding check (D5).
+ */
+export function createPingHandler(deps: SessionRouteDeps = {}): (request: Request) => Promise<Response> {
+  const getEnv = deps.env ?? serverEnv
+  const now = deps.now ?? Date.now
+
+  return async function handlePing(request: Request): Promise<Response> {
+    const requestId = newRequestId()
+    const started = now()
+    const done = (response: Response): Response => {
+      logRequest({ requestId, method: "POST", routeTemplate: PING_ROUTE, status: response.status, durationMs: now() - started })
+      return response
+    }
+
+    if (getEnv().PP_DISABLED) return done(jsonError(503, "SERVICE_DISABLED"))
+
+    const at = now()
+    const session = await getSession(request, at)
+    if (!session) return done(sessionExpiredResponse(request))
+
+    if (!canRenewLastSeen(session, at)) return done(jsonError(401, "TOKEN_EXPIRED"))
+
+    let cookie: string
+    try {
+      cookie = await renewLastSeen(session, at)
+    } catch {
+      // The cookie no longer fits its budget: end the session, as refresh does.
+      return done(jsonError(401, "SESSION_EXPIRED", new Headers({ "Set-Cookie": clearSessionSetCookie() })))
+    }
+    const headers = new Headers({ "Set-Cookie": cookie, [ACTIVITY_AT_HEADER]: String(at) })
+    headers.set("X-Content-Type-Options", "nosniff")
+    return done(noContent(headers))
+  }
+}
+
+/**
  * POST or GET /api/session/logout (Story 1.7, D3, D5). With a session, first a
  * best-effort `POST <apiRoot>/auth/user/logout/all-devices` with the session's
  * Bearer; any failure is swallowed and logged without the token. Then always
- * 204 clearing `__Host-pp_s`. No session → no upstream call.
+ * 204 clearing `__Host-pp_s`. No session → no upstream call. The age check is
+ * deliberately skipped: an idle- or absolute-expired session's tokens are
+ * still live upstream, so they are revoked too.
  */
 export function createLogoutHandler(deps: SessionRouteDeps = {}): (request: Request) => Promise<Response> {
   const now = deps.now ?? Date.now
@@ -76,7 +139,7 @@ export function createLogoutHandler(deps: SessionRouteDeps = {}): (request: Requ
     const requestId = newRequestId()
     const started = now()
 
-    const session = await getSession(request)
+    const session = await unsealSession(readCookie(request.headers.get("cookie"), SESSION_COOKIE))
     if (session) {
       await revokeAllDevices(environmentConfig(session.environment).apiRoot, session.accessToken, {
         requestId,

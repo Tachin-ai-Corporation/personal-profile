@@ -3,7 +3,7 @@ import { http, HttpResponse } from "msw"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { z } from "zod"
 import { setLogSink } from "@/lib/server/log"
-import { SESSION_COOKIE, sealSession } from "@/lib/server/session/session"
+import { SESSION_COOKIE, sealSession, unsealSession } from "@/lib/server/session/session"
 import type { SessionPayload } from "@/lib/server/session/types"
 import { stubServerEnv, testEnv } from "@/test/env-fixture"
 import { server, trackAllRequests } from "@/test/msw-server"
@@ -108,8 +108,25 @@ describe("proxy: rejections before upstream", () => {
     await expectError(response, 400, "BAD_PATH")
   })
 
-  it("answers 401 SESSION_EXPIRED without a session", async () => {
-    await expectError(await call({ path: "v2/user/myself", session: null }), 401, "SESSION_EXPIRED")
+  it("answers 401 SESSION_EXPIRED without a session, clearing nothing when no cookie was sent", async () => {
+    const response = await call({ path: "v2/user/myself", session: null })
+    await expectError(response, 401, "SESSION_EXPIRED")
+    expect(response.headers.get("Set-Cookie")).toBeNull()
+  })
+
+  it.each([
+    ["idle 15:01", { lastSeen: NOW - (15 * 60_000 + 1_000) }],
+    ["absolute 8 h + 1 s with recent activity", { iat: NOW - (8 * 3600_000 + 1_000), lastSeen: NOW - 60_000 }],
+  ])("an aged session (%s) → 401 SESSION_EXPIRED + cookie cleared", async (_label, overrides) => {
+    const response = await call({ path: "v2/user/myself", session: makeSession(overrides), headers: { "X-PP-Activity": "user" } })
+    await expectError(response, 401, "SESSION_EXPIRED")
+    expect(response.headers.get("Set-Cookie")).toBe(`${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`)
+  })
+
+  it("an unsealable cookie → 401 SESSION_EXPIRED + cookie cleared", async () => {
+    const response = await proxy(new Request("http://localhost:3000/api/1h/v2/user/myself", { headers: { cookie: `${SESSION_COOKIE}=garbage` } }))
+    await expectError(response, 401, "SESSION_EXPIRED")
+    expect(response.headers.get("Set-Cookie")).toMatch(/Max-Age=0$/)
   })
 
   it("has no CSRF or session-binding check (D5): a cross-site non-GET without X-PP-Session reaches validation", async () => {
@@ -340,7 +357,109 @@ describe("proxy: forwarding", () => {
 
   it("uses the shipped allowlist, env and clock by default", async () => {
     server.use(http.get(`${UP}/v2/user/myself`, () => HttpResponse.json({ id: 1 })))
-    const response = await call({ path: "v2/user/myself", session: makeSession({ accessExpiresAt: Date.now() + 600_000 }) }, createProxyHandler())
+    const at = Date.now()
+    const response = await call({ path: "v2/user/myself", session: makeSession({ iat: at, lastSeen: at, accessExpiresAt: at + 600_000 }) }, createProxyHandler())
     expect(response.status).toBe(200)
+  })
+})
+
+describe("proxy: user activity (Story 1.6)", () => {
+  const MIN = 60_000
+  const ACTIVITY = { "X-PP-Activity": "user" }
+
+  function setCookieSession(response: Response): Promise<SessionPayload | null> {
+    const header = response.headers.get("Set-Cookie") ?? ""
+    return unsealSession(header.slice(SESSION_COOKIE.length + 1, header.indexOf(";")))
+  }
+
+  it("a flagged GET re-seals lastSeen = now, echoes X-PP-Activity-At, and never forwards the flag upstream", async () => {
+    let seen: Headers | undefined
+    server.use(
+      http.get(`${UP}/v2/user/myself`, ({ request }) => {
+        seen = request.headers
+        return HttpResponse.json({ id: 42 })
+      }),
+    )
+    const session = makeSession({ lastSeen: NOW - 10 * MIN })
+    const response = await call({ path: "v2/user/myself", session, headers: ACTIVITY })
+    expect(response.status).toBe(200)
+    expect(seen?.get("X-PP-Activity")).toBeNull()
+    expect(response.headers.get("X-PP-Activity-At")).toBe(String(NOW))
+    expect(await setCookieSession(response)).toEqual({ ...session, lastSeen: NOW })
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0")
+  })
+
+  it("a flagged PUT re-seals too, and so does an upstream error answer (the user still acted)", async () => {
+    server.use(http.put(`${UP}/v2/user/edit`, () => HttpResponse.json({ message: "Nope" }, { status: 409 })))
+    const response = await call({
+      method: "PUT",
+      path: "v2/user/edit",
+      headers: { ...ACTIVITY, "Content-Type": "application/json" },
+      body: JSON.stringify({ firstName: "Ann" }),
+    })
+    expect(response.status).toBe(409)
+    expect(response.headers.get("X-PP-Activity-At")).toBe(String(NOW))
+  })
+
+  it.each([
+    ["no flag (background revalidation)", {}],
+    ["a flag other than user", { "X-PP-Activity": "yes" }],
+  ])("%s → forwarded, no re-seal, no echo", async (_label, headers) => {
+    server.use(http.get(`${UP}/v2/user/myself`, () => HttpResponse.json({ id: 42 })))
+    const response = await call({ path: "v2/user/myself", headers })
+    expect(response.status).toBe(200)
+    expect(response.headers.get("Set-Cookie")).toBeNull()
+    expect(response.headers.get("X-PP-Activity-At")).toBeNull()
+  })
+
+  it.each([
+    ["31 s", 31_000],
+    ["55 s exactly", 55_000],
+  ])("token %s from expiry (race guard: ≤ skew + upstream timeout) → forwarded, no re-seal", async (_label, left) => {
+    server.use(http.get(`${UP}/v2/user/myself`, () => HttpResponse.json({ id: 42 })))
+    const response = await call({ path: "v2/user/myself", session: makeSession({ accessExpiresAt: NOW + left }), headers: ACTIVITY })
+    expect(response.status).toBe(200)
+    expect(response.headers.get("Set-Cookie")).toBeNull()
+    expect(response.headers.get("X-PP-Activity-At")).toBeNull()
+  })
+
+  it("token 56 s from expiry → re-sealed", async () => {
+    server.use(http.get(`${UP}/v2/user/myself`, () => HttpResponse.json({ id: 42 })))
+    const response = await call({ path: "v2/user/myself", session: makeSession({ accessExpiresAt: NOW + 56_000 }), headers: ACTIVITY })
+    expect(response.headers.get("X-PP-Activity-At")).toBe(String(NOW))
+  })
+
+  it("an upstream 401 (TOKEN_EXPIRED) is not re-sealed: the client refreshes and replays", async () => {
+    server.use(http.get(`${UP}/v2/user/myself`, () => new HttpResponse(null, { status: 401 })))
+    const response = await call({ path: "v2/user/myself", headers: ACTIVITY })
+    await expectError(response, 401, "TOKEN_EXPIRED")
+    expect(response.headers.get("Set-Cookie")).toBeNull()
+  })
+
+  it("a re-seal that fails (cookie over budget) leaves the upstream answer untouched", async () => {
+    server.use(http.get(`${UP}/v2/user/myself`, () => HttpResponse.json({ id: 42 })))
+    const response = await call({ path: "v2/user/myself", session: makeSession({ refreshToken: "r".repeat(4000) }), headers: ACTIVITY })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ id: 42 })
+    expect(response.headers.get("Set-Cookie")).toBeNull()
+  })
+
+  it("15 min of background GETs alone never move lastSeen: at 15:01 the session is expired", async () => {
+    server.use(http.get(`${UP}/v2/user/myself`, () => HttpResponse.json({ id: 42 })))
+    const session = makeSession({ lastSeen: NOW, iat: NOW })
+    const cookie = `${SESSION_COOKIE}=${await sealSession(session)}`
+    // A revalidation every 2 min up to exactly 15:00 (each one allowed, none re-seals).
+    for (const minute of [1, 3, 5, 7, 9, 11, 13, 15]) {
+      const at = NOW + minute * MIN
+      const handler = createProxyHandler({ allowlist: FIXTURES, env: env(), now: () => at })
+      const response = await handler(new Request("http://localhost:3000/api/1h/v2/user/myself", { headers: { cookie } }))
+      expect(response.status).toBe(200)
+      expect(response.headers.get("Set-Cookie")).toBeNull()
+      await response.text()
+    }
+    const late = createProxyHandler({ allowlist: FIXTURES, env: env(), now: () => NOW + 15 * MIN + 1_000 })
+    const response = await late(new Request("http://localhost:3000/api/1h/v2/user/myself", { headers: { cookie } }))
+    await expectError(response, 401, "SESSION_EXPIRED")
+    expect(response.headers.get("Set-Cookie")).toMatch(/Max-Age=0$/)
   })
 })

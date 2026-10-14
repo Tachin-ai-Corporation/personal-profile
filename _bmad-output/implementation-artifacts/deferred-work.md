@@ -169,3 +169,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-0c-1-idle-logoff-and-activity.md`
   summary: 7.0c-3 Disabled screen — port main's DisabledScreen for PP_DISABLED on / and /auth (and ACCOUNT_DISABLED on /account later, Story 7.2), environment from session/cookie/referrer, DISABLED_MESSAGES draft copy, 503 via root proxy.ts if Next 16 allows (else 200, deferred).
   evidence: Split from 7.0c at the human's request (2026-10-14, three specs); main code at commit b005536.
+- source_spec: none
+  summary: Former queued specs 7.0c-2 (section navigation) and 7.0c-3 (disabled screen) are absorbed into the shared foundation F3 and F2.
+  evidence: Human approved shared-foundation-plan.md on 2026-10-14.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f1-shared-contracts-and-data-layer.md`
+  summary: Product questions found in the backend while planning F1 — (1) the backend's patient-supported contact types omit "Social Media" (Story 3.7, Team A); (2) backend primary contact types are Email and Mobile only and myself.phoneNumber comes from the primary Mobile, but Story 7.6 lets a Landline be the primary phone (Team B); (3) myself has no phoneNumberRegion (Story 7.4 must take it from the matching contact point row or default to US).
+  evidence: 1h-ng-bo-core-be ContactPointConstants.java:37,151-160; UserServiceImpl.java:2769-2786. Verify on demo before Stories 3.7 / 7.4 / 7.6.

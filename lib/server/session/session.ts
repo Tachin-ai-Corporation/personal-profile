@@ -11,10 +11,17 @@ import { sessionPayloadSchema, type SessionPayload } from "./types"
 export const SESSION_COOKIE = "__Host-pp_s"
 
 /**
- * Per-seal TTL: a seal expires 8 h after it was written. A refresh re-seals, so
- * this slides; the absolute 8 h cap and idle logoff are enforced in Story 1.6.
+ * Per-seal TTL: a seal expires 8 h after it was written. Every re-seal (refresh,
+ * activity) restarts it, so it only backs up the real limits below, which
+ * `isSessionAged` enforces from the sealed `iat` and `lastSeen`.
  */
 const SEAL_TTL_SECONDS = 8 * 60 * 60
+
+/** Idle limit (AD-16): no user-initiated request for longer than this ends the session. */
+export const IDLE_TIMEOUT_MS = 15 * 60 * 1000
+
+/** Absolute limit (AD-16): a session never outlives this much time after launch. */
+export const ABSOLUTE_TIMEOUT_MS = 8 * 60 * 60 * 1000
 
 /** AD-1 size budget for the serialized `Set-Cookie`. */
 export const MAX_SET_COOKIE_BYTES = 3800
@@ -91,15 +98,37 @@ export function readCookie(cookieHeader: string | null, name: string): string | 
   return undefined
 }
 
-/** Route handlers: the current session, or `null` (the caller answers 401). */
-export async function getSession(request: Request): Promise<SessionPayload | null> {
-  return unsealSession(readCookie(request.headers.get("cookie"), SESSION_COOKIE))
+/**
+ * True when the session was idle for longer than `IDLE_TIMEOUT_MS` or has
+ * lived longer than `ABSOLUTE_TIMEOUT_MS` since launch (both strictly greater).
+ */
+export function isSessionAged(session: Pick<SessionPayload, "iat" | "lastSeen">, now: number): boolean {
+  return now - session.lastSeen > IDLE_TIMEOUT_MS || now - session.iat > ABSOLUTE_TIMEOUT_MS
 }
 
-/** Pages: the current session, or a redirect to `/auth` (template entry behavior). */
-export async function requireSession(): Promise<SessionPayload> {
+/**
+ * Route handlers: the current session, or `null` (the caller answers 401). An
+ * aged session is `null` exactly like a missing or unsealable cookie (AD-16).
+ */
+export async function getSession(request: Request, now: number = Date.now()): Promise<SessionPayload | null> {
+  const session = await unsealSession(readCookie(request.headers.get("cookie"), SESSION_COOKIE))
+  return session && !isSessionAged(session, now) ? session : null
+}
+
+/** Whether the request sent a session cookie at all (valid or not): a 401 clears it only then. */
+export function hasSessionCookie(request: Request): boolean {
+  return Boolean(readCookie(request.headers.get("cookie"), SESSION_COOKIE))
+}
+
+/** `Set-Cookie` for the session re-sealed with `lastSeen = now` (user activity, AD-16). Nothing else changes. */
+export function renewLastSeen(session: SessionPayload, now: number, secrets?: SessionSecrets): Promise<string> {
+  return buildSessionSetCookie({ ...session, lastSeen: now }, secrets)
+}
+
+/** Pages: the current session, or a redirect to `/auth` (template entry behavior). Aged counts as none. */
+export async function requireSession(now: number = Date.now()): Promise<SessionPayload> {
   const store = await cookies()
   const session = await unsealSession(store.get(SESSION_COOKIE)?.value)
-  if (!session) redirect("/auth")
+  if (!session || isSessionAged(session, now)) redirect("/auth")
   return session
 }

@@ -83,4 +83,6 @@ export async function setTheme(page: Page, theme: "light" | "dark"): Promise<voi
       }),
     theme === "dark",
   )
+  // Then let every running animation (e.g. a dialog's fade-in) finish, so contrast is measured on final colors.
+  await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))))
 }

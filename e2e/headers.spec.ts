@@ -60,4 +60,13 @@ test.describe("AD-21 security headers", () => {
     // Next appends its own RSC values to Vary; Cookie must be among them.
     expect(response.headers()["vary"]).toMatch(/(^|,\s*)Cookie(,|$)/)
   })
+
+  test("the ping answers 401 SESSION_EXPIRED without a session, no-store and nosniff (no CSRF check, D5)", async ({ request }) => {
+    const response = await request.post("/api/session/ping")
+    expect(response.status()).toBe(401)
+    expect(await response.json()).toEqual({ errorCode: "SESSION_EXPIRED", source: "proxy" })
+    expect(response.headers()["cache-control"]).toBe("private, no-store, max-age=0")
+    expectSecurityHeaders(response)
+    expect((await request.get("/api/session/ping")).status()).toBe(405)
+  })
 })

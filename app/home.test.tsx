@@ -7,7 +7,7 @@ import { PageFrame, ProfileTabs } from "@/features/shell"
 import { stubViewport } from "@/test/media"
 import { server } from "@/test/msw-server"
 import { setTestUrl } from "@/test/next-navigation"
-import { TestProviders } from "@/test/providers"
+import { TestProviders, testIdle } from "@/test/providers"
 
 vi.mock("next/navigation", async () => (await import("@/test/next-navigation")).nextNavigationMock)
 
@@ -15,7 +15,7 @@ vi.mock("next/navigation", async () => (await import("@/test/next-navigation")).
 function renderHome() {
   return render(
     <TestProviders>
-      <PageFrame page="profile" header={<ProfileHeader />}>
+      <PageFrame page="profile" header={<ProfileHeader />} idle={testIdle()}>
         <ProfileTabs />
       </PageFrame>
     </TestProviders>,

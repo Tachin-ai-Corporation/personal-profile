@@ -1,7 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { http, HttpResponse } from "msw"
 import axe from "axe-core"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { mapApiError, type ApiResponse, type MappedError } from "@/lib/api"
+import { server } from "@/test/msw-server"
 import { LoadError, NoAccess, ReadStateFor } from "."
 
 const LOAD_ERROR = "Something went wrong while loading profile information"
@@ -12,6 +14,19 @@ const fail = (fields: Omit<ApiResponse<unknown>, "success">): ApiResponse<unknow
 afterEach(() => document.documentElement.classList.remove("dark"))
 
 describe("LoadError", () => {
+  it("records Retry as user activity (one activity ping, Story 1.6)", async () => {
+    let pings = 0
+    server.use(
+      http.post("/api/session/ping", () => {
+        pings += 1
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    render(<LoadError onRetry={vi.fn()} />)
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+    await waitFor(() => expect(pings).toBe(1))
+  })
+
   it("shows the sentence and a separate Retry button that calls onRetry", () => {
     const onRetry = vi.fn()
     render(<LoadError onRetry={onRetry} />)

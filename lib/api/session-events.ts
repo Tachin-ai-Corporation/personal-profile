@@ -1,7 +1,8 @@
 /**
  * The only client-side session signal (AD-19): `session-expired`. `callApi`
- * publishes it; the shell (Story 7.0b) subscribes. It is published at most once
- * per page lifetime. There is no session-change event (D5).
+ * and the idle warning (Story 1.6, at the idle or absolute deadline) publish
+ * it; the shell subscribes. It is published at most once per page lifetime.
+ * There is no session-change event (D5).
  */
 
 export type SessionEvent = "session-expired"

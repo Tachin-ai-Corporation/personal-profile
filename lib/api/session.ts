@@ -31,6 +31,16 @@ export async function startSession(lpl: string): Promise<LaunchAttempt> {
   return { kind: "failed", message: res.userMessage, retryable: res.retryable !== false }
 }
 
+/**
+ * Tells the server the user is active (Story 1.6): `POST /api/session/ping`
+ * re-seals `lastSeen`, and `callApi` hands the echoed time to the idle timers
+ * of every tab. Used by "Stay signed in", Retry and app-bar page/tab moves.
+ * Never rejects.
+ */
+export function recordUserActivity(init: { readonly signal?: AbortSignal } = {}): Promise<ApiResponse<unknown>> {
+  return callApi("session/ping", BFF_PATHS.sessionPing, { method: "POST", ...init })
+}
+
 export async function endSession(): Promise<ApiResponse<unknown>> {
   return callApi("session/end", BFF_PATHS.sessionLogout, { method: "POST" })
 }

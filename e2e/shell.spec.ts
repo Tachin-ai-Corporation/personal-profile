@@ -154,6 +154,8 @@ test.describe("session expired (Story 1.7)", () => {
     await mockMyself(page, { status: 401, body: { errorCode: "SESSION_EXPIRED", source: "proxy" } })
     await mockContacts(page)
     const logouts = await mockExit(page)
+    // Reduced motion from the start: the dialog opens without its fade/zoom, so axe never measures mid-animation.
+    await page.emulateMedia({ reducedMotion: "reduce" })
     await page.goto("/?tab=insurance")
     const dialog = page.getByRole("alertdialog", { name: "Your session ended" })
     await expect(dialog).toBeVisible()
@@ -271,5 +273,84 @@ test.describe("leave guard (Story 1.13, fixture page)", () => {
     }))
     await page.close({ runBeforeUnload: true })
     expect(await prompted).toBe("beforeunload")
+  })
+})
+
+test.describe("idle warning (Story 1.6)", () => {
+  const WARNING = "You'll be signed out in 1 minute"
+
+  /** Answers the ping like the BFF: 204 echoing the given server time. */
+  async function mockPing(page: Page, echo: () => number): Promise<() => number> {
+    let pings = 0
+    await page.route("**/api/session/ping", (route) => {
+      pings += 1
+      return route.fulfill({ status: 204, headers: { "X-PP-Activity-At": String(echo()) } })
+    })
+    return () => pings
+  }
+
+  /** Installs the context's clock (shared by its pages), then opens `/`. */
+  async function openProfile(page: Page): Promise<void> {
+    await page.clock.install()
+    await mockMyself(page)
+    await mockContacts(page)
+    await page.goto("/")
+    await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
+  }
+
+  test("appears 60 s before the idle deadline with Stay signed in focused; Stay signed in pings and closes it", async ({ page }) => {
+    let echo = 0
+    const pings = await mockPing(page, () => echo)
+    await openProfile(page)
+    const dialog = page.getByRole("alertdialog", { name: WARNING })
+
+    // The client warns 30 s ahead of the server (IDLE_SAFETY_MARGIN_MS): server 14:00 → client 13:30.
+    await page.clock.fastForward("13:00")
+    await expect(dialog).toHaveCount(0)
+    await page.clock.fastForward("00:31")
+    await expect(dialog).toBeVisible()
+    const stay = dialog.getByRole("button", { name: "Stay signed in" })
+    await expect(stay).toBeFocused()
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeVisible()
+    await expectNoAxeViolations(page, "idle warning")
+
+    // The page clock tracks the server clock here (offset ≈ 0), so "now" is the echo.
+    echo = await page.evaluate(() => Date.now())
+    await stay.click()
+    await expect(dialog).toHaveCount(0)
+    expect(pings()).toBe(1)
+    await page.clock.fastForward("05:00")
+    await expect(dialog).toHaveCount(0)
+  })
+
+  test("two tabs: activity in one closes the other tab's warning and keeps it from firing early", async ({ page, context }) => {
+    let echo = 0
+    await mockPing(page, () => echo)
+    // One clock for the whole context: both tabs move together.
+    await openProfile(page)
+    const other = await context.newPage()
+    await mockMyself(other)
+    await mockContacts(other)
+    await other.goto("/")
+    await expect(other.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
+
+    const warningA = page.getByRole("alertdialog", { name: WARNING })
+    const warningB = other.getByRole("alertdialog", { name: WARNING })
+    await page.clock.fastForward("14:00")
+    await expect(warningA).toBeVisible()
+    await expect(warningB).toBeVisible()
+
+    // Tab A stays signed in; the echo reaches tab B over pp-activity.
+    echo = await page.evaluate(() => Date.now())
+    await warningA.getByRole("button", { name: "Stay signed in" }).click()
+    await expect(warningA).toHaveCount(0)
+    await expect(warningB).toHaveCount(0)
+
+    // Tab B now warns 14 min after tab A's activity, not before.
+    await page.clock.fastForward("13:00")
+    await expect(warningB).toHaveCount(0)
+    await page.clock.fastForward("00:31")
+    await expect(warningB).toBeVisible()
   })
 })

@@ -49,7 +49,29 @@ export const BFF_PATHS = {
   token: "/api/token",
   sessionRefresh: "/api/session/refresh",
   sessionLogout: "/api/session/logout",
+  sessionPing: "/api/session/ping",
 } as const
+
+/**
+ * User activity (AD-16, RC6). `callApi` sends `X-PP-Activity: user` on
+ * user-initiated calls; a response that re-sealed `lastSeen` echoes it as
+ * `X-PP-Activity-At: <epoch ms>`.
+ */
+export const ACTIVITY_HEADER = "X-PP-Activity"
+export const ACTIVITY_USER = "user"
+export const ACTIVITY_AT_HEADER = "X-PP-Activity-At"
+
+/** What a page embeds for the idle warning (Story 1.6). Times are epoch ms, server time. */
+export interface PageIdleTiming {
+  /** The server idle limit in seconds (900). */
+  readonly idleTimeoutSec: number
+  /** The session's `lastSeen` when the page rendered. */
+  readonly lastSeen: number
+  /** `iat + ABSOLUTE_TIMEOUT_MS`. */
+  readonly absoluteExpiresAt: number
+  /** The server's clock when the page rendered. */
+  readonly serverNow: number
+}
 
 /** `POST /api/token` success: the session cookie is set. Nothing else is in the body (D2). */
 export interface LaunchOkBody {
