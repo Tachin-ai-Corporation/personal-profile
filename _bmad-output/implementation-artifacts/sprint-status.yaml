@@ -49,21 +49,21 @@ development_status:
   1-3r-transport-and-proxy-rework: done  # 2026-10-14: covered by spec-7-0a (proxy: no CSRF/binding, {errorCode,source}, exact deny list, profile tag, ACCOUNT_DISABLED, root SWRConfig, logApiCall) on feat/NG-9019-epic-7
   1-7r-logout-and-session-expired-rework: done  # 2026-10-14: covered by spec-7-0a + 7-0b-2 (all-devices logout, navigate(), session-expired dialog only, login intent saved) on feat/NG-9019-epic-7
   1-8r-app-bar-and-shell-rework: done  # 2026-10-14: covered by spec-7-0b-1 + 7-0b-2 (page nav, primary-text span wordmark, ProfileTab/AccountTab, tokens) on feat/NG-9019-epic-7
-  1-9-profile-header-view-name-picture-and-primary-contacts: backlog  # 2026-10-14: initials-only header, keys.contactPoints, fetchContactPoints built in spec-7-0b-2. F1 (spec-f1) built keys.profilePictureId, Social Media entry, formatPhoneDisplay, lib/shared/initials. Remaining: /api/pp/profile-picture-id on named-op + asImage hardening (F2); picture route, preview entry, <img> avatar (Team A)
-  1-10-change-profile-picture: backlog  # 2026-10-14: nothing built; upload entries in F2, rest Team A
+  1-9-profile-header-view-name-picture-and-primary-contacts: backlog  # 2026-10-14: initials-only header, keys.contactPoints, fetchContactPoints built in spec-7-0b-2. F1 (spec-f1) built keys.profilePictureId, Social Media entry, formatPhoneDisplay, lib/shared/initials. F2 (spec-f2) built GET /api/pp/profile-picture-id (named op) + asImage byte sniffing. Remaining (Team A): profile-picture-id loader, profile-picture/preview entry, <img> avatar with onerror fallback, mutate test, axe
+  1-10-change-profile-picture: backlog  # 2026-10-14: F2 (spec-f2) built the upload mechanism (upload.ts, readCapped, 413/415 table test) + picture upload entry in allowlist/core.ts (no client ?fileName=; name from the multipart part). Remaining (Team A): dialog, image-reencode, avatar button, DELETE v2/file entry, client flow; decide server-side EXIF strip vs accepted AD-13 risk (deferred-work)
   1-11-section-framework-registry-edit-model-inline-validation-and: backlog  # 2026-10-14: registry (useRegisterSection, SaveResult/failedParts, canSave) built in spec-7-0b-2, ConfirmDialog in 7-0b-1. Remaining: final registry contract, runSaveSteps, edit primitives, DisabledAction/Tooltip, fixture Section (F3); RowActions/RowRemoval (Team A). zod message lint + telemetry module built in spec-f1
   1-12-error-mapping-message-catalog-toasts-and-retry: backlog  # 2026-10-14: message catalog + verbatim/voice tests, mapApiError(response), read states built in spec-7-0b-1. mapper v2 (field/coded, exact-message tables), catalog split, use-toast lint built in spec-f1. Remaining: toasts, Section save/load error UI, fixture spec (F3)
   1-13-leave-guard: backlog  # 2026-10-14: LeaveGuard, requestLeave/setLeaveGuard, beforeunload built in spec-7-0b-2. Remaining: drafts.purgeUser on Discard->Return (F4), Save via the Save-all runner (F3), scoped requestLeave({scope}) with the Sheet (Team A)
   1-14-save-all: backlog  # 2026-10-14: nothing built; runner + dirtyCount in F3, bar/pill/SAVE_ORDER Team A
   1-15-drafts-keep-unsaved-edits-across-an-expired-session: backlog  # 2026-10-14: nothing built; whole story is F4 (hooks onBeforeSessionExpired/onBeforeExit exist from 7-0b-2)
-  1-16-deployments-environments-and-operations-runbooks: backlog  # 2026-10-14: environment map test + API-route PP_DISABLED 503 built in spec-7-0a/7-0c-1. Remaining: kill-switch matcher + disabled screen (F2); Vercel, promote workflow, docs/ops runbooks (Team A)
+  1-16-deployments-environments-and-operations-runbooks: backlog  # 2026-10-14: environment map test + API-route PP_DISABLED 503 built in spec-7-0a/7-0c-1; kill-switch matcher in proxy.ts + 503 disabled screen (app/disabled/route.ts) + e2e built in spec-f2. Remaining (Team A): Vercel project, promote workflow, docs/ops runbooks, kill-switch/rollback rehearsal, PM review of draft copy
   epic-1-retrospective: optional
 
   epic-2: backlog
-  2-1-view-personal-information: backlog
+  2-1-view-personal-information: backlog  # 2026-10-14: myself fields + file download entry (spec-f1), asImage hardening (spec-f2). Remaining: F3 table/StateFrame/SignatureThumb; Team A Section
   2-2-edit-and-save-personal-information: backlog
   2-3-ssn-entry-and-reveal: backlog
-  2-4-signature: backlog
+  2-4-signature: backlog  # 2026-10-14: signature upload + version entries in allowlist/personal.ts (spec-f2). Remaining (Team A): pad, save steps, DELETE v2/file entry, confirm, tests; take the version id only from myself.signature (deferred-work ownership)
   epic-2-retrospective: optional
 
   epic-3: backlog
@@ -79,14 +79,14 @@ development_status:
   epic-4: backlog
   4-1-view-addresses: backlog
   4-2-add-and-edit-addresses: backlog
-  4-3-address-suggestions-via-server: backlog
+  4-3-address-suggestions-via-server: backlog  # 2026-10-14: /api/places/{autocomplete,details} server routes built in spec-f2 (requests carry lookupId). Remaining (Team A): lib/api/places.ts, combobox UI, fill/validated, client tests; throttle decision (deferred-work)
   4-4-primary-address-and-removal: backlog
   epic-4-retrospective: optional
 
   epic-5: backlog
-  5-1-view-policies-and-card-images: backlog
+  5-1-view-policies-and-card-images: backlog  # 2026-10-14: asImage hardening built in spec-f2. Remaining (Team A): everything else incl. the insurance card download entry
   5-2-add-and-edit-a-policy: backlog
-  5-3-card-image-upload-with-retry: backlog
+  5-3-card-image-upload-with-retry: backlog  # 2026-10-14: both insurance card upload entries built in spec-f2. Remaining (Team A): card images UI, re-encode, retry, replace-then-delete; ids only from saved/own policies (deferred-work ownership)
   5-4-primary-per-type-with-demote-offer: backlog
   5-5-delete-a-policy: backlog
   epic-5-retrospective: optional
@@ -102,13 +102,13 @@ development_status:
   # Shared foundation (approved 2026-10-14): built once before feature work by either team; see shared-foundation-plan.md
   f1-shared-contracts-and-data-layer: done
   f2-bff-extension-kit: done  # absorbs former 7-0c-3 disabled screen
-  f3-1-ui-primitives-and-toasts: backlog  # Tooltip, DisabledAction, InfoIconButton, InlineBanner, StatusBadge, busy Button, FormField, input-locked, toasts, focus-ring, select port
+  f3-1-ui-primitives-and-toasts: in-progress  # Tooltip, DisabledAction, InfoIconButton, InlineBanner, StatusBadge, busy Button, FormField, input-locked, toasts, focus-ring, select port
   f3-2-section-edit-model: backlog  # registry completion, useSectionForm, header/container/footer, KeyValueTable, runSaveSteps, Save-all runner
   f3-3-states-and-section-navigation: backlog  # StateFrame + skeletons + nouns, forbidden-scope, SignatureThumb, SectionNav port (former 7.0c-2), panels
   f4-drafts: backlog
   f5-shared-input-controls: backlog
   7-1-account-page-route-tabs-deep-links-and-states: backlog
-  7-2-account-page-hardening-denies-kill-switch-headers-mobile-and-a: backlog
+  7-2-account-page-hardening-denies-kill-switch-headers-mobile-and-a: backlog  # 2026-10-14: page/route-level ACCOUNT_DISABLED kill switch + 503 screen + e2e matrix built in spec-f2. Remaining (Team B): /account no-store test (needs 7.1), Profile deny/traversal rows, /account header asserts, mobile + keyboard/axe runs
   7-3-portal-hand-off-route: backlog
   7-4-view-personal-account-settings: backlog
   7-5-edit-names-birth-date-and-regional-preferences: backlog
@@ -117,18 +117,18 @@ development_status:
 
   epic-8: backlog
   8-1-authenticator-status-and-app-tiles: backlog
-  8-2-link-an-authenticator-app: backlog
+  8-2-link-an-authenticator-app: backlog  # 2026-10-14: POST /api/pp/mfa/validate named op + route tests built in spec-f2. Remaining (Team B): enable/totp entry, lib/api/mfa.ts, qr-surface token, dialog; confirm upstream lockout or add throttle (deferred-work)
   8-3-turn-off-the-authenticator-app: backlog
   epic-8-retrospective: optional
 
   epic-9: backlog
   9-1-registration-state-and-npi-search: backlog
   9-2-register: backlog
-  9-3-registered-view: backlog
+  9-3-registered-view: backlog  # 2026-10-14: GET /api/pp/practice-support named op + route tests built in spec-f2. Remaining (Team B): practiceSupport loader, popover (F5 info-popover), registered view
   epic-9-retrospective: optional
 
   epic-10: backlog
   10-1-list-search-and-pagination-of-my-organizations: backlog
-  10-2-organization-card-logo-name-types-and-primary-contact: backlog
+  10-2-organization-card-logo-name-types-and-primary-contact: backlog  # 2026-10-14: GET /api/pp/org-logo/[tenantId] named op + publicFilesOrigin + route tests built in spec-f2. Remaining (Team B): card UI, membership caching (deferred-work), confirm publicFilesOrigin on demo/prod (deferred-work)
   10-3-enter-portal: backlog
   epic-10-retrospective: optional
