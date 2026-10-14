@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Key screen · Provider registration</title>
+<style>
+/* UPDATED 2026-10-13 (user overrides): app bar = wordmark + page nav "Personal Profile | Account"
+   (Account active, aria-current="page") + Return to 1health; mobile < 400 px wraps the nav as a
+   segmented control under the wordmark. The app is never framed: no framed variants, portal
+   hand-offs navigate the same tab (no external-arrow, no "(opens in a new tab)"). */
+/* ==========================================================================
+   KEY SCREEN · Individual Provider Registration (/account?tab=provider)
+   Governing spine sections (spine wins over this mock):
+     DESIGN.md  Profile module (/account) components: Healthcare credentials section ·
+                Tabs (three /account labels) · Skeletons (/account) (not shown)
+                Components: App bar · Profile header · Key/value table · Inputs ·
+                inline-banner-info · button-outline · signature-thumb ·
+                combobox-option · row-menu · info-popover (frontmatter)
+     EXPERIENCE IA: Profile page /account · Individual Provider Registration ?tab=provider ·
+                Portal hand-off
+                Voice and Tone: Provider registration · Provider (i) popover · Registered view
+                Component Patterns: Healthcare credentials section · NPI combobox · Register ·
+                Registered view · Info popover
+                State Patterns: Search loading / error / end (NPI combobox) · Registered
+                Key Flows: UJ-103 Dr. Ruiz registers as an individual provider (steps 1-2, 5,
+                failure/edge)
+     PRD FR-113, FR-114, FR-115, FR-116, FR-120
+   Today's UI reference: imports/profile-current-ui/4.png
+   Notes:
+     N1 Section C shows the "already exists" banner (practice is a 1health Organization
+        the user is not in). "Register your practice to enable ordering" only shows when
+        the practice NPI is NOT claimed by an Organization (FR-116), so it is drawn in a
+        separate variant C2 instead of beside the banner.
+     N2 Registered key/value table uses the 4-column read layout, filled row-major in
+        FR-116 order. Keys "Practice address" / "Practice NPI" are labels this mock gives
+        to FR-116's unnamed practice-address and "NPI: <practice NPI>" items.
+     N3 Practice-name popover content (org name, support phone, support email) is not
+        worded in the spine; values here are illustrative.
+     N5 Section A draws the open listbox in flow (pushing Practice NPI down) only so both
+        fields stay visible in one frame; in the app it overlays like the insurer listbox.
+     N4 All names, NPIs and addresses are fictional.
+   ========================================================================== */
+/* ---- Shared Ledger base (matches .working/direction-c-ledger.html) ----
+   Tokens: app/globals.css via DESIGN.md frontmatter. Approved a11y deltas applied:
+   destructive fill = error-strong #b23a31 · input borders = #7a8696 (status-neutral, 3.7:1) · link text = info-strong #256a8c.
+   Off-scale 13/15 px from the direction mock normalized to 14/16 px (DESIGN.md Typography). Light theme only. */
+:root{
+  --graphite:#202833;--charcoal:#313b47;--slate:#566373;--mist:#aeb8c4;--cloud:#e6ebf0;
+  --trust-blue:#246b8f;--clinical-ice:#e8f7fa;--signal-aqua:#8fd8e6;
+  --background:#f4f7fa;--card:#ffffff;--secondary:#eaeff4;--muted:#edf1f5;--border:#e1e8ef;
+  --success:#3baa78;--success-strong:#1b7a4f;--info-strong:#256a8c;
+  --warning:#d6a83a;--warning-strong:#8a6511;--error:#d84f45;--error-strong:#b23a31;
+  --r-sm:6px;--r-md:10px;--r-lg:16px;
+  --font:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --elev-1:0 4px 16px rgba(0,0,0,.18);
+  --elev-2:0 12px 40px rgba(0,0,0,.24);
+  --glow:0 0 0 1px rgba(143,216,230,.32),0 0 24px rgba(143,216,230,.18);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--cloud);color:var(--graphite);font-family:var(--font);-webkit-font-smoothing:antialiased}
+a{color:var(--info-strong)}
+:focus-visible{outline:2px solid var(--trust-blue);outline-offset:2px;box-shadow:var(--glow)}
+.focus-demo{outline:2px solid var(--trust-blue);outline-offset:2px;box-shadow:var(--glow)}
+.sr{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+
+/* presentation shell */
+.doc{max-width:1340px;margin:0 auto;padding:40px 30px 96px}
+.doc-head{max-width:880px;margin:0 0 32px}
+.eyebrow{font-size:12px;line-height:16px;letter-spacing:.08em;text-transform:uppercase;color:var(--slate);margin:0 0 8px}
+.doc-head h2{font-size:32px;line-height:40px;font-weight:600;margin:0 0 12px}
+.doc-head p{font-size:16px;line-height:24px;color:var(--charcoal);margin:0 0 8px}
+.frame-label{font-size:12px;line-height:16px;color:var(--slate);margin:0 0 8px;letter-spacing:.04em}
+.browser{width:1280px;margin:0 auto 48px;background:var(--card);border-radius:var(--r-lg);box-shadow:var(--elev-1);overflow:clip;position:relative}
+.chrome{height:40px;background:var(--secondary);display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid var(--border)}
+.chrome i{width:10px;height:10px;border-radius:50%;background:var(--mist);display:block}
+.url{margin-left:16px;flex:1;max-width:560px;height:26px;border-radius:var(--r-sm);background:var(--card);color:var(--slate);font-size:12px;display:flex;align-items:center;padding:0 12px}
+.ico{width:16px;height:16px;flex:none;vertical-align:-3px}
+.annot{display:inline-block;font-size:11px;line-height:16px;font-weight:600;color:var(--slate);border:1px dashed var(--mist);border-radius:var(--r-sm);padding:0 6px;background:var(--card);text-transform:none;letter-spacing:0}
+.choice{display:inline-block;font-size:11px;line-height:16px;font-weight:600;color:#6b3fa0;border:1px dashed #b79ad8;border-radius:var(--r-sm);padding:0 6px;background:#faf6ff;text-transform:none;letter-spacing:0}
+
+/* app */
+.app{background:var(--card);font-size:14px;line-height:20px}
+.appbar{height:52px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;padding:0 24px;background:var(--card)}
+.wordmark{font-weight:700;font-size:16px;color:var(--trust-blue)}
+.vr{width:1px;height:18px;background:var(--border)}
+.apptitle{font-weight:600;font-size:16px}
+/* App-bar page nav (DESIGN app-nav-item / app-nav-item-active; user override 2026-10-13) */
+.appnav{display:flex;align-items:stretch;gap:4px;align-self:stretch}
+.appnav a{min-height:44px;display:inline-flex;align-items:center;padding:0 12px;font-size:16px;font-weight:500;color:var(--slate);text-decoration:none;border-radius:var(--r-sm) var(--r-sm) 0 0;border-bottom:2px solid transparent}
+.appnav a:hover{background:var(--clinical-ice)}
+.appnav a[aria-current="page"]{color:var(--graphite);font-weight:600;border-bottom-color:var(--trust-blue)}
+.appnav.seg{align-self:auto;background:var(--muted);border-radius:var(--r-sm);padding:2px;gap:2px}
+.appnav.seg a{flex:1;justify-content:center;font-size:14px;border-radius:4px;border-bottom:0}
+.appnav.seg a[aria-current="page"]{background:var(--card);box-shadow:inset 0 -2px 0 var(--trust-blue)}
+.m .appbar.appbar-m{height:auto;flex-wrap:wrap;row-gap:0;padding:0 16px 8px}
+.appbar-m .appnav{order:3;width:100%}
+.return{margin-left:auto;min-height:44px;display:inline-flex;align-items:center;gap:6px;font-weight:500;text-decoration:none}
+.identity{display:flex;align-items:center;gap:12px;padding:16px 24px;border-bottom:1px solid var(--border);background:var(--background)}
+.avatar{width:40px;height:40px;border-radius:50%;background:var(--card);border:1px solid var(--border);color:var(--trust-blue);font-weight:600;font-size:16px;display:grid;place-items:center;flex:none}
+.name{font-size:20px;line-height:28px;font-weight:600;margin:0}
+.meta{margin:0 0 0 8px;color:var(--slate);font-size:14px}
+.idline{margin-left:auto;display:flex;gap:24px;font-size:14px;color:var(--slate);font-variant-numeric:tabular-nums}
+.idline b{color:var(--graphite);font-weight:500}
+.tabs{display:flex;gap:4px;padding:0 24px;border-bottom:1px solid var(--border)}
+.tab{min-height:44px;display:inline-flex;align-items:center;gap:8px;padding:0 12px;border:0;background:none;font:inherit;color:var(--slate);border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer}
+.tab[aria-selected=true]{color:var(--graphite);font-weight:600;border-bottom-color:var(--trust-blue)}
+.soon{font-size:12px;line-height:16px;color:var(--slate);background:var(--muted);border-radius:var(--r-sm);padding:0 6px}
+.layout{display:grid;grid-template-columns:200px 1fr;align-items:start}
+.index{position:sticky;top:0;padding:16px 0;border-right:1px solid var(--border);align-self:stretch}
+.index ol{list-style:none;margin:0;padding:0}
+.index a{display:grid;grid-template-columns:24px 1fr auto;align-items:center;min-height:44px;padding:0 16px 0 20px;color:var(--charcoal);text-decoration:none;font-variant-numeric:tabular-nums}
+.index .no,.index .c{font-family:var(--mono);font-size:12px;color:var(--slate)}
+.index a[aria-current=location]{background:var(--clinical-ice);color:var(--trust-blue);font-weight:600;box-shadow:inset 3px 0 0 var(--trust-blue)}
+.index a[aria-current=location] .no,.index a[aria-current=location] .c{color:var(--trust-blue)}
+main{padding:16px 24px 32px;display:grid;gap:32px;min-width:0}
+.sec-h{display:flex;align-items:center;gap:8px;min-height:44px;margin-bottom:8px}
+.sec-h h2{margin:0;font-size:16px;line-height:24px;font-weight:600}
+.sec-h .c{font-size:14px;color:var(--slate);font-variant-numeric:tabular-nums}
+.sec-h .tools{margin-left:auto;display:flex;gap:8px;align-items:center}
+
+/* buttons */
+.btn{min-height:44px;padding:0 14px;border-radius:var(--r-md);font:inherit;font-weight:500;font-size:14px;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;border:1px solid transparent;white-space:nowrap;text-decoration:none}
+.btn-primary{background:var(--trust-blue);color:#fff}
+.btn-outline{background:var(--card);border-color:var(--border);color:var(--graphite)}
+.btn-ghost{background:none;color:var(--trust-blue)}
+.btn-secondary{background:var(--secondary);color:var(--charcoal)}
+.btn-destructive{background:var(--error-strong);color:#fff}
+.btn[aria-disabled=true]{background:var(--muted);color:var(--slate);border-color:var(--border);cursor:not-allowed}
+.btn-cell{min-height:44px;padding:0 10px;font-size:14px}
+.kebab{width:44px;height:44px;padding:0;justify-content:center;background:none;color:var(--charcoal)}
+.linkbtn{min-height:44px;padding:0 6px;border:0;background:none;font:inherit;font-size:14px;font-weight:500;color:var(--info-strong);display:inline-flex;align-items:center;gap:4px;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+
+/* tables */
+.tbl-wrap{border:1px solid var(--border);border-radius:var(--r-md);overflow:visible;background:var(--card)}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{background:var(--muted);text-align:left;font-size:12px;line-height:16px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--slate);height:36px;padding:0 12px;border-bottom:1px solid var(--border)}
+thead tr:first-child th:first-child{border-top-left-radius:var(--r-md)}
+thead tr:first-child th:last-child{border-top-right-radius:var(--r-md)}
+td{height:44px;padding:0 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+tbody tr:last-child td{border-bottom:0}
+.chip{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:var(--r-sm);font-size:12px;font-weight:600;background:var(--muted);color:var(--charcoal);white-space:nowrap}
+.chip.primary{background:var(--trust-blue);color:#fff}
+.st{display:inline-flex;align-items:center;gap:6px;font-weight:500;white-space:nowrap}
+.st.ok{color:var(--success-strong)}.st.warn{color:var(--warning-strong)}
+.st .ico{width:14px;height:14px}
+.muted{color:var(--slate)}
+.mono{font-family:var(--mono);font-weight:500}
+.acts{display:flex;justify-content:flex-end;align-items:center;gap:4px;white-space:nowrap}
+.tipwrap{position:relative;display:inline-flex}
+.tip{position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:var(--graphite);color:#fff;font-size:12px;line-height:16px;padding:6px 10px;border-radius:var(--r-sm);white-space:nowrap;box-shadow:var(--elev-1);z-index:3;font-weight:400}
+.tip::after{content:"";position:absolute;top:100%;left:50%;margin-left:-6px;border:6px solid transparent;border-top-color:var(--graphite)}
+
+/* edit */
+.editing{border-color:var(--trust-blue);box-shadow:0 0 0 3px var(--clinical-ice)}
+.edit td{height:auto;padding:16px 12px;vertical-align:top}
+.edit tr.new>td{background:var(--background)}
+.edit tfoot td{background:var(--card);border-top:1px solid var(--border);padding:8px 8px 8px 12px;border-bottom-left-radius:var(--r-md);border-bottom-right-radius:var(--r-md)}
+.edit-f{display:flex;align-items:center;gap:8px}
+.unsaved{display:inline-flex;align-items:center;gap:6px;color:var(--warning-strong);font-weight:600;font-size:14px;margin-right:auto}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.dot.warn{background:var(--warning)}
+.removed .strike{text-decoration:line-through;color:var(--slate)}
+.removed td{color:var(--slate)}
+
+/* inputs (border = mist, approved a11y fix) */
+.field{display:grid;gap:6px;min-width:0;position:relative}
+.lbl{font-size:14px;line-height:20px;font-weight:500;color:var(--charcoal)}
+.lbl .opt{font-weight:400;color:var(--slate)}
+.input{height:44px;width:100%;border:1px solid #7a8696;border-radius:var(--r-md);background:var(--card);padding:0 12px;font:inherit;font-size:16px;line-height:24px;display:flex;align-items:center;gap:8px;color:var(--graphite);min-width:0;white-space:nowrap;overflow:hidden}
+.input .ph{color:var(--slate)}
+.input.focus{border-color:var(--trust-blue);outline:2px solid var(--trust-blue);outline-offset:2px;box-shadow:var(--glow)}
+.input.locked{background:var(--muted);color:var(--charcoal)}
+.input.err{border:2px solid var(--error);padding:0 11px}
+.input.sel{justify-content:space-between}
+.input.sel .ico,.input .trail{margin-left:auto;color:var(--slate)}
+.help{font-size:14px;line-height:20px;color:var(--slate);margin:0;display:flex;gap:6px;align-items:flex-start}
+.help .ico{margin-top:2px}
+.help.err{color:var(--error-strong);font-weight:500}
+.check{display:inline-flex;align-items:center;gap:10px;min-height:44px;font-size:14px;font-weight:500;color:var(--charcoal)}
+.box{width:20px;height:20px;border:1.5px solid #7a8696;border-radius:4px;background:var(--card);flex:none;display:grid;place-items:center}
+.box.on{background:var(--trust-blue);border-color:var(--trust-blue);color:#fff}
+
+/* listbox (combobox / suggestions) */
+.listbox{position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:var(--elev-1);padding:4px;z-index:5;list-style:none;margin:0}
+.listbox li{min-height:44px;display:flex;flex-direction:column;justify-content:center;padding:4px 10px;border-radius:var(--r-sm);font-size:14px;line-height:20px}
+.listbox li.active{background:var(--clinical-ice)}
+.listbox li .l2{color:var(--slate)}
+.listbox .lb-foot{min-height:32px;font-size:12px;line-height:16px;color:var(--slate);border-top:1px solid var(--border);margin-top:4px;padding:8px 10px 4px;border-radius:0}
+
+/* banners */
+.banner{display:flex;gap:10px;align-items:flex-start;padding:12px;border-radius:var(--r-md);font-size:14px;line-height:20px}
+.banner.info{background:var(--clinical-ice);color:var(--graphite)}
+.banner.info>.ico{color:var(--info-strong);margin-top:2px}
+/* mobile frame (390 inner) */
+.mobile-row{display:flex;gap:48px;justify-content:center;align-items:flex-start;flex-wrap:wrap}
+.phone{width:410px;border:10px solid var(--graphite);border-radius:44px;overflow:clip;background:var(--card);box-shadow:var(--elev-1);flex:none;position:relative}
+.status{height:36px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;font-size:12px;font-weight:600;background:var(--card)}
+.m .appbar{padding:0 16px}
+.m .identity{padding:12px 16px}
+.m .tabs{padding:0 8px}
+.m .tab{padding:0 10px}
+.m main{padding:12px 16px 96px}
+.jump{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.jump label{font-size:14px;color:var(--slate);white-space:nowrap}
+.mnotes{max-width:420px;font-size:14px;line-height:22px;color:var(--charcoal)}
+.mnotes h3{font-size:20px;line-height:28px;font-weight:600;margin:0 0 12px;color:var(--graphite)}
+.mnotes ul{padding-left:18px;margin:0}
+.mnotes li{margin-bottom:8px}
+
+/* ---- Provider registration (Healthcare credentials) ---- */
+.acc-main{padding:16px 24px 48px;display:block}
+.sec-h .ib{width:44px;height:44px;padding:0;border:0;border-radius:var(--r-md);background:none;color:var(--slate);display:inline-grid;place-items:center;cursor:pointer}
+.sec-h .ib .ico{width:18px;height:18px}
+.sec-h .ib.open{background:var(--muted);color:var(--charcoal)}
+.popwrap{position:relative;display:inline-flex}
+.popover{position:absolute;top:calc(100% + 6px);left:0;width:280px;background:var(--card);color:var(--graphite);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:var(--elev-2);padding:12px 14px;font-size:14px;line-height:20px;font-weight:400;z-index:7;text-align:left}
+.popover p{margin:0}
+.popover .pt{font-weight:600;margin-bottom:4px}
+.popover .pl{display:grid;gap:2px;font-variant-numeric:tabular-nums}
+.cred{border:1px solid var(--border);border-radius:var(--r-md);background:var(--card);padding:16px 16px 12px}
+.instr{margin:0 0 16px;font-size:16px;line-height:24px;font-weight:500;color:var(--graphite)}
+.form{max-width:720px;display:grid;gap:16px}
+.cbx .input .ico{color:var(--slate)}
+.cbx .input .typed{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.cbx .input .ph{flex:1}
+.clear{width:28px;height:28px;border:0;background:none;color:var(--slate);display:grid;place-items:center;border-radius:var(--r-sm);margin-right:-6px;cursor:pointer}
+.caret{display:inline-block;width:1.5px;height:20px;background:var(--graphite);margin-left:1px;vertical-align:-4px}
+.listbox.inflow{position:static;margin-top:0}
+.listbox li.opt{min-height:52px;gap:0}
+.listbox li.opt .l1{font-weight:500;color:var(--graphite)}
+.listbox li.opt .l1 .mono{margin-right:8px}
+.listbox li.opt .l2{font-size:12px;line-height:16px}
+.listbox li.loading{min-height:44px;flex-direction:row;align-items:center;justify-content:flex-start;gap:8px;color:var(--slate);border-top:1px solid var(--border);margin-top:4px;border-radius:0}
+.spin{width:16px;height:16px;flex:none;color:var(--trust-blue)}
+.form-f{display:flex;justify-content:flex-end;max-width:720px;margin-top:16px}
+.kv td{height:40px}
+.kv td.k{color:var(--slate);width:16%;white-space:nowrap}
+.kv td.v{width:34%;font-weight:500}
+.kv td.k + td.v{border-right:1px solid var(--border)}
+.kv td.v:last-child{border-right:0}
+.kv tr.tall td{height:auto;padding-top:10px;padding-bottom:10px;vertical-align:top}
+.empty{color:var(--slate);font-weight:400}
+.linkv{border:0;background:none;padding:0;min-height:44px;font:inherit;font-weight:500;color:var(--info-strong);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.sigthumb{width:112px;height:32px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--background);color:var(--graphite);display:block;padding:2px 6px}
+.sigthumb svg{width:100%;height:100%;display:block}
+.sigrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+/* "?" help button (info-icon-button) + Tooltip (D-UX7) */
+.qb{width:44px;height:44px;padding:0;border:0;border-radius:var(--r-md);background:none;color:var(--slate);display:inline-grid;place-items:center;cursor:pointer}
+.qb .ico{width:18px;height:18px}
+.tip[hidden]{display:none}
+.sigrow a{font-size:14px;color:var(--info-strong);text-decoration:underline;text-underline-offset:2px}
+.reg-after{display:grid;gap:12px;margin-top:16px;justify-items:start}
+.reg-after .banner{width:100%}
+.variant{border-top:1px dashed var(--mist);margin-top:24px;padding-top:16px}
+.state-wrap{display:flex;justify-content:center;margin:0 auto 48px}
+.state-card{width:800px;background:var(--card);border-radius:var(--r-lg);box-shadow:var(--elev-1);padding:20px 24px 24px}
+.m .tabs{overflow:hidden;white-space:nowrap;flex-wrap:nowrap}
+.m .tab{flex:none}
+.m .acc-main{padding:12px 16px 32px}
+.m .cred{padding:12px}
+.m .form{max-width:none}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-lock" viewBox="0 0 16 16"><path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="3.25" y="7" width="9.5" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 16 16"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 16 16"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M2.5 2.5l11 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.75v4M8 11.1v.1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.25v4M8 4.9v.1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5 8.25l2 2 4-4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-tick" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-out" viewBox="0 0 16 16"><path d="M9 3h4v4M13 3 7 9M11.5 9.5V13h-9V4H6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chev-r" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chev-up" viewBox="0 0 16 16"><path d="M4 10l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-back" viewBox="0 0 16 16"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-kebab" viewBox="0 0 16 16"><circle cx="8" cy="3.5" r="1.4" fill="currentColor"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/><circle cx="8" cy="12.5" r="1.4" fill="currentColor"/></symbol>
+  <symbol id="i-x" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 16 16"><rect x="2.5" y="3.5" width="11" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 16 16"><path d="M8 10.5V2.5M4.75 5.5 8 2.25l3.25 3.25M2.5 10.5v2.25c0 .4.35.75.75.75h9.5c.4 0 .75-.35.75-.75V10.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 16 16"><path d="M2 5.5c0-.55.45-1 1-1h2l1.2-1.6h3.6L11 4.5h2c.55 0 1 .45 1 1v6.5c0 .55-.45 1-1 1H3c-.55 0-1-.45-1-1z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="8" cy="8.5" r="2.4" fill="none" stroke="currentColor" stroke-width="1.4"/></symbol>
+  <symbol id="i-image" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="6" cy="6.5" r="1.2" fill="currentColor"/><path d="M2.5 12l3.5-3.5 2.5 2.5 2-2 3 3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+  <symbol id="i-sig" viewBox="0 0 160 44"><path d="M6 30c9-1 13-20 19-20s-3 24 5 24 9-16 15-16-2 13 4 13 8-9 13-9 2 7 8 7 10-5 18-5 14 3 24 1 20-7 30-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-spin" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="#e1e8ef" stroke-width="2"/><path d="M8 2a6 6 0 0 1 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-help" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.2 6.2a1.9 1.9 0 0 1 3.7.5c0 1.3-1.9 1.6-1.9 2.8M8 11.3v.1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+</svg>
+
+<div class="doc">
+  <header class="doc-head">
+    <p class="eyebrow">Key screen · Profile (/account) · Ledger</p>
+    <h2>Individual Provider Registration</h2>
+    <p>Daniel opens Provider registration from the 1health user menu. Healthcare credentials shows the NPI search form until he registers, then turns into a read-only registered view. A: search open. B: the already-registered error. C: the registered view. D: the form on a phone.</p>
+    <p><span class="annot">Note</span> tags point to the numbered notes in the comment block in the source.</p>
+  </header>
+
+  <!-- ================= A · UNREGISTERED, combobox open ================= -->
+  <p class="frame-label">A · DESKTOP · 1280 px · Unregistered: Personal NPI search open, (i) popover open</p>
+  <div class="browser">
+    <div class="chrome"><i></i><i></i><i></i><div class="url">profile.1health.app/account?tab=provider</div></div>
+    <div class="app" style="min-height:720px">
+      <header class="appbar">
+        <span class="wordmark">1health</span><span class="vr"></span><nav class="appnav" aria-label="Pages"><a href="/">Personal Profile</a><a href="/account" aria-current="page">Account</a></nav>
+        <a class="return" href="#">Return to 1health <svg class="ico"><use href="#i-out"/></svg></a>
+      </header>
+      <section class="identity" aria-label="Profile">
+        <div class="avatar" aria-hidden="true">DG</div>
+        <h1 class="name">Daniel Garcia</h1>
+        <div class="idline"><span>Primary phone <b>+1 (305) 555-0142</b></span><span>Primary email <b>daniel.garcia@example.com</b></span></div>
+      </section>
+      <nav class="tabs" role="tablist" aria-label="Profile areas">
+        <button class="tab" role="tab" aria-selected="false">Personal Account</button>
+        <button class="tab" role="tab" aria-selected="true">Individual Provider Registration</button>
+        <button class="tab" role="tab" aria-selected="false">My Organizations</button>
+      </nav>
+
+      <main class="acc-main">
+        <section aria-labelledby="h-cred">
+          <div class="sec-h"><h2 id="h-cred">Healthcare credentials</h2>
+            <span class="popwrap">
+              <button class="ib open" aria-label="About provider registration" aria-expanded="true" aria-controls="pop-a"><svg class="ico"><use href="#i-info"/></svg></button>
+              <div class="popover" id="pop-a" role="dialog" aria-label="About provider registration">
+                <p>Registering links your 1health account to your NPI from the national provider registry. Adding your practice's NPI is optional. Once registered, it can't be changed here.</p>
+              </div>
+            </span>
+          </div>
+
+          <div class="cred">
+            <p class="instr">Please find your provider and NPI information to continue…</p>
+            <div class="form">
+              <div class="field cbx">
+                <label class="lbl" for="pnpi">Search for your personal NPI number</label>
+                <div class="input focus" id="pnpi" role="combobox" aria-expanded="true" aria-controls="lb-a" aria-activedescendant="opt-2" aria-autocomplete="list">
+                  <svg class="ico"><use href="#i-search"/></svg><span class="typed">ruiz miami<span class="caret" aria-hidden="true"></span></span>
+                  <button class="clear" aria-label="Clear personal NPI search"><svg class="ico"><use href="#i-x"/></svg></button>
+                </div>
+                <ul class="listbox inflow" id="lb-a" role="listbox" aria-label="Personal NPI results" aria-busy="true">
+                  <li role="option" class="opt" id="opt-1" aria-selected="false"><span class="l1"><span class="mono">1093847215</span>Ana Ruiz</span><span class="l2">Miami, FL</span></li>
+                  <li role="option" class="opt active" id="opt-2" aria-selected="true"><span class="l1"><span class="mono">1295847361</span>Carlos Ruiz</span><span class="l2">Miami, FL</span></li>
+                  <li role="option" class="opt" id="opt-3" aria-selected="false"><span class="l1"><span class="mono">1467203958</span>Elena Ruiz Montoya</span><span class="l2">Miami Beach, FL</span></li>
+                  <li role="option" class="opt" id="opt-4" aria-selected="false"><span class="l1"><span class="mono">1558391026</span>Roberto Ruiz</span><span class="l2">Miami Gardens, FL</span></li>
+                  <li class="loading" role="presentation"><svg class="spin"><use href="#i-spin"/></svg>Searching…</li>
+                </ul>
+              </div>
+              <div class="field cbx">
+                <label class="lbl" for="prnpi">Search for your practice's (hospital, clinic, lab, etc.) NPI Number <span class="opt">(optional)</span></label>
+                <div class="input" id="prnpi" role="combobox" aria-expanded="false"><svg class="ico"><use href="#i-search"/></svg><span class="ph">Search by NPI or name</span></div>
+              </div>
+            </div>
+            <div class="form-f"><button class="btn btn-primary">Register</button></div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- ================= B · ERROR ================= -->
+  <p class="frame-label" style="text-align:center">B · STATE DETAIL · Register clicked, the selected personal NPI is already registered (nothing sent)</p>
+  <div class="state-wrap">
+    <div class="state-card">
+      <div class="form">
+        <div class="field cbx">
+          <label class="lbl" for="pnpi-b">Search for your personal NPI number</label>
+          <div class="input err" id="pnpi-b" role="combobox" aria-expanded="false" aria-invalid="true" aria-describedby="pnpi-b-err">
+            <svg class="ico"><use href="#i-search"/></svg><span class="typed">1295847361, Carlos Ruiz, Miami, FL</span>
+            <button class="clear" aria-label="Clear personal NPI"><svg class="ico"><use href="#i-x"/></svg></button>
+          </div>
+          <p class="help err" id="pnpi-b-err"><svg class="ico"><use href="#i-alert"/></svg>This personal NPI is already registered. Check that you selected your own.</p>
+        </div>
+        <div class="field cbx">
+          <label class="lbl" for="prnpi-b">Search for your practice's (hospital, clinic, lab, etc.) NPI Number <span class="opt">(optional)</span></label>
+          <div class="input" id="prnpi-b" role="combobox" aria-expanded="false"><svg class="ico"><use href="#i-search"/></svg><span class="ph">Search by NPI or name</span></div>
+        </div>
+      </div>
+      <div class="form-f"><button class="btn btn-primary">Register</button></div>
+    </div>
+  </div>
+
+  <!-- ================= C · REGISTERED ================= -->
+  <p class="frame-label">C · DESKTOP · 1280 px · Registered view, Practice name popover open (practice is a 1health Organization Daniel isn't in)</p>
+  <div class="browser">
+    <div class="chrome"><i></i><i></i><i></i><div class="url">profile.1health.app/account?tab=provider</div></div>
+    <div class="app">
+      <header class="appbar">
+        <span class="wordmark">1health</span><span class="vr"></span><nav class="appnav" aria-label="Pages"><a href="/">Personal Profile</a><a href="/account" aria-current="page">Account</a></nav>
+        <a class="return" href="#">Return to 1health <svg class="ico"><use href="#i-out"/></svg></a>
+      </header>
+      <section class="identity" aria-label="Profile">
+        <div class="avatar" aria-hidden="true">DG</div>
+        <h1 class="name">Daniel Garcia</h1>
+        <div class="idline"><span>Primary phone <b>+1 (305) 555-0142</b></span><span>Primary email <b>daniel.garcia@example.com</b></span></div>
+      </section>
+      <nav class="tabs" role="tablist" aria-label="Profile areas">
+        <button class="tab" role="tab" aria-selected="false">Personal Account</button>
+        <button class="tab" role="tab" aria-selected="true">Individual Provider Registration</button>
+        <button class="tab" role="tab" aria-selected="false">My Organizations</button>
+      </nav>
+
+      <main class="acc-main">
+        <section aria-labelledby="h-cred-c">
+          <div class="sec-h"><h2 id="h-cred-c" tabindex="-1">Healthcare credentials</h2>
+            <button class="ib" aria-label="About provider registration"><svg class="ico"><use href="#i-info"/></svg></button>
+            <span class="annot">Note N2 · FR-116 order, row-major</span>
+          </div>
+          <div class="tbl-wrap">
+            <table class="kv"><tbody>
+              <tr><td class="k">NPI</td><td class="v mono">1295847361</td><td class="k">Taxonomy</td><td class="v">207Q00000X · Family Medicine</td></tr>
+              <tr><td class="k">Health Information Exchange</td><td class="v empty">Not provided</td><td class="k">Practice name</td><td class="v">
+                <span class="popwrap">
+                  <button class="linkv" aria-expanded="true" aria-controls="pop-c">Bayview Family Health Center</button>
+                  <div class="popover" id="pop-c" role="dialog" aria-label="Bayview Family Health Center support">
+                    <p class="pt">Bayview Family Health Center</p>
+                    <div class="pl"><span>+1 (305) 555-0198</span><a href="#">support@bayviewfhc.example</a></div>
+                  </div>
+                </span> <span class="annot">Note N3</span></td></tr>
+              <tr><td class="k">Practice address</td><td class="v">2150 Coral Way, Miami, FL 33145</td><td class="k">Practice NPI</td><td class="v">NPI: <span class="mono">1871604392</span></td></tr>
+              <tr><td class="k">Licenses</td><td class="v">FL ME 142857</td><td class="k">Address of practice</td><td class="v">2150 Coral Way, Suite 300<br>Miami, FL 33145</td></tr>
+              <tr class="tall"><td class="k">Signature</td><td class="v">
+                <div class="sigrow"><span class="sigthumb" role="img" aria-label="Signature"><svg><use href="#i-sig"/></svg></span>
+                  <span class="tipwrap"><button class="qb" aria-label="About the signature" aria-describedby="sig-tip"><svg class="ico"><use href="#i-help"/></svg></button><span class="tip" role="tooltip" id="sig-tip" hidden>The signature can be changed from the Personal Profile</span></span>
+                  <a href="/?tab=contacts#signature">Personal Profile</a></div></td>
+                <td class="k"></td><td class="v"></td></tr>
+            </tbody></table>
+          </div>
+          <div class="reg-after">
+            <div class="banner info" role="status"><svg class="ico"><use href="#i-info"/></svg><span>This organization already exists - please contact their support to be added to their portal.</span></div>
+          </div>
+
+          <div class="variant">
+            <p class="frame-label">C2 · Variant: practice NPI verified, not yet claimed by an Organization (no banner, no popover) <span class="annot">Note N1</span></p>
+            <div class="reg-after" style="margin-top:8px">
+              <a class="btn btn-outline" href="#">Register your practice to enable ordering</a>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- ================= D · MOBILE ================= -->
+  <p class="frame-label" style="text-align:center">D · MOBILE · 390 × 844 · Unregistered form at rest</p>
+  <div class="mobile-row">
+    <div class="phone m" style="height:864px">
+      <div class="status"><span>9:41</span><span>100%</span></div>
+      <div class="app">
+        <header class="appbar appbar-m"><span class="wordmark">1health</span><a class="return" href="#">Return to 1health</a><nav class="appnav seg" aria-label="Pages"><a href="/">Personal Profile</a><a href="/account" aria-current="page">Account</a></nav></header>
+        <section class="identity"><div class="avatar" aria-hidden="true">DG</div><h1 class="name">Daniel Garcia</h1></section>
+        <nav class="tabs" role="tablist" aria-label="Profile areas">
+          <button class="tab" role="tab" aria-selected="false">Personal Account</button>
+          <button class="tab" role="tab" aria-selected="true">Individual Provider Registration</button>
+          <button class="tab" role="tab" aria-selected="false">My Organizations</button>
+        </nav>
+        <main class="acc-main">
+          <section aria-labelledby="h-cred-m">
+            <div class="sec-h"><h2 id="h-cred-m">Healthcare credentials</h2>
+              <button class="ib" aria-label="About provider registration"><svg class="ico"><use href="#i-info"/></svg></button></div>
+            <div class="cred">
+              <p class="instr">Please find your provider and NPI information to continue…</p>
+              <div class="form">
+                <div class="field cbx"><label class="lbl" for="m-pnpi">Search for your personal NPI number</label>
+                  <div class="input" id="m-pnpi" role="combobox" aria-expanded="false"><svg class="ico"><use href="#i-search"/></svg><span class="ph">Search by NPI or name</span></div></div>
+                <div class="field cbx"><label class="lbl" for="m-prnpi">Search for your practice's (hospital, clinic, lab, etc.) NPI Number <span class="opt">(optional)</span></label>
+                  <div class="input" id="m-prnpi" role="combobox" aria-expanded="false"><svg class="ico"><use href="#i-search"/></svg><span class="ph">Search by NPI or name</span></div></div>
+              </div>
+              <div class="form-f"><button class="btn btn-primary">Register</button></div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+    <div class="mnotes" style="max-width:300px">
+      <h3>What the frames show</h3>
+      <ul>
+        <li>The tab strip scrolls sideways (no "Soon" tag on /account).</li>
+        <li>The profile header drops primary phone and email.</li>
+        <li>Fields fill the width; Register stays right-aligned.</li>
+        <li>On a phone the (i) popover opens on tap or focus (no hover) and opens below its trigger.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</body>
+</html>
