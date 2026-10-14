@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import axe from "axe-core"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { stubLayoutApis } from "@/test/dom-stubs"
 import { server, trackAllRequests } from "@/test/msw-server"
 import { setTestUrl } from "@/test/next-navigation"
 import { TestProviders } from "@/test/providers"
@@ -19,7 +20,7 @@ function setup(withFixture = false) {
     <TestProviders>
       <CurrentPageProvider value="profile">
         <SectionRegistryProvider>
-          {withFixture ? <FixtureParticipant id="phone" label="Phone" displayOrder={2} /> : null}
+          {withFixture ? <FixtureParticipant id="phone" label="Fixture phone" displayOrder={2} /> : null}
           <main>
             <ProfileTabs />
           </main>
@@ -44,6 +45,8 @@ async function press(target: HTMLElement, key: string): Promise<void> {
 beforeEach(() => {
   resetLeaveState()
   setTestUrl("/?tab=contacts")
+  // The Contacts panel's deep links scroll (jsdom has no layout).
+  stubLayoutApis()
 })
 afterEach(() => document.documentElement.classList.remove("dark"))
 
@@ -151,7 +154,7 @@ describe("ProfileTabs", () => {
 
   it("asks the leave guard before a tab change when something is dirty", async () => {
     setup(true)
-    fireEvent.change(screen.getByLabelText("Phone"), { target: { value: "1" } })
+    fireEvent.change(screen.getByLabelText("Fixture phone"), { target: { value: "1" } })
     await act(async () => fireEvent.mouseDown(tab("Insurance"), { button: 0 }))
     expect(screen.getByRole("alertdialog", { name: "You have unsaved changes" })).toBeTruthy()
     expect(selected()).toBe("Contacts")

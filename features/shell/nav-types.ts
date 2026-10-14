@@ -45,8 +45,12 @@ export function pageOfPath(pathname: string): PageId | null {
 /** Section ids (Story 1.11), shared with lib/api and telemetry. */
 export type { SectionId }
 
-/** The id of a Section's `h2` (`tabIndex=-1`): the focus target after Save, Cancel and Section jumps. */
-export function sectionHeadingId(id: SectionId): string {
+/**
+ * The id of a Section's (or `/account` anchor container's) `h2` (`tabIndex=-1`):
+ * its `aria-labelledby` target and the focus target after Save, Cancel and
+ * Section jumps. Takes any anchor id (e.g. `authenticator`), not only a `SectionId`.
+ */
+export function sectionHeadingId(id: string): string {
   return `${id}-heading`
 }
 

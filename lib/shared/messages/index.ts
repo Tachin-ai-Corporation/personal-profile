@@ -14,6 +14,7 @@
  * aggregated here once, so a story edits only its own area file.
  */
 
+import type { SectionId } from "../section-ids"
 import { ACCOUNT_MESSAGES } from "./account"
 import { ADDRESS_MESSAGES } from "./addresses"
 import { COMMON_MESSAGES } from "./common"
@@ -86,6 +87,19 @@ export type MessageKey = { [G in keyof Catalog]: `${G & string}.${keyof Catalog[
 export function messageFor(key: MessageKey): string {
   const [group, name] = key.split(".") as [keyof Catalog, string]
   return (MESSAGE_CATALOG[group] as Readonly<Record<string, string>>)[name]
+}
+
+/** A Profile Section with its own load error ("Couldn't load {noun}"); `/account` uses the page copy. */
+export type LoadNounSection = Exclude<SectionId, "account">
+
+/** The plural noun each Profile Section's load error names (`STATE_MESSAGES.sectionLoadError`, F3-3). */
+export const SECTION_LOAD_NOUNS: Readonly<Record<LoadNounSection, string>> = {
+  personal: STATE_MESSAGES.loadNounPersonal,
+  phone: STATE_MESSAGES.loadNounPhone,
+  email: STATE_MESSAGES.loadNounEmail,
+  social: STATE_MESSAGES.loadNounSocial,
+  addresses: STATE_MESSAGES.loadNounAddresses,
+  insurance: STATE_MESSAGES.loadNounInsurance,
 }
 
 /** Fills each `{Name}` placeholder of a catalog template; unknown names stay as written. */

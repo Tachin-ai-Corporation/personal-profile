@@ -38,7 +38,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 test.describe("/ page frame (Stories 1.8, 1.9)", () => {
-  test("app bar, header, tabs; ?tab normalized; tab order page nav → Return → tabs; wordmark never focused", async ({ page }) => {
+  test("app bar, header, tabs; ?tab normalized; tab order page nav → Return → tabs → Section menu; wordmark never focused", async ({ page, isMobile }) => {
     await mockMyself(page)
     await mockContacts(page)
     await page.goto("/")
@@ -52,7 +52,8 @@ test.describe("/ page frame (Stories 1.8, 1.9)", () => {
       order.push(await focused(page))
     }
     expect(order.slice(0, 4)).toEqual(["a:Personal Profile", "a:Account", "a:Return to 1health", "tab:Contacts"])
-    expect(order[4]).toMatch(/^tabpanel:/)
+    // Contacts takes its panel out of the Tab order: its Section menu (or Jump to) follows the tab (F3-3).
+    expect(order[4]).toBe(isMobile ? "combobox:01Personal information" : "a:01Personal information")
     expect(order.some((entry) => entry.endsWith(":1health"))).toBe(false)
   })
 
@@ -194,6 +195,84 @@ test.describe("session expired (Story 1.7)", () => {
       await expect(page).toHaveURL(landing)
     })
   }
+})
+
+test.describe("Section navigation (F3-3, port of Story 1.8B)", () => {
+  async function open(page: Page, url: string): Promise<void> {
+    await mockMyself(page)
+    await mockContacts(page)
+    await page.goto(url)
+    await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
+  }
+
+  test("/?tab=contacts#signature on load scrolls to the Signature row and survives a refresh", async ({ page }) => {
+    await open(page, "/?tab=contacts#signature")
+    const signature = page.locator("#signature")
+    await expect(signature).toBeInViewport()
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(100)
+    await page.reload()
+    await expect(page).toHaveURL(/\/\?tab=contacts#signature$/)
+    await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
+    await expect(signature).toBeInViewport()
+  })
+
+  test("an unknown hash, or a Section hash on Insurance, leaves the page at the top", async ({ page }) => {
+    const errors: string[] = []
+    page.on("pageerror", (error) => errors.push(String(error)))
+    await open(page, "/?tab=contacts#nope")
+    expect(await page.evaluate(() => window.scrollY)).toBe(0)
+    await page.goto("/?tab=insurance#phone")
+    await expect(page.getByRole("region", { name: "Insurance" })).toBeVisible()
+    expect(await page.evaluate(() => window.scrollY)).toBe(0)
+    expect(errors).toEqual([])
+  })
+
+  test("keyboard: the Section menu / Jump to focuses the Section h2 and replaces the hash; a dirty Section opens no leave dialog", async ({ page, isMobile }) => {
+    await open(page, FIXTURE)
+    await page.getByLabel("Fixture phone").fill("415")
+    const historyLength = await page.evaluate(() => history.length)
+    if (isMobile) {
+      await expect(page.getByRole("navigation", { name: "Sections" })).toBeHidden()
+      const jump = page.getByRole("combobox", { name: "Jump to" })
+      await jump.focus()
+      await page.keyboard.press("Enter")
+      await page.getByRole("option", { name: "Email" }).focus()
+      await page.keyboard.press("Enter")
+    } else {
+      await expect(page.getByRole("combobox", { name: "Jump to" })).toBeHidden()
+      await page.getByRole("navigation", { name: "Sections" }).getByRole("link", { name: "Email" }).focus()
+      await page.keyboard.press("Enter")
+    }
+    await expect(page.getByRole("heading", { level: 2, name: "Email" })).toBeFocused()
+    await expect(page).toHaveURL(/\?tab=contacts#email$/)
+    await expect(page.locator("#email")).toBeInViewport()
+    await expect(page.getByRole("alertdialog")).toHaveCount(0)
+    await expect(page.getByLabel("Fixture phone")).toHaveValue("415")
+    expect(await page.evaluate(() => history.length)).toBe(historyLength)
+    if (!isMobile) {
+      const nav = page.getByRole("navigation", { name: "Sections" })
+      await expect(nav.locator('[aria-current="location"]')).toHaveCount(1)
+      await expect(nav.locator('[aria-current="location"]')).toHaveText(/03\s*Email/)
+    }
+  })
+
+  test("Contacts: Section menu rows (desktop) or Jump to (mobile) are 44 px targets, no horizontal scroll", async ({ page, isMobile }) => {
+    await open(page, "/?tab=contacts")
+    await expectNoHorizontalScroll(page)
+    const targets = isMobile
+      ? [page.getByRole("combobox", { name: "Jump to" })]
+      : await page.getByRole("navigation", { name: "Sections" }).getByRole("link").all()
+    expect(targets.length).toBeGreaterThan(0)
+    for (const target of targets) {
+      const box = await target.boundingBox()
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+    }
+    if (!isMobile) {
+      const nav = page.getByRole("navigation", { name: "Sections" })
+      expect(await nav.evaluate((el) => getComputedStyle(el).position)).toBe("sticky")
+      expect(await nav.evaluate((el) => (el.parentElement as HTMLElement).getBoundingClientRect().width)).toBe(200)
+    }
+  })
 })
 
 test.describe("leave guard (Story 1.13, fixture page)", () => {

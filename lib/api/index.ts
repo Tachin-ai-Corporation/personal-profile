@@ -28,14 +28,22 @@ export {
 } from "./errors-codes"
 export {
   ERROR_RULES,
+  FORBIDDEN_SCOPE_TABLE,
+  forbiddenScopeFor,
   mapApiError,
   mapFetchError,
   mappedErrorCode,
+  normalizeForbiddenPath,
   type ErrorField,
   type ErrorScope,
+  type ForbiddenLevel,
+  type ForbiddenOwner,
+  type ForbiddenScope,
+  type ForbiddenScopeRule,
   type MappedError,
   type MessageRule,
 } from "./errors"
+export { fileDownloadPath } from "./files"
 export {
   sessionEvents,
   createSessionEvents,

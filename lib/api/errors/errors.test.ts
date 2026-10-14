@@ -98,7 +98,7 @@ describe("mapApiError: exact-message tables", () => {
 describe("area tables", () => {
   const root = process.cwd()
   const AREA_FILES = readdirSync(join(root, "lib/api/errors")).filter(
-    (name) => name.endsWith(".ts") && !name.endsWith(".test.ts") && name !== "index.ts" && name !== "core.ts",
+    (name) => name.endsWith(".ts") && !name.endsWith(".test.ts") && !["index.ts", "core.ts", "forbidden-scope.ts"].includes(name),
   )
 
   it("aggregates every area file's rules exactly once", async () => {

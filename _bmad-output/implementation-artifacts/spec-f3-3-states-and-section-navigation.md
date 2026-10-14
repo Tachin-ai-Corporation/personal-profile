@@ -2,7 +2,7 @@
 title: 'F3-3 State frames and section navigation'
 type: 'feature'
 created: '2026-10-14'
-status: 'in-progress'
+status: 'review'
 baseline_commit: '5b4ed143dde8f204c66c2aef623311be2e3b8798'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -58,10 +58,10 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `features/shell/state-frame.tsx`, `read-state.tsx`, `lib/shared/messages/*` (+tests) -- state frame and copy.
-- [ ] `lib/api/errors/forbidden-scope.ts`, `lib/api/index.ts` (+tests) -- owner table.
-- [ ] `features/shell/signature-thumb.tsx` (+tests) -- thumbnail.
-- [ ] `features/shell/{anchors,section-nav,use-hash-anchors,contacts-panel,insurance-panel}.tsx`, `page-tabs.tsx` (+tests, e2e) -- navigation port.
+- [x] `features/shell/state-frame.tsx`, `read-state.tsx`, `lib/shared/messages/*` (+tests) -- state frame and copy.
+- [x] `lib/api/errors/forbidden-scope.ts`, `lib/api/index.ts` (+tests) -- owner table.
+- [x] `features/shell/signature-thumb.tsx` (+tests) -- thumbnail.
+- [x] `features/shell/{anchors,section-nav,use-hash-anchors,contacts-panel,insurance-panel}.tsx`, `page-tabs.tsx` (+tests, e2e) -- navigation port.
 
 **Acceptance Criteria:**
 - Given `/?tab=contacts`, when a keyboard user uses the Section menu or Jump to, then focus lands on the Section heading and no leave dialog opens.
@@ -75,6 +75,14 @@ context:
 - `corepack pnpm test:e2e && corepack pnpm build && bash scripts/check-forbidden.sh` -- expected: green
 
 ## Implementation Notes
+
+- **`StateFrame`** (`features/shell/state-frame.tsx`) now owns `LoadError`, `NoAccess` and `ReadStateFor`; `read-state.tsx` only re-exports them, so 7.0b-1 callers are unchanged. `ReadStateFor` gains optional `loadError` (default page copy) and `level` (default `tab`); `LoadError` gains `message`; `NoAccess` gains `level` (tab panel padding is now DESIGN.md's 24/16 px). Extra props: `columns` (table header), `attempt` (re-announce), `className`. A Section-level frame is the bordered table container; a tab-level frame has none. `session` renders nothing, anchors included. The `table` variant shows the 36 px header only when `columns` is non-empty (Personal information and Insurance have none, as on main). `ORG_GRID_CLASSES` and `loadErrorMessage()` are exported for Team B.
+- **Copy:** `STATE_MESSAGES.sectionLoadError` "Couldn't load {section}" (verbatim V&T template) plus six `loadNoun*` keys (DRAFT; nouns from the epics' load-error ACs), gathered as `SECTION_LOAD_NOUNS` (keyed by `LoadNounSection` = Section ids minus `account`) in `lib/shared/messages/index.ts`, because each area file may export only its one catalog group. `SHELL_MESSAGES` gains `sectionsNavLabel`, `jumpTo`, the five Section labels, `signature` (verbatim), `signatureAlt` "Your signature" and eight column headers. "Jump to" and the Section labels are locked by EXPERIENCE.md but not quoted in its V&T table, so they carry the `DRAFT COPY` marker with a "locked" note (the verbatim test allows nothing else). The catalog is flat strings, so column headers are keys, not arrays.
+- **Forbidden scope** (`lib/api/errors/forbidden-scope.ts`, exported from `@/lib/api`): `forbiddenScopeFor(path)` → `{ owner, level }` or `null`, after `normalizeForbiddenPath` (strips origin, query/hash, `/api/1h/`, version; `/api/pp/x` → `pp/x`). `mfa/*` matches the platform's `v2/mfa/...` paths (checked against 1health-fe). It is not an area rule table: `errors.test.ts`'s area scan now skips it.
+- **`SignatureThumb`** uses the new `lib/api/files.ts#fileDownloadPath(fileId)` (positive integer ids only, else the fallback). An image that finished before hydration is read from `img.complete`/`naturalWidth`. The `<img>` carries an eslint-disable for `no-img-element` (a session-bound proxy image must not go through the Next optimizer).
+- **Section navigation:** `useSectionNavigation()` holds scroll-spy, pin, activation and Jump to state; `SectionNav` renders it; `useHashAnchors(ids, { focusHeading, subAnchors, onFollow })` returns `{ frameReady }`, which `ContactsPanel` passes to each `StateFrame` `onReady` for the one re-scroll (a wheel/touch scroll before ready cancels it). Activation replaces the hash with `pathname + search + #id`, so other params (and the e2e fixture path) are kept; it never calls `navigate()`/`requestLeave()` (unit + e2e prove no dialog with a dirty Section). Counts: `SectionCountProvider` (mounted by `ContactsPanel`) + `useReportSectionCount(id, n)`; the menu shows them `aria-hidden` (the Section header carries its own count), blank when unreported. `SectionContainer` is the `<section id aria-labelledby>` + 44 px `h2` (`tabIndex={-1}`) row.
+- **Tabs:** `PageTabs` gains `panelOptions(tab)` (`bare`, `skipInTabOrder`) and every panel gets `focus-ring`; Contacts is bare and out of the Tab order, so Tab goes from the tab to the Section menu (or Jump to). Contacts and Insurance render their loading frames; Medical is unchanged.
+- **Tests:** ported `test/dom-stubs.ts` helpers (`installDomStubs`, `FakeIntersectionObserver`, `reportIntersections`); no `user-event`/`jest-dom` in this repo, so the ported cases use `fireEvent` and plain assertions. A modified-click test stops jsdom's own hash navigation, whose queued `hashchange` leaked into later tests. `page-tabs.test.tsx`'s fixture label is now "Fixture phone" (the Phone region shares the name). `lib/server/named-ops/profile-picture-id.test.ts` "logs the route template only" is flaky upstream of this spec (it fails when the random request id contains "555").
 
 ## Spec Change Log
 

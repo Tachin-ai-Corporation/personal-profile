@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
-import { formatMessage, LAUNCH_ERROR_MESSAGES, LAUNCH_MESSAGES, MESSAGE_CATALOG, messageFor, PERSON_MESSAGES } from "."
+import { formatMessage, LAUNCH_ERROR_MESSAGES, LAUNCH_MESSAGES, MESSAGE_CATALOG, messageFor, PERSON_MESSAGES, SECTION_LOAD_NOUNS, STATE_MESSAGES } from "."
 
 const read = (relative: string): string => readFileSync(new URL(relative, import.meta.url), "utf8")
 
@@ -133,6 +133,21 @@ describe("message catalog: voice rules", () => {
       "This is available in your personal account. Switch to it in 1health and open it again.",
     )
     expect(catalogValues()).not.toContain("Success!")
+  })
+})
+
+describe("Section load errors (F3-3)", () => {
+  it("fills the V&T template with each Section's plural noun", () => {
+    const filled = Object.values(SECTION_LOAD_NOUNS).map((noun) => formatMessage(STATE_MESSAGES.sectionLoadError, { section: noun }))
+    expect(filled).toEqual([
+      "Couldn't load personal information",
+      "Couldn't load phones",
+      "Couldn't load emails",
+      "Couldn't load social links",
+      "Couldn't load addresses",
+      "Couldn't load insurance",
+    ])
+    expect(VOICE_AND_TONE.has("Couldn't load phones")).toBe(true)
   })
 })
 

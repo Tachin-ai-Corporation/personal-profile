@@ -97,8 +97,12 @@ describe("GET /api/pp/profile-picture-id", () => {
     await callOp(handler, { path: PATH })
     restore()
     expect(lines).toHaveLength(1)
-    expect(JSON.parse(lines[0])).toMatchObject({ routeTemplate: PATH, status: 200 })
-    expect(lines[0]).not.toContain("555")
+    const logged = JSON.parse(lines[0]) as Record<string, unknown>
+    expect(logged).toMatchObject({ routeTemplate: PATH, status: 200 })
+    // The random request id and the duration may contain "555" by chance; every other field must not carry the file id.
+    const rest = Object.entries(logged).filter(([key]) => key !== "requestId" && key !== "durationMs")
+    expect(JSON.stringify(rest)).not.toContain("555")
+    expect(Object.values(logged)).not.toContain(555)
   })
 })
 

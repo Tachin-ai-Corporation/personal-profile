@@ -4,6 +4,7 @@ import { http, HttpResponse } from "msw"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ProfileHeader } from "@/features/header"
 import { PageFrame, ProfileTabs } from "@/features/shell"
+import { stubLayoutApis } from "@/test/dom-stubs"
 import { stubViewport } from "@/test/media"
 import { server } from "@/test/msw-server"
 import { setTestUrl } from "@/test/next-navigation"
@@ -25,6 +26,7 @@ function renderHome() {
 beforeEach(() => {
   setTestUrl("/")
   stubViewport(1280)
+  stubLayoutApis()
   server.use(
     http.get("/api/1h/v2/user/myself", () => HttpResponse.json({ id: 1, personId: 2, firstName: "Ann", lastName: "Lee" })),
     http.get("/api/1h/v2/user/contact-point/list", () => HttpResponse.json([])),
@@ -47,7 +49,7 @@ describe("/ page frame", () => {
     expect(calls).toBe(1)
   })
 
-  it("tab order: page nav → Return → header → tabs → content; the wordmark is never focusable", async () => {
+  it("tab order: page nav → Return → header → tabs → Section menu; the wordmark is never focusable", async () => {
     renderHome()
     await screen.findByRole("heading", { level: 1, name: "Ann Lee" })
     const focusable = [...document.querySelectorAll<HTMLElement>("a[href], button, [tabindex]:not([tabindex='-1'])")].filter(
@@ -57,7 +59,10 @@ describe("/ page frame", () => {
     expect(names.slice(0, 3)).toEqual(["a:Personal Profile", "a:Account", "a:Return to 1health"])
     const tabIndex = names.findIndex((n) => n.startsWith("tab:"))
     expect(tabIndex).toBeGreaterThan(2)
-    expect(names.at(-1)).toMatch(/^tabpanel:/)
+    // Contacts takes its panel out of the Tab order: the Section menu follows the tabs (F3-3).
+    const lastTab = names.findLastIndex((n) => n.startsWith("tab:"))
+    expect(names[lastTab + 1]).toBe("a:01Personal information")
+    expect(names.some((n) => n.startsWith("tabpanel:"))).toBe(false)
     expect(names.some((n) => n.endsWith(":1health"))).toBe(false)
     expect(window.location.search).toBe("?tab=contacts")
   })

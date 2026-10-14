@@ -88,7 +88,39 @@ export { IdleWarning, IDLE_PING_TIMEOUT_MS, IDLE_SAFETY_MARGIN_MS, IDLE_WARNING_
 export { AppBar } from "./app-bar"
 export { PageNav } from "./page-nav"
 export { ReturnLink } from "./return-link"
-export { PageTabs, ProfileTabs, type PageTabDefinition, type PageTabsProps } from "./page-tabs"
+export { PageTabs, ProfileTabs, type PageTabDefinition, type PageTabsProps, type PanelOptions } from "./page-tabs"
+
+// Read states and Section navigation (F3-3).
+export {
+  FrameSkeleton,
+  ORG_GRID_CLASSES,
+  StateFrame,
+  loadErrorMessage,
+  type FrameLevel,
+  type FrameSkeletonProps,
+  type FrameState,
+  type LoadErrorCopy,
+  type SkeletonVariant,
+  type StateFrameProps,
+} from "./state-frame"
+export { SignatureThumb, type SignatureThumbProps } from "./signature-thumb"
+export {
+  ACCOUNT_ANCHORS,
+  PROFILE_SECTION_IDS,
+  PROFILE_SECTIONS,
+  PROFILE_SUB_ANCHORS,
+  SECTION_COLUMNS,
+  SIGNATURE_ANCHOR,
+  isProfileSectionId,
+  type AccountAnchor,
+  type ProfileSectionId,
+} from "./anchors"
+export { SectionLandmark, type SectionLandmarkProps } from "./section-landmark"
+export { SectionNav, useSectionNavigation, type SectionNavProps, type SectionNavState } from "./section-nav"
+export { motionAwareScrollBehavior, useHashAnchors, type HashAnchors, type HashAnchorsOptions } from "./use-hash-anchors"
+export { SectionCountProvider, useReportSectionCount, useSectionCounts, type SectionCounts } from "./section-counts"
+export { ContactsPanel } from "./contacts-panel"
+export { InsurancePanel } from "./insurance-panel"
 export { PageFrame, type PageFrameProps } from "./page-frame"
 export { DESKTOP_QUERY, useMediaQuery } from "./use-media-query"
 export {

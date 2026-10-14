@@ -4,6 +4,7 @@
  * `errorCode`/`upstreamCode`, and the only place that matches upstream
  * message text (guarded by `errors.test.ts`). Each area owns its own
  * exact-message table in its own file (pre-created for every planned area).
+ * `forbidden-scope.ts` is not an area table: it is the AD-23 403 owner table.
  */
 
 import { ApiResponseError } from "../fetcher"
@@ -19,6 +20,15 @@ import { rules as orgRules } from "./orgs"
 import { rules as personalRules } from "./personal"
 
 export { mappedErrorCode, type ErrorField, type ErrorScope, type MappedError, type MessageRule } from "./core"
+export {
+  FORBIDDEN_SCOPE_TABLE,
+  forbiddenScopeFor,
+  normalizeForbiddenPath,
+  type ForbiddenLevel,
+  type ForbiddenOwner,
+  type ForbiddenScope,
+  type ForbiddenScopeRule,
+} from "./forbidden-scope"
 
 /** Every area table (each file under `errors/` but `core`/`index`), imported once; a story edits only its area file. */
 export const ERROR_RULES: readonly MessageRule[] = [

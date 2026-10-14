@@ -4,6 +4,9 @@ import { useSearchParams } from "next/navigation"
 import { useEffect, useRef, type ReactNode } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { SHELL_MESSAGES } from "@/lib/shared/messages"
+import { cn } from "@/lib/utils"
+import { ContactsPanel } from "./contacts-panel"
+import { InsurancePanel } from "./insurance-panel"
 import { DEFAULT_PROFILE_TAB, isProfileTab, PROFILE_TABS, type NavTarget, type ProfileTab } from "./nav-types"
 import { useNavigate } from "./navigate"
 
@@ -19,7 +22,20 @@ export interface PageTabsProps<T extends string> {
   /** The `navigate()` target that selects a tab (the leave guard can intercept it). */
   readonly toTarget: (tab: T) => NavTarget
   readonly renderPanel: (tab: T) => ReactNode
+  /**
+   * Per-panel overrides: `bare` drops the default gutters (the panel lays out
+   * its own), `skipInTabOrder` takes the panel out of the Tab order (its first
+   * control follows the tab directly, e.g. the Section menu).
+   */
+  readonly panelOptions?: (tab: T) => PanelOptions
 }
+
+export interface PanelOptions {
+  readonly bare?: boolean
+  readonly skipInTabOrder?: boolean
+}
+
+const DEFAULT_PANEL_OPTIONS: PanelOptions = {}
 
 /** Scrolls the strip sideways (never the page) so the selected tab is in view. */
 function keepInView(list: HTMLElement | null): void {
@@ -36,7 +52,7 @@ function keepInView(list: HTMLElement | null): void {
  * activation; every change goes through `navigate()`; a missing or unknown
  * `?tab=` shows the default tab and is normalized with a replace.
  */
-export function PageTabs<T extends string>({ tabs, isTab, defaultTab, toTarget, renderPanel }: PageTabsProps<T>) {
+export function PageTabs<T extends string>({ tabs, isTab, defaultTab, toTarget, renderPanel, panelOptions }: PageTabsProps<T>) {
   const navigate = useNavigate()
   const raw = useSearchParams().get("tab")
   const current: T = isTab(raw) ? raw : defaultTab
@@ -68,11 +84,19 @@ export function PageTabs<T extends string>({ tabs, isTab, defaultTab, toTarget, 
         ))}
       </TabsList>
       {/* Every panel exists (so each tab's aria-controls resolves); Radix renders only the selected one's content. */}
-      {tabs.map((tab) => (
-        <TabsContent key={tab.value} value={tab.value} className="px-4 py-6 md:px-6">
-          {renderPanel(tab.value)}
-        </TabsContent>
-      ))}
+      {tabs.map((tab) => {
+        const options = panelOptions?.(tab.value) ?? DEFAULT_PANEL_OPTIONS
+        return (
+          <TabsContent
+            key={tab.value}
+            value={tab.value}
+            tabIndex={options.skipInTabOrder ? -1 : undefined}
+            className={cn("focus-ring", !options.bare && "px-4 py-6 md:px-6")}
+          >
+            {renderPanel(tab.value)}
+          </TabsContent>
+        )
+      })}
     </Tabs>
   )
 }
@@ -110,9 +134,21 @@ function QuietPanel({ children }: { readonly children: ReactNode }) {
   return <p className="py-12 text-center text-body-sm text-muted-foreground">{children}</p>
 }
 
-/** Placeholder panels until Epics 3–5 fill Contacts and Insurance; Medical is final (RC9). */
+/** Contacts (Section menu + five Sections) and Insurance (one Section), in their loading frames until Epics 2–5; Medical is final. */
 function profilePanel(tab: ProfileTab): ReactNode {
-  return <QuietPanel>{tab === "medical" ? SHELL_MESSAGES.medicalComingSoon : SHELL_MESSAGES.tabPlaceholder}</QuietPanel>
+  switch (tab) {
+    case "contacts":
+      return <ContactsPanel />
+    case "insurance":
+      return <InsurancePanel />
+    case "medical":
+      return <QuietPanel>{SHELL_MESSAGES.medicalComingSoon}</QuietPanel>
+  }
+}
+
+/** Contacts lays out its own columns, and Tab goes from the tab straight to its Section menu. */
+function profilePanelOptions(tab: ProfileTab): PanelOptions {
+  return tab === "contacts" ? { bare: true, skipInTabOrder: true } : DEFAULT_PANEL_OPTIONS
 }
 
 /** The Personal Profile tab strip: Contacts, Insurance, Medical. */
@@ -124,6 +160,7 @@ export function ProfileTabs() {
       defaultTab={DEFAULT_PROFILE_TAB}
       toTarget={(tab) => ({ page: "profile", tab })}
       renderPanel={profilePanel}
+      panelOptions={profilePanelOptions}
     />
   )
 }
