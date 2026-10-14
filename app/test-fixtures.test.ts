@@ -14,11 +14,13 @@ vi.mock("@/features/shell", () => ({ PageFrame: () => null, PortalUrlProvider: (
 vi.mock("@/features/header", () => ({ ProfileHeader: () => null }))
 vi.mock("@/features/shell/__fixtures__/fixture-participant", () => ({ FixtureParticipant: () => null }))
 vi.mock("@/features/shell/__fixtures__/primitives-fixture", () => ({ PrimitivesFixture: () => null }))
+vi.mock("@/features/shell/__fixtures__/inputs-fixture", () => ({ InputsFixture: () => null }))
 vi.mock("@/features/shell/__fixtures__/section-fixture-page", () => ({ SectionFixturePage: () => null }))
 
 /** Imported after the mocks above are registered. */
 const LeaveGuardFixturePage = async () => (await import("./test-fixtures/leave-guard/page")).default()
 const PrimitivesFixturePage = async () => (await import("./test-fixtures/primitives/page")).default()
+const InputsFixturePage = async () => (await import("./test-fixtures/inputs/page")).default()
 const SectionFixture = async () => (await import("./test-fixtures/section/page")).default()
 
 beforeEach(() => {
@@ -52,6 +54,20 @@ describe("/test-fixtures/primitives gate", () => {
   it("renders when the flag is on", async () => {
     fixturesOn = true
     await expect(PrimitivesFixturePage()).resolves.toBeTruthy()
+    expect(notFound).not.toHaveBeenCalled()
+  })
+})
+
+describe("/test-fixtures/inputs gate", () => {
+  it("is a 404 unless PP_E2E_FIXTURES=1", async () => {
+    fixturesOn = false
+    await expect(InputsFixturePage()).rejects.toThrow("NEXT_NOT_FOUND")
+    expect(notFound).toHaveBeenCalledTimes(1)
+  })
+
+  it("renders when the flag is on", async () => {
+    fixturesOn = true
+    await expect(InputsFixturePage()).resolves.toBeTruthy()
     expect(notFound).not.toHaveBeenCalled()
   })
 })

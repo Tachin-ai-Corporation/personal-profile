@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
+  caretAfterDigits,
+  digitsBefore,
+  DISPLAY_DATE_LENGTH,
+  isWireDateWithin,
+  maskDisplayDate,
+  pastedDisplayDate,
   displayToWireDate,
   formatDisplayDate,
   formatWireDate,
@@ -79,5 +85,61 @@ describe("dates", () => {
     expect(compareDates({ year: 1, month: 2, day: 1 }, { year: 1, month: 3, day: 1 })).toBeLessThan(0)
     expect(compareDates({ year: 2, month: 1, day: 1 }, { year: 1, month: 12, day: 31 })).toBeGreaterThan(0)
     expect(compareDates({ year: 1, month: 1, day: 1 }, { year: 1, month: 1, day: 1 })).toBe(0)
+  })
+})
+
+describe("date bounds", () => {
+  it.each([
+    ["2000-01-01", { min: "1990-01-01", max: "2005-12-31" }, true],
+    ["1990-01-01", { min: "1990-01-01", max: "2005-12-31" }, true],
+    ["2005-12-31", { min: "1990-01-01", max: "2005-12-31" }, true],
+    ["1989-12-31", { min: "1990-01-01", max: "2005-12-31" }, false],
+    ["2006-01-01", { min: "1990-01-01", max: "2005-12-31" }, false],
+    ["2006-01-01", {}, true],
+    ["2006-01-01", { min: "not a date", max: "" }, true],
+    ["2006-02-30", {}, false],
+    ["", {}, false],
+    [null, {}, false],
+  ] as const)("%j within %j → %s", (value, bounds, expected) => {
+    expect(isWireDateWithin(value, bounds)).toBe(expected)
+  })
+})
+
+describe("MM/DD/YYYY mask", () => {
+  it.each([
+    ["", ""],
+    ["0", "0"],
+    ["02", "02"],
+    ["022", "02/2"],
+    ["0229", "02/29"],
+    ["02292", "02/29/2"],
+    ["02292024", "02/29/2024"],
+    ["022920245", "02/29/2024"],
+    ["02/29/2024", "02/29/2024"],
+    ["02/", "02"],
+    ["a0b2-2/9 2x024", "02/29/2024"],
+  ])("%j → %j", (raw, masked) => {
+    expect(maskDisplayDate(raw)).toBe(masked)
+  })
+
+  it("keeps the caret after the same digit", () => {
+    expect(DISPLAY_DATE_LENGTH).toBe(10)
+    expect(digitsBefore("02/29/2024", 3)).toBe(2)
+    expect(digitsBefore("02/29/2024", 10)).toBe(8)
+    expect(caretAfterDigits("02/29/2024", 0)).toBe(0)
+    expect(caretAfterDigits("02/29/2024", 2)).toBe(2)
+    expect(caretAfterDigits("02/29/2024", 3)).toBe(4)
+    expect(caretAfterDigits("02/2", 9)).toBe(4)
+  })
+
+  it.each([
+    ["2024-02-29", "02/29/2024"],
+    [" 02/29/2024 ", "02/29/2024"],
+    ["2023-02-29", null],
+    ["02/30/1990", null],
+    ["29.02.2024", null],
+    ["0229", null],
+  ])("paste %j → %j", (pasted, display) => {
+    expect(pastedDisplayDate(pasted)).toBe(display)
   })
 })

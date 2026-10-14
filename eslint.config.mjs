@@ -149,7 +149,7 @@ const eslintConfig = [
   // Tests and tooling (not app code): fetch for MSW tests; env for runner config.
   { files: ["**/*.test.{ts,tsx}", "test/**", "e2e/**"], rules: { "no-restricted-syntax": syntax(...without("fetch")) } },
   {
-    files: ["*.config.{ts,mjs,js}"],
+    files: ["*.config.{ts,mjs,js}", "e2e/server-env.ts"],
     rules: { "no-restricted-syntax": syntax(...without("fetch", "processEnv")) },
   },
 

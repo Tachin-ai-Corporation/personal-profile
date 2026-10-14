@@ -5,7 +5,7 @@
  * their copy is `PERSON_MESSAGES` (`lib/shared/messages/person.ts`).
  */
 
-import { localCalendarDate, minusYears, parseWireDate, compareDates } from "./dates"
+import { compareDates, formatWireDate, localCalendarDate, minusYears, parseWireDate } from "./dates"
 
 /** The backend `PATIENT_FIRST_NAME_MAX_LEN` / `PATIENT_LAST_NAME_MAX_LEN` (also middle, other names, titles). */
 export const NAME_MAX_LENGTH = 24
@@ -73,4 +73,22 @@ export function isBirthDateInRange(date: string | null | undefined, roles: reado
   const on = localCalendarDate(today)
   const { min, max } = birthDateAgeRange(roles)
   return compareDates(birth, minusYears(on, min)) <= 0 && compareDates(birth, minusYears(on, max)) >= 0
+}
+
+/** Inclusive `YYYY-MM-DD` birth-date bounds (a `DateBounds` with both ends). */
+export interface BirthDateBounds {
+  readonly min: string
+  readonly max: string
+}
+
+/**
+ * The bounds `isBirthDateInRange` accepts for `roles` at `today`'s local date:
+ * `min` = today − 120 years, `max` = today − 18 (Proctor: 21) years, both
+ * inclusive, with Java `minusYears` (Feb 29 → Feb 28). For the date input's
+ * calendar (F5-1); the age message stays with the caller's schema.
+ */
+export function birthDateBounds(roles: readonly string[] | null | undefined, today: Date): BirthDateBounds {
+  const on = localCalendarDate(today)
+  const { min, max } = birthDateAgeRange(roles)
+  return { min: formatWireDate(minusYears(on, max)), max: formatWireDate(minusYears(on, min)) }
 }

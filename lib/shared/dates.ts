@@ -87,3 +87,53 @@ export function wholeYearsBetween(birth: CalendarDate, on: CalendarDate): number
   const beforeBirthday = on.month < birth.month || (on.month === birth.month && on.day < birth.day)
   return on.year - birth.year - (beforeBirthday ? 1 : 0)
 }
+
+/** Inclusive `YYYY-MM-DD` bounds; a missing end is open. */
+export interface DateBounds {
+  readonly min?: string
+  readonly max?: string
+}
+
+/** Whether a real `YYYY-MM-DD` date is inside `bounds` (inclusive). Invalid dates → false; an invalid bound is ignored. */
+export function isWireDateWithin(value: string | null | undefined, bounds: DateBounds): boolean {
+  const date = parseWireDate(value)
+  if (!date) return false
+  const min = parseWireDate(bounds.min)
+  const max = parseWireDate(bounds.max)
+  return (!min || compareDates(date, min) >= 0) && (!max || compareDates(date, max) <= 0)
+}
+
+/** The length of a complete masked display date, `MM/DD/YYYY`. */
+export const DISPLAY_DATE_LENGTH = 10
+
+/**
+ * The `MM/DD/YYYY` input mask: keeps the first 8 digits of `raw` and inserts
+ * each slash once a digit follows it (`0229` → `02/29`, `022` → `02/2`), so
+ * Backspace over a slash is never undone by the mask.
+ */
+export function maskDisplayDate(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 8)
+  return [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4)].filter(Boolean).join("/")
+}
+
+/** How many digits `text` has before `position` (keeps the caret on the same digit after masking). */
+export function digitsBefore(text: string, position: number): number {
+  return text.slice(0, position).replace(/\D/g, "").length
+}
+
+/** The caret position in masked `text` right after its `digits`-th digit (0 → the start). */
+export function caretAfterDigits(text: string, digits: number): number {
+  if (digits <= 0) return 0
+  let seen = 0
+  for (let index = 0; index < text.length; index += 1) {
+    if (/\d/.test(text[index])) seen += 1
+    if (seen === digits) return index + 1
+  }
+  return text.length
+}
+
+/** A pasted whole date, `MM/DD/YYYY` or `YYYY-MM-DD` (surrounding space ignored), as display text; anything else → `null`. */
+export function pastedDisplayDate(pasted: string): string | null {
+  const text = pasted.trim()
+  return wireToDisplayDate(text) ?? (parseDisplayDate(text) ? text : null)
+}

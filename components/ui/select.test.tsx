@@ -1,8 +1,19 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { useState } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { axeViolations } from "@/test/axe"
 import { stubLayoutApis } from "@/test/dom-stubs"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "./select"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+  type SelectProps,
+} from "./select"
 
 beforeEach(() => stubLayoutApis())
 
@@ -68,5 +79,154 @@ describe("Select (ported from main b005536)", () => {
     fireEvent.keyDown(trigger, { key: "Enter" })
     await screen.findByRole("listbox")
     expect(await axeViolations()).toEqual([])
+  })
+})
+
+const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)))
+
+function Picker(props: Partial<SelectProps> & { readonly describedBy?: string; readonly initial?: string; readonly onChange?: (value: string) => void }) {
+  const { describedBy, initial, onChange, ...selectProps } = props
+  const [value, setValue] = useState(initial ?? "")
+  return (
+    <main>
+      <label id="email-label">Primary email address</label>
+      <Select
+        value={value}
+        onValueChange={(next) => {
+          setValue(next)
+          onChange?.(next)
+        }}
+        {...selectProps}
+      >
+        <SelectTrigger aria-labelledby="email-label" aria-describedby={describedBy}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="ann@work.test">ann@work.test</SelectItem>
+          <SelectItem value="ann@home.test">ann@home.test</SelectItem>
+        </SelectContent>
+      </Select>
+      <button type="button">After</button>
+    </main>
+  )
+}
+
+const picker = () => screen.getByRole("combobox", { name: "Primary email address" })
+
+describe("Select F5-1: aria-disabled + helper", () => {
+  const helper = (
+    <>
+      Add another verified email in <a href="#contacts">Contacts</a>
+    </>
+  )
+
+  it("stays focusable and closed on Enter, Space, ArrowDown, typeahead, click and tap; the helper is its description", async () => {
+    const onChange = vi.fn()
+    render(<Picker ariaDisabled helper={helper} initial="ann@work.test" onChange={onChange} />)
+    const trigger = picker()
+    expect(trigger.getAttribute("aria-disabled")).toBe("true")
+    expect(trigger.hasAttribute("disabled")).toBe(false)
+    expect(trigger.className).toContain("aria-disabled:bg-muted")
+    act(() => trigger.focus())
+    for (const key of ["Enter", " ", "ArrowDown", "ArrowUp", "a"]) fireEvent.keyDown(trigger, { key })
+    fireEvent.pointerDown(trigger, { button: 0, pointerType: "mouse" })
+    fireEvent.pointerUp(trigger, { pointerType: "mouse" })
+    fireEvent.click(trigger, { detail: 1 })
+    fireEvent.pointerDown(trigger, { button: 0, pointerType: "touch" })
+    fireEvent.click(trigger, { detail: 1 })
+    await settle()
+    expect(screen.queryByRole("listbox")).toBeNull()
+    expect(document.activeElement).toBe(trigger)
+    expect(onChange).not.toHaveBeenCalled()
+    expect(trigger.textContent).toBe("ann@work.test")
+
+    const helperLine = document.getElementById(trigger.getAttribute("aria-describedby") ?? "")
+    expect(helperLine?.textContent).toBe("Add another verified email in Contacts")
+    expect(helperLine?.getAttribute("data-slot")).toBe("select-helper")
+    expect(await axeViolations()).toEqual([])
+  })
+
+  it("Tab still moves on from an aria-disabled trigger (its keydown is not prevented)", () => {
+    render(<Picker ariaDisabled />)
+    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })
+    picker().dispatchEvent(tab)
+    expect(tab.defaultPrevented).toBe(false)
+  })
+
+  it("a pointer press focuses the aria-disabled trigger and still calls the caller's handlers", () => {
+    const onPointerDown = vi.fn()
+    render(
+      <Select ariaDisabled>
+        <SelectTrigger aria-label="Locale" onPointerDown={onPointerDown}>
+          <SelectValue />
+        </SelectTrigger>
+      </Select>,
+    )
+    const trigger = screen.getByRole("combobox", { name: "Locale" })
+    fireEvent.pointerDown(trigger, { button: 0, pointerType: "mouse" })
+    expect(document.activeElement).toBe(trigger)
+    expect(onPointerDown).toHaveBeenCalledTimes(1)
+  })
+
+  it("composes with FormField's description: field ids first, then the helper", () => {
+    render(<Picker helper="Changing it changes your sign-in" describedBy="field-help field-error" />)
+    const ids = picker().getAttribute("aria-describedby")?.split(" ") ?? []
+    expect(ids.slice(0, 2)).toEqual(["field-help", "field-error"])
+    expect(document.getElementById(ids[2])?.textContent).toBe("Changing it changes your sign-in")
+    expect(picker().getAttribute("aria-disabled")).toBeNull()
+  })
+
+  it("without a helper adds no description; an enabled Select opens and reports changes", async () => {
+    const onOpenChange = vi.fn()
+    render(<Picker helper="" onOpenChange={onOpenChange} />)
+    expect(picker().getAttribute("aria-describedby")).toBeNull()
+    fireEvent.keyDown(picker(), { key: "Enter" })
+    await screen.findByRole("listbox")
+    expect(onOpenChange).toHaveBeenCalledWith(true)
+  })
+
+  it("loading sets aria-busy; placeholder comes from the prop (a SelectValue placeholder wins)", () => {
+    const { unmount } = render(<Picker loading placeholder="Select a value" />)
+    expect(picker().getAttribute("aria-busy")).toBe("true")
+    expect(picker().textContent).toBe("Select a value")
+    unmount()
+    render(
+      <Select placeholder="Select a value">
+        <SelectTrigger aria-label="Time zone">
+          <SelectValue placeholder="Select a time zone" />
+        </SelectTrigger>
+      </Select>,
+    )
+    const trigger = screen.getByRole("combobox", { name: "Time zone" })
+    expect(trigger.textContent).toBe("Select a time zone")
+    expect(trigger.getAttribute("aria-busy")).toBeNull()
+  })
+})
+
+describe("Select F5-1: unlisted stored value", () => {
+  it("shows the stored value's label, never offers it, and another value can be chosen", async () => {
+    const onChange = vi.fn()
+    render(<Picker initial="America/Phoenix" unlistedValue={{ value: "America/Phoenix", label: "Arizona" }} onChange={onChange} />)
+    expect(picker().textContent).toBe("Arizona")
+    fireEvent.keyDown(picker(), { key: "Enter" })
+    await screen.findByRole("listbox")
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["ann@work.test", "ann@home.test"])
+    fireEvent.click(screen.getByRole("option", { name: "ann@home.test" }))
+    expect(onChange).toHaveBeenCalledWith("ann@home.test")
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull())
+    expect(picker().textContent).toBe("ann@home.test")
+
+    // Once changed, the stored value is not selectable again (hidden and disabled).
+    fireEvent.keyDown(picker(), { key: "Enter" })
+    await screen.findByRole("listbox")
+    const unlisted = document.querySelector("[data-slot='select-unlisted-item']")
+    expect(unlisted?.hasAttribute("hidden")).toBe(true)
+    expect(unlisted?.getAttribute("aria-disabled")).toBe("true")
+    expect(screen.getAllByRole("option")).toHaveLength(2)
+  })
+
+  it("shows the raw code when no label is known", () => {
+    render(<Picker initial="xx-YY" unlistedValue={{ value: "xx-YY" }} />)
+    expect(picker().textContent).toBe("xx-YY")
   })
 })

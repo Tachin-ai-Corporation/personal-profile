@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { birthDateAgeRange, hasProctorRole, isBirthDateInRange, nameIssue, NAME_MAX_LENGTH, normalizeName, textIssue } from "./person-rules"
+import { birthDateAgeRange, birthDateBounds,hasProctorRole, isBirthDateInRange, nameIssue, NAME_MAX_LENGTH, normalizeName, textIssue } from "./person-rules"
 
 describe("nameIssue", () => {
   it.each([
@@ -71,5 +71,21 @@ describe("birth-date age rule", () => {
     expect(isBirthDateInRange("1908-02-28", [], leapDay)).toBe(false)
     expect(isBirthDateInRange("2010-02-28", [], leapDay)).toBe(true)
     expect(isBirthDateInRange("2010-03-01", [], leapDay)).toBe(false)
+  })
+})
+
+describe("birthDateBounds (F5-1 calendar bounds)", () => {
+  it("is today − 120 years to today − 18 years, or − 21 for a Proctor", () => {
+    expect(birthDateBounds([], new Date(2026, 9, 14))).toEqual({ min: "1906-10-14", max: "2008-10-14" })
+    expect(birthDateBounds(["Proctor"], new Date(2026, 9, 14))).toEqual({ min: "1906-10-14", max: "2005-10-14" })
+    expect(birthDateBounds(null, new Date(2026, 9, 14))).toEqual({ min: "1906-10-14", max: "2008-10-14" })
+  })
+
+  it("matches isBirthDateInRange at both ends, including on Feb 29 (Java minusYears)", () => {
+    const leapDay = new Date(2028, 1, 29)
+    const bounds = birthDateBounds([], leapDay)
+    expect(bounds).toEqual({ min: "1908-02-29", max: "2010-02-28" })
+    expect(isBirthDateInRange(bounds.min, [], leapDay)).toBe(true)
+    expect(isBirthDateInRange(bounds.max, [], leapDay)).toBe(true)
   })
 })

@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test"
-import { KILL_SWITCH_SERVERS, TEST_SERVER_ENV } from "./e2e/server-env"
+import { E2E_PORT, KILL_SWITCH_SERVERS, TEST_SERVER_ENV } from "./e2e/server-env"
 
-const PORT = 3100
+const PORT = E2E_PORT
 const BASE_URL = `http://localhost:${PORT}`
 
 export default defineConfig({

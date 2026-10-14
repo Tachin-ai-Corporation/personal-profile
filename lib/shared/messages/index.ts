@@ -19,6 +19,7 @@ import { ACCOUNT_MESSAGES } from "./account"
 import { ADDRESS_MESSAGES } from "./addresses"
 import { COMMON_MESSAGES } from "./common"
 import { CONTACT_MESSAGES } from "./contacts"
+import { CONTROL_MESSAGES } from "./controls"
 import { DISABLED_MESSAGES } from "./disabled"
 import { DRAFT_MESSAGES } from "./drafts"
 import { HEADER_MESSAGES } from "./header"
@@ -41,6 +42,7 @@ export {
   ADDRESS_MESSAGES,
   COMMON_MESSAGES,
   CONTACT_MESSAGES,
+  CONTROL_MESSAGES,
   DISABLED_MESSAGES,
   DRAFT_MESSAGES,
   HEADER_MESSAGES,
@@ -61,6 +63,7 @@ export {
 /** Every app-catalog group (not the launch strings). */
 export const MESSAGE_CATALOG = {
   common: COMMON_MESSAGES,
+  controls: CONTROL_MESSAGES,
   shell: SHELL_MESSAGES,
   section: SECTION_MESSAGES,
   state: STATE_MESSAGES,
