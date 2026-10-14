@@ -94,12 +94,26 @@ export interface DateBounds {
   readonly max?: string
 }
 
-/** Whether a real `YYYY-MM-DD` date is inside `bounds` (inclusive). Invalid dates → false; an invalid bound is ignored. */
+export interface ParsedDateBounds {
+  readonly min: CalendarDate | null
+  readonly max: CalendarDate | null
+  /** `min` was after `max`: a caller bug, so both bounds are dropped (rather than allowing no day at all). */
+  readonly inverted: boolean
+}
+
+/** Parses `bounds`; an unparsable end is open, and inverted bounds (`min` > `max`) are both ignored. */
+export function parseDateBounds(bounds: DateBounds): ParsedDateBounds {
+  const min = parseWireDate(bounds.min)
+  const max = parseWireDate(bounds.max)
+  if (min && max && compareDates(min, max) > 0) return { min: null, max: null, inverted: true }
+  return { min, max, inverted: false }
+}
+
+/** Whether a real `YYYY-MM-DD` date is inside `bounds` (inclusive; see `parseDateBounds`). Invalid dates → false. */
 export function isWireDateWithin(value: string | null | undefined, bounds: DateBounds): boolean {
   const date = parseWireDate(value)
   if (!date) return false
-  const min = parseWireDate(bounds.min)
-  const max = parseWireDate(bounds.max)
+  const { min, max } = parseDateBounds(bounds)
   return (!min || compareDates(date, min) >= 0) && (!max || compareDates(date, max) <= 0)
 }
 

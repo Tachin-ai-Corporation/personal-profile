@@ -9,12 +9,29 @@ export const TEST_SERVER_ENV = {
   PP_E2E_FIXTURES: "1",
 } as const
 
+/** Ports used per run: the base (app) and the two kill-switch servers at base + 1 and base + 2. */
+const PORT_STRIDE = 3
+const DEFAULT_E2E_PORT = 3100
+
+/** `PP_E2E_PORT` as a base port (an integer 1–65533, so base + 2 is still a port); unset or empty → 3100. */
+export function e2ePort(raw: string | undefined): number {
+  if (raw === undefined || raw === "") return DEFAULT_E2E_PORT
+  const port = Number(raw)
+  if (!/^\d+$/.test(raw) || port < 1 || port > 65535 - (PORT_STRIDE - 1)) {
+    throw new Error(
+      `PP_E2E_PORT must be an integer from 1 to ${65535 - (PORT_STRIDE - 1)}: e2e uses it and the next two ports (base, +1, +2). Got "${raw}".`,
+    )
+  }
+  return port
+}
+
 /**
- * The e2e server's port: 3100, or `PP_E2E_PORT` so two checkouts (worktrees)
- * can run e2e at once without reusing each other's server. The kill-switch
- * servers take the next two ports.
+ * The e2e base port: 3100, or `PP_E2E_PORT` so two checkouts (worktrees) can
+ * run e2e at once without reusing each other's server. One run takes three
+ * ports: the app on the base, the kill-switch servers on base + 1 and base + 2
+ * (so parallel runs need bases at least 3 apart).
  */
-export const E2E_PORT = Number(process.env.PP_E2E_PORT || 3100)
+export const E2E_PORT = e2ePort(process.env.PP_E2E_PORT)
 
 /** Extra servers of the same build with a kill switch on (AD-20; e2e/kill-switch.spec.ts). */
 export const KILL_SWITCH_SERVERS = [

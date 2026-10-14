@@ -158,32 +158,26 @@ test.describe("DateInput", () => {
   })
 
   test("the calendar is keyboard operable, bounded by min/max, and returns focus to its button", async ({ page }) => {
-    const [, max] = (await page.getByTestId("bounds").innerText()).split(" ")
-    const [year, month, day] = max.split("-").map(Number)
-    const maxDay = new Date(year, month - 1, day)
-    const nextDay = new Date(year, month - 1, day + 1)
-    const label = (date: Date) => date.toLocaleDateString("en-US", { month: "long", year: "numeric" })
+    // The fixture's fixed today (2026-10-14) and the Proctor rule give max = 2005-10-14.
+    await expect(page.getByTestId("bounds")).toHaveText("1906-10-14 2005-10-14")
 
     const button = calendarButton(page)
     await button.focus()
     await page.keyboard.press("Enter")
     const dialog = page.getByRole("dialog", { name: "Choose date" })
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByRole("grid")).toHaveAttribute("aria-label", label(maxDay))
-    if (nextDay.getMonth() === maxDay.getMonth()) {
-      await expect(dialog.getByRole("button", { name: new RegExp(`${nextDay.toLocaleDateString("en-US", { month: "long" })} ${nextDay.getDate()}`) })).toBeDisabled()
-    }
-    // Focus is in the grid: move a day back and pick it.
-    const focusedBefore = await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))
-    expect(focusedBefore).toBeTruthy()
+    await expect(dialog.getByRole("grid")).toHaveAttribute("aria-label", "October 2005")
+    await expect(dialog.getByRole("button", { name: "Friday, October 14th, 2005", exact: true })).toBeEnabled()
+    await expect(dialog.getByRole("button", { name: "Saturday, October 15th, 2005", exact: true })).toBeDisabled()
+    // Focus is in the grid, on the month's first day: move a day back (into September) and pick it.
+    await expect(dialog.getByRole("button", { name: "Saturday, October 1st, 2005", exact: true })).toBeFocused()
     await page.keyboard.press("ArrowLeft")
-    const focusedAfter = await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))
-    expect(focusedAfter).not.toBe(focusedBefore)
+    await expect(dialog.getByRole("button", { name: "Friday, September 30th, 2005", exact: true })).toBeFocused()
     await page.keyboard.press("Enter")
     await expect(dialog).toHaveCount(0)
     await expect(button).toBeFocused()
-    await expect(birthDate(page)).toHaveValue(/^\d{2}\/\d{2}\/\d{4}$/)
-    await expect(page.getByTestId("birth-date")).toHaveText(/^\d{4}-\d{2}-\d{2}$/)
+    await expect(birthDate(page)).toHaveValue("09/30/2005")
+    await expect(page.getByTestId("birth-date")).toHaveText("2005-09-30")
 
     await page.keyboard.press("Enter")
     await expect(dialog).toBeVisible()

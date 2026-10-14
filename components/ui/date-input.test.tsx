@@ -22,6 +22,7 @@ type HarnessProps = Partial<Omit<DateInputProps, "value" | "onChange">> & {
 function Harness({ initial = "", spy, ...props }: HarnessProps) {
   const [value, setValue] = useState(initial)
   const [text, setText] = useState("")
+  const [resets, setResets] = useState(0)
   const error = text !== "" && value === "" && text.length === 10 ? PERSON_MESSAGES.birthDateFormat : undefined
   return (
     <main>
@@ -36,12 +37,23 @@ function Harness({ initial = "", spy, ...props }: HarnessProps) {
               spy?.(next, detail.text)
             }}
             today={TODAY}
+            resetKey={resets}
             {...props}
           />
         )}
       </FormField>
       <button type="button" onClick={() => setValue("1987-03-09")}>
         Load stored
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          setValue("")
+          setText("")
+          setResets((n) => n + 1)
+        }}
+      >
+        Reset
       </button>
       <output data-testid="value">{value}</output>
     </main>
@@ -196,6 +208,85 @@ describe("DateInput: value sync", () => {
     render(<DateInput aria-label="Effective date" value="" onChange={() => {}} ref={ref} />)
     expect(screen.queryByRole("button")).toBeNull()
     expect(ref.current).toBe(screen.getByRole("textbox", { name: "Effective date" }))
+  })
+})
+
+describe("DateInput: review fixes", () => {
+  it("resetKey clears partial or impossible text even when the value already is \"\"", () => {
+    render(<Harness />)
+    typeText(field(), "02301990")
+    expect(field().value).toBe("02/30/1990")
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }))
+    expect(field().value).toBe("")
+    typeText(field(), "022")
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }))
+    expect(field().value).toBe("")
+  })
+
+  it.each([{ readOnly: true }, { disabled: true }])("%j blocks the slash Backspace/Delete and paste handlers", (props) => {
+    const spy = vi.fn()
+    render(<Harness initial="2024-02-29" spy={spy} {...props} />)
+    const input = field()
+    for (const [key, caret] of [
+      ["Backspace", 3],
+      ["Delete", 2],
+    ] as const) {
+      input.setSelectionRange(caret, caret)
+      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })
+      act(() => {
+        input.dispatchEvent(event)
+      })
+      expect(event.defaultPrevented).toBe(false)
+    }
+    expect(paste(input, "2020-01-01")).toBe(false)
+    expect(input.value).toBe("02/29/2024")
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it("closes an open calendar when it becomes disabled or read-only", async () => {
+    const { rerender } = render(<DateInput aria-label="Effective date" value="" onChange={() => {}} calendar today={TODAY} />)
+    fireEvent.click(screen.getByRole("button", { name: CONTROL_MESSAGES.chooseDate }))
+    await screen.findByRole("dialog")
+    rerender(<DateInput aria-label="Effective date" value="" onChange={() => {}} calendar today={TODAY} readOnly />)
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  })
+
+  it("Delete right before a slash removes the digit after it", () => {
+    const spy = vi.fn()
+    render(<Harness spy={spy} />)
+    typeText(field(), "0229")
+    const input = field()
+    input.setSelectionRange(2, 2)
+    fireEvent.keyDown(input, { key: "Delete" })
+    expect(input.value).toBe("02/9")
+    expect(input.selectionStart).toBe(2)
+    expect(spy).toHaveBeenLastCalledWith("", "02/9")
+    // Delete elsewhere is the browser's.
+    input.setSelectionRange(3, 3)
+    const event = new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true })
+    act(() => {
+      input.dispatchEvent(event)
+    })
+    expect(event.defaultPrevented).toBe(false)
+  })
+
+  it("keeps years 0001–0099 in their own century", async () => {
+    render(<Harness calendar initial="0050-03-15" min="0040-01-01" max="0060-12-31" />)
+    fireEvent.click(screen.getByRole("button", { name: CONTROL_MESSAGES.chooseDate }))
+    await screen.findByRole("dialog")
+    expect(screen.getByRole("grid").getAttribute("aria-label")).toMatch(/^March 0*50$/)
+    const years = Array.from(screen.getByRole("combobox", { name: "Choose the Year" }).querySelectorAll("option")).map((option) => option.textContent)
+    expect(years[0]).toMatch(/^0*40$/)
+  })
+
+  it("ignores inverted bounds (min after max) with a development warning instead of disabling every day", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    render(<Harness calendar min="2005-01-01" max="1990-01-01" />)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("min 2005-01-01 is after max 1990-01-01"))
+    fireEvent.click(screen.getByRole("button", { name: CONTROL_MESSAGES.chooseDate }))
+    await screen.findByRole("dialog")
+    expect(screen.getByRole("grid").getAttribute("aria-label")).toBe("October 2026")
+    expect((screen.getByRole("button", { name: /October 14th, 2026/ }) as HTMLButtonElement).disabled).toBe(false)
   })
 })
 

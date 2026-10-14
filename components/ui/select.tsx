@@ -2,8 +2,9 @@
 
 import * as React from "react"
 import * as SelectPrimitive from "@radix-ui/react-select"
-import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
+import { CheckIcon, ChevronDownIcon, ChevronUpIcon, Loader2 } from "lucide-react"
 
+import { CONTROL_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
 
 // shadcn/ui (new-york) Select on @radix-ui/react-select 2.3.7, on 1health tokens,
@@ -15,7 +16,7 @@ import { cn } from "@/lib/utils"
 //
 // F5-1 adds, on the root: `ariaDisabled` (shown but never opened, still
 // focusable), `helper` (a help line under the trigger, in its
-// `aria-describedby`), `loading` (`aria-busy`), `placeholder` and
+// `aria-describedby`), `loading` (`aria-busy`, spinner, "Loading…" row), `placeholder` and
 // `unlistedValue` (a stored value that isn't among the options).
 
 /** A stored value that is not among the options: shown on the trigger, never offered as an option. */
@@ -48,7 +49,7 @@ export interface SelectProps extends React.ComponentProps<typeof SelectPrimitive
   readonly ariaDisabled?: boolean
   /** A help line under the trigger (may hold an in-app link), referenced by the trigger's `aria-describedby`. */
   readonly helper?: React.ReactNode
-  /** The options are loading: `aria-busy="true"` on the trigger. */
+  /** The options are loading: `aria-busy="true"` and a spinner on the trigger, and a disabled "Loading…" row when opened. */
   readonly loading?: boolean
   /** Shown while there is no value (catalog copy, e.g. "Select a value"); a `SelectValue placeholder` wins. */
   readonly placeholder?: React.ReactNode
@@ -56,8 +57,21 @@ export interface SelectProps extends React.ComponentProps<typeof SelectPrimitive
   readonly unlistedValue?: SelectUnlistedValue
 }
 
-function Select({ ariaDisabled = false, helper, loading = false, placeholder, unlistedValue, open, onOpenChange, ...props }: SelectProps) {
+function Select({
+  ariaDisabled = false,
+  helper,
+  loading = false,
+  placeholder,
+  unlistedValue,
+  open,
+  defaultOpen = false,
+  onOpenChange,
+  ...props
+}: SelectProps) {
   const helperId = `${React.useId()}-helper`
+  // Radix always gets a controlled boolean, so toggling `ariaDisabled` never switches it between controlled and uncontrolled.
+  const [internalOpen, setInternalOpen] = React.useState(defaultOpen)
+  const isOpen = open ?? internalOpen
   const state = React.useMemo<SelectState>(
     () => ({ ariaDisabled, loading, helper, helperId, placeholder, unlistedValue }),
     [ariaDisabled, loading, helper, helperId, placeholder, unlistedValue],
@@ -66,11 +80,13 @@ function Select({ ariaDisabled = false, helper, loading = false, placeholder, un
     <SelectStateContext.Provider value={state}>
       <SelectPrimitive.Root
         data-slot="select"
-        open={ariaDisabled ? false : open}
-        onOpenChange={(next) => {
-          if (!ariaDisabled) onOpenChange?.(next)
-        }}
         {...props}
+        open={ariaDisabled ? false : isOpen}
+        onOpenChange={(next) => {
+          if (ariaDisabled) return
+          if (open === undefined) setInternalOpen(next)
+          onOpenChange?.(next)
+        }}
       />
     </SelectStateContext.Provider>
   )
@@ -86,12 +102,22 @@ function SelectValue({ placeholder, ...props }: React.ComponentProps<typeof Sele
 }
 
 /** Keeps an `ariaDisabled` trigger closed: its own handlers see a prevented event and skip opening and typeahead. */
-function blockWhen<E extends React.SyntheticEvent>(blocked: boolean, handler: ((event: E) => void) | undefined, allow?: (event: E) => boolean) {
+function blockWhen<E extends React.SyntheticEvent>(blocked: boolean, handler: ((event: E) => void) | undefined, shouldBlock?: (event: E) => boolean) {
   return (event: E): void => {
-    if (blocked && !allow?.(event)) event.preventDefault()
+    if (blocked && (shouldBlock?.(event) ?? true)) event.preventDefault()
     handler?.(event)
   }
 }
+
+const OPENING_KEYS = new Set(["Enter", " ", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End"])
+
+/**
+ * The keys a closed Radix trigger acts on: opening keys and typeahead
+ * (printable characters without Ctrl/Meta/Alt). Tab and browser shortcuts
+ * (Cmd/Ctrl+R, F5, Ctrl+Tab, …) pass through.
+ */
+const isOpeningOrTypeaheadKey = (event: React.KeyboardEvent): boolean =>
+  OPENING_KEYS.has(event.key) || (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey)
 
 function SelectTrigger({
   className,
@@ -126,10 +152,13 @@ function SelectTrigger({
         if (ariaDisabled) event.currentTarget.focus()
         onPointerDown?.(event)
       })}
-      onKeyDown={blockWhen(ariaDisabled, onKeyDown, (event) => event.key === "Tab")}
+      onKeyDown={blockWhen(ariaDisabled, onKeyDown, isOpeningOrTypeaheadKey)}
       onClick={blockWhen(ariaDisabled, onClick)}
     >
       {children}
+      {state?.loading ? (
+        <Loader2 aria-hidden="true" data-slot="select-loading" className="ml-auto size-4 animate-spin motion-reduce:animate-none" />
+      ) : null}
       <SelectPrimitive.Icon asChild>
         <ChevronDownIcon className="size-4" />
       </SelectPrimitive.Icon>
@@ -147,6 +176,19 @@ function SelectTrigger({
   )
 }
 
+/** The value of the disabled "Loading…" row (never a real option value). */
+const LOADING_ITEM_VALUE = "__select-loading__"
+
+/** The `value`s of the `SelectItem`s written directly in `children` (through fragments and groups, not custom wrappers). */
+function listedValues(children: React.ReactNode, found = new Set<string>()): Set<string> {
+  React.Children.forEach(children, (child) => {
+    if (!React.isValidElement<{ value?: unknown; children?: React.ReactNode }>(child)) return
+    if ((child.type === SelectItem || child.type === SelectPrimitive.Item) && typeof child.props.value === "string") found.add(child.props.value)
+    listedValues(child.props.children, found)
+  })
+  return found
+}
+
 function SelectContent({
   className,
   children,
@@ -154,7 +196,10 @@ function SelectContent({
   align = "center",
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
-  const unlisted = React.useContext(SelectStateContext)?.unlistedValue
+  const state = React.useContext(SelectStateContext)
+  const unlistedValue = state?.unlistedValue
+  // Radix throws on an empty item value, and a value that is listed needs no hidden twin.
+  const unlisted = unlistedValue && unlistedValue.value !== "" && !listedValues(children).has(unlistedValue.value) ? unlistedValue : undefined
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
@@ -182,6 +227,17 @@ function SelectContent({
             // value changes it can never be chosen again (not listed, skipped by keys and typeahead).
             <SelectPrimitive.Item value={unlisted.value} disabled hidden data-slot="select-unlisted-item">
               <SelectPrimitive.ItemText>{unlisted.label ?? unlisted.value}</SelectPrimitive.ItemText>
+            </SelectPrimitive.Item>
+          ) : null}
+          {state?.loading ? (
+            <SelectPrimitive.Item
+              value={LOADING_ITEM_VALUE}
+              disabled
+              data-slot="select-loading-item"
+              className="text-muted-foreground flex min-h-11 items-center gap-2 px-2 text-body-sm"
+            >
+              <Loader2 aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" />
+              <SelectPrimitive.ItemText>{CONTROL_MESSAGES.loading}</SelectPrimitive.ItemText>
             </SelectPrimitive.Item>
           ) : null}
           {children}

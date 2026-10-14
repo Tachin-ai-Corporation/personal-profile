@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { birthDateAgeRange, birthDateBounds,hasProctorRole, isBirthDateInRange, nameIssue, NAME_MAX_LENGTH, normalizeName, textIssue } from "./person-rules"
+import { birthDateAgeRange, birthDateBounds, hasProctorRole, isBirthDateInRange, nameIssue, NAME_MAX_LENGTH, normalizeName, textIssue } from "./person-rules"
 
 describe("nameIssue", () => {
   it.each([

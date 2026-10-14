@@ -15,22 +15,18 @@ export const INFO_POPOVER_HOVER_CLOSE_MS = 100
 /** The content states the callers fill only with their own content (Stories 9.1, 9.3, 10.2). */
 export type InfoPopoverState = "loading" | "error" | "forbidden"
 
-export interface InfoPopoverProps {
+interface InfoPopoverBaseProps {
   /**
    * The trigger: one element that forwards its ref and props, an
    * `InfoIconButton` or a `LinkTextButton`. It gets `aria-expanded` and
    * `aria-controls`.
    */
   readonly trigger: React.ReactElement
-  /** Bold first line (e.g. "Primary contact"); it also names the popover. */
-  readonly title?: React.ReactNode
-  /** The popover's name when there is no `title`. */
-  readonly label?: string
   /** The content, shown when there is no `state`. */
   readonly children?: React.ReactNode
   /** Replaces the content: "Loading…", the load error with "Try again." (`onRetry`), or the no-access line. */
   readonly state?: InfoPopoverState
-  /** The error line; defaults to the support-contact copy. */
+  /** The error line; defaults to the generic `CONTROL_MESSAGES.loadError` (Story 9.3 passes `NPI_MESSAGES.practiceSupportLoadError`). */
   readonly errorMessage?: React.ReactNode
   /** "Try again." in the error state calls it (focus moves into the popover first, so it is never lost). */
   readonly onRetry?: () => void
@@ -40,15 +36,39 @@ export interface InfoPopoverProps {
   readonly contentClassName?: string
 }
 
+/** The popover always has a name: its `title` (bold first line, e.g. "Primary contact"), or else `label`. */
+export type InfoPopoverProps = InfoPopoverBaseProps &
+  ({ readonly title: React.ReactNode; readonly label?: string } | { readonly title?: undefined; readonly label: string })
+
 type OpenReason = "hover" | "focus" | "click"
 
-const TABBABLE =
-  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]'
+const TABBABLE = [
+  "a[href]",
+  "button:not([disabled])",
+  'input:not([disabled]):not([type="hidden"])',
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "summary",
+  "iframe",
+  "audio[controls]",
+  "video[controls]",
+  '[contenteditable]:not([contenteditable="false"])',
+  "[tabindex]",
+].join(", ")
 
-/** Keyboard-reachable elements under `root`, in document order (Radix's focus guards excluded). */
+/** Rendered and visible: has boxes (not `display: none`) and isn't `visibility: hidden`. */
+const isShown = (el: HTMLElement): boolean => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== "hidden"
+
+/** In the tab order: no negative `tabindex` (read from the attribute, as some DOMs report -1 for `summary` or editing hosts). */
+const inTabOrder = (el: HTMLElement): boolean => {
+  const explicit = el.getAttribute("tabindex")
+  return explicit === null || Number(explicit) >= 0
+}
+
+/** Keyboard-reachable elements under `root`, in document order (Radix's focus guards and hidden elements excluded). */
 function tabbables(root: ParentNode): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(TABBABLE)).filter(
-    (el) => el.tabIndex >= 0 && !el.hasAttribute("data-radix-focus-guard") && !el.closest("[hidden], [inert]"),
+    (el) => inTabOrder(el) && !el.hasAttribute("data-radix-focus-guard") && !el.closest("[hidden], [inert]") && isShown(el),
   )
 }
 
@@ -76,7 +96,7 @@ export function InfoPopover({
   label,
   children,
   state,
-  errorMessage = CONTROL_MESSAGES.supportContactLoadError,
+  errorMessage = CONTROL_MESSAGES.loadError,
   onRetry,
   onOpenChange,
   contentId,
@@ -96,14 +116,34 @@ export function InfoPopover({
   const suppressFocusOpenRef = React.useRef(false)
   const titleId = `${React.useId()}-title`
 
+  /** Removes the document listeners of the press in progress. */
+  const stopWatchingPressRef = React.useRef<() => void>(() => {})
+
   React.useEffect(
     () => () => {
       clearTimeout(openTimerRef.current)
       clearTimeout(closeTimerRef.current)
       clearTimeout(pressTimerRef.current)
+      stopWatchingPressRef.current()
     },
     [],
   )
+
+  /** A press released or cancelled away from the trigger is over at once (no click follows on the trigger). */
+  const watchPressEnd = (): void => {
+    stopWatchingPressRef.current()
+    const end = (event: Event): void => {
+      stopWatchingPressRef.current()
+      if (event.type === "pointercancel" || !(event.target instanceof Node) || !triggerRef.current?.contains(event.target)) pressRef.current = null
+    }
+    document.addEventListener("pointerup", end, true)
+    document.addEventListener("pointercancel", end, true)
+    stopWatchingPressRef.current = () => {
+      document.removeEventListener("pointerup", end, true)
+      document.removeEventListener("pointercancel", end, true)
+      stopWatchingPressRef.current = () => {}
+    }
+  }
 
   const setOpen = (next: boolean, reason: OpenReason | null = null): void => {
     clearTimeout(openTimerRef.current)
@@ -194,6 +234,7 @@ export function InfoPopover({
           clearTimeout(openTimerRef.current)
           clearTimeout(pressTimerRef.current)
           pressRef.current = { open: openRef.current, reason: reasonRef.current }
+          watchPressEnd()
         }}
         onPointerUp={() => {
           // A press that ends without a click must not make a later keyboard focus look like a press.
@@ -250,6 +291,12 @@ export function InfoPopover({
           if (isMouse(event)) scheduleHoverClose()
         }}
         onBlur={(event) => closeIfFocusLeft(event.relatedTarget)}
+        onFocus={() => {
+          // Focus inside holds it open: a hover-close timer must never unmount content that has focus.
+          if (reasonRef.current !== "hover") return
+          clearTimeout(closeTimerRef.current)
+          reasonRef.current = "focus"
+        }}
         onKeyDown={(event) => {
           if (event.key !== "Tab") return
           const list = tabbables(event.currentTarget)
@@ -261,8 +308,23 @@ export function InfoPopover({
             return
           }
           if (index >= 0 && index < list.length - 1) return
+          if (index < 0 && list.length > 0) {
+            // From the container itself (e.g. after "Try again."): into its first link.
+            event.preventDefault()
+            list[0].focus()
+            return
+          }
           const next = nextAfterTrigger()
-          if (!next) return
+          if (!next) {
+            // The trigger is the page's last stop. Radix's focus scope (loop) would wrap Tab back to the first
+            // link; instead the popover closes with focus on the trigger, so the next Tab leaves the page.
+            // (An empty, focused container keeps focus: the scope holds it.)
+            if (index < 0) return
+            event.preventDefault()
+            focusTrigger()
+            setOpen(false)
+            return
+          }
           event.preventDefault()
           next.focus()
         }}

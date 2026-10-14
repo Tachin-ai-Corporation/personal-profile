@@ -5,6 +5,7 @@ import {
   DISPLAY_DATE_LENGTH,
   isWireDateWithin,
   maskDisplayDate,
+  parseDateBounds,
   pastedDisplayDate,
   displayToWireDate,
   formatDisplayDate,
@@ -100,8 +101,19 @@ describe("date bounds", () => {
     ["2006-02-30", {}, false],
     ["", {}, false],
     [null, {}, false],
+    ["1980-01-01", { min: "2005-12-31", max: "1990-01-01" }, true],
   ] as const)("%j within %j → %s", (value, bounds, expected) => {
     expect(isWireDateWithin(value, bounds)).toBe(expected)
+  })
+
+  it("parses bounds and drops both ends when min is after max", () => {
+    expect(parseDateBounds({ min: "1990-01-01", max: "2005-12-31" })).toEqual({
+      min: { year: 1990, month: 1, day: 1 },
+      max: { year: 2005, month: 12, day: 31 },
+      inverted: false,
+    })
+    expect(parseDateBounds({ min: "2005-12-31", max: "1990-01-01" })).toEqual({ min: null, max: null, inverted: true })
+    expect(parseDateBounds({ min: "x" })).toEqual({ min: null, max: null, inverted: false })
   })
 })
 

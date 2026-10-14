@@ -1,19 +1,23 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { DateInput } from "@/components/ui/date-input"
 import { FormField } from "@/components/ui/form-field"
 import { InfoIconButton } from "@/components/ui/info-icon-button"
 import { InfoPopover, LinkTextButton, type InfoPopoverState } from "@/components/ui/info-popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { PERSON_MESSAGES } from "@/lib/shared/messages"
+import { NPI_MESSAGES, PERSON_MESSAGES } from "@/lib/shared/messages"
 import { birthDateBounds } from "@/lib/shared/person-rules"
+
+/** A fixed "today", so the calendar bounds (and the e2e's disabled day) never depend on the run date. */
+export const INPUTS_FIXTURE_TODAY = new Date(2026, 9, 14)
+/** Proctor (21–120) at that date: 1906-10-14 … 2005-10-14. */
+const BOUNDS = birthDateBounds(["Proctor"], INPUTS_FIXTURE_TODAY)
 
 /**
  * Test-only gallery of the F5-1 input controls (e2e: axe in light and dark,
  * keyboard operation, 44 px targets, 360 px). Not app UI; its strings are
- * fixture data, not catalog copy. Birth date bounds use today's date and the
- * Proctor role (21–120).
+ * fixture data, not catalog copy.
  */
 export function InputsFixture() {
   const [email, setEmail] = useState("ann@work.test")
@@ -22,7 +26,8 @@ export function InputsFixture() {
   const [birthDate, setBirthDate] = useState("")
   const [birthText, setBirthText] = useState("")
   const [supportState, setSupportState] = useState<InfoPopoverState | undefined>("error")
-  const bounds = useMemo(() => birthDateBounds(["Proctor"], new Date()), [])
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(retryTimerRef.current), [])
   const birthError = birthText.length === 10 && birthDate === "" ? PERSON_MESSAGES.birthDateFormat : undefined
 
   return (
@@ -89,8 +94,9 @@ export function InputsFixture() {
             <DateInput
               {...control}
               calendar
-              min={bounds.min}
-              max={bounds.max}
+              min={BOUNDS.min}
+              max={BOUNDS.max}
+              today={INPUTS_FIXTURE_TODAY}
               value={birthDate}
               onChange={(value, { text }) => {
                 setBirthDate(value)
@@ -102,7 +108,7 @@ export function InputsFixture() {
         <p>
           Wire value: <output data-testid="birth-date">{birthDate}</output> · bounds{" "}
           <output data-testid="bounds">
-            {bounds.min} {bounds.max}
+            {BOUNDS.min} {BOUNDS.max}
           </output>
         </p>
       </section>
@@ -120,9 +126,11 @@ export function InputsFixture() {
             trigger={<LinkTextButton>Acme Labs</LinkTextButton>}
             title="Acme Labs"
             state={supportState}
+            errorMessage={NPI_MESSAGES.practiceSupportLoadError}
             onRetry={() => {
               setSupportState("loading")
-              setTimeout(() => setSupportState(undefined), 300)
+              clearTimeout(retryTimerRef.current)
+              retryTimerRef.current = setTimeout(() => setSupportState(undefined), 300)
             }}
           >
             <p className="tabular-nums">(415) 555-0100</p>

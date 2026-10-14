@@ -13,11 +13,13 @@ import {
   formatWireDate,
   localCalendarDate,
   maskDisplayDate,
+  parseDateBounds,
   parseWireDate,
   pastedDisplayDate,
   wireToDisplayDate,
   type CalendarDate,
 } from "@/lib/shared/dates"
+import { isProductionBuild } from "@/lib/shared/app-env"
 import { CONTROL_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
 import { Calendar } from "./calendar"
@@ -47,13 +49,26 @@ export interface DateInputProps
   readonly today?: Date
   /** Class of the wrapper (the input box with its button). */
   readonly wrapperClassName?: string
+  /**
+   * Any change clears the shown text and shows `value` again. Forms bump it on
+   * reset/Cancel: otherwise a reset to `""` while the value already is `""`
+   * (partial or impossible text) changes nothing and the text stays.
+   */
+  readonly resetKey?: string | number
 }
 
 /** The calendar's year range when `min` / `max` is missing (the dropdowns need both ends). */
 export const CALENDAR_YEARS_BACK = 120
 export const CALENDAR_YEARS_AHEAD = 20
 
-const toLocalDate =(date: CalendarDate): Date => new Date(date.year, date.month - 1, date.day)
+/** A local `Date`; `setFullYear` so years 0001–0099 aren't read as 19xx (as `new Date(50, …)` would). */
+function localDate(year: number, monthIndex: number, day: number): Date {
+  const date = new Date(2000, 0, 1)
+  date.setFullYear(year, monthIndex, day)
+  return date
+}
+
+const toLocalDate = (date: CalendarDate): Date => localDate(date.year, date.month - 1, date.day)
 
 /** `date` moved into [min, max] when it falls outside. */
 function clampDate(date: CalendarDate, min: CalendarDate | null, max: CalendarDate | null): CalendarDate {
@@ -81,6 +96,7 @@ function DateInput({
   calendarLabel = CONTROL_MESSAGES.chooseDate,
   today,
   wrapperClassName,
+  resetKey,
   className,
   placeholder = CONTROL_MESSAGES.datePlaceholder,
   disabled,
@@ -92,13 +108,22 @@ function DateInput({
 }: DateInputProps) {
   const [text, setText] = React.useState(() => wireToDisplayDate(value) ?? "")
   const [syncedValue, setSyncedValue] = React.useState(value)
+  const [syncedResetKey, setSyncedResetKey] = React.useState(resetKey)
   const [calendarOpen, setCalendarOpen] = React.useState(false)
+  const inert = Boolean(disabled || readOnly)
 
-  // A new `value` from outside (reset, server data) replaces the text; the echo of our own edit doesn't.
-  if (value !== syncedValue) {
+  if (resetKey !== syncedResetKey) {
+    // The form was reset: show `value` again, whatever partial text was on screen.
+    setSyncedResetKey(resetKey)
+    setSyncedValue(value)
+    setText(wireToDisplayDate(value) ?? "")
+  } else if (value !== syncedValue) {
+    // A new `value` from outside (server data) replaces the text; the echo of our own edit doesn't.
     setSyncedValue(value)
     if (value !== (displayToWireDate(text) ?? "")) setText(wireToDisplayDate(value) ?? "")
   }
+  // Turning disabled or read-only closes an open calendar.
+  if (inert && calendarOpen) setCalendarOpen(false)
 
   /** Shows `next` (already masked) with the caret after `digits` digits, and reports it. */
   const apply = (input: HTMLInputElement, next: string, digits: number): void => {
@@ -110,8 +135,12 @@ function DateInput({
     onChange(displayToWireDate(next) ?? "", { text: next })
   }
 
-  const minDate = parseWireDate(min)
-  const maxDate = parseWireDate(max)
+  const bounds = parseDateBounds({ min, max })
+  React.useEffect(() => {
+    if (bounds.inverted && !isProductionBuild()) console.warn(`[DateInput] min ${min} is after max ${max}; both bounds are ignored.`)
+  }, [bounds.inverted, min, max])
+  const minDate = bounds.min
+  const maxDate = bounds.max
   const selected = parseWireDate(value)
   const disabledDays = [...(minDate ? [{ before: toLocalDate(minDate) }] : []), ...(maxDate ? [{ after: toLocalDate(maxDate) }] : [])]
 
@@ -135,18 +164,24 @@ function DateInput({
       }}
       onKeyDown={(event) => {
         onKeyDown?.(event)
-        if (event.defaultPrevented || event.key !== "Backspace") return
+        if (event.defaultPrevented || inert) return
         const input = event.currentTarget
         const caret = input.selectionStart ?? 0
-        if (caret !== input.selectionEnd || caret === 0 || input.value[caret - 1] !== "/") return
-        // Backspace right after a slash deletes the digit before it (the mask would put the slash back).
-        event.preventDefault()
-        const raw = input.value.slice(0, caret - 2) + input.value.slice(caret)
-        apply(input, maskDisplayDate(raw), digitsBefore(input.value, caret) - 1)
+        if (caret !== input.selectionEnd) return
+        // Deleting a slash alone would be undone by the mask: delete the digit beyond it instead.
+        if (event.key === "Backspace" && caret > 0 && input.value[caret - 1] === "/") {
+          event.preventDefault()
+          const raw = input.value.slice(0, caret - 2) + input.value.slice(caret)
+          apply(input, maskDisplayDate(raw), digitsBefore(input.value, caret) - 1)
+        } else if (event.key === "Delete" && input.value[caret] === "/") {
+          event.preventDefault()
+          const raw = input.value.slice(0, caret) + input.value.slice(caret + 2)
+          apply(input, maskDisplayDate(raw), digitsBefore(input.value, caret))
+        }
       }}
       onPaste={(event) => {
         onPaste?.(event)
-        if (event.defaultPrevented) return
+        if (event.defaultPrevented || inert) return
         const pasted = pastedDisplayDate(event.clipboardData.getData("text"))
         if (pasted === null) return
         event.preventDefault()
@@ -166,8 +201,8 @@ function DateInput({
   const now = localCalendarDate(today ?? new Date())
   const initialMonth = toLocalDate(selected ?? clampDate(now, minDate, maxDate))
   // An open end still needs a year-dropdown range: 120 years back, 20 years ahead (of today or the other bound).
-  const startMonth = minDate ? toLocalDate(minDate) : new Date(Math.min(now.year, maxDate?.year ?? now.year) - CALENDAR_YEARS_BACK, 0, 1)
-  const endMonth = maxDate ? toLocalDate(maxDate) : new Date(Math.max(now.year, minDate?.year ?? now.year) + CALENDAR_YEARS_AHEAD, 11, 31)
+  const startMonth = minDate ? toLocalDate(minDate) : localDate(Math.min(now.year, maxDate?.year ?? now.year) - CALENDAR_YEARS_BACK, 0, 1)
+  const endMonth = maxDate ? toLocalDate(maxDate) : localDate(Math.max(now.year, minDate?.year ?? now.year) + CALENDAR_YEARS_AHEAD, 11, 31)
 
   return (
     <Popover modal open={calendarOpen} onOpenChange={setCalendarOpen}>
@@ -178,7 +213,7 @@ function DateInput({
             <button
               type="button"
               aria-label={calendarLabel}
-              disabled={disabled || readOnly}
+              disabled={inert}
               data-slot="date-input-calendar-button"
               className="text-muted-foreground hover:bg-muted absolute top-0 right-0 inline-flex size-11 items-center justify-center rounded-md outline-none transition-colors motion-reduce:transition-none focus-ring disabled:pointer-events-none disabled:opacity-50"
             >

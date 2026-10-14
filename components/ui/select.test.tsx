@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { useState } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { CONTROL_MESSAGES } from "@/lib/shared/messages"
 import { axeViolations } from "@/test/axe"
 import { stubLayoutApis } from "@/test/dom-stubs"
 import {
@@ -228,5 +229,77 @@ describe("Select F5-1: unlisted stored value", () => {
   it("shows the raw code when no label is known", () => {
     render(<Picker initial="xx-YY" unlistedValue={{ value: "xx-YY" }} />)
     expect(picker().textContent).toBe("xx-YY")
+  })
+
+  it("adds no hidden item for an empty value (Radix would throw) or a value that is listed", async () => {
+    const { unmount } = render(<Picker initial="" unlistedValue={{ value: "" }} placeholder="Select a value" />)
+    expect(picker().textContent).toBe("Select a value")
+    fireEvent.keyDown(picker(), { key: "Enter" })
+    await screen.findByRole("listbox")
+    expect(document.querySelector("[data-slot='select-unlisted-item']")).toBeNull()
+    unmount()
+
+    render(<Picker initial="ann@home.test" unlistedValue={{ value: "ann@home.test", label: "Home" }} />)
+    expect(picker().textContent).toBe("ann@home.test")
+    fireEvent.keyDown(picker(), { key: "Enter" })
+    await screen.findByRole("listbox")
+    expect(document.querySelector("[data-slot='select-unlisted-item']")).toBeNull()
+  })
+})
+
+describe("Select F5-1 review fixes", () => {
+  it("aria-disabled lets browser shortcuts and modified keys through, and blocks opening and typeahead keys", () => {
+    render(<Picker ariaDisabled initial="ann@work.test" />)
+    const keydown = (init: KeyboardEventInit) => {
+      const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init })
+      picker().dispatchEvent(event)
+      return event.defaultPrevented
+    }
+    for (const init of [{ key: "F5" }, { key: "r", metaKey: true }, { key: "r", ctrlKey: true }, { key: "Tab", ctrlKey: true }, { key: "a", altKey: true }, { key: "Escape" }]) {
+      expect(keydown(init), JSON.stringify(init)).toBe(false)
+    }
+    for (const key of ["Enter", " ", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", "a"]) {
+      expect(keydown({ key }), key).toBe(true)
+    }
+  })
+
+  it("loading shows a spinner on the trigger and a disabled Loading… row when opened", async () => {
+    render(<Picker loading />)
+    expect(picker().querySelector("[data-slot='select-loading']")?.classList.contains("animate-spin")).toBe(true)
+    fireEvent.keyDown(picker(), { key: "Enter" })
+    await screen.findByRole("listbox")
+    const row = screen.getByRole("option", { name: CONTROL_MESSAGES.loading })
+    expect(row.getAttribute("aria-disabled")).toBe("true")
+    fireEvent.click(row)
+    expect(screen.getByRole("listbox")).not.toBeNull()
+    expect(await axeViolations()).toEqual([])
+  })
+
+  it("stays uncontrolled-safe: toggling ariaDisabled keeps open state working without a controlled/uncontrolled switch", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    function Toggle() {
+      const [disabled, setDisabled] = useState(false)
+      return (
+        <>
+          <Picker ariaDisabled={disabled} />
+          <button type="button" onClick={() => setDisabled((d) => !d)}>
+            Toggle
+          </button>
+        </>
+      )
+    }
+    render(<Toggle />)
+    fireEvent.click(screen.getByRole("button", { name: "Toggle" }))
+    fireEvent.click(screen.getByRole("button", { name: "Toggle" }))
+    fireEvent.keyDown(picker(), { key: "Enter" })
+    await screen.findByRole("listbox")
+    // The open listbox hides the rest (aria-hidden), so find the trigger by its slot.
+    expect(document.querySelector("[data-slot='select-trigger']")?.getAttribute("aria-expanded")).toBe("true")
+    expect(warn.mock.calls.flat().join(" ")).not.toMatch(/controlled/i)
+  })
+
+  it("passes a caller's controlled open through", async () => {
+    render(<Picker open />)
+    expect(await screen.findByRole("listbox")).not.toBeNull()
   })
 })

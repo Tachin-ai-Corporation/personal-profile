@@ -7,7 +7,13 @@ import { stubLayoutApis } from "@/test/dom-stubs"
 import { InfoIconButton } from "./info-icon-button"
 import { INFO_POPOVER_HOVER_DELAY_MS, InfoPopover, LinkTextButton, type InfoPopoverProps } from "./info-popover"
 
-beforeEach(() => stubLayoutApis())
+beforeEach(() => {
+  stubLayoutApis()
+  // jsdom has no layout: give every element a box unless it (or an ancestor) is display: none.
+  vi.spyOn(HTMLElement.prototype, "getClientRects").mockImplementation(function (this: HTMLElement) {
+    return (this.closest("[style*='display: none']") ? [] : [{}]) as unknown as DOMRectList
+  })
+})
 
 const wait = (ms: number) => act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)))
 /** Lets Radix finish what it does one task later (outside-press listeners, focus scope). */
@@ -299,7 +305,7 @@ describe("InfoPopover: state slots", () => {
     const trigger = screen.getByRole("button", { name: "Acme Labs" })
     act(() => trigger.focus())
     await screen.findByRole("dialog")
-    expect(screen.getByText(CONTROL_MESSAGES.supportContactLoadError)).not.toBeNull()
+    expect(screen.getByText(CONTROL_MESSAGES.loadError)).not.toBeNull()
     tab()
     const retry = screen.getByRole("button", { name: CONTROL_MESSAGES.tryAgain })
     expect(document.activeElement).toBe(retry)
@@ -311,11 +317,141 @@ describe("InfoPopover: state slots", () => {
     expect(popover()).not.toBeNull()
   })
 
+  it("Tab from the focused container (after Try again.) goes to the first link of the reloaded content", async () => {
+    function Retrying() {
+      const [state, setState] = useState<InfoPopoverProps["state"]>("error")
+      return (
+        <main>
+          <InfoPopover trigger={<LinkTextButton>Acme Labs</LinkTextButton>} title="Acme Labs" state={state} onRetry={() => setState(undefined)}>
+            <a href="mailto:support@acme.test">support@acme.test</a>
+          </InfoPopover>
+          <button type="button">After</button>
+        </main>
+      )
+    }
+    render(<Retrying />)
+    act(() => screen.getByRole("button", { name: "Acme Labs" }).focus())
+    await screen.findByRole("dialog")
+    tab()
+    fireEvent.click(screen.getByRole("button", { name: CONTROL_MESSAGES.tryAgain }))
+    expect(document.activeElement).toBe(screen.getByRole("dialog"))
+    tab()
+    expect(document.activeElement).toBe(screen.getByRole("link", { name: "support@acme.test" }))
+  })
+
   it("error takes a caller's line and shows no retry without onRetry", async () => {
     const trigger = setup({ state: "error", errorMessage: "Couldn't load the contact." })
     act(() => trigger.focus())
     await screen.findByRole("dialog")
     expect(screen.getByText("Couldn't load the contact.")).not.toBeNull()
     expect(screen.queryByRole("button", { name: CONTROL_MESSAGES.tryAgain })).toBeNull()
+  })
+})
+
+describe("InfoPopover: review fixes", () => {
+  it("a press released away from the trigger is forgotten at once, so a later keyboard focus opens it", () => {
+    const trigger = setup()
+    fireEvent.pointerDown(trigger, { pointerType: "mouse" })
+    fireEvent.pointerUp(document.body, { pointerType: "mouse" })
+    act(() => trigger.focus())
+    expect(popover()).not.toBeNull()
+  })
+
+  it("a press cancelled anywhere is forgotten too; a release on the trigger keeps the press for its click", () => {
+    const trigger = setup()
+    fireEvent.pointerDown(trigger, { pointerType: "touch" })
+    fireEvent.pointerCancel(document.body, { pointerType: "touch" })
+    act(() => trigger.focus())
+    expect(popover()).not.toBeNull()
+    act(() => screen.getByRole("button", { name: "Before" }).focus())
+    press(trigger, "touch")
+    expect(popover()).not.toBeNull()
+  })
+
+  it("focus entering a hover-opened popover holds it open after the pointer leaves", async () => {
+    const trigger = setup()
+    fireEvent.pointerEnter(trigger, { pointerType: "mouse" })
+    await waitFor(() => expect(popover()).not.toBeNull())
+    act(() => screen.getByRole("link", { name: "ann@acme.test" }).focus())
+    fireEvent.pointerLeave(trigger, { pointerType: "mouse" })
+    await wait(200)
+    expect(popover()).not.toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole("link", { name: "ann@acme.test" }))
+  })
+
+  it("skips hidden elements and reaches summary, contenteditable, iframe and media controls", async () => {
+    render(
+      <main>
+        <InfoPopover trigger={<InfoIconButton aria-label="More" icon="info" />} label="More">
+          <a href="#gone" style={{ display: "none" }}>
+            Gone
+          </a>
+          <a href="#invisible" style={{ visibility: "hidden" }}>
+            Invisible
+          </a>
+          <details>
+            <summary>Details</summary>
+          </details>
+          <div contentEditable suppressContentEditableWarning aria-label="Note" role="textbox" />
+          <iframe title="Map" />
+          <video controls aria-label="Clip" />
+        </InfoPopover>
+        <button type="button">After</button>
+      </main>,
+    )
+    act(() => screen.getByRole("button", { name: "More" }).focus())
+    await screen.findByRole("dialog")
+    tab()
+    // The two hidden links are skipped.
+    expect(document.activeElement?.textContent).toBe("Details")
+  })
+
+  it.each([
+    ["contenteditable", <div key="x" contentEditable suppressContentEditableWarning aria-label="Note" role="textbox" />, true],
+    ["iframe", <iframe key="x" title="Map" />, true],
+    ["video with controls", <video key="x" controls aria-label="Clip" />, true],
+    ["audio with controls", <audio key="x" controls aria-label="Sound" />, true],
+    ["video without controls", <video key="x" aria-label="Clip" />, false],
+    ["contenteditable=false", <div key="x" contentEditable={false} aria-label="Note" />, false],
+  ])("Tab from the trigger counts a lone %s as reachable: %s", async (_name, element, reachable) => {
+    render(
+      <main>
+        <InfoPopover trigger={<InfoIconButton aria-label="More" icon="info" />} label="More">
+          {element}
+        </InfoPopover>
+        <button type="button">After</button>
+      </main>,
+    )
+    const trigger = screen.getByRole("button", { name: "More" })
+    act(() => trigger.focus())
+    await screen.findByRole("dialog")
+    const event = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })
+    act(() => {
+      trigger.dispatchEvent(event)
+    })
+    // Bridged (prevented) only when there is something reachable inside.
+    expect(event.defaultPrevented).toBe(reachable)
+  })
+
+  it("when the trigger is the page's last stop, Tab out of the last link closes it with focus on the trigger (not wrapped back in)", async () => {
+    render(
+      <main>
+        <InfoPopover trigger={<InfoIconButton aria-label="Last" icon="info" />} title="Last">
+          <a href="#only">Only link</a>
+        </InfoPopover>
+      </main>,
+    )
+    act(() => screen.getByRole("button", { name: "Last" }).focus())
+    await screen.findByRole("dialog")
+    tab()
+    expect(document.activeElement?.textContent).toBe("Only link")
+    const event = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })
+    act(() => {
+      document.activeElement?.dispatchEvent(event)
+    })
+    await waitFor(() => expect(popover()).toBeNull())
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Last" }))
+    await settle()
+    expect(popover()).toBeNull()
   })
 })

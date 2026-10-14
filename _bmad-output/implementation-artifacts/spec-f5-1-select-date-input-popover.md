@@ -91,6 +91,27 @@ Implemented 2026-10-14.
 - **Known limitation**: with a Radix Select listbox open, axe's `aria-hidden-focus` flags the page because Radix Select (the F3-1 port) hides it with `aria-hidden` while trapping focus but without `aria-modal`; the e2e therefore scans only the listbox in that state (commented in `e2e/inputs.spec.ts`). The page and every other state are scanned whole. Radix restores focus to a closed listbox's / modal popover's trigger one task after closing; the e2e waits 50 ms before moving focus programmatically (`settleFocus`).
 - **Verification** (2026-10-14): `pnpm lint`, `pnpm typecheck` clean; `pnpm vitest run --coverage` 111 files / 2195 tests green, 100% on the covered `lib/**`; `PP_E2E_PORT=3170 pnpm test:e2e` 175 passed, 1 skipped (desktop-only placement test on 360 px), and `e2e/inputs.spec.ts` stable with `--repeat-each=6`; `pnpm build` OK (`/test-fixtures/inputs` dynamic); `bash scripts/check-forbidden.sh` OK.
 
+**Review fixes (2026-10-14, commit "fix: F5-1 review findings").**
+- **DateInput:** new `resetKey` prop; forms bump it on reset or Cancel so partial text is cleared even when the value already is `""`. `disabled` and `readOnly` now skip the slash-Backspace and paste handlers, and close an open calendar. Delete just before a slash removes the digit after it. Dates are built with `setFullYear`, so years 0001–0099 stay in their own century. Inverted `min > max` bounds are ignored, with a non-production `console.warn`; this goes through the new `lib/shared/dates.ts#parseDateBounds`, which `isWireDateWithin` now uses too.
+- **Select:**
+  - `ariaDisabled` blocks only the opening and typeahead keys (Enter, Space, arrows, Home/End, printable keys without Ctrl/Meta/Alt); browser shortcuts pass through.
+  - `loading` adds a trigger spinner and a disabled "Loading…" row (`CONTROL_MESSAGES.loading`).
+  - Radix always gets a controlled `open`, with internal state when the caller doesn't control it.
+  - `unlistedValue` adds no hidden item for `""` or for a value that is already listed. Only `SelectItem`s written directly in `SelectContent` are seen; custom wrappers are not.
+- **InfoPopover:**
+  - Props are a union, so `title` or `label` is required.
+  - The default error line is the generic `CONTROL_MESSAGES.loadError` "Couldn't load this information." (DRAFT). "Couldn't load the support contact." moved to `NPI_MESSAGES.practiceSupportLoadError` for Story 9.3.
+  - A press released or cancelled away from the trigger is forgotten through document listeners.
+  - Focus entering the content turns a hover-open into a focus-open, so the hover-close timer can't unmount focused content.
+  - Tab from the focused container goes to its first link.
+  - The tab-stop scan skips `display: none` and `visibility: hidden`, and includes `summary`, `iframe`, `audio`/`video[controls]` and `[contenteditable]`.
+  - When the trigger is the page's last tab stop, Tab out of the last link closes the popover with focus on the trigger. Radix's looping focus scope would otherwise wrap focus back in, and the browser can't move on.
+- **e2e and tooling:**
+  - The fixture uses a fixed today (2026-10-14), and the calendar test checks exact day names (Oct 14 enabled, Oct 15 disabled, Oct 1 → Sep 30).
+  - `PP_E2E_PORT` is validated (an integer from 1 to 65533, with a clear error), and the three-port stride is documented.
+  - The fixture clears its retry timer on unmount.
+  - The two formatting slips are fixed by hand: the repo has no formatter installed.
+
 ## Spec Change Log
 
 ## Review Triage Log
