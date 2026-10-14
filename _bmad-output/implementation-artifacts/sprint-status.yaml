@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 10-13-2026 15:00
-last_updated: 10-13-2026 22:30
+last_updated: 10-13-2026 23:30
 project: personal-profile
 project_key: NOKEY
 tracking_system: file-system
@@ -42,7 +42,7 @@ development_status:
   1-4-callapi-transport-swr-keys-and-usemyself: review
   1-5-client-coordinated-token-refresh: review
   1-6-idle-logoff-activity-ping-and-cross-tab-activity: review
-  1-7-logout-and-session-expired-session-changed-dialogs: backlog
+  1-7-logout-and-session-expired-session-changed-dialogs: review
   1-8-profile-page-shell-tokens-app-bar-tabs-and-section-navigatio: backlog
   1-9-profile-header-view-name-picture-and-primary-contacts: backlog
   1-10-change-profile-picture: backlog
