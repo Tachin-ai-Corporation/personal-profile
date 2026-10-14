@@ -88,3 +88,24 @@
 - source_spec: `_bmad-output/implementation-artifacts/1-8b-profile-page-shell-app-bar-tabs-and-section-navigation.md`
   summary: PM copy question: the load-error template lower-cases the Section label ("Couldn't load phone", "Couldn't load personal information"), while EXPERIENCE.md's example reads "Couldn't load phones".
   evidence: EXPERIENCE.md lines 73 and 156. Story 1.12 owns the message catalog and error copy.
+- source_spec: `_bmad-output/implementation-artifacts/1-1r-foundation-and-launch-rework.md`
+  summary: "Owner question (D9 / Story 1.2): a lost success response followed by a retry wipes the just-created session. Attempt 2 gets LAUNCH_USED, and the mandated clear-first deletes the new cookie, so the user sees 'This link has expired'. Option: on LAUNCH_USED, keep an existing valid session for the same user and environment."
+  evidence: Conflicts with Story 1.2's frozen clear-first and used→400 rules. The user chose to defer it to the epic owner on 2026-10-14. Rare (needs a dropped response) and recoverable by relaunching.
+- source_spec: `_bmad-output/implementation-artifacts/1-1r-foundation-and-launch-rework.md`
+  summary: "Owner security question (D9): login CSRF. Any site can link to /auth?lpl=<attacker's own payload>; the screen auto-launches and signs the victim into the attacker's account, where they may enter health data. Option: require a 'Continue' click when the referrer isn't a 1health portal host."
+  evidence: D9 mandates auto-start, and D5 already accepts no CSRF checks. The one-time code's short validity narrows the window but doesn't close it. The user chose to defer it to the epic owner on 2026-10-14; record it next to the D5 trade-offs.
+- source_spec: `_bmad-output/implementation-artifacts/1-1r-foundation-and-launch-rework.md`
+  summary: "Owner question (Story 1.2): LAUNCH_USED, LAUNCH_EXPIRED, LAUNCH_CONFIG and SERVICE_DISABLED carry no retryable:false, so /auth makes four more doomed attempts (~6 s) before showing the error. Option: mark them retryable:false."
+  evidence: Story 1.2 says exchange failures carry no retryable:false. The user chose to defer it to the epic owner on 2026-10-14.
+- source_spec: `_bmad-output/implementation-artifacts/1-1r-foundation-and-launch-rework.md`
+  summary: After a successful exchange, a failed launch (WRONG_TENANT, a /myself failure or mismatch, a seal fault) drops live tokens without revoking them. Design a single-token best-effort revoke; all-devices (D3) would sign the user out everywhere.
+  evidence: The pre-R1 /launch had the same gap. It needs a revoke endpoint choice, which is a backend question alongside the earlier refresh-token request.
+- source_spec: `_bmad-output/implementation-artifacts/1-1r-foundation-and-launch-rework.md`
+  summary: /api/token error bodies omit the detected environment, so a demo user with no referrer or onehealth_environment cookie gets "Go to 1health (Production)" on the error screen. Consider adding environment to post-detection error bodies.
+  evidence: Story 1.2 fixes the error-body fields, and the environment is not secret.
+- source_spec: `_bmad-output/implementation-artifacts/1-1r-foundation-and-launch-rework.md`
+  summary: CLAUDE.md lists ACCOUNT_DISABLED as a kill switch; add that it is parsed only until the Story 1.3 rework (R2) enforces it.
+  evidence: .env.example and README were patched; CLAUDE.md is an agent-context file, deferred per workflow.
+- source_spec: `_bmad-output/implementation-artifacts/1-1r-foundation-and-launch-rework.md`
+  summary: "For R3: saveLoginIntent has no caller yet; requireSession() and the root proxy.ts expiry redirect drop ?tab= until R3 saves the intent; saveLoginIntent should store pathname + search without the hash (epics.md:1151)."
+  evidence: The R1 spec assigns saving the intent to Story 1.7 (R3).

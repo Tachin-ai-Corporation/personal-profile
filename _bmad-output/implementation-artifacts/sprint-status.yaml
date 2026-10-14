@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 10-13-2026 15:00
-last_updated: 10-14-2026 00:30
+last_updated: 10-14-2026 10:00
 project: personal-profile
 project_key: NOKEY
 tracking_system: file-system
@@ -44,6 +44,10 @@ development_status:
   1-6-idle-logoff-activity-ping-and-cross-tab-activity: review
   1-7-logout-and-session-expired-session-changed-dialogs: review
   1-8-profile-page-shell-tokens-app-bar-tabs-and-section-navigatio: review
+  1-1r-foundation-and-launch-rework: review
+  1-3r-transport-and-proxy-rework: backlog
+  1-7r-logout-and-session-expired-rework: backlog
+  1-8r-app-bar-and-shell-rework: backlog
   1-9-profile-header-view-name-picture-and-primary-contacts: backlog
   1-10-change-profile-picture: backlog
   1-11-section-framework-registry-edit-model-inline-validation-and: backlog
@@ -88,3 +92,30 @@ development_status:
 
   epic-6: backlog
   epic-6-retrospective: optional
+
+  epic-7: backlog
+  7-1-account-page-route-tabs-deep-links-and-states: backlog
+  7-2-account-page-hardening-denies-kill-switch-headers-mobile-and-a: backlog
+  7-3-portal-hand-off-route: backlog
+  7-4-view-personal-account-settings: backlog
+  7-5-edit-names-birth-date-and-regional-preferences: backlog
+  7-6-switch-primary-email-and-phone: backlog
+  epic-7-retrospective: optional
+
+  epic-8: backlog
+  8-1-authenticator-status-and-app-tiles: backlog
+  8-2-link-an-authenticator-app: backlog
+  8-3-turn-off-the-authenticator-app: backlog
+  epic-8-retrospective: optional
+
+  epic-9: backlog
+  9-1-registration-state-and-npi-search: backlog
+  9-2-register: backlog
+  9-3-registered-view: backlog
+  epic-9-retrospective: optional
+
+  epic-10: backlog
+  10-1-list-search-and-pagination-of-my-organizations: backlog
+  10-2-organization-card-logo-name-types-and-primary-contact: backlog
+  10-3-enter-portal: backlog
+  epic-10-retrospective: optional
