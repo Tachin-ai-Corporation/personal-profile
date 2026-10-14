@@ -35,6 +35,12 @@ export function isAccountTab(value: unknown): value is AccountTab {
   return typeof value === "string" && (ACCOUNT_TABS as readonly string[]).includes(value)
 }
 
+/**
+ * Dispatched on `window` after a same-page `navigate()` that sets a hash: its
+ * history replace fires no `hashchange`, so `useHashAnchors` follows this too.
+ */
+export const HASH_NAVIGATE_EVENT = "pp:hash-navigate"
+
 /** The page a pathname belongs to, or `null` outside the two pages. */
 export function pageOfPath(pathname: string): PageId | null {
   if (pathname === PAGE_PATHS.profile) return "profile"

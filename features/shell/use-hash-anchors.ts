@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef } from "react"
 import { sectionHeadingId } from "./anchors"
+import { onHandScroll } from "./hand-scroll"
+import { HASH_NAVIGATE_EVENT } from "./nav-types"
 
 /** `smooth`, or `auto` (instant) under `prefers-reduced-motion: reduce`. */
 export function motionAwareScrollBehavior(): ScrollBehavior {
@@ -25,6 +27,17 @@ export interface HashAnchors {
    * the content that arrived may have moved it.
    */
   frameReady(frameId: string): void
+  /** Drop a pending re-scroll (a Section menu or Jump to activation took over). */
+  cancelPending(): void
+}
+
+/** Whether the frame `frameId` (or the `StateFrame` inside it) is already showing its content; no frame counts as ready. */
+function isFrameReady(frameId: string): boolean {
+  const element = document.getElementById(frameId)
+  if (!element) return true
+  const selector = '[data-slot="state-frame"]'
+  const frame = element.matches(selector) ? element : element.querySelector(selector)
+  return frame === null || frame.getAttribute("data-state") === "ready"
 }
 
 /** The hash's anchor and its frame, or `null` for anything not listed (bad encodings included). */
@@ -45,8 +58,10 @@ function resolveHash(hash: string, ids: readonly string[], subAnchors: Readonly<
  * (instant) and on `hashchange` (motion-aware), a hash naming one of `ids`
  * (or a sub-anchor) scrolls its element into view, optionally focusing the
  * frame's `h2`; any other hash is ignored and the page stays where it is.
- * Mount it only on the tab that owns the anchors. A hand scroll before the
- * target frame is ready cancels the re-scroll.
+ * A same-page `navigate()` with a hash is followed too (`HASH_NAVIGATE_EVENT`).
+ * Mount it only on the tab that owns the anchors. The one re-scroll is armed
+ * only while the target frame is not ready; it is spent by the frame's first
+ * ready and cancelled by a hand scroll (`onHandScroll`) or `cancelPending()`.
  */
 export function useHashAnchors(ids: readonly string[], options: HashAnchorsOptions = {}): HashAnchors {
   const latest = useRef({ ids, options })
@@ -63,7 +78,7 @@ export function useHashAnchors(ids: readonly string[], options: HashAnchorsOptio
       if (!resolved) return
       const element = document.getElementById(resolved.target)
       if (!element) return
-      pending.current = resolved
+      pending.current = isFrameReady(resolved.frame) ? null : resolved
       opts.onFollow?.(resolved.frame)
       element.scrollIntoView({ behavior, block: "start" })
       if (opts.focusHeading) document.getElementById(sectionHeadingId(resolved.frame))?.focus({ preventScroll: true })
@@ -74,12 +89,12 @@ export function useHashAnchors(ids: readonly string[], options: HashAnchorsOptio
     }
     follow("auto")
     window.addEventListener("hashchange", onHashChange)
-    window.addEventListener("wheel", cancel, { passive: true })
-    window.addEventListener("touchmove", cancel, { passive: true })
+    window.addEventListener(HASH_NAVIGATE_EVENT, onHashChange)
+    const stopHandScroll = onHandScroll(cancel)
     return () => {
       window.removeEventListener("hashchange", onHashChange)
-      window.removeEventListener("wheel", cancel)
-      window.removeEventListener("touchmove", cancel)
+      window.removeEventListener(HASH_NAVIGATE_EVENT, onHashChange)
+      stopHandScroll()
     }
   }, [])
 
@@ -90,5 +105,9 @@ export function useHashAnchors(ids: readonly string[], options: HashAnchorsOptio
     document.getElementById(target.target)?.scrollIntoView({ behavior: "auto", block: "start" })
   }, [])
 
-  return { frameReady }
+  const cancelPending = useCallback(() => {
+    pending.current = null
+  }, [])
+
+  return { frameReady, cancelPending }
 }

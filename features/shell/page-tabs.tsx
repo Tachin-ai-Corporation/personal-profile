@@ -90,7 +90,8 @@ export function PageTabs<T extends string>({ tabs, isTab, defaultTab, toTarget, 
           <TabsContent
             key={tab.value}
             value={tab.value}
-            tabIndex={options.skipInTabOrder ? -1 : undefined}
+            // Only when skipping: an explicit `undefined` would override Radix's own tabIndex=0.
+            {...(options.skipInTabOrder ? { tabIndex: -1 } : {})}
             className={cn("focus-ring", !options.bare && "px-4 py-6 md:px-6")}
           >
             {renderPanel(tab.value)}

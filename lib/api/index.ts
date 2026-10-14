@@ -38,12 +38,13 @@ export {
   type ErrorScope,
   type ForbiddenLevel,
   type ForbiddenOwner,
+  type ForbiddenPage,
   type ForbiddenScope,
   type ForbiddenScopeRule,
   type MappedError,
   type MessageRule,
 } from "./errors"
-export { fileDownloadPath } from "./files"
+export { fileDownloadPath, isFileId } from "./files"
 export {
   sessionEvents,
   createSessionEvents,

@@ -5,12 +5,22 @@
  * here, so every feature reads it through `@/lib/api`; a feature decides
  * where to render the `NoAccess` panel from the owner's `level`.
  *
+ * The lookup is page-aware: `contact-point/list` belongs to the `/account`
+ * pickers there, but on `/` the Contacts Section that asked for that type.
+ *
  * Only an upstream 403 counts: a proxy refusal (`NOT_ALLOWED`) is never "no
  * access" (`mapApiError` already maps it to the generic error).
  */
 
+/** The page that made the request (`/` is `profile`). */
+export type ForbiddenPage = "profile" | "account"
+
 /** The UI part an endpoint's 403 belongs to. */
 export type ForbiddenOwner =
+  /** `/` Contacts Sections that read `contact-point/list` for their type (Epic 3). */
+  | "phone"
+  | "email"
+  | "social"
   /** `/account` Personal account settings: only the Primary email / phone pickers (Story 7.6). */
   | "account-pickers"
   /** `/account` Authenticator app card: a Section-level row (Epic 8). */
@@ -35,11 +45,21 @@ export interface ForbiddenScopeRule extends ForbiddenScope {
   readonly endpoint: string
   /** Anchored on the normalised path (no origin, prefix, version or query). */
   readonly pattern: RegExp
+  /** Only on this page; any page when absent. */
+  readonly page?: ForbiddenPage
+  /** Only when the request's `type` query parameter has this value. */
+  readonly type?: string
 }
 
-/** The AD-23 table, in its published order. */
+const CONTACT_POINT_LIST = /^user\/contact-point\/list$/
+
+/** The AD-23 table, in its published order (the `/` Contact Point rows first: one per `type`). */
 export const FORBIDDEN_SCOPE_TABLE: readonly ForbiddenScopeRule[] = [
-  { endpoint: "contact-point/list", pattern: /^user\/contact-point\/list$/, owner: "account-pickers", level: "control" },
+  { endpoint: "contact-point/list?type=Mobile", pattern: CONTACT_POINT_LIST, page: "profile", type: "Mobile", owner: "phone", level: "section" },
+  { endpoint: "contact-point/list?type=Landline", pattern: CONTACT_POINT_LIST, page: "profile", type: "Landline", owner: "phone", level: "section" },
+  { endpoint: "contact-point/list?type=Email", pattern: CONTACT_POINT_LIST, page: "profile", type: "Email", owner: "email", level: "section" },
+  { endpoint: "contact-point/list?type=Social Media", pattern: CONTACT_POINT_LIST, page: "profile", type: "Social Media", owner: "social", level: "section" },
+  { endpoint: "contact-point/list", pattern: CONTACT_POINT_LIST, page: "account", owner: "account-pickers", level: "control" },
   { endpoint: "mfa/*", pattern: /^mfa\/.+$/, owner: "authenticator", level: "section" },
   { endpoint: "/api/pp/mfa/validate", pattern: /^pp\/mfa\/validate$/, owner: "authenticator", level: "section" },
   { endpoint: "user/npi", pattern: /^user\/npi$/, owner: "provider", level: "tab" },
@@ -65,12 +85,25 @@ export function normalizeForbiddenPath(path: string): string {
   return rest.replace(/\/+$/, "")
 }
 
+/** The `type` query parameter of a request path, if any. */
+function typeParam(path: string): string | null {
+  const query = /\?([^#]*)/.exec(path)?.[1]
+  return query === undefined ? null : new URLSearchParams(query).get("type")
+}
+
 /**
- * The owner of a 403 on `path`, or `null` when the table names no owner (the
- * surface that made the read then shows its own no-access state).
+ * The owner of a 403 on `path` requested from `page`, or `null` when the table
+ * names no owner (the surface that made the read then shows its own no-access
+ * state).
  */
-export function forbiddenScopeFor(path: string): ForbiddenScope | null {
+export function forbiddenScopeFor(path: string, page: ForbiddenPage): ForbiddenScope | null {
   const normalized = normalizeForbiddenPath(path)
-  const rule = FORBIDDEN_SCOPE_TABLE.find((candidate) => candidate.pattern.test(normalized))
+  const type = typeParam(path)
+  const rule = FORBIDDEN_SCOPE_TABLE.find(
+    (candidate) =>
+      (candidate.page === undefined || candidate.page === page) &&
+      (candidate.type === undefined || candidate.type === type) &&
+      candidate.pattern.test(normalized),
+  )
   return rule ? { owner: rule.owner, level: rule.level } : null
 }

@@ -1,20 +1,26 @@
-import { act, render } from "@testing-library/react"
-import { useState } from "react"
+import { act, fireEvent, render } from "@testing-library/react"
+import { useEffect, useState } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { installDomStubs, type DomStubs } from "@/test/dom-stubs"
-import { ACCOUNT_ANCHORS, sectionHeadingId } from "./anchors"
+import { ACCOUNT_ANCHORS, sectionHeadingId, type AccountAnchor } from "./anchors"
+import { resetLeaveState } from "./leave"
+import { navigate } from "./navigate"
+import { SectionLandmark } from "./section-landmark"
 import { StateFrame, type FrameState } from "./state-frame"
-import { motionAwareScrollBehavior, useHashAnchors, type HashAnchorsOptions } from "./use-hash-anchors"
+import { motionAwareScrollBehavior, useHashAnchors, type HashAnchors, type HashAnchorsOptions } from "./use-hash-anchors"
 
 /**
  * `useHashAnchors` (F3-3): deep links on mount and hashchange, sub-anchors,
  * `/account` heading focus, unknown hashes ignored, and one re-scroll when the
- * target frame becomes ready (cancelled by a hand scroll).
+ * target frame becomes ready (armed only while it isn't, spent by the first
+ * ready, cancelled by a hand scroll or `cancelPending`), and same-page
+ * `navigate()` hashes.
  */
 
 let stubs: DomStubs
 
 beforeEach(() => {
+  resetLeaveState()
   stubs = installDomStubs()
 })
 afterEach(() => {
@@ -22,19 +28,34 @@ afterEach(() => {
   window.history.replaceState(null, "", "/")
 })
 
-function Page({ ids, options, initial = "loading" }: { readonly ids: readonly string[]; readonly options?: HashAnchorsOptions; readonly initial?: FrameState }) {
-  const { frameReady } = useHashAnchors(ids, options)
+let anchors: HashAnchors | null = null
+
+function Page({
+  ids,
+  options,
+  initial = "loading",
+}: {
+  readonly ids: readonly AccountAnchor[]
+  readonly options?: HashAnchorsOptions
+  readonly initial?: FrameState
+}) {
+  const hashAnchors = useHashAnchors(ids, options)
+  useEffect(() => {
+    anchors = hashAnchors
+  })
+  const { frameReady } = hashAnchors
   const [state, setState] = useState<FrameState>(initial)
   return (
     <>
       <button type="button" onClick={() => setState("ready")}>
         ready
       </button>
+      <button type="button" data-testid="reload" onClick={() => setState("loading")}>
+        loading
+      </button>
+      <input aria-label="field" />
       {ids.map((id) => (
-        <section key={id} id={id} aria-labelledby={sectionHeadingId(id)}>
-          <h2 id={sectionHeadingId(id)} tabIndex={-1}>
-            {id}
-          </h2>
+        <SectionLandmark key={id} id={id} title={id}>
           <StateFrame
             state={state}
             skeleton="kv"
@@ -46,7 +67,7 @@ function Page({ ids, options, initial = "loading" }: { readonly ids: readonly st
           >
             <div id={`${id}-row`}>row</div>
           </StateFrame>
-        </section>
+        </SectionLandmark>
       ))}
     </>
   )
@@ -56,6 +77,11 @@ const scrolledIds = (): string[] => stubs.scrolls.map((s) => (s.el as HTMLElemen
 const clickReady = (container: HTMLElement): void => {
   act(() => {
     container.querySelector("button")?.click()
+  })
+}
+const clickLoading = (container: HTMLElement): void => {
+  act(() => {
+    container.querySelector<HTMLButtonElement>('[data-testid="reload"]')?.click()
   })
 }
 
@@ -117,6 +143,69 @@ describe("useHashAnchors", () => {
     expect(scrolledIds()).toEqual(["authenticator"])
   })
 
+  it.each([
+    ["a PageDown outside fields", () => fireEvent.keyDown(document.body, { key: "PageDown" })],
+    ["a press on the page scrollbar", () => fireEvent.pointerDown(document.documentElement)],
+    ["a wheel", () => window.dispatchEvent(new Event("wheel"))],
+  ])("%s before the frame is ready cancels the re-scroll", (_label, scrollByHand) => {
+    window.history.replaceState(null, "", "/#authenticator")
+    const { container } = render(<Page ids={ACCOUNT_ANCHORS} />)
+    act(() => {
+      scrollByHand()
+    })
+    clickReady(container)
+    expect(scrolledIds()).toEqual(["authenticator"])
+  })
+
+  it("scroll keys typed in a field, and a press inside the page, keep the re-scroll", () => {
+    window.history.replaceState(null, "", "/#authenticator")
+    const { container, getByLabelText } = render(<Page ids={ACCOUNT_ANCHORS} />)
+    fireEvent.keyDown(getByLabelText("field"), { key: " " })
+    fireEvent.keyDown(getByLabelText("field"), { key: "ArrowDown" })
+    fireEvent.pointerDown(getByLabelText("field"))
+    clickReady(container)
+    expect(scrolledIds()).toEqual(["authenticator", "authenticator"])
+  })
+
+  it("cancelPending (a Section menu / Jump to activation) drops the re-scroll", () => {
+    window.history.replaceState(null, "", "/#authenticator")
+    const { container } = render(<Page ids={ACCOUNT_ANCHORS} />)
+    act(() => anchors?.cancelPending())
+    clickReady(container)
+    expect(scrolledIds()).toEqual(["authenticator"])
+  })
+
+  it("is not armed when the target frame is already ready: a later reload and ready doesn't scroll", () => {
+    window.history.replaceState(null, "", "/#authenticator")
+    const { container } = render(<Page ids={ACCOUNT_ANCHORS} initial="ready" />)
+    expect(scrolledIds()).toEqual(["authenticator"])
+    clickLoading(container)
+    clickReady(container)
+    expect(scrolledIds()).toEqual(["authenticator"])
+  })
+
+  it("is spent by the first ready: a second load cycle doesn't scroll again", () => {
+    window.history.replaceState(null, "", "/#authenticator")
+    const { container } = render(<Page ids={ACCOUNT_ANCHORS} />)
+    clickReady(container)
+    clickLoading(container)
+    clickReady(container)
+    expect(scrolledIds()).toEqual(["authenticator", "authenticator"])
+  })
+
+  it("follows a same-page navigate({ page, hash }) (a history replace, no hashchange)", async () => {
+    window.history.replaceState(null, "", "/account?tab=personal")
+    render(<Page ids={ACCOUNT_ANCHORS} options={{ focusHeading: true }} initial="ready" />)
+    expect(stubs.scrolls).toEqual([])
+    const moved = await act(() =>
+      navigate({ page: "account", hash: "authenticator" }, { router: { push: vi.fn() }, portalUrl: "https://portal.test", recordActivity: vi.fn() }),
+    )
+    expect(moved).toBe(true)
+    expect(window.location.hash).toBe("#authenticator")
+    expect(stubs.scrolls).toEqual([{ el: document.getElementById("authenticator"), options: { behavior: "smooth", block: "start" } }])
+    expect(document.activeElement).toBe(document.getElementById(sectionHeadingId("authenticator")))
+  })
+
   it("nothing pending: a frame becoming ready doesn't scroll", () => {
     const { container } = render(<Page ids={ACCOUNT_ANCHORS} />)
     clickReady(container)
@@ -142,6 +231,7 @@ describe("useHashAnchors", () => {
   })
 })
 
+/** `ghost` is listed but no element has it. */
 function GhostOnly() {
   useHashAnchors(["ghost"])
   return null

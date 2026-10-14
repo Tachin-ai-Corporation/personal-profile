@@ -87,6 +87,25 @@ describe("ProfileTabs", () => {
     expect(selected()).toBe("Contacts")
   })
 
+  it.each([
+    ["insurance", "Insurance"],
+    ["medical", MEDICAL],
+  ] as const)("?tab=%s: the panel stays in the Tab order (Radix tabindex=0) with the px-4 py-6 md:px-6 gutters", (value, name) => {
+    setTestUrl(`/?tab=${value}`)
+    setup()
+    const panel = document.getElementById(tab(name).getAttribute("aria-controls") ?? "")
+    expect(panel?.getAttribute("tabindex")).toBe("0")
+    for (const cls of ["px-4", "py-6", "md:px-6"]) expect(panel?.classList.contains(cls)).toBe(true)
+  })
+
+  it("?tab=contacts: the bare panel is out of the Tab order (tabindex=-1) with no gutters", () => {
+    setTestUrl("/?tab=contacts")
+    setup()
+    const panel = document.getElementById(tab("Contacts").getAttribute("aria-controls") ?? "")
+    expect(panel?.getAttribute("tabindex")).toBe("-1")
+    for (const cls of ["px-4", "py-6", "md:px-6"]) expect(panel?.classList.contains(cls)).toBe(false)
+  })
+
   it("reopens the tab named in the URL", () => {
     setTestUrl("/?tab=insurance")
     setup()

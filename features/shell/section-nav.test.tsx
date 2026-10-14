@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { SHELL_MESSAGES } from "@/lib/shared/messages"
 import { axeViolations } from "@/test/axe"
@@ -12,7 +12,10 @@ import { LeaveGuard } from "./leave-guard"
 import { CurrentPageProvider } from "./navigate"
 import { ProfileTabs } from "./page-tabs"
 import { SectionCountProvider, useReportSectionCount } from "./section-counts"
-import { SectionNav, useSectionNavigation } from "./section-nav"
+import { PROFILE_SECTIONS } from "./anchors"
+import { SectionLandmark } from "./section-landmark"
+import { SectionNav, useSectionNavigation, type SectionNavState } from "./section-nav"
+import { StateFrame } from "./state-frame"
 import { SectionRegistryProvider } from "./section-registry"
 
 vi.mock("next/navigation", async () => (await import("@/test/next-navigation")).nextNavigationMock)
@@ -158,6 +161,16 @@ describe("Section menu", () => {
     expect(window.location.hash).toBe("#addresses")
   })
 
+  it("a held Space (repeat) activates once and still prevents the page scroll", () => {
+    render(<ContactsPanel />)
+    const link = menuLink(/^Addresses$/)
+    act(() => link.focus())
+    expect(fireEvent.keyDown(link, { key: " " })).toBe(false)
+    expect(fireEvent.keyDown(link, { key: " ", repeat: true })).toBe(false)
+    expect(fireEvent.keyDown(link, { key: " ", repeat: true })).toBe(false)
+    expect(sectionScrolls().map((s) => s.el.id)).toEqual(["addresses"])
+  })
+
   it("a modified or non-primary click does not activate (the browser opens the link)", () => {
     render(<ContactsPanel />)
     // Record whether the app prevented the click, then stop jsdom's own hash navigation
@@ -227,6 +240,46 @@ describe("Jump to", () => {
     expect(replaceSpy).toHaveBeenLastCalledWith(null, "", "/?tab=contacts#addresses")
     expect(window.history.length).toBe(historyLength)
     expect(jumpTo().textContent).toBe("05Addresses")
+  })
+
+  it("picking the current Section again still scrolls, focuses its h2 and replaces the hash", async () => {
+    render(<ContactsPanel />)
+    expect(jumpTo().textContent).toBe("01Personal information")
+    act(() => jumpTo().focus())
+    fireEvent.keyDown(jumpTo(), { key: "Enter" })
+    await screen.findAllByRole("option")
+    fireEvent.click(screen.getByRole("option", { name: "Personal information" }))
+    await waitFor(() => expectFocus(h2("Personal information")))
+    expect(sectionScrolls()).toEqual([{ el: document.getElementById("personal"), options: { behavior: "smooth", block: "start" } }])
+    expect(replaceSpy).toHaveBeenLastCalledWith(null, "", "/?tab=contacts#personal")
+  })
+
+  it("Enter on the current option activates it too", async () => {
+    render(<ContactsPanel />)
+    act(() => jumpTo().focus())
+    fireEvent.keyDown(jumpTo(), { key: "Enter" })
+    const option = await screen.findByRole("option", { name: "Personal information" })
+    act(() => option.focus())
+    fireEvent.keyDown(option, { key: "Enter" })
+    await waitFor(() => expectFocus(h2("Personal information")))
+    expect(window.location.hash).toBe("#personal")
+  })
+
+  it("uses generated ids: two Jump tos each keep their own label", () => {
+    render(
+      <>
+        <ContactsPanel />
+        <ContactsPanel />
+      </>,
+    )
+    const triggers = screen.getAllByRole("combobox", { name: SHELL_MESSAGES.jumpTo })
+    expect(triggers).toHaveLength(2)
+    expect(new Set(triggers.map((t) => t.id)).size).toBe(2)
+    for (const trigger of triggers) {
+      expect(trigger.id).not.toBe("jump-to-trigger")
+      const label = document.getElementById(trigger.getAttribute("aria-labelledby") ?? "")
+      expect(label?.getAttribute("for")).toBe(trigger.id)
+    }
   })
 
   it("closing the listbox without a choice does nothing and returns focus to the trigger", async () => {
@@ -325,6 +378,71 @@ describe("scroll-spy", () => {
       window.dispatchEvent(new Event("wheel"))
     })
     expect(currentItems()).toEqual(["04Social media"])
+  })
+
+  it.each([
+    ["a PageDown typed in a field", () => fireEvent.keyDown(screen.getByLabelText("field"), { key: "PageDown" })],
+    ["a Space typed in a field", () => fireEvent.keyDown(screen.getByLabelText("field"), { key: " " })],
+    ["a PageDown on the Jump to trigger", () => fireEvent.keyDown(jumpTo(), { key: "PageDown" })],
+  ])("%s keeps the pin", (_label, press) => {
+    render(
+      <>
+        <input aria-label="field" />
+        <ContactsPanel />
+      </>,
+    )
+    fireEvent.click(menuLink(/^Addresses$/))
+    reportIntersections({ personal: false, social: true, addresses: true })
+    act(() => {
+      press()
+    })
+    expect(currentItems()).toEqual(["05Addresses"])
+  })
+
+  it("scroll keys inside the open Jump to listbox keep the pin", async () => {
+    render(<ContactsPanel />)
+    fireEvent.click(menuLink(/^Addresses$/))
+    reportIntersections({ personal: false, social: true, addresses: true })
+    act(() => jumpTo().focus())
+    fireEvent.keyDown(jumpTo(), { key: "Enter" })
+    const listbox = await screen.findByRole("listbox")
+    fireEvent.keyDown(listbox, { key: "ArrowDown" })
+    fireEvent.keyDown(listbox, { key: "End" })
+    // The modal listbox hides the menu from the accessibility tree: read the DOM.
+    expect(document.querySelector('nav [aria-current="location"]')?.textContent).toBe("05Addresses")
+  })
+
+  it("a press on the page scrollbar ends the pin", () => {
+    render(<ContactsPanel />)
+    fireEvent.click(menuLink(/^Addresses$/))
+    reportIntersections({ personal: false, social: true, addresses: true })
+    act(() => {
+      fireEvent.pointerDown(document.documentElement)
+    })
+    expect(currentItems()).toEqual(["04Social media"])
+  })
+
+  it("at the end of the page the last Section is current", () => {
+    const root = document.documentElement
+    Object.defineProperty(root, "scrollHeight", { configurable: true, value: window.innerHeight + 500 })
+    try {
+      render(<ContactsPanel />)
+      reportIntersections({ personal: false, social: true, addresses: false })
+      expect(currentItems()).toEqual(["04Social media"])
+      act(() => {
+        window.scrollY = 500
+        window.dispatchEvent(new Event("scroll"))
+      })
+      expect(currentItems()).toEqual(["05Addresses"])
+      act(() => {
+        window.scrollY = 200
+        window.dispatchEvent(new Event("scroll"))
+      })
+      expect(currentItems()).toEqual(["04Social media"])
+    } finally {
+      delete (root as unknown as Record<string, unknown>).scrollHeight
+      window.scrollY = 0
+    }
   })
 
   it("observes the five Sections with a top-weighted root margin and disconnects on unmount", () => {
@@ -465,6 +583,26 @@ describe("deep links", () => {
     expect(window.location.search).toBe(`?tab=${tab}`)
   })
 
+  it("a menu activation cancels a pending deep-link re-scroll", () => {
+    setUrl("/?tab=contacts#phone")
+    render(<Harness />)
+    expect(sectionScrolls().map((s) => s.el.id)).toEqual(["phone"])
+    fireEvent.click(menuLink(/^Email$/))
+    act(() => harness?.frameReady("phone"))
+    expect(sectionScrolls().map((s) => s.el.id)).toEqual(["phone", "email"])
+  })
+
+  it("without an activation, the target frame's first ready re-scrolls once", () => {
+    setUrl("/?tab=contacts#phone")
+    render(<Harness />)
+    act(() => harness?.frameReady("phone"))
+    act(() => harness?.frameReady("phone"))
+    expect(sectionScrolls().map((s) => [s.el.id, s.options])).toEqual([
+      ["phone", { behavior: "auto", block: "start" }],
+      ["phone", { behavior: "auto", block: "start" }],
+    ])
+  })
+
   it("stops listening for hashchange on unmount", async () => {
     const { unmount } = render(<ContactsPanel />)
     unmount()
@@ -486,3 +624,23 @@ describe("accessibility", () => {
     expect(await axeViolations()).toEqual([])
   })
 })
+
+let harness: SectionNavState | null = null
+
+/** The Section navigation over loading frames, with its state exposed (to drive `frameReady`). */
+function Harness() {
+  const nav = useSectionNavigation()
+  useEffect(() => {
+    harness = nav
+  })
+  return (
+    <>
+      <SectionNav state={nav} />
+      {PROFILE_SECTIONS.map((section) => (
+        <SectionLandmark key={section.id} id={section.id} title={section.label}>
+          <StateFrame state="loading" skeleton="table" loadError={{ kind: "section", sectionId: section.id }} level="section" onRetry={vi.fn()} />
+        </SectionLandmark>
+      ))}
+    </>
+  )
+}

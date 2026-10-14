@@ -8,6 +8,8 @@ export const STATE_MESSAGES = {
   loadError: "Something went wrong while loading profile information",
   noAccess: "You don't have access to this in your current account",
   sectionLoadError: "Couldn't load {section}",
+  frameLoading: "Loading {noun}", // DRAFT COPY (visually hidden name of a loading frame, F3-3)
+  loadNounPage: "profile information", // DRAFT COPY (the /account frames' loading noun, from loadError)
   loadNounPersonal: "personal information", // DRAFT COPY (epics Story 2.1 load error)
   loadNounPhone: "phones", // DRAFT COPY (EXPERIENCE.md V&T example noun; epics Story 3.1)
   loadNounEmail: "emails", // DRAFT COPY (epics Story 3.5 load error)

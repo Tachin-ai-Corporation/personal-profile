@@ -2,7 +2,7 @@
 title: 'F3-3 State frames and section navigation'
 type: 'feature'
 created: '2026-10-14'
-status: 'review'
+status: 'done'
 baseline_commit: '5b4ed143dde8f204c66c2aef623311be2e3b8798'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -82,8 +82,28 @@ context:
 - **`SignatureThumb`** uses the new `lib/api/files.ts#fileDownloadPath(fileId)` (positive integer ids only, else the fallback). An image that finished before hydration is read from `img.complete`/`naturalWidth`. The `<img>` carries an eslint-disable for `no-img-element` (a session-bound proxy image must not go through the Next optimizer).
 - **Section navigation:** `useSectionNavigation()` holds scroll-spy, pin, activation and Jump to state; `SectionNav` renders it; `useHashAnchors(ids, { focusHeading, subAnchors, onFollow })` returns `{ frameReady }`, which `ContactsPanel` passes to each `StateFrame` `onReady` for the one re-scroll (a wheel/touch scroll before ready cancels it). Activation replaces the hash with `pathname + search + #id`, so other params (and the e2e fixture path) are kept; it never calls `navigate()`/`requestLeave()` (unit + e2e prove no dialog with a dirty Section). Counts: `SectionCountProvider` (mounted by `ContactsPanel`) + `useReportSectionCount(id, n)`; the menu shows them `aria-hidden` (the Section header carries its own count), blank when unreported. `SectionContainer` is the `<section id aria-labelledby>` + 44 px `h2` (`tabIndex={-1}`) row.
 - **Tabs:** `PageTabs` gains `panelOptions(tab)` (`bare`, `skipInTabOrder`) and every panel gets `focus-ring`; Contacts is bare and out of the Tab order, so Tab goes from the tab to the Section menu (or Jump to). Contacts and Insurance render their loading frames; Medical is unchanged.
+- **Review fixes (post-commit `a95a7ec`):** `PageTabs` passes `tabIndex={-1}` only when skipping, so Insurance/Medical panels keep Radix's `tabindex=0` (per-`?tab=` test, with gutters). New `features/shell/hand-scroll.ts#onHandScroll` (wheel, touchmove, scroll keys, a scrollbar `pointerdown` on `<html>`/beyond the client box; keys in input/textarea/select/contenteditable or inside `[data-hand-scroll-ignore]` — the Section menu, Jump to trigger and listbox — never count) is shared by the pin and the deep-link re-scroll. `useHashAnchors` arms the re-scroll only when the target's `StateFrame` is not `data-state="ready"`, spends it on the first ready, exposes `cancelPending()` (called by every Section activation), and also follows `HASH_NAVIGATE_EVENT`, which `navigate()` dispatches after a same-page replace with a hash. Section nav: a held Space activates once; Jump to remembers every item pick (`onClick`/`onPointerUp`/Enter/Space, skipping Radix-prevented events; Escape/outside press forget it), so re-picking the current Section activates; scroll-spy recomputes on `scroll` and makes the last Section current at the page end; label/trigger ids come from `useId()`. `forbiddenScopeFor(path, page)` is page-aware: on `account` `contact-point/list` → pickers; on `profile` the `type` param picks `phone` (Mobile/Landline), `email` or `social` at Section level, no known type → `null`. `SectionLandmark`/`SectionHeader` accept `SectionId | AccountAnchor`. The `table` skeleton is `aria-hidden` as a whole and every loading frame carries an `sr-only` "Loading {noun}" (`STATE_MESSAGES.frameLoading`, `loadNounPage` "profile information", both DRAFT COPY); NoAccess tab padding stays `px-4 py-6` (DESIGN.md `no-access-panel` padding `{spacing.6} {spacing.4}`). `isFileId` is exported from `@/lib/api`; `signature` cites its V&T source ("Registered view labels"); `tabPlaceholder` is kept for Story 7.1's provider/organizations placeholders. The e2e unknown-hash test waits for `networkidle` and uses `expect.poll`.
 - **Tests:** ported `test/dom-stubs.ts` helpers (`installDomStubs`, `FakeIntersectionObserver`, `reportIntersections`); no `user-event`/`jest-dom` in this repo, so the ported cases use `fireEvent` and plain assertions. A modified-click test stops jsdom's own hash navigation, whose queued `hashchange` leaked into later tests. `page-tabs.test.tsx`'s fixture label is now "Fixture phone" (the Phone region shares the name). `lib/server/named-ops/profile-picture-id.test.ts` "logs the route template only" is flaky upstream of this spec (it fails when the random request id contains "555").
 
 ## Spec Change Log
 
 ## Review Triage Log
+
+Review pass 1 (2026-10-14; Blind Hunter, Edge Case Hunter, Verification Gap; after integration with F3-2 in a95a7ec).
+
+| # | Finding | Verdict | Route |
+|---|---|---|---|
+| 1 | Insurance/Medical panels lose Tab stop (tabIndex undefined override) | medium | patch (+ per-tab tests) |
+| 2 | Pending deep-link re-scroll armed when ready / never expires / not cancelled | medium | patch (shared hand-scroll detector, cancelPending) |
+| 3 | Typing or Jump-to keys unpin scroll-spy; Space auto-repeat | low | patch |
+| 4 | Jump to ignores re-picking the current Section | medium | patch |
+| 5 | Last Section never current at page bottom | low | patch |
+| 6 | Same-page navigate with hash never scrolls | low | patch (`pp:hash-navigate` event) |
+| 7 | forbidden-scope not page-aware (contact-point/list on `/`) | medium | patch (`forbiddenScopeFor(path, page)`) |
+| 8 | SectionLandmark rejects account anchors | low | patch |
+| 9 | Table skeleton header read as loose text | low | patch (aria-hidden + sr-only loading label) |
+| 10 | Unknown-hash e2e cannot fail | low | patch (networkidle + poll) |
+| 11 | Fixed Jump-to ids; isFileId not exported; signature copy marker | low | patch |
+| 12 | SignatureThumb has no caller yet | low | reject (consumed by Stories 2.1/2.4/9.3) |
+| 13 | tabPlaceholder looks dead | false | reject (Story 7.1 needs it; comment added) |
+

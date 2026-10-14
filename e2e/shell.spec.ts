@@ -219,11 +219,14 @@ test.describe("Section navigation (F3-3, port of Story 1.8B)", () => {
   test("an unknown hash, or a Section hash on Insurance, leaves the page at the top", async ({ page }) => {
     const errors: string[] = []
     page.on("pageerror", (error) => errors.push(String(error)))
+    // Poll after the data settles (no requests in flight), so a late scroll would be seen.
     await open(page, "/?tab=contacts#nope")
-    expect(await page.evaluate(() => window.scrollY)).toBe(0)
+    await page.waitForLoadState("networkidle")
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
     await page.goto("/?tab=insurance#phone")
     await expect(page.getByRole("region", { name: "Insurance" })).toBeVisible()
-    expect(await page.evaluate(() => window.scrollY)).toBe(0)
+    await page.waitForLoadState("networkidle")
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
     expect(errors).toEqual([])
   })
 

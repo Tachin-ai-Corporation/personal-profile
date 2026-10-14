@@ -11,6 +11,7 @@ export const SHELL_MESSAGES = {
   comingSoon: "Coming soon", // DRAFT COPY (DESIGN.md tag-coming-soon)
   comingSoonShort: "Soon", // DRAFT COPY (DESIGN.md mobile tag)
   medicalComingSoon: "Coming soon: medications, allergies and conditions will appear here",
+  // Kept: Story 7.1 still shows it on the /account Provider and Organizations tabs until Epics 9–10.
   tabPlaceholder: "This tab is on its way.", // DRAFT COPY (7.0b-2 placeholder panel until Epics 3–5)
   accountTabPersonal: "Personal Account", // DRAFT COPY (DESIGN.md /account tabs)
   accountTabProvider: "Individual Provider Registration", // DRAFT COPY (DESIGN.md /account tabs)
@@ -27,7 +28,7 @@ export const SHELL_MESSAGES = {
   sectionEmail: "Email", // DRAFT COPY (locked: EXPERIENCE.md Information Architecture)
   sectionSocial: "Social media", // DRAFT COPY (locked: EXPERIENCE.md Information Architecture)
   sectionAddresses: "Addresses", // DRAFT COPY (locked: EXPERIENCE.md Information Architecture)
-  signature: "Signature",
+  signature: "Signature", // verbatim: EXPERIENCE.md Voice and Tone "Registered view labels"
   signatureAlt: "Your signature", // DRAFT COPY (epics Stories 2.1, 9.3 img alt)
   // Column headers of the Section tables (DESIGN.md "Section table — read").
   columnNumber: "Number", // DRAFT COPY (column header)

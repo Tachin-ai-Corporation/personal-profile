@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext } from "react"
 import { endSession, recordUserActivity } from "@/lib/api"
 import { runBeforeExit } from "./exit-hooks"
 import { beginExit, cancelExit, confirmUnload, requestLeave } from "./leave"
-import { PAGE_PATHS, pageOfPath, type NavTarget, type PageId } from "./nav-types"
+import { HASH_NAVIGATE_EVENT, PAGE_PATHS, pageOfPath, type NavTarget, type PageId } from "./nav-types"
 import { usePortalUrl } from "./portal-url-provider"
 
 /** Logout gets at most this long before the portal navigation (Story 1.7). */
@@ -67,7 +67,8 @@ async function logoutWithin(logout: () => Promise<unknown>, timeoutMs: number): 
  *
  * - page and tab moves count as user activity (an activity ping, Story 1.6).
  * - page: `router.push`, which keeps the root SWR cache.
- * - tab on the current page: `?tab=` by history replace (other params kept), the old hash dropped, no scroll.
+ * - tab on the current page: `?tab=` by history replace (other params kept), the old hash dropped, no scroll;
+ *   with a `hash`, `HASH_NAVIGATE_EVENT` then lets `useHashAnchors` scroll to it.
  * - portal: before-exit callbacks → logout (≤ 3 s, failures ignored) → same-tab `location.assign(portalUrl)`.
  * - handoff: same-tab `location.assign(href)`; no logout, no before-exit callbacks.
  */
@@ -103,6 +104,8 @@ export async function navigate(target: NavTarget, deps: NavigateDeps): Promise<b
     const history = deps.history ?? window.history
     // `null` state: Next's patched history then syncs `useSearchParams` and keeps its own tree.
     history.replaceState(null, "", withHash(`${location.pathname}${queryWith(location.search, target.tab)}`, target.hash))
+    // A replace fires no hashchange: tell the page's anchors (useHashAnchors) to follow the new hash.
+    if (target.hash && typeof window !== "undefined") window.dispatchEvent(new Event(HASH_NAVIGATE_EVENT))
     return true
   }
   deps.router.push(withHash(`${PAGE_PATHS[target.page]}${queryWith("", target.tab)}`, target.hash))

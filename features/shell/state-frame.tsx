@@ -19,8 +19,9 @@ import { cn } from "@/lib/utils"
  * UX-DR-P26/P27/P28, EXPERIENCE.md Skeleton / Inline banner):
  *
  * - `loading`: a skeleton variant (`table`, `kv`, `tiles`, `bars`, `cards`)
- *   marked `aria-busy`, its bars `aria-hidden`, the shimmer static under
- *   reduced motion.
+ *   marked `aria-busy`, the whole skeleton `aria-hidden` (column headers
+ *   included) and named by a visually hidden "Loading {noun}", the shimmer
+ *   static under reduced motion.
  * - `{ error }`, by `MappedError` kind: `session` → nothing (the session
  *   dialog owns it); `forbidden` → `NoAccess` (tab: centred bordered panel,
  *   Section: one row); anything else → the load-error banner with Retry, which
@@ -46,6 +47,13 @@ export type LoadErrorCopy = { readonly kind: "section"; readonly sectionId: Load
 
 /** The My Organizations card grid (DESIGN.md Organization card: 4 / 3 / 2 / 1 columns, 16 px gaps). */
 export const ORG_GRID_CLASSES = "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+
+/** The visually hidden name of a loading frame: "Loading {noun}". */
+export function loadingLabel(copy: LoadErrorCopy): string {
+  return formatMessage(STATE_MESSAGES.frameLoading, {
+    noun: copy.kind === "page" ? STATE_MESSAGES.loadNounPage : SECTION_LOAD_NOUNS[copy.sectionId],
+  })
+}
 
 /** The load-error sentence for a frame. */
 export function loadErrorMessage(copy: LoadErrorCopy): string {
@@ -196,7 +204,8 @@ export function FrameSkeleton({ variant, columns = [] }: FrameSkeletonProps): JS
   switch (variant) {
     case "table":
       return (
-        <div data-slot="frame-skeleton" data-variant="table">
+        // aria-hidden as a whole: the real column headers are visuals here, not a table.
+        <div data-slot="frame-skeleton" data-variant="table" aria-hidden="true">
           {columns.length > 0 && (
             <div
               data-slot="frame-skeleton-header"
@@ -209,13 +218,11 @@ export function FrameSkeleton({ variant, columns = [] }: FrameSkeletonProps): JS
               ))}
             </div>
           )}
-          <div aria-hidden="true">
-            {repeat(TABLE_ROWS).map((i) => (
-              <div key={i} data-slot="frame-skeleton-row" className={cn("flex h-11 items-center px-3", i > 0 && "border-t")}>
-                <Bar className="h-3 w-full" />
-              </div>
-            ))}
-          </div>
+          {repeat(TABLE_ROWS).map((i) => (
+            <div key={i} data-slot="frame-skeleton-row" className={cn("flex h-11 items-center px-3", i > 0 && "border-t")}>
+              <Bar className="h-3 w-full" />
+            </div>
+          ))}
         </div>
       )
     case "kv":
@@ -326,7 +333,16 @@ export function StateFrame({
 
   let body: ReactNode
   if (status === "ready") body = children
-  else if (status === "loading") body = <FrameSkeleton variant={skeleton} columns={columns} />
+  else if (status === "loading")
+    body = (
+      <>
+        {/* The skeleton is aria-hidden: this is what a screen reader meets in the busy frame. */}
+        <span data-slot="frame-loading-label" className="sr-only">
+          {loadingLabel(loadError)}
+        </span>
+        <FrameSkeleton variant={skeleton} columns={columns} />
+      </>
+    )
   else if (typeof state === "object")
     body = <ReadStateFor error={state.error} onRetry={onRetry} attempt={attempt} loadError={loadError} level={level} />
 

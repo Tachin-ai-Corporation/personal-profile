@@ -51,6 +51,21 @@ describe("skeleton variants", () => {
     expect(screen.queryByText("Ready content")).toBeNull()
   })
 
+  it("table: the whole skeleton (column headers included) is aria-hidden; the busy frame is named Loading {noun}", () => {
+    const { container, rerender } = render(frame({ columns: ["Number", "Label"], loadError: { kind: "section", sectionId: "phone" } }))
+    const skeleton = container.querySelector('[data-slot="frame-skeleton"]')
+    expect(skeleton?.getAttribute("aria-hidden")).toBe("true")
+    expect(skeleton?.contains(container.querySelector('[data-slot="frame-skeleton-header"]'))).toBe(true)
+    const label = container.querySelector('[data-slot="frame-loading-label"]')
+    expect(label?.textContent).toBe("Loading phones")
+    hasClasses(label, "sr-only")
+    expect(label?.closest('[aria-hidden="true"]')).toBeNull()
+    rerender(frame({ level: "tab", skeleton: "cards" }))
+    expect(container.querySelector('[data-slot="frame-loading-label"]')?.textContent).toBe("Loading profile information")
+    rerender(frame({ state: "ready" }))
+    expect(container.querySelector('[data-slot="frame-loading-label"]')).toBeNull()
+  })
+
   it("table without columns has no header row", () => {
     const { container } = render(frame())
     expect(container.querySelector('[data-slot="frame-skeleton-header"]')).toBeNull()

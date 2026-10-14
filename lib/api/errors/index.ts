@@ -26,6 +26,7 @@ export {
   normalizeForbiddenPath,
   type ForbiddenLevel,
   type ForbiddenOwner,
+  type ForbiddenPage,
   type ForbiddenScope,
   type ForbiddenScopeRule,
 } from "./forbidden-scope"

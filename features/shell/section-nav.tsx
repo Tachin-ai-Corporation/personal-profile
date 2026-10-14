@@ -1,11 +1,12 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type RefObject } from "react"
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent, type RefObject, type SyntheticEvent } from "react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { SHELL_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
 import { isProfileSectionId, PROFILE_SECTION_IDS, PROFILE_SECTIONS, PROFILE_SUB_ANCHORS, sectionHeadingId, type ProfileSectionId } from "./anchors"
 import { isPlainClick } from "./page-nav"
+import { HAND_SCROLL_IGNORE_ATTR, onHandScroll } from "./hand-scroll"
 import { useSectionCounts } from "./section-counts"
 import { motionAwareScrollBehavior, useHashAnchors } from "./use-hash-anchors"
 
@@ -17,7 +18,8 @@ import { motionAwareScrollBehavior, useHashAnchors } from "./use-hash-anchors"
  * - **Menu (≥ 768 px):** a sticky 200 px `<nav aria-label="Sections">` of five
  *   `href="#<id>"` links: mono number, label, mono saved-entry count.
  * - **Jump to (< 768 px):** a full-width Select with the same five targets;
- *   choosing one moves focus to the Section's `h2` when the listbox closes.
+ *   choosing one (the current one included) moves focus to the Section's `h2`
+ *   when the listbox closes.
  * - **Activation** (click, Enter or Space; or a Jump to choice): scroll the
  *   Section into view (smooth, or instant under reduced motion), focus its
  *   `h2` without scrolling, and `history.replaceState` the hash (other params
@@ -25,9 +27,11 @@ import { motionAwareScrollBehavior, useHashAnchors } from "./use-hash-anchors"
  *   Section stays dirty and no dialog opens.
  * - **Scroll-spy:** an IntersectionObserver (`rootMargin "0px 0px -60% 0px"`)
  *   marks exactly one item `aria-current="location"`: the top-most Section in
- *   view, the first when none is. An activated or deep-linked Section stays
- *   current until it first enters view, then while it is in view, until the
- *   user scrolls by hand (wheel, touch, scroll keys outside the menu).
+ *   view, the first when none is, the last when the page is scrolled to its
+ *   end. An activated or deep-linked Section stays current until it first
+ *   enters view, then while it is in view, until the user scrolls by hand
+ *   (`onHandScroll`: wheel, touch, scroll keys outside the menu, Jump to and
+ *   editable fields, a scrollbar press).
  * - **Deep links:** `useHashAnchors` (mount and `hashchange`, `#signature` →
  *   the Signature row, unknown hashes ignored, one re-scroll when the target
  *   frame becomes ready).
@@ -35,21 +39,28 @@ import { motionAwareScrollBehavior, useHashAnchors } from "./use-hash-anchors"
  * =============================================================================
  */
 
-/** Keys that scroll the page; pressing one outside the menu ends the pin. */
-const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "])
-
 export interface SectionNavState {
   readonly activeId: ProfileSectionId
   /** Scroll to the Section, focus its `h2`, replace the hash. */
   activate(id: ProfileSectionId): void
   /** Jump to: remember the choice until the listbox closes. */
   choose(id: ProfileSectionId): void
+  /** Jump to: the listbox is being dismissed (Escape, outside press); forget any remembered choice. */
+  dismissListbox(): void
   /** Jump to: the listbox closed; returns `true` when a choice was activated. */
   closeListbox(): boolean
   readonly navRef: RefObject<HTMLElement | null>
   /** Pass to each Section frame's `onReady` (`StateFrame`), for the deep-link re-scroll. */
   frameReady(frameId: string): void
 }
+
+/** Whether the page is scrollable and scrolled to its end (1 px of rounding allowed). */
+function isScrolledToEnd(): boolean {
+  const max = document.documentElement.scrollHeight - window.innerHeight
+  return max > 0 && window.scrollY >= max - 1
+}
+
+const LAST_SECTION_ID = PROFILE_SECTION_IDS[PROFILE_SECTION_IDS.length - 1]
 
 /** The Contacts tab's Section navigation state: scroll-spy, pin, activation and deep links. */
 export function useSectionNavigation(): SectionNavState {
@@ -74,13 +85,27 @@ export function useSectionNavigation(): SectionNavState {
         return
       }
     }
+    // At the end of the page the last Section can never reach the top 40 %: make it current.
+    if (isScrolledToEnd()) {
+      setActiveId(LAST_SECTION_ID)
+      return
+    }
     setActiveId(PROFILE_SECTION_IDS.find((id) => visible.current.has(id)) ?? PROFILE_SECTION_IDS[0])
   }, [])
+
+  const { frameReady, cancelPending } = useHashAnchors(PROFILE_SECTION_IDS, {
+    subAnchors: PROFILE_SUB_ANCHORS,
+    onFollow: (frame) => {
+      if (isProfileSectionId(frame)) pin(frame)
+    },
+  })
 
   const activate = useCallback(
     (id: ProfileSectionId) => {
       const section = document.getElementById(id)
       if (!section) return
+      // The user chose a Section: an earlier deep link's re-scroll must not pull them back.
+      cancelPending()
       pin(id)
       section.scrollIntoView({ behavior: motionAwareScrollBehavior(), block: "start" })
       document.getElementById(sectionHeadingId(id))?.focus({ preventScroll: true })
@@ -88,15 +113,8 @@ export function useSectionNavigation(): SectionNavState {
       // `null` state: Next's patched history keeps `useSearchParams` in sync. No navigate(): not a leave.
       window.history.replaceState(null, "", `${pathname}${search}#${id}`)
     },
-    [pin],
+    [pin, cancelPending],
   )
-
-  const { frameReady } = useHashAnchors(PROFILE_SECTION_IDS, {
-    subAnchors: PROFILE_SUB_ANCHORS,
-    onFollow: (frame) => {
-      if (isProfileSectionId(frame)) pin(frame)
-    },
-  })
 
   // Scroll-spy.
   useEffect(() => {
@@ -124,27 +142,22 @@ export function useSectionNavigation(): SectionNavState {
     }
   }, [recompute])
 
-  // A hand scroll ends the pin.
+  // Reaching (or leaving) the end of the page changes no intersection: recompute on scroll too.
   useEffect(() => {
-    const unpin = (): void => {
-      if (pinned.current === null) return
-      pinned.current = null
-      recompute()
-    }
-    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
-      if (!SCROLL_KEYS.has(event.key)) return
-      if (event.target instanceof Node && navRef.current?.contains(event.target)) return
-      unpin()
-    }
-    window.addEventListener("wheel", unpin, { passive: true })
-    window.addEventListener("touchmove", unpin, { passive: true })
-    window.addEventListener("keydown", onKeyDown)
-    return () => {
-      window.removeEventListener("wheel", unpin)
-      window.removeEventListener("touchmove", unpin)
-      window.removeEventListener("keydown", onKeyDown)
-    }
+    window.addEventListener("scroll", recompute, { passive: true })
+    return () => window.removeEventListener("scroll", recompute)
   }, [recompute])
+
+  // A hand scroll ends the pin.
+  useEffect(
+    () =>
+      onHandScroll(() => {
+        if (pinned.current === null) return
+        pinned.current = null
+        recompute()
+      }),
+    [recompute],
+  )
 
   return {
     activeId,
@@ -152,6 +165,9 @@ export function useSectionNavigation(): SectionNavState {
     choose(id) {
       pendingJump.current = id
       setActiveId(id)
+    },
+    dismissListbox() {
+      pendingJump.current = null
     },
     closeListbox() {
       const id = pendingJump.current
@@ -173,6 +189,8 @@ export interface SectionNavProps {
 export function SectionNav({ state }: SectionNavProps) {
   const counts = useSectionCounts()
   const { activeId, activate, navRef } = state
+  const triggerId = useId()
+  const labelId = useId()
 
   const onMenuClick = (event: MouseEvent<HTMLAnchorElement>, id: ProfileSectionId): void => {
     if (!isPlainClick(event)) return
@@ -180,16 +198,22 @@ export function SectionNav({ state }: SectionNavProps) {
     activate(id)
   }
   const onMenuKeyDown = (event: KeyboardEvent<HTMLAnchorElement>, id: ProfileSectionId): void => {
-    // Enter activates through the link's own click; Space does not, so handle it.
+    // Enter activates through the link's own click; Space does not, so handle it (once: a held Space repeats).
     if (event.key !== " ") return
     event.preventDefault()
+    if (event.repeat) return
     activate(id)
+  }
+
+  /** A Jump to pick: Radix prevents the pointerup that only ends the opening press. */
+  const pick = (event: SyntheticEvent, id: ProfileSectionId): void => {
+    if (!event.defaultPrevented) state.choose(id)
   }
 
   return (
     <>
       <div className="hidden border-r md:block">
-        <nav ref={navRef} aria-label={SHELL_MESSAGES.sectionsNavLabel} className="sticky top-0 py-4">
+        <nav ref={navRef} {...{ [HAND_SCROLL_IGNORE_ATTR]: "" }} aria-label={SHELL_MESSAGES.sectionsNavLabel} className="sticky top-0 py-4">
           <ol>
             {PROFILE_SECTIONS.map((section) => {
               const current = section.id === activeId
@@ -229,7 +253,7 @@ export function SectionNav({ state }: SectionNavProps) {
       </div>
 
       <div className="flex items-center gap-3 border-b px-4 py-3 md:hidden">
-        <label id="jump-to-label" htmlFor="jump-to-trigger" className="text-muted-foreground text-body-sm whitespace-nowrap">
+        <label id={labelId} htmlFor={triggerId} className="text-muted-foreground text-body-sm whitespace-nowrap">
           {SHELL_MESSAGES.jumpTo}
         </label>
         <Select
@@ -238,17 +262,29 @@ export function SectionNav({ state }: SectionNavProps) {
             if (isProfileSectionId(value)) state.choose(value)
           }}
         >
-          <SelectTrigger id="jump-to-trigger" aria-labelledby="jump-to-label" className="min-w-0 flex-1">
+          <SelectTrigger id={triggerId} aria-labelledby={labelId} {...{ [HAND_SCROLL_IGNORE_ATTR]: "" }} className="min-w-0 flex-1">
             <SelectValue />
           </SelectTrigger>
           <SelectContent
+            {...{ [HAND_SCROLL_IGNORE_ATTR]: "" }}
+            onEscapeKeyDown={state.dismissListbox}
+            onPointerDownOutside={state.dismissListbox}
             onCloseAutoFocus={(event) => {
               // The listbox would return focus to the trigger; a choice moves it to the Section h2 instead.
               if (state.closeListbox()) event.preventDefault()
             }}
           >
             {PROFILE_SECTIONS.map((section) => (
-              <SelectItem key={section.id} value={section.id}>
+              <SelectItem
+                key={section.id}
+                value={section.id}
+                // Radix skips onValueChange when the current Section is picked again: remember every pick here.
+                onClick={(event) => pick(event, section.id)}
+                onPointerUp={(event) => pick(event, section.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") pick(event, section.id)
+                }}
+              >
                 <span aria-hidden="true" className="text-muted-foreground font-mono text-caption">
                   {section.number}
                 </span>
