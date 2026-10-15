@@ -94,7 +94,7 @@ describe("DISABLED_SCREEN_TOKENS (light) and DISABLED_SCREEN_DARK_TOKENS", () =>
   })
 })
 
-describe("disabledScreenEnvironment (session → remembered cookie → /auth referrer → prod)", () => {
+describe("disabledScreenEnvironment (/auth: referrer → cookie → prod; other pages: session → cookie → prod)", () => {
   it("prefers the session's environment, even an aged session", async () => {
     const seal = await sealSession(makeSession({ environment: "demo", lastSeen: NOW - 3_600_000 }))
     expect(await disabledScreenEnvironment(request({ cookie: `${SESSION_COOKIE}=${seal}; onehealth_environment=prod` }))).toBe("demo")
@@ -104,12 +104,23 @@ describe("disabledScreenEnvironment (session → remembered cookie → /auth ref
     expect(await disabledScreenEnvironment(request({ cookie: `${SESSION_COOKIE}=junk; onehealth_environment=demo` }))).toBe("demo")
   })
 
-  it("then the referrer, only when the switched-off page was /auth", async () => {
+  it("reads the referrer only when the switched-off page was /auth", async () => {
     const referer = "https://1health.demo.1health.io/apps"
     expect(await disabledScreenEnvironment(request({ referer, [DISABLED_FROM_HEADER]: DISABLED_FROM_AUTH }))).toBe("demo")
     expect(await disabledScreenEnvironment(request({ referer }))).toBe("prod")
     expect(await disabledScreenEnvironment(request({ referer: "https://example.com/", [DISABLED_FROM_HEADER]: DISABLED_FROM_AUTH }))).toBe("prod")
     expect(await disabledScreenEnvironment(request({ [DISABLED_FROM_HEADER]: DISABLED_FROM_AUTH }))).toBe("prod")
+  })
+
+  it("on /auth (D2): the referrer first, then the remembered cookie, never the session", async () => {
+    const seal = await sealSession(makeSession({ environment: "prod" }))
+    const fromAuth = { [DISABLED_FROM_HEADER]: DISABLED_FROM_AUTH }
+    expect(
+      await disabledScreenEnvironment(request({ ...fromAuth, referer: "https://1health.demo.1health.io/", cookie: `${SESSION_COOKIE}=${seal}; onehealth_environment=prod` })),
+    ).toBe("demo")
+    expect(await disabledScreenEnvironment(request({ ...fromAuth, referer: "https://1health.app.1health.io/", cookie: "onehealth_environment=demo" }))).toBe("prod")
+    expect(await disabledScreenEnvironment(request({ ...fromAuth, referer: "https://example.com/", cookie: "onehealth_environment=demo" }))).toBe("demo")
+    expect(await disabledScreenEnvironment(request({ ...fromAuth, cookie: `${SESSION_COOKIE}=${await sealSession(makeSession({ environment: "demo" }))}` }))).toBe("prod")
   })
 
   it("survives a misconfigured env (the session cannot be unsealed)", async () => {

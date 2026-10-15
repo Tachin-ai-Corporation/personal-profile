@@ -53,8 +53,6 @@ export type CallApiInit = RequestInit & {
 }
 
 interface SendOptions {
-  /** Send `X-PP-Activity: user`; otherwise strip it. */
-  readonly userActivity: boolean
   readonly activity: Activity
 }
 
@@ -64,6 +62,11 @@ const READ_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"])
 /** An echo is the server's clock in epoch ms: digits only. */
 const ACTIVITY_AT = /^\d{1,16}$/
 
+/**
+ * The `fetch` init: the activity header set or stripped, JSON defaults, and
+ * `credentials: "same-origin"` whatever the caller passed. Throws on invalid
+ * caller headers (`callApi` turns that into `NETWORK_ERROR`).
+ */
 function buildInit(init: RequestInit, userActivity: boolean): RequestInit {
   const headers = new Headers(init.headers)
   if (userActivity) headers.set(ACTIVITY_HEADER, ACTIVITY_USER)
@@ -71,6 +74,19 @@ function buildInit(init: RequestInit, userActivity: boolean): RequestInit {
   if (!headers.has("Accept")) headers.set("Accept", "application/json")
   if (typeof init.body === "string" && !headers.has("Content-Type")) headers.set("Content-Type", "application/json")
   return { ...init, headers, credentials: "same-origin" }
+}
+
+/** Resolves dot segments the way `fetch` would; the result must still be under `/api/`. */
+const GUARD_BASE = "http://pp.invalid"
+
+function isApiPath(path: unknown): path is string {
+  if (typeof path !== "string" || !path.startsWith("/api/")) return false
+  try {
+    return new URL(path, GUARD_BASE).pathname.startsWith("/api/")
+  } catch {
+    /* v8 ignore next -- defensive: a "/api/…" string always parses against the base; the guard must never throw */
+    return false
+  }
 }
 
 const networkError = <T>(context: string): Sent<T> => ({
@@ -87,7 +103,7 @@ async function send<T>(context: string, path: string, init: RequestInit, options
 
   let response: Response
   try {
-    response = await fetch(path, buildInit(init, options.userActivity))
+    response = await fetch(path, init)
   } catch {
     log(undefined)
     return networkError(context)
@@ -154,7 +170,7 @@ export function createCallApi(deps: ApiClientDeps = {}): CallApi {
 
   /** The refresh POST is never user activity. */
   async function runRefresh(): Promise<RefreshOutcome> {
-    const { response } = await send<unknown>("session/refresh", BFF_PATHS.sessionRefresh, { method: "POST" }, { userActivity: false, activity })
+    const { response } = await send<unknown>("session/refresh", BFF_PATHS.sessionRefresh, buildInit({ method: "POST" }, false), { activity })
     if (response.success) return { kind: "refreshed" }
     if (response.errorCode === "SESSION_EXPIRED") return { kind: "expired" }
     return { kind: "unavailable" }
@@ -168,13 +184,20 @@ export function createCallApi(deps: ApiClientDeps = {}): CallApi {
   }
 
   return async function callApi<T = unknown>(context: string, path: string, callerInit: CallApiInit = {}): Promise<ApiResponse<T>> {
-    if (!path.startsWith("/api/")) {
+    if (!isApiPath(path)) {
       return { success: false, errorCode: "BAD_PATH", error: `${context}: only same-origin /api/ paths are allowed` }
     }
 
-    const { userInitiated, ...init } = callerInit
-    // The first send and the replay carry the same activity header.
-    const options: SendOptions = { userActivity: userInitiated === true || !READ_METHODS.has((init.method ?? "GET").toUpperCase()), activity }
+    const { userInitiated, ...callerRest } = callerInit
+    // The first send and the replay carry the same init (and activity header).
+    let init: RequestInit
+    try {
+      init = buildInit(callerRest, userInitiated === true || !READ_METHODS.has((callerRest.method ?? "GET").toUpperCase()))
+    } catch {
+      // Invalid caller headers: fail like a network error, never throw.
+      return networkError<T>(context).response
+    }
+    const options: SendOptions = { activity }
     const first = await send<T>(context, path, init, options)
     // Only a proxy-originated TOKEN_EXPIRED is refreshed and replayed (AD-16):
     // a non-GET is never replayed after a 5xx, timeout or network error.

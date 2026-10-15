@@ -112,6 +112,21 @@ describe("ProfileTabs", () => {
     expect(selected()).toBe("Insurance")
   })
 
+  // Ported from origin/main's profile-tabs.test.tsx (spec R5-2).
+  it("Tab enters on the selected tab only (roving tabindex)", async () => {
+    setTestUrl("/?tab=insurance")
+    setup()
+    // No tab is a tab stop of its own; the tablist is, and hands focus to the selected tab.
+    expect(screen.getAllByRole("tab").map((t) => t.getAttribute("tabindex"))).toEqual(["-1", "-1", "-1"])
+    expect(screen.getByRole("tablist").getAttribute("tabindex")).toBe("0")
+    await act(async () => screen.getByRole("tablist").focus())
+    expect(document.activeElement).toBe(tab("Insurance"))
+    expect(screen.getAllByRole("tab").map((t) => t.getAttribute("tabindex"))).toEqual(["-1", "0", "-1"])
+    await press(tab("Insurance"), "ArrowRight")
+    expect(document.activeElement).toBe(tab(MEDICAL))
+    expect(screen.getAllByRole("tab").map((t) => t.getAttribute("tabindex"))).toEqual(["-1", "-1", "0"])
+  })
+
   it("moves focus with Left/Right (wrapping) and Home/End without activating", async () => {
     setup()
     tab("Contacts").focus()

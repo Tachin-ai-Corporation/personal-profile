@@ -204,6 +204,14 @@ Tier 3 light tokens in `app/globals.css`).
 | `destructive-fill` `#b23a31` | `--destructive` `#d84f45` | white text 4.10:1 → 5.93:1 | WCAG 1.4.3 text |
 | `control-border` `#7a8696` | `--input` `#e1e8ef` | 1.24:1 → 3.7:1 on card | WCAG 1.4.11 boundary |
 
+**Primary-colored text.** `text-primary` (trust-blue `#246b8f`) is fine on the
+light surfaces but fails AA on the dark ones (2.18:1 on the dark card). Text in
+the primary hue therefore uses `text-primary-text`: the brand primary in light,
+info-strong `#6fb6d8` in dark, which is `text-primary dark:text-info-strong` as
+one token (the wordmark and the active Section menu item use it). Never put
+bare `text-primary` on text. Links use `text-link-text`, and a primary *fill*
+(`bg-primary` with `text-primary-foreground`) needs no override.
+
 The destructive fill stays `#b23a31` in dark mode because white on the dark
 `--error-strong` (`#f08a80`) is 2.4:1. The dark `scrim` (black at 60 %, not
 graphite) is a fourth delta pending PM/design review: graphite over the graphite

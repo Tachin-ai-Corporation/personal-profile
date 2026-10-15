@@ -152,3 +152,86 @@ describe("lint: no entityTypeCode in features/provider (AD-23, Story 9.1; spec F
     expect((await ruleHits("features/provider/x.ts", "export const f = () => fetch(\"/x\")\n")).join("\n")).toMatch(/Use callApi/)
   })
 })
+
+/**
+ * Main's lint guards (spec R5-2, ported from origin/main `lib/api/keys.test.ts`):
+ * callApi is the only browser transport, keys.ts the only SWR key builder,
+ * app-env.ts reads only NODE_ENV.
+ */
+describe("lint guards ported from main (spec R5-2)", () => {
+  async function fatalFree(filePath: string, code: string): Promise<string[]> {
+    const [result] = await eslint.lintText(code, { filePath })
+    // A parse error would make the "allows" cases pass vacuously.
+    expect(result.messages.filter((m) => m.fatal)).toEqual([])
+    return result.messages.filter((m) => m.severity === 2).map((m) => `${m.ruleId}: ${m.message}`)
+  }
+
+  const FETCH = /no-restricted-syntax: Use callApi/
+  const SWR_KEY = /no-restricted-syntax: Build SWR keys with lib\/api\/keys\.ts/
+
+  it.each([
+    ["bare fetch", 'export const f = () => fetch("/api/x")\n'],
+    ["window.fetch", 'export const f = () => window.fetch("/api/x")\n'],
+    ["globalThis.fetch", 'export const f = () => globalThis.fetch("/api/x")\n'],
+    ["self.fetch", 'export const f = () => self.fetch("/api/x")\n'],
+    ["an aliased window.fetch", "export const f = window.fetch\n"],
+  ])("rejects %s in app code outside lib/server and lib/api/client.ts", async (_name, code) => {
+    for (const filePath of ["features/demo/load.ts", "components/demo.tsx", "lib/api/demo.ts", "lib/shared/demo.ts", "app/demo/page.tsx"]) {
+      expect((await fatalFree(filePath, code)).join("\n"), filePath).toMatch(FETCH)
+    }
+  })
+
+  it.each(["lib/api/client.ts", "features/demo/load.test.ts", "lib/server/proxy/x.ts"])("allows fetch and window.fetch in %s", async (filePath) => {
+    expect((await fatalFree(filePath, 'export const f = () => fetch("/x")\nexport const g = () => window.fetch("/x")\n')).join("\n")).not.toMatch(FETCH)
+  })
+
+  it.each([
+    ["process.env.SECRET", "export const a = process.env.SECRET\n"],
+    ['process.env["NODE_ENV"]', 'export const a = process.env["NODE_ENV"]\n'],
+    ["a bare process.env", "export const a = process.env\n"],
+  ])("rejects %s in lib/shared/app-env.ts (NODE_ENV only, D6)", async (_name, code) => {
+    expect((await fatalFree("lib/shared/app-env.ts", code)).join("\n")).toMatch(/lib\/shared\/app-env\.ts may read only process\.env\.NODE_ENV/)
+  })
+
+  it("allows process.env.NODE_ENV in lib/shared/app-env.ts and nowhere else in app code", async () => {
+    expect(await fatalFree("lib/shared/app-env.ts", "export const a = process.env.NODE_ENV\n")).toEqual([])
+    expect((await fatalFree("features/demo/env.ts", "export const a = process.env.NODE_ENV\n")).join("\n")).toMatch(/lib\/server\/env\.ts only/)
+  })
+
+  it.each([
+    ["useSWR array", 'import useSWR from "swr"\nexport function useX() { return useSWR(["pp","myself"], () => 1) }\n'],
+    ["useSWR string", 'import useSWR from "swr"\nexport function useX() { return useSWR("/api/x", () => 1) }\n'],
+    ["useSWR template", 'import useSWR from "swr"\nconst r = "x"\nexport function useX() { return useSWR(`pp-${r}`, () => 1) }\n'],
+    ["useSWRImmutable array", 'import useSWRImmutable from "swr/immutable"\nexport function useX() { return useSWRImmutable(["pp"], () => 1) }\n'],
+    ["useSWRMutation array", 'import useSWRMutation from "swr/mutation"\nexport function useX() { return useSWRMutation(["pp"], () => 1) }\n'],
+    ["useSWRSubscription string", 'import useSWRSubscription from "swr/subscription"\nexport function useX() { return useSWRSubscription("pp", () => () => {}) }\n'],
+    ["mutate array", 'import { mutate } from "swr"\nexport const m = () => mutate(["pp","myself"])\n'],
+    ["x.mutate array", 'export const m = (cache: { mutate: (k: unknown) => void }) => cache.mutate(["pp","myself"])\n'],
+    ["preload string", 'import { preload } from "swr"\nexport const p = () => preload("pp", () => 1)\n'],
+    ["x.preload template", "export const p = (s: { preload: (k: unknown) => void }) => s.preload(`pp`)\n"],
+  ])("rejects an inline SWR key: %s", async (_name, code) => {
+    expect((await fatalFree("features/demo/hook.ts", code)).join("\n")).toMatch(SWR_KEY)
+  })
+
+  it("rejects inline SWR keys outside features/ too", async () => {
+    expect((await fatalFree("app/x.tsx", 'import { mutate } from "swr"\nexport const m = () => mutate(["pp"])\n')).join("\n")).toMatch(SWR_KEY)
+  })
+
+  it("allows keys built by keys.*", async () => {
+    const code =
+      'import useSWR, { mutate } from "swr"\nimport { keys, swrFetcher } from "@/lib/api"\n' +
+      "export function useX() { return useSWR(keys.myself(), swrFetcher) }\n" +
+      "export const m = () => mutate(keys.myself())\n"
+    expect((await fatalFree("features/demo/hook.ts", code)).join("\n")).not.toMatch(SWR_KEY)
+  })
+
+  it("bans dangerouslySetInnerHTML", async () => {
+    const code = 'export const X = () => <div dangerouslySetInnerHTML={{ __html: "x" }} />\n'
+    expect((await fatalFree("features/demo/x.tsx", code)).join("\n")).toMatch(/dangerouslySetInnerHTML is banned/)
+  })
+
+  it("bans NextResponse.redirect in app/handoff/** (AD-4)", async () => {
+    const code = 'import { NextResponse } from "next/server"\nexport const GET = () => NextResponse.redirect("https://x.example")\n'
+    expect((await fatalFree("app/handoff/x/route.ts", code)).join("\n")).toMatch(/Use seeOther\(\)/)
+  })
+})

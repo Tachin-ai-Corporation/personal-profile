@@ -22,7 +22,8 @@ function runAll(set: Set<ExitCallback>): void {
     try {
       callback()
     } catch (error) {
-      console.error("[shell] exit callback failed", error)
+      // Only the name: an error message could carry user data.
+      console.error("[shell] exit callback failed", error instanceof Error ? error.name : typeof error)
     }
   }
 }

@@ -140,6 +140,53 @@ describe("message catalog: voice rules", () => {
   })
 })
 
+// Ported from origin/main's messages.test.ts (spec R5-2): every /auth string,
+// verbatim (patient-vault / EXPERIENCE.md), so a copy edit is a deliberate test change.
+describe("LAUNCH_MESSAGES and LAUNCH_ERROR_MESSAGES (verbatim)", () => {
+  it("holds every /auth string exactly", () => {
+    const rendered = {
+      ...LAUNCH_MESSAGES,
+      connectingTo: LAUNCH_MESSAGES.connectingTo("Demo"),
+      goTo1health: LAUNCH_MESSAGES.goTo1health("Production"),
+      manualDescription: LAUNCH_MESSAGES.manualDescription("Demo"),
+    }
+    expect(rendered).toEqual({
+      authenticatingTitle: "Authenticating...",
+      connectingTo: "Connecting to Demo environment",
+      confirmingTitle: "Confirming your login...",
+      confirmingBody: "This can take a moment. Please wait while we finish confirming your login.",
+      successTitle: "Success!",
+      successBody: "Loading app...",
+      failedTitle: "Authentication Failed",
+      failedFallback: "Unable to authenticate. Please return to 1health and try again.",
+      connectionTitle: "Connection Error",
+      connectionBody: "Unable to connect to the authentication service. Please check your connection and try again.",
+      enterManually: "Enter LPL Manually",
+      switchEnvironment: "Switch Environment",
+      goTo1health: "Go to 1health (Production)",
+      manualTitle: "Authentication Required",
+      manualDescription: "Connected to Demo environment. No launch payload detected.",
+      lplLabel: "Launch Payload (LPL)",
+      lplPlaceholder: "Paste encrypted LPL here...",
+      submit: "Submit",
+      or: "Or",
+      chooseTitle: "Choose Environment",
+      chooseDescription: "Select which 1health environment to connect to.",
+      initializing: "Initializing...",
+    })
+    expect(LAUNCH_MESSAGES.connectingTo("Production")).toBe("Connecting to Production environment")
+    expect(LAUNCH_MESSAGES.goTo1health("Demo")).toBe("Go to 1health (Demo)")
+  })
+
+  it("holds every /api/token error message exactly", () => {
+    expect(LAUNCH_ERROR_MESSAGES).toEqual({
+      expired: "This link has expired. Open Personal Profile again from 1health.",
+      wrongTenant: "This is available in your personal account. Switch to it in 1health and open it again.",
+      unavailable: "Personal Profile is unavailable right now. Use your profile in 1health for now.",
+    })
+  })
+})
+
 describe("Section load errors (F3-3)", () => {
   it("fills the V&T template with each Section's plural noun", () => {
     const filled = Object.values(SECTION_LOAD_NOUNS).map((noun) => formatMessage(STATE_MESSAGES.sectionLoadError, { section: noun }))

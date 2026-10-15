@@ -29,11 +29,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # setup-node's `cache: pnpm` runs `pnpm store path`, so pnpm must be on PATH
+      # first (main's order): corepack of the runner's Node provides it.
+      - name: Enable corepack (pnpm from packageManager)
+        run: corepack enable
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: pnpm
 
-      - name: Enable corepack (pnpm from packageManager)
+      # Again for Node 24 itself, whose bin dir now comes first on PATH.
+      - name: Enable corepack for Node 24
         run: corepack enable
 
       - name: Install

@@ -23,6 +23,27 @@ export interface RefreshCoordinator {
 
 export const REFRESH_LOCK = "pp-refresh"
 
+/**
+ * Runs `run` under the lock. If the lock itself fails (`request` rejects):
+ * before the callback ran → refresh unlocked; after it produced an outcome →
+ * that outcome; after it started without an outcome → `unavailable` (never a
+ * second, concurrent refresh). Spec R5-2, main's fallback.
+ */
+async function runLocked(locks: LockManagerLike, run: () => Promise<RefreshOutcome>): Promise<RefreshOutcome> {
+  let ran = false
+  let outcome: RefreshOutcome | undefined
+  try {
+    return await locks.request(REFRESH_LOCK, async () => {
+      ran = true
+      outcome = await run()
+      return outcome
+    })
+  } catch {
+    if (!ran) return run()
+    return outcome ?? { kind: "unavailable" }
+  }
+}
+
 export function createRefreshCoordinator(
   run: () => Promise<RefreshOutcome>,
   getLocks: () => LockManagerLike | undefined,
@@ -33,7 +54,7 @@ export function createRefreshCoordinator(
     refresh() {
       if (inFlight) return inFlight
       const locks = getLocks()
-      const attempt = locks ? locks.request(REFRESH_LOCK, run) : run()
+      const attempt = locks ? runLocked(locks, run) : run()
       inFlight = attempt
         .catch((): RefreshOutcome => ({ kind: "unavailable" }))
         .finally(() => {

@@ -23,11 +23,15 @@ import { pageReadHandlers, type PageReadOptions } from "./page-handlers"
 
 export const TEST_PORTAL_URL = "https://portal.test"
 
-/** The app's root SWR provider with a fresh cache per test, plus the portal URL. */
+/**
+ * The app's root SWR provider with a fresh cache per test, plus the portal URL.
+ * The `myself` auto-retry (spec R5-2) is off here (`errorRetryCount: 0`), so a
+ * failed read shows its error at once; `use-myself.test.tsx` covers the retries.
+ */
 export function TestProviders({ children }: { readonly children: ReactNode }) {
   return (
     <SwrProvider>
-      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0, errorRetryCount: 0 }}>
         <PortalUrlProvider portalUrl={TEST_PORTAL_URL}>{children}</PortalUrlProvider>
       </SWRConfig>
     </SwrProvider>

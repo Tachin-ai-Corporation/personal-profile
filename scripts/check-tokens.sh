@@ -6,10 +6,14 @@
 # app/globals.css, which is the one home of color values:
 #   1. hex colors (#abc, #abcd, #aabbcc, #aabbccdd), including Tailwind
 #      arbitrary values like bg-[#fff]; comment-only lines (issue refs) are skipped;
-#   2. Tailwind palette color classes (bg-red-500, text-white, bg-black/50, ...);
+#   2. Tailwind palette color classes (bg-red-500, text-white, bg-black/50,
+#      drop-shadow-red-500, bg-mauve-500, ...), every Tailwind 4.3 palette;
 #      semantic tokens (bg-destructive-fill, text-neutral, ...) are fine;
 #   3. text-info-strong on a link (use text-link-text);
 #   4. bg-error-strong anywhere (use bg-destructive-fill).
+#
+# JSON files under app/ and components/ (theme or fixture data) are scanned too;
+# CSS (including *.module.css) is scanned everywhere in scope.
 #
 # Usage: check-tokens.sh [root]   (root defaults to the repository; tests pass a fixture tree)
 set -euo pipefail
@@ -26,10 +30,16 @@ report() {
 }
 
 files=$(
-  for dir in components features app lib hooks contexts; do
-    [[ -d "$dir" ]] || continue
-    find "$dir" -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.mjs' -o -name '*.css' \)
-  done \
+  {
+    for dir in components features app lib hooks contexts; do
+      [[ -d "$dir" ]] || continue
+      find "$dir" -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.mjs' -o -name '*.css' \)
+    done
+    for dir in app components; do
+      [[ -d "$dir" ]] || continue
+      find "$dir" -type f -name '*.json'
+    done
+  } \
     | grep -Ev '\.test\.(ts|tsx|js|jsx)$' \
     | grep -Fxv 'app/globals.css' \
     | grep -Ev '^lib/server/' \
@@ -69,8 +79,8 @@ hits() {
 }
 
 HEX='(^|[^&0-9A-Za-z_])#([0-9A-Fa-f]{8}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3,4})([^0-9A-Za-z_-]|$)'
-PREFIX='(bg|text|border|border-[xytrblse]|ring|ring-offset|outline|fill|stroke|from|via|to|divide|placeholder|decoration|shadow|accent|caret|inset-shadow|inset-ring)'
-PALETTE='(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|[1-9]00|950)'
+PREFIX='(bg|text|border|border-[xytrblse]|ring|ring-offset|outline|fill|stroke|from|via|to|divide|placeholder|decoration|shadow|drop-shadow|accent|caret|inset-shadow|inset-ring)'
+PALETTE='(slate|gray|zinc|neutral|stone|mauve|olive|mist|taupe|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|[1-9]00|950)'
 CLASS="(^|[^A-Za-z0-9_-])${PREFIX}-(${PALETTE}|black|white)([^A-Za-z0-9_-]|$)"
 LINK_LINE='<a[[:space:]>]|<Link[[:space:]>]|href=|variant=["'"'"']link|underline'
 # "path:line:" then a line that is only a comment (//, /*, *, {/*).

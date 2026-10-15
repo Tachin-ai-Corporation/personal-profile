@@ -55,6 +55,20 @@ export function mapApiError(sectionId: ErrorScope, response: ApiResponse<unknown
   return rule ? rule.result : { kind: "generic", message: classified.message }
 }
 
+/**
+ * A read failure worth an automatic retry (human decision 2026-10-14, main's
+ * `shouldRetryMyself`; used by `useMyself` only): a 5xx (incl. 503
+ * `REFRESH_UNAVAILABLE`) or a network error. Never a 4xx (`SESSION_EXPIRED`,
+ * 403, …) nor a client-side failure (`BAD_PATH`, an unknown key, an
+ * unreadable body), nor anything that is not an `ApiResponseError`.
+ */
+export function isTransientReadFailure(error: unknown): boolean {
+  if (!(error instanceof ApiResponseError)) return false
+  const { statusCode, errorCode } = error.response
+  if (statusCode !== undefined) return statusCode >= 500
+  return errorCode === "NETWORK_ERROR"
+}
+
 /** Maps an SWR read error: an `ApiResponseError` by its response, anything else as generic. */
 export function mapFetchError(sectionId: ErrorScope, error: unknown): MappedError {
   return error instanceof ApiResponseError ? mapApiError(sectionId, error.response) : { kind: "generic" }

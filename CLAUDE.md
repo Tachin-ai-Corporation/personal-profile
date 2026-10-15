@@ -43,7 +43,7 @@ pnpm check:tokens     # bash scripts/check-tokens.sh, design-token gate only
 
 ## Architecture
 
-Read `docs/AUTH-ARCHITECTURE.md` and the architecture spine (`_bmad-output/planning-artifacts/architecture/architecture-personal-profile-2026-10-13/ARCHITECTURE-SPINE.md`) before changing auth, the proxy or the API layer.
+Read `docs/AUTH-ARCHITECTURE.md` and the architecture spine (`_bmad-output/planning-artifacts/architecture/architecture-personal-profile-2026-10-13/ARCHITECTURE-SPINE.md`) before changing auth, the proxy or the API layer. The human decisions **D1–D13** of 2026-10-14 (`_bmad-output/planning-artifacts/epics.md`, "Launch and environment decisions") override the spine wherever they differ (e.g. no CSRF check and no session binding, D5); code cites them as `D-n`.
 
 ### Layers (lint-enforced in `eslint.config.mjs`)
 - `lib/server/` — server-only (`import "server-only"`): `env.ts`, `session/`, `launch/`, `proxy/`, `security/`, `http/`, `log.ts`, `page-session.ts`, `named-op.ts` + `named-ops/`, `kill-switch.ts`, `disabled-screen.ts`. The only code that calls `fetch` upstream.
@@ -63,14 +63,15 @@ Read `docs/AUTH-ARCHITECTURE.md` and the architecture spine (`_bmad-output/plann
 - File deletes go only through the named op `DELETE /api/pp/file/{fileId}` (server-side ownership check); `DELETE v2/file/**` is denied in the proxy.
 - Each `lib/api/<resource>.ts` owns its paths (`proxyPath()`) and registers its SWR loader (`registerFetcher`); `lib/api/myself.ts` is the `Myself` domain module. Errors: `mapApiError(sectionId, response)`; upstream message text is matched only in `lib/api/errors/<area>.ts`. Copy: `lib/shared/messages/<area>.ts`.
 - `callApi(context, path, init)` never throws and returns `ApiResponse<T> = { success, data?, error?, statusCode?, errorCode?, source?, upstreamCode?, platformMessage?, details?, retryable?, userMessage? }`. BFF errors are `{ errorCode, source: "proxy" }`; upstream errors pass through as `{ message, code }`.
-- SWR keys come only from `lib/api/keys.ts` (`["pp", ...]`); one root `SWRConfig` (`features/shell/swr-provider.tsx`). `useMyself()` reads `["pp","myself"]`.
+- SWR keys come only from `lib/api/keys.ts` (`["pp", ...]`; inline array/string/template keys are lint errors); one root `SWRConfig` (`features/shell/swr-provider.tsx`, `shouldRetryOnError: false`). `useMyself()` reads `["pp","myself"]` and is the one key that auto-retries: 5xx and network errors, with backoff, never a 4xx; its error (and the Retry UI) shows only once the retries are exhausted (human decision 2026-10-14).
 - Session signal: `lib/api/session-events.ts` (`session-expired` only), published once by `callApi`.
 - Logging: server logs never contain bodies; the client `logApiCall` logs (redacted) only under `next dev`. `lib/shared/app-env.ts` is the one other `process.env` (`NODE_ENV`) reader.
 - The template's generic engines (query, schema, grid, custom data, workflows, provisioning) were removed; `docs/api/` remains as platform reference. Platform quirks still apply (`docs/api/GOTCHAS.md`).
 
 ### Design system (`docs/DESIGN-SYSTEM.md`)
 - All tokens live in `app/globals.css` in three tiers. To rebrand, change only the four `--brand-*` variables in the `TIER 2 · Brand layer` block.
-- Components must use semantic tokens. Don't use hardcoded hex values or palette classes like `bg-red-500`.
+- Components must use semantic tokens. Don't use hardcoded hex values or palette classes like `bg-red-500` (`scripts/check-tokens.sh`, run by `check-forbidden.sh`, fails on them). Use the override tokens `link-text`, `destructive-fill`, `control-border`, `tooltip` and `scrim` as listed in the "Contrast overrides" table in `docs/DESIGN-SYSTEM.md`.
+- **Primary-colored text in dark mode:** `text-primary` (trust-blue) fails AA on the dark surfaces (2.18:1). Use `text-primary-text`, which is the primary hue in light and info-strong in dark (main's `text-primary dark:text-info-strong`); see "Primary-colored text" in `docs/DESIGN-SYSTEM.md`.
 - Red is reserved for errors and destructive actions, and glow only for focus or active states.
 - Respect reduced motion and meet WCAG 2.1 AA.
 - Dark mode is class-based (add `dark` to `<html>`) and is off by default.

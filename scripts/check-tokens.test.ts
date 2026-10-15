@@ -103,6 +103,79 @@ describe("scripts/check-tokens.sh", () => {
     expect(run.stdout).not.toContain("check-tokens: OK")
   })
 
+  // Ported from origin/main's check-forbidden colour gate (spec R5-2): every
+  // colour-utility prefix, every border side and the Tailwind 4.3 palettes.
+  it.each([
+    "bg-red-500",
+    "text-sky-700",
+    "border-gray-200",
+    "border-x-zinc-300",
+    "border-y-stone-300",
+    "border-t-slate-200",
+    "border-r-red-200",
+    "border-b-lime-200",
+    "border-l-green-200",
+    "border-s-teal-200",
+    "border-e-cyan-200",
+    "ring-indigo-500",
+    "ring-offset-red-600",
+    "outline-violet-400",
+    "fill-purple-500",
+    "stroke-fuchsia-500",
+    "from-pink-500",
+    "via-rose-500",
+    "to-emerald-500",
+    "divide-amber-200",
+    "placeholder-orange-400",
+    "decoration-yellow-400",
+    "accent-blue-500",
+    "caret-white",
+    "shadow-black/20",
+    "drop-shadow-red-500",
+    "inset-ring-black",
+    "inset-shadow-blue-500",
+    "placeholder:text-gray-400",
+    "bg-neutral-100",
+    "dark:text-white",
+    "border-t-slate-200/40",
+    "hover:bg-blue-600",
+    "group-[.destructive]:text-red-300",
+    "bg-mauve-500",
+    "text-olive-700",
+    "border-mist-300",
+    "ring-taupe-400",
+  ])("fails on the palette class %s", (cls) => {
+    const run = check({ "components/x.tsx": `export const X = () => <div className="${cls}" />\n` })
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain("palette color class")
+    expect(run.stderr).toContain("components/x.tsx:1")
+  })
+
+  it("scans JSON and CSS modules under app/ and components/, not JSON elsewhere", () => {
+    const run = check({
+      "app/page.module.css": ".a { color: #fff; }\n",
+      "components/theme.json": `{ "c": "#000000" }\n`,
+      "lib/shared/data.json": `{ "c": "#000000" }\n`,
+    })
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain("app/page.module.css:1")
+    expect(run.stderr).toContain("components/theme.json:1")
+    expect(run.stderr).not.toContain("lib/shared/data.json")
+  })
+
+  it("fails on a globals.css that is not exactly app/globals.css", () => {
+    const run = check({ "app/nested/globals.css": ":root { --x: #fff; }\n" })
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain("app/nested/globals.css:1")
+  })
+
+  it("passes on transparent / current / inherit and bare neutral tokens", () => {
+    const run = check({
+      "features/ok.tsx": `const a = "bg-transparent text-current fill-current stroke-current border-inherit text-inherit text-neutral bg-neutral/10 drop-shadow-md"\n`,
+    })
+    expect(run.status).toBe(0)
+  })
+
   it("ignores hash links, HTML entities and non-color words", () => {
     const run = check({
       "features/z.tsx": `const a = "/?tab=contacts#email"; const b = "&#123;"; const c = "#account"; const d = "to-do text-whiteish"`,

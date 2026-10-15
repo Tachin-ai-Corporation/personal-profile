@@ -49,7 +49,7 @@ development_status:
   1-6-idle-logoff-activity-ping-and-cross-tab-activity: done  # 2026-10-14: covered by spec-7-0c-1 (limits, ping, activity re-seal, pp-activity channel, IdleWarning)
   1-7-logout-and-session-expired-session-changed-dialogs: done  # 2026-10-14: covered by spec-7-0a (logout + all-devices revoke, login intent) + 7-0b-2 (SessionDialog, onBeforeSessionExpired/onBeforeExit, navigate portal, requestLeave); draft flush/purge on those hooks is 1-15 (F4); 2026-10-14: draft flush (onBeforeSessionExpired, pagehide) and portal purge (onBeforeExit) built in spec-f4-drafts
   1-8-profile-page-shell-tokens-app-bar-tabs-and-section-navigatio: done  # 2026-10-14: fully covered by specs 7.0b-1 (tokens), 7.0b-2 (app bar, page nav, tabs, page frame), F3-1 (select, focus-ring) and F3-3 (section menu, Jump to, scroll-spy, deep links, Contacts/Insurance panels) on feat/NG-9019-epic-7
-  1-1r-foundation-and-launch-rework: review
+  1-1r-foundation-and-launch-rework: review  # 2026-10-14: covered by spec-7-0a (D1-D10 launch, env, sealed session, kill switches) on feat/NG-9019-epic-7; main parity recovered in specs R5-1 (server) and R5-2 (client, tooling, docs)
   1-3r-transport-and-proxy-rework: done  # 2026-10-14: covered by spec-7-0a (proxy: no CSRF/binding, {errorCode,source}, exact deny list, profile tag, ACCOUNT_DISABLED, root SWRConfig, logApiCall) on feat/NG-9019-epic-7
   1-7r-logout-and-session-expired-rework: done  # 2026-10-14: covered by spec-7-0a + 7-0b-2 (all-devices logout, navigate(), session-expired dialog only, login intent saved) on feat/NG-9019-epic-7
   1-8r-app-bar-and-shell-rework: done  # 2026-10-14: covered by spec-7-0b-1 + 7-0b-2 (page nav, primary-text span wordmark, ProfileTab/AccountTab, tokens) on feat/NG-9019-epic-7

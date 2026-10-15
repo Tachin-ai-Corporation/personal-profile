@@ -2,7 +2,7 @@
 title: 'R5-2 Main parity recovery: client, tooling and docs'
 type: 'fix'
 created: '2026-10-14'
-status: 'ready-for-dev'
+status: 'in-review'
 baseline_commit: '3d485ab'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -72,7 +72,7 @@ context:
 - `scripts/check-tokens.{sh,test.ts}` -- palettes, `drop-shadow`, `*.json`.
 - `vitest.config.ts`, `vitest.config.test.ts` -- includes + orphan guard.
 - `lib/api/{session,client,refresh-coordinator,session-events}.ts` (+ tests), `features/shell/exit-hooks.ts` (+ test) -- client robustness.
-- `features/shell/{use-myself.ts,swr-provider.tsx}` (+ `use-myself.test.tsx`) -- myself retry.
+- `features/shell/{use-myself.ts,swr-provider.tsx}` (+ `use-myself.test.tsx`), `lib/api/errors/index.ts#isTransientReadFailure`, `test/providers.tsx` -- myself retry.
 - `lib/server/disabled-screen.{ts,test.ts}` -- D2 order.
 - `features/shell/{auth-screen,page-tabs}.test.tsx`, `app/globals.test.ts`, `lib/shared/messages/messages.test.ts`, `test/page-session.test.ts` -- ported tests.
 - `package.json`, `.github/workflows/ci.yml`, `CLAUDE.md`, `docs/DESIGN-SYSTEM.md`, `_bmad-output/implementation-artifacts/{deferred-work.md,sprint-status.yaml}` -- housekeeping.
@@ -80,14 +80,14 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] ESLint bans + lint-guard fixtures.
-- [ ] Token gate rows.
-- [ ] Vitest includes + orphan guard.
-- [ ] Client fixes + tests.
-- [ ] myself auto-retry + tests.
-- [ ] Disabled screen D2 order + test.
-- [ ] Ported tests.
-- [ ] Housekeeping.
+- [x] ESLint bans + lint-guard fixtures.
+- [x] Token gate rows.
+- [x] Vitest includes + orphan guard.
+- [x] Client fixes + tests.
+- [x] myself auto-retry + tests.
+- [x] Disabled screen D2 order + test.
+- [x] Ported tests.
+- [x] Housekeeping.
 
 **Acceptance Criteria:**
 - Given any row of the matrix, then the behaviour holds and a test asserts it.
@@ -101,3 +101,18 @@ context:
 - `corepack pnpm vitest run --coverage` -- expected: green, thresholds met
 - `PP_E2E_PORT=3260 corepack pnpm test:e2e` -- expected: green
 - `corepack pnpm build && bash scripts/check-forbidden.sh` -- expected: green
+
+## Implementation Notes
+
+Implemented 2026-10-15 on baseline `3d485ab` (the worktree was reset from `b005536` first).
+
+- **ESLint (`eslint.config.mjs`):** the `ban` entries may now be arrays (`syntax()`, `ALL` and `without()` flatten). `fetch` adds `MemberExpression[object.name=/^(window|globalThis|self)$/][property.name='fetch']` (so an aliased `window.fetch` fails too), lifted wherever bare `fetch` is (`lib/server/**`, `lib/api/client.ts`, tests, tooling). `inlineSwrKey` is main's 6-entry-point × 3-literal-shape matrix plus member `mutate`/`preload` (still lifted only in `lib/api/keys.ts`). `lib/shared/app-env.ts` keeps every other ban and adds main's `APP_ENV_ONLY_NODE_ENV` selector. `NextResponse.redirect` was already banned everywhere (not only `app/handoff/**`). `eslint.config.test.ts` gains a "lint guards ported from main" block (fatal-free check so "allows" cases cannot pass on a parse error): fetch ×5 shapes × 5 locations, 3 allowed locations, app-env ×3 + allowed, 10 inline-key shapes, outside features, `keys.*` allowed, `dangerouslySetInnerHTML`, handoff redirect.
+- **Token gate:** `check-tokens.sh` PALETTE + `mauve|olive|mist|taupe`, PREFIX + `drop-shadow`; `*.json` under `app/` and `components/` joins the file list (the two `find` loops are grouped so the test/globals/lib-server filters apply to both). `check-tokens.test.ts`: main's 29 per-prefix/side rows + 5 variant rows + 4 added palettes, JSON/CSS-module scan, nested `globals.css`, allowed `transparent`/`current`/`inherit`/bare `neutral`/`drop-shadow-md`.
+- **Vitest:** `SERVER_TESTS` / `CLIENT_TESTS` exported from `vitest.config.ts`: server = `lib/server`, `lib/shared`, `lib/*`, `app/**/*.test.ts`, `scripts`, `test/**/*.test.ts`, root `*.test.ts`; client = `lib/api`, `lib/**/*.test.tsx`, `features`, `components`, `hooks`, `contexts` (`.ts` and `.tsx`), `app/**/*.test.tsx`, `test/**/*.test.tsx`, root `*.test.tsx`. No file moved project (all 157 existing files matched before). `vitest.config.test.ts` globs every `*.test.ts(x)` (skipping node_modules, .next, .git, .claude, _bmad*, coverage, reports, e2e) and fails on any file matching zero or two projects, plus a 10-row example table (`path.matchesGlob`, Node 24).
+- **Client:** `endSession()` sends `keepalive: true`. `refresh-coordinator.ts#runLocked` implements main's fallback; the third case (callback started, no outcome) maps to our `unavailable` → `REFRESH_UNAVAILABLE` (main: `NETWORK_ERROR`), no event, no second refresh. `session-events.ts` and `exit-hooks.ts` log `error.name` (or `typeof` for a non-Error). `callApi`: `isApiPath` (main's) rejects non-strings and paths that normalise outside `/api/` (`/api/../auth`, `/api/%2e%2e/x`) with `BAD_PATH`; `buildInit` now runs once in `callApi` inside a try, so invalid caller headers answer `NETWORK_ERROR` without a fetch (the first send and the replay share the built init). Tests: main's 9 bad paths + non-string, credentials forced over `include`, bad headers, the three lock cases at both coordinator (`support.test.ts`) and `callApi` (`client.test.ts`) level, keepalive, name-only logs.
+- **myself auto-retry (decision):** the predicate is `isTransientReadFailure(error)` in `lib/api/errors/index.ts` (only `errors/*` may read `errorCode`, guarded by `errors.test.ts`): `ApiResponseError` with status ≥ 500, or no status and `NETWORK_ERROR`; everything else (4xx, 200 bad shape, `BAD_PATH`, unknown key, non-API errors) is terminal. `useMyself` passes per-hook options: `shouldRetryOnError: true` + a custom `onErrorRetry` (SWR's jittered exponential backoff from `errorRetryInterval`, at most `errorRetryCount ?? MYSELF_RETRY_COUNT` = 3). To show the Retry UI only after exhaustion, a per-SWR-cache "retry pending" flag (`WeakMap` + `useSyncExternalStore`) is set in `onErrorRetry` and cleared in `onError`/`onSuccess`; SWR calls these before committing the error, so no frame shows the error while a retry is scheduled. While pending, the hook returns `error: undefined` and `isLoading: true` when there is no data (loaded data stays). Root `SwrProvider` keeps `shouldRetryOnError: false` and adds `errorRetryCount: 3`, `errorRetryInterval: 1000` (used only by `myself`). `TestProviders` sets `errorRetryCount: 0` so shared tests see a failed read at once (documented in its comment); `features/shell/use-myself.test.tsx` (10 cases, real `SwrProvider`, 5 ms backoff base): 5xx retried and loaded with no error frame, network retried, 403/404/409 one request, exhausted after 3 retries then error, smaller `errorRetryCount` honoured, PageFrame Retry UI only after exhaustion and Retry loads, loaded user kept on a failing revalidation, another key not retried.
+- **Disabled screen (D2):** `disabledScreenEnvironment` — switched-off `/auth`: referrer → remembered cookie → prod (no session, as `/auth` itself never reads it); other pages: session → cookie → prod (the referrer is no longer consulted after the cookie). New test row; `e2e/kill-switch.spec.ts` rows still hold.
+- **Ported tests:** `auth-screen.test.tsx` (blank `?lpl=` ×3 for remembered and unknown environment, `document.cookie` getter spy, axe on error, manual and chooser); `app/globals.test.ts` (33-token DESIGN map light + dark, `--color-neutral` → `--status-neutral` #7a8696, dark destructive fill ≠ error-strong; all matched our `globals.css` unchanged); `messages.test.ts` (every `LAUNCH_MESSAGES` string rendered and compared verbatim, `LAUNCH_ERROR_MESSAGES` exact); `test/page-session.test.ts` (prod and demo portal URL; under `test/` because `lib/server/**` is frozen by R5-1 this round — move it beside `session.test.ts` later); `page-tabs.test.tsx` roving tabindex (Radix: no tab is a stop at rest, the tablist hands focus to the selected tab, which becomes the only `tabindex=0`; arrows move the stop).
+- **Housekeeping:** `package.json` name `personal-profile` (lockfile unaffected). CI: `corepack enable` → `setup-node` with `cache: pnpm` → `corepack enable` again for Node 24 (main had only the first; the second keeps the Node 24 shims first on PATH). CLAUDE.md: D1–D13 override the spine (no CSRF / session binding, D5); the SWR line records the `myself` retry; design-system bullets point to the Contrast overrides table and the primary-text rule. On this branch the rule is the `text-primary-text` token (light: brand primary, dark: info-strong), i.e. main's `text-primary dark:text-info-strong` as one token; `docs/DESIGN-SYSTEM.md` gains a "Primary-colored text" paragraph saying so. `deferred-work.md`: 10 items marked "(resolved 2026-10-14, spec R5-2: …)" in place (`.env.example`, stale docs, `cache: pnpm`, `callApiRaw`, stale `lib/server/proxy.test.ts` skew path, refresh not built, `/launch-error` copy (D1), 1.8 part B, ACCOUNT_DISABLED "parsed only", `saveLoginIntent` caller); sections kept. `sprint-status.yaml`: trailing comment on `1-1r` (status unchanged, header untouched).
+- **Not touched:** `lib/server/**` except `disabled-screen.{ts,test.ts}`, `app/api/**`, `instrumentation.ts`, `e2e/**`, `scripts/check-forbidden.sh`, `test/e2e-upstream-mock*`.
+- **Verification (2026-10-15):** `corepack pnpm install --frozen-lockfile` OK; `pnpm lint`, `pnpm typecheck` clean; `pnpm vitest run --coverage` 160 files / 3278 tests green, 100 % statements/branches/functions/lines; `PP_E2E_PORT=3260 pnpm test:e2e` 276 passed, 2 skipped (the existing desktop-only tests on 360 px); `pnpm build` OK; `bash scripts/check-forbidden.sh` OK (check-tokens OK). The new retry and tab tests passed 5/5 repeated runs.

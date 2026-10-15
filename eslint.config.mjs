@@ -12,10 +12,17 @@ const ban = {
     selector: "MemberExpression[object.name='process'][property.name='env']",
     message: "Read configuration through lib/server/env.ts only.",
   },
-  fetch: {
-    selector: "CallExpression[callee.name='fetch']",
-    message: "Use callApi (lib/api/client.ts); only lib/server/** may call fetch upstream.",
-  },
+  /** Bare `fetch(…)` and `window.fetch` / `globalThis.fetch` / `self.fetch` (AD-19). */
+  fetch: [
+    {
+      selector: "CallExpression[callee.name='fetch']",
+      message: "Use callApi (lib/api/client.ts); only lib/server/** may call fetch upstream.",
+    },
+    {
+      selector: "MemberExpression[object.name=/^(window|globalThis|self)$/][property.name='fetch']",
+      message: "Use callApi (lib/api/client.ts); only lib/server/** may call fetch upstream.",
+    },
+  ],
   dangerousHtml: {
     selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",
     message: "dangerouslySetInnerHTML is banned (AD-11).",
@@ -45,10 +52,29 @@ const ban = {
     selector: "ImportExpression[source.value=/(^|\\/)lib\\/api(\\/index|\\/account)?(\\.ts)?$/]",
     message: "lib/api is imported statically; updateAccount() is importable only in features/account (AD-9).",
   },
-  inlineSwrKey: {
-    selector: "CallExpression[callee.name=/^(useSWR|useSWRImmutable|mutate)$/][arguments.0.type='ArrayExpression']",
-    message: "Build SWR keys with lib/api/keys.ts (AD-10).",
-  },
+  /**
+   * AD-10: an array, template or string literal as the key of any SWR entry
+   * point, called bare or as a member (`cache.mutate([…])`); `keys.*` is fine.
+   */
+  inlineSwrKey: [
+    "CallExpression[callee.type='Identifier'][callee.name=/^(useSWR|useSWRImmutable|useSWRMutation|useSWRSubscription|mutate|preload)$/]",
+    "CallExpression[callee.type='MemberExpression'][callee.property.name=/^(mutate|preload)$/]",
+  ].flatMap((call) =>
+    ["[arguments.0.type='ArrayExpression']", "[arguments.0.type='TemplateLiteral']", "[arguments.0.type='Literal'][arguments.0.raw=/^[\"']/]"].map((arg) => ({
+      selector: `${call}${arg}`,
+      message: "Build SWR keys with lib/api/keys.ts (AD-10).",
+    })),
+  ),
+}
+
+/**
+ * `lib/shared/app-env.ts` may read `process.env.NODE_ENV` and nothing else (D6):
+ * any other member, a computed member or a bare `process.env` fails.
+ */
+const APP_ENV_ONLY_NODE_ENV = {
+  selector:
+    "MemberExpression[object.name='process'][property.name='env']:not(MemberExpression[computed=false][property.name='NODE_ENV'] > MemberExpression.object)",
+  message: "lib/shared/app-env.ts may read only process.env.NODE_ENV (D6).",
 }
 
 /**
@@ -100,9 +126,9 @@ const npiTypeInFeature = [
   "JSXText[value=/entity_?type_?code/i]",
 ].map((selector) => ({ selector, message: NPI_TYPE_MESSAGE }))
 
-const syntax = (...rules) => ["error", ...rules]
-const ALL = Object.values(ban)
-const without = (...names) => Object.entries(ban).filter(([name]) => !names.includes(name)).map(([, rule]) => rule)
+const syntax = (...rules) => ["error", ...rules.flat()]
+const ALL = Object.values(ban).flat()
+const without = (...names) => Object.entries(ban).filter(([name]) => !names.includes(name)).flatMap(([, rule]) => rule)
 
 /** `no-restricted-imports` options: pattern groups plus exact-name `paths` (a block's options replace earlier blocks'). */
 const imports = (patterns, paths = []) => ["error", { patterns, paths }]
@@ -151,7 +177,7 @@ const eslintConfig = [
   { files: ["lib/server/env.ts"], rules: { "no-restricted-syntax": syntax(...without("fetch", "processEnv")) } },
   { files: ["lib/api/client.ts"], rules: { "no-restricted-syntax": syntax(...without("fetch")) } },
   { files: ["lib/api/keys.ts"], rules: { "no-restricted-syntax": syntax(...without("inlineSwrKey")) } },
-  { files: ["lib/shared/app-env.ts"], rules: { "no-restricted-syntax": syntax(...without("processEnv")) } },
+  { files: ["lib/shared/app-env.ts"], rules: { "no-restricted-syntax": syntax(...without("processEnv"), APP_ENV_ONLY_NODE_ENV) } },
   // The shell and the /auth screen own navigation and the display-only referrer (AD-26, D2).
   {
     files: ["features/shell/**", "app/auth/**"],

@@ -57,6 +57,39 @@ describe("callApi transport", () => {
     expect(await call("x", "/other")).toMatchObject({ success: false, errorCode: "BAD_PATH" })
   })
 
+  // Ported from origin/main's path guard (spec R5-2).
+  it.each(["https://evil/x", "//evil/x", "api/x", "/foo", "", "/api", "/api/../auth", "/api/%2e%2e/x", "/api/./../x"])(
+    "rejects %j without a network call",
+    async (path) => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch")
+      const res = await freshClient()("t/badpath", path)
+      expect(res).toMatchObject({ success: false, errorCode: "BAD_PATH" })
+      expect(res.statusCode).toBeUndefined()
+      expect(fetchSpy).not.toHaveBeenCalled()
+    },
+  )
+
+  it("rejects a non-string path without throwing", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+    expect(await freshClient()("t/badpath", 42 as unknown as string)).toMatchObject({ success: false, errorCode: "BAD_PATH" })
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it("forces same-origin credentials even when the caller asks for include", async () => {
+    server.use(http.get("/api/1h/v2/user/myself", () => HttpResponse.json({})))
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+    await freshClient()("t/creds", "/api/1h/v2/user/myself", { credentials: "include" })
+    expect(fetchSpy.mock.calls[0][1]?.credentials).toBe("same-origin")
+  })
+
+  it("answers NETWORK_ERROR, without throwing or fetching, on invalid caller headers", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+    const res = await freshClient()("t/headers", "/api/1h/v2/user/myself", { headers: { "bad header": "x" } })
+    expect(res).toMatchObject({ success: false, errorCode: "NETWORK_ERROR" })
+    expect(res.statusCode).toBeUndefined()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
   it("treats an empty 2xx body as success without data", async () => {
     server.use(http.post("/api/session/logout", () => new HttpResponse(null, { status: 204 })))
     expect(await freshClient()("x", "/api/session/logout", { method: "POST" })).toEqual({ success: true, statusCode: 204 })
@@ -265,6 +298,65 @@ describe("callApi refresh (AD-16)", () => {
     await call("ctx", "/api/1h/x")
     expect(refreshCalls).toBe(2)
     expect(published).toEqual([])
+  })
+
+  // Ported from origin/main's client.refresh.test.ts (spec R5-2).
+  describe("navigator.locks failure fallback", () => {
+    function refreshOnce() {
+      let refreshed = false
+      let refreshCalls = 0
+      let apiCalls = 0
+      server.use(
+        http.post("/api/session/refresh", () => {
+          refreshCalls += 1
+          refreshed = true
+          return HttpResponse.json({ ok: true })
+        }),
+        http.get("/api/1h/x", () => {
+          apiCalls += 1
+          return refreshed ? HttpResponse.json({ id: 1 }) : proxyError("TOKEN_EXPIRED", 401)
+        }),
+      )
+      return { refreshCalls: () => refreshCalls, apiCalls: () => apiCalls }
+    }
+
+    it("the lock rejects before running the callback → the refresh runs unlocked; the call succeeds", async () => {
+      const upstream = refreshOnce()
+      const request = vi.fn(async () => {
+        throw new DOMException("locks unavailable", "InvalidStateError")
+      })
+      const res = await freshClient(() => ({ request }))("t/lockfail", "/api/1h/x")
+      expect(res).toEqual({ success: true, data: { id: 1 }, statusCode: 200 })
+      expect(request).toHaveBeenCalledOnce()
+      expect(upstream.refreshCalls()).toBe(1)
+    })
+
+    it("the lock rejects after the callback produced a result → that result is used; the call succeeds", async () => {
+      const upstream = refreshOnce()
+      const request = async <T,>(_name: string, callback: () => Promise<T>): Promise<T> => {
+        await callback()
+        throw new DOMException("lock released abnormally", "AbortError")
+      }
+      const res = await freshClient(() => ({ request }))("t/lockfail-after", "/api/1h/x")
+      expect(res).toEqual({ success: true, data: { id: 1 }, statusCode: 200 })
+      expect(upstream.refreshCalls()).toBe(1)
+      expect(upstream.apiCalls()).toBe(2)
+    })
+
+    it("the lock rejects after the callback ran but before its result → REFRESH_UNAVAILABLE, no event, no second refresh", async () => {
+      const upstream = refreshOnce()
+      let refreshDone: Promise<unknown> = Promise.resolve()
+      const request = async <T,>(_name: string, callback: () => Promise<T>): Promise<T> => {
+        refreshDone = callback()
+        throw new DOMException("lock released abnormally", "AbortError")
+      }
+      const res = await freshClient(() => ({ request }))("t/lockfail-noresult", "/api/1h/x")
+      await refreshDone
+      expect(res).toMatchObject({ success: false, errorCode: "REFRESH_UNAVAILABLE" })
+      expect(upstream.refreshCalls()).toBe(1)
+      expect(upstream.apiCalls()).toBe(1)
+      expect(published).toEqual([])
+    })
   })
 
   it("uses navigator.locks by default when the browser has it", async () => {

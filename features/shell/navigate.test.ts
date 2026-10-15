@@ -93,13 +93,24 @@ describe("exit hooks", () => {
     runBeforeExit()
     runBeforeSessionExpired()
     expect(seen).toEqual(["exit", "expired"])
-    expect(error).toHaveBeenCalledTimes(1)
+    // Only the error's name is logged, never its message (spec R5-2).
+    expect(error).toHaveBeenCalledExactlyOnceWith("[shell] exit callback failed", "Error")
     offA()
     offB()
     offC()
     runBeforeExit()
     runBeforeSessionExpired()
     expect(seen).toEqual(["exit", "expired"])
+  })
+
+  it("logs a non-Error throw by its type only", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const off = onBeforeSessionExpired(() => {
+      throw "a draft value"
+    })
+    runBeforeSessionExpired()
+    off()
+    expect(error).toHaveBeenCalledExactlyOnceWith("[shell] exit callback failed", "string")
   })
 })
 

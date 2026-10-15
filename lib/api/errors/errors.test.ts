@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { ApiResponseError, ERROR_RULES, isUploadRejected, mapApiError, mapFetchError, mappedErrorCode, type ApiResponse, type ErrorScope, type MappedError, type MessageRule } from ".."
+import { ApiResponseError, ERROR_RULES, isTransientReadFailure, isUploadRejected, mapApiError, mapFetchError, mappedErrorCode, type ApiResponse, type ErrorScope, type MappedError, type MessageRule } from ".."
 
 const fail = (fields: Omit<ApiResponse<unknown>, "success">): ApiResponse<unknown> => ({ success: false, ...fields })
 
@@ -143,6 +143,27 @@ describe("isUploadRejected (spec F7-2)", () => {
     [{ kind: "network" }, false],
   ])("%j → %s", (error, expected) => {
     expect(isUploadRejected(error)).toBe(expected)
+  })
+})
+
+describe("isTransientReadFailure (myself auto-retry, human decision 2026-10-14)", () => {
+  const failure = (response: Partial<ApiResponse<unknown>>) => new ApiResponseError({ success: false, ...response })
+
+  it.each<[string, unknown, boolean]>([
+    ["502 UPSTREAM_ERROR", failure({ statusCode: 502, errorCode: "UPSTREAM_ERROR" }), true],
+    ["503 REFRESH_UNAVAILABLE", failure({ statusCode: 503, errorCode: "REFRESH_UNAVAILABLE" }), true],
+    ["504 UPSTREAM_TIMEOUT", failure({ statusCode: 504, errorCode: "UPSTREAM_TIMEOUT" }), true],
+    ["a network error", failure({ errorCode: "NETWORK_ERROR" }), true],
+    ["401 SESSION_EXPIRED", failure({ statusCode: 401, errorCode: "SESSION_EXPIRED" }), false],
+    ["403", failure({ statusCode: 403 }), false],
+    ["404", failure({ statusCode: 404 }), false],
+    ["429", failure({ statusCode: 429 }), false],
+    ["an unreadable 200 body", failure({ statusCode: 200 }), false],
+    ["BAD_PATH", failure({ errorCode: "BAD_PATH" }), false],
+    ["an unknown SWR key (no code, no status)", failure({}), false],
+    ["a plain Error", new Error("x"), false],
+  ])("%s → %s", (_name, error, expected) => {
+    expect(isTransientReadFailure(error)).toBe(expected)
   })
 })
 

@@ -55,6 +55,68 @@ describe("D13 + Ledger tokens (DESIGN.md colors)", () => {
   })
 })
 
+/**
+ * Ported from origin/main (Story 1.8a, spec R5-2): every Tier 3 token
+ * resolves to its DESIGN.md value in both themes. Copied by hand from
+ * DESIGN.md's `colors:` frontmatter (`-dark` keys are the `.dark` values; a
+ * token with no `-dark` key keeps its light value). The scrim is checked above.
+ */
+const DESIGN: Record<string, [light: string, dark: string]> = {
+  background: ["#f4f7fa", "#202833"],
+  foreground: ["#202833", "#e6ebf0"],
+  card: ["#ffffff", "#29333f"],
+  "card-foreground": ["#202833", "#e6ebf0"],
+  popover: ["#ffffff", "#29333f"],
+  "popover-foreground": ["#202833", "#e6ebf0"],
+  primary: ["#246b8f", "#246b8f"],
+  "primary-foreground": ["#ffffff", "#ffffff"],
+  secondary: ["#eaeff4", "#313b47"],
+  "secondary-foreground": ["#313b47", "#e6ebf0"],
+  muted: ["#edf1f5", "#313b47"],
+  "muted-foreground": ["#566373", "#aeb8c4"],
+  accent: ["#e8f7fa", "#2a3c46"],
+  "accent-foreground": ["#202833", "#e8f7fa"],
+  destructive: ["#d84f45", "#d84f45"],
+  "destructive-foreground": ["#ffffff", "#ffffff"],
+  border: ["#e1e8ef", "#3a4552"],
+  input: ["#e1e8ef", "#3a4552"],
+  ring: ["#246b8f", "#8fd8e6"],
+  link: ["#2f80a8", "#8fd8e6"],
+  success: ["#3baa78", "#3baa78"],
+  "success-strong": ["#1b7a4f", "#5fcb98"],
+  info: ["#2f80a8", "#2f80a8"],
+  "info-strong": ["#256a8c", "#6fb6d8"],
+  warning: ["#d6a83a", "#d6a83a"],
+  "warning-strong": ["#8a6511", "#e6c264"],
+  error: ["#d84f45", "#d84f45"],
+  "error-strong": ["#b23a31", "#f08a80"],
+  "link-text": ["#256a8c", "#8fd8e6"],
+  "destructive-fill": ["#b23a31", "#b23a31"],
+  "control-border": ["#7a8696", "#aeb8c4"],
+  tooltip: ["#202833", "#e6ebf0"],
+  "tooltip-foreground": ["#ffffff", "#202833"],
+}
+
+describe("globals.css Tier 3 tokens match DESIGN.md (33-token map, spec R5-2)", () => {
+  it("covers 33 tokens", () => {
+    expect(Object.keys(DESIGN)).toHaveLength(33)
+  })
+
+  it.each(Object.entries(DESIGN))("--%s resolves to its light and dark value", (name, [lightValue, darkValue]) => {
+    expect(resolve(light.get(`--${name}`) ?? "", light)).toBe(lightValue)
+    expect(resolve(dark.get(`--${name}`) ?? light.get(`--${name}`) ?? "", dark)).toBe(darkValue)
+  })
+
+  it("the --color-neutral utility maps to status-neutral #7a8696", () => {
+    expect(theme.get("--color-neutral")).toBe("var(--status-neutral)")
+    expect(resolve(light.get("--status-neutral") ?? "", light)).toBe("#7a8696")
+  })
+
+  it("the dark destructive fill does not follow --error-strong", () => {
+    expect(resolve(dark.get("--destructive-fill") ?? "", dark)).not.toBe(resolve(dark.get("--error-strong") ?? "", dark))
+  })
+})
+
 describe("Ledger typography and width utilities (F6-2)", () => {
   /** The body of `@utility <name> { … }`, comments removed. */
   function utility(name: string): string {

@@ -49,7 +49,18 @@ describe("session events: failing listeners", () => {
     events.subscribe("session-expired", later)
     expect(() => events.publish("session-expired")).not.toThrow()
     expect(later).toHaveBeenCalledOnce()
-    expect(error).toHaveBeenCalledOnce()
+    // Only the error's name: a message could carry user data (spec R5-2).
+    expect(error).toHaveBeenCalledExactlyOnceWith("[session-events] listener failed", "Error")
+  })
+
+  it("logs a non-Error throw by its type", () => {
+    const events = createSessionEvents()
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    events.subscribe("session-expired", () => {
+      throw "secret detail"
+    })
+    events.publish("session-expired")
+    expect(error).toHaveBeenCalledExactlyOnceWith("[session-events] listener failed", "string")
   })
 })
 
@@ -68,6 +79,43 @@ describe("refresh coordinator", () => {
       throw new Error("boom")
     }, () => undefined)
     expect(await coordinator.refresh()).toEqual({ kind: "unavailable" })
+  })
+
+  describe("when navigator.locks.request rejects (spec R5-2, main's fallback)", () => {
+    it("before running the callback → the refresh runs unlocked", async () => {
+      const run = vi.fn(async () => ({ kind: "refreshed" as const }))
+      const request = vi.fn(async () => {
+        throw new DOMException("locks unavailable", "InvalidStateError")
+      })
+      const coordinator = createRefreshCoordinator(run, () => ({ request }))
+      expect(await coordinator.refresh()).toEqual({ kind: "refreshed" })
+      expect(request).toHaveBeenCalledOnce()
+      expect(run).toHaveBeenCalledOnce()
+    })
+
+    it("after the callback produced an outcome → that outcome, no second refresh", async () => {
+      const run = vi.fn(async () => ({ kind: "expired" as const }))
+      const request = async <T,>(_name: string, callback: () => Promise<T>): Promise<T> => {
+        await callback()
+        throw new DOMException("lock released abnormally", "AbortError")
+      }
+      const coordinator = createRefreshCoordinator(run, () => ({ request }))
+      expect(await coordinator.refresh()).toEqual({ kind: "expired" })
+      expect(run).toHaveBeenCalledOnce()
+    })
+
+    it("after the callback started but before its outcome → unavailable, no second refresh", async () => {
+      let finish: (value: { kind: "refreshed" }) => void = () => undefined
+      const run = vi.fn(() => new Promise<{ kind: "refreshed" }>((resolve) => (finish = resolve)))
+      const request = async <T,>(_name: string, callback: () => Promise<T>): Promise<T> => {
+        void callback()
+        throw new DOMException("lock released abnormally", "AbortError")
+      }
+      const coordinator = createRefreshCoordinator(run, () => ({ request }))
+      expect(await coordinator.refresh()).toEqual({ kind: "unavailable" })
+      finish({ kind: "refreshed" })
+      expect(run).toHaveBeenCalledOnce()
+    })
   })
 
   it("wraps navigator.locks, or reports none", async () => {
@@ -165,9 +213,12 @@ describe("session calls", () => {
     expect(await startSession("abc")).toEqual(expected)
   })
 
-  it("endSession posts logout", async () => {
+  it("endSession posts logout with keepalive, so it survives the page navigating away", async () => {
     server.use(http.post("/api/session/logout", () => new HttpResponse(null, { status: 204 })))
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
     expect((await endSession()).statusCode).toBe(204)
+    expect(fetchSpy).toHaveBeenCalledOnce()
+    expect(fetchSpy.mock.calls[0][1]).toMatchObject({ method: "POST", keepalive: true, credentials: "same-origin" })
   })
 
   it("recordUserActivity posts the ping as user activity, passes the signal, and notes the echo", async () => {

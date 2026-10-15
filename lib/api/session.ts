@@ -41,6 +41,10 @@ export function recordUserActivity(init: { readonly signal?: AbortSignal } = {})
   return callApi("session/ping", BFF_PATHS.sessionPing, { method: "POST", ...init })
 }
 
+/**
+ * `POST /api/session/logout`. `keepalive` lets the request finish when the
+ * page navigates away right after (Return to 1health, the expired dialog).
+ */
 export async function endSession(): Promise<ApiResponse<unknown>> {
-  return callApi("session/end", BFF_PATHS.sessionLogout, { method: "POST" })
+  return callApi("session/end", BFF_PATHS.sessionLogout, { method: "POST", keepalive: true })
 }

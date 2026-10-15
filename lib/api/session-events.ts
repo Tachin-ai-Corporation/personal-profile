@@ -30,7 +30,8 @@ export function createSessionEvents(): SessionEvents {
         try {
           listener()
         } catch (error) {
-          console.error("[session-events] listener failed", error)
+          // Only the name: an error message could carry user data.
+          console.error("[session-events] listener failed", error instanceof Error ? error.name : typeof error)
         }
       }
     },

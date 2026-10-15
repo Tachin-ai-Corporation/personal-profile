@@ -5,6 +5,7 @@ import { environmentConfig } from "@/lib/shared/environments"
 import { LOGIN_INTENT_KEY } from "@/lib/shared/login-intent"
 import { LAUNCH_MESSAGES as M } from "@/lib/shared/messages"
 import type { LaunchAttempt } from "@/lib/api"
+import { axeViolations } from "@/test/axe"
 import { server } from "@/test/msw-server"
 import { AuthScreen, SUCCESS_REDIRECT_DELAY_MS } from "./auth-screen"
 
@@ -187,6 +188,15 @@ describe("AuthScreen with lpl", () => {
     expect(navigate).not.toHaveBeenCalled()
   })
 
+  it("never reads the browser cookie jar", async () => {
+    setUrl("/auth?lpl=abc")
+    const cookieGet = vi.spyOn(document, "cookie", "get")
+    server.use(http.post("/api/token", () => HttpResponse.json({ ok: true, environment: "prod" })))
+    render(<AuthScreen rememberedEnvironment="prod" navigate={vi.fn()} />)
+    expect(await screen.findByText(M.successTitle)).toBeTruthy()
+    expect(cookieGet).not.toHaveBeenCalled()
+  })
+
   it("navigates with location.assign by default", async () => {
     setUrl("/auth?lpl=abc")
     const assign = vi.fn()
@@ -197,5 +207,51 @@ describe("AuthScreen with lpl", () => {
       await vi.advanceTimersByTimeAsync(SUCCESS_REDIRECT_DELAY_MS)
     })
     expect(assign).toHaveBeenCalledWith("/")
+  })
+})
+
+// Ported from origin/main's auth-screen.test.tsx (spec R5-2).
+describe("AuthScreen: blank lpl values and accessibility", () => {
+  function countTokenPosts(): () => number {
+    let posts = 0
+    server.use(
+      http.post("/api/token", () => {
+        posts += 1
+        return HttpResponse.json({ ok: true, environment: "prod" })
+      }),
+    )
+    return () => posts
+  }
+
+  it.each(["/auth?lpl=", "/auth?lpl=%20%20", "/auth?lpl=+++&x=1"])("%s is treated like no lpl: no POST, the card shows, lpl is stripped", async (url) => {
+    const posts = countTokenPosts()
+    setUrl(url)
+    const view = render(<AuthScreen rememberedEnvironment="demo" />)
+    expect(await screen.findByText(M.manualTitle)).toBeTruthy()
+    expect(window.location.search).not.toContain("lpl")
+    view.unmount()
+    setUrl(url)
+    render(<AuthScreen rememberedEnvironment={null} />)
+    expect(await screen.findByText(M.chooseTitle)).toBeTruthy()
+    expect(window.location.search).not.toContain("lpl")
+    await act(async () => undefined)
+    expect(posts()).toBe(0)
+  })
+
+  it("axe-core reports zero violations on the error state", async () => {
+    setUrl("/auth?lpl=abc")
+    render(<AuthScreen rememberedEnvironment="prod" flowDeps={{ attempt: async () => ({ kind: "failed", message: "Nope", retryable: false }) }} />)
+    expect(await screen.findByText(M.failedTitle)).toBeTruthy()
+    expect(await axeViolations()).toEqual([])
+  })
+
+  it("axe-core reports zero violations on the manual card and the chooser", async () => {
+    const view = render(<AuthScreen rememberedEnvironment="demo" />)
+    expect(await screen.findByText(M.manualTitle)).toBeTruthy()
+    expect(await axeViolations()).toEqual([])
+    view.unmount()
+    render(<AuthScreen rememberedEnvironment={null} />)
+    expect(await screen.findByText(M.chooseTitle)).toBeTruthy()
+    expect(await axeViolations()).toEqual([])
   })
 })
