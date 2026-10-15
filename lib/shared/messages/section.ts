@@ -1,4 +1,4 @@
-/** Section framework copy (Stories 1.11, 1.12). */
+/** Section framework copy (Stories 1.11, 1.12, 1.14). */
 export const SECTION_MESSAGES = {
   edit: "Edit", // DRAFT COPY (EXPERIENCE.md Section header)
   editing: "Editing", // DRAFT COPY (epic 7 edit view label)
@@ -13,6 +13,11 @@ export const SECTION_MESSAGES = {
   noChanges: "There are no changes", // verbatim: EXPERIENCE.md Voice and Tone, "Account settings — save"
   invalidOne: "{section} has 1 field to fix", // verbatim: EXPERIENCE.md Voice and Tone, "Unsaved" ("Email has 1 field to fix")
   invalidMany: "{section} has {count} fields to fix", // DRAFT COPY (Story 1.14 plural of "Email has 1 field to fix")
+  // Save all bar and pill (Story 1.14).
+  unsavedOne: "{count} unsaved section", // DRAFT COPY (Story 1.14 singular of "{N} unsaved sections")
+  unsavedMany: "{count} unsaved sections",
+  saveAllCount: "Save all ({count})",
+  discardAll: "Discard all",
   // Shared UI kit (F6-2); generic words (Close, Back, Remove, More actions for…) live in COMMON_MESSAGES.
   removedOnSave: "Removed on save",
   newNotSaved: "New · not saved",
