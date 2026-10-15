@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { ApiResponseError, ERROR_RULES, isTransientReadFailure, isUploadRejected, mapApiError, mapFetchError, mappedErrorCode, type ApiResponse, type ErrorScope, type MappedError, type MessageRule } from ".."
+import { ApiResponseError, ERROR_RULES, isTransientReadFailure, isUploadRejected, mapApiError, mapFetchError, mappedErrorCode, parseErrorBody, type ApiResponse, type ErrorScope, type MappedError, type MessageRule } from ".."
 
 const fail = (fields: Omit<ApiResponse<unknown>, "success">): ApiResponse<unknown> => ({ success: false, ...fields })
 
@@ -33,6 +33,19 @@ describe("mapApiError", () => {
     ["unknown upstream 418", fail({ statusCode: 418 }), { kind: "generic" }],
   ])("maps %s", (_label, response, expected) => {
     expect(mapApiError("page", response)).toEqual(expected)
+  })
+
+  // Story 1.12 AC: a known backend code with no field mapping (INVALID_ENUM_VALUE) is a Section-level error.
+  it("maps an upstream 400 INVALID_ENUM_VALUE to the generic Section-level error, never a field or a code", () => {
+    const body = (extra: Record<string, unknown>) =>
+      parseErrorBody(JSON.stringify({ errorCode: "INVALID_ENUM_VALUE", details: [{ field: "race", rejectedValue: "x" }], ...extra }), "personal/save failed (400)")
+    const bare = body({})
+    const response = fail({ statusCode: 400, ...bare })
+    expect(response.errorCode).toBeUndefined()
+    for (const scope of ["personal", "phone", "account"] as const) expect(mapApiError(scope, response)).toEqual({ kind: "generic" })
+    const withMessage = fail({ statusCode: 400, ...body({ message: "Invalid value for race.", code: 400 }) })
+    expect(mapApiError("personal", withMessage)).toEqual({ kind: "generic", message: "Invalid value for race." })
+    expect(mappedErrorCode(mapApiError("personal", response))).toBe("GENERIC")
   })
 
   it("never shows a BFF user message or a fallback as the platform message", () => {

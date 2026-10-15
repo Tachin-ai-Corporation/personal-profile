@@ -4,6 +4,7 @@ import { server } from "@/test/msw-server"
 import { activity as defaultActivity, createActivity, type Activity } from "./activity"
 import { configureApiClient, createCallApi, getPortalUrl } from "./client"
 import { mapApiError } from "./errors"
+import { createPageUser, pageUser as defaultPageUser, type PageUser } from "./page-user"
 import { createSessionEvents, type SessionEvents } from "./session-events"
 import type { LockManagerLike } from "./refresh-coordinator"
 
@@ -17,6 +18,21 @@ function freshClient(locks?: () => LockManagerLike | undefined) {
   published = []
   events.subscribe("session-expired", () => published.push("session-expired"))
   return createCallApi({ events, locks: locks ?? (() => undefined) })
+}
+
+/**
+ * A client whose page user is pinned (42) and whose `myself` check answers 42
+ * (D-A): every write needs a pinned page user, or `callApi` blocks it. Call it
+ * after the test's own handlers (its `myself` handler then wins).
+ */
+function writerClient() {
+  server.use(http.get("/api/1h/v2/user/myself", () => HttpResponse.json({ id: 42 })))
+  const user = createPageUser()
+  user.pin(42)
+  events = createSessionEvents()
+  published = []
+  events.subscribe("session-expired", () => published.push("session-expired"))
+  return createCallApi({ events, locks: () => undefined, pageUser: user })
 }
 
 beforeEach(() => configureApiClient({ portalUrl: "https://portal.test" }))
@@ -139,7 +155,7 @@ describe("callApi transport", () => {
 
   it("parses an upstream error into upstreamCode and message, publishing nothing", async () => {
     server.use(http.put("/api/1h/v2/user/edit", () => HttpResponse.json({ message: "Duplicate", code: 1409, details: { f: 1 } }, { status: 409 })))
-    const res = await freshClient()("ctx", "/api/1h/v2/user/edit", { method: "PUT", body: "{}" })
+    const res = await writerClient()("ctx", "/api/1h/v2/user/edit", { method: "PUT", body: "{}" })
     expect(res).toEqual({ success: false, statusCode: 409, error: "Duplicate", upstreamCode: 1409, platformMessage: "Duplicate", details: { f: 1 }, errorCode: undefined })
     expect(published).toEqual([])
   })
@@ -260,7 +276,7 @@ describe("callApi refresh (AD-16)", () => {
 
   it("replays a PUT once after a proxy TOKEN_EXPIRED", async () => {
     const upstream = expiringUpstream()
-    const res = await freshClient()("ctx", "/api/1h/v2/user/edit", { method: "PUT", body: "{}" })
+    const res = await writerClient()("ctx", "/api/1h/v2/user/edit", { method: "PUT", body: "{}" })
     expect(res.success).toBe(true)
     expect(upstream.hits.get("PUT /api/1h/v2/user/edit")).toBe(2)
   })
@@ -277,7 +293,7 @@ describe("callApi refresh (AD-16)", () => {
         return resolver()
       }),
     )
-    const res = await freshClient()("ctx", "/api/1h/v2/user/edit", { method: "PUT", body: "{}" })
+    const res = await writerClient()("ctx", "/api/1h/v2/user/edit", { method: "PUT", body: "{}" })
     expect(res.success).toBe(false)
     expect(puts).toBe(1)
   })
@@ -426,9 +442,13 @@ describe("callApi refresh (AD-16)", () => {
 describe("callApi user activity (Story 1.6)", () => {
   let activity: Activity
 
+  /** Its writes go through the D-A check: a pinned page user (42) and a `myself` answering 42. */
   function activityClient() {
     activity = createActivity()
-    return createCallApi({ events: createSessionEvents(), locks: () => undefined, activity })
+    server.use(http.get("/api/1h/v2/user/myself", () => HttpResponse.json({ id: 42 })))
+    const user = createPageUser()
+    user.pin(42)
+    return createCallApi({ events: createSessionEvents(), locks: () => undefined, activity, pageUser: user })
   }
 
   function capture(method: "get" | "post" | "put" | "head" | "options", path: string, answer: () => Response = () => HttpResponse.json({})) {
@@ -511,5 +531,143 @@ describe("callApi user activity (Story 1.6)", () => {
     capture("post", "/api/session/ping", () => new HttpResponse(null, { status: 204, headers: { "X-PP-Activity-At": "42" } }))
     await createCallApi({ events: createSessionEvents(), locks: () => undefined })("ping", "/api/session/ping", { method: "POST" })
     expect(defaultActivity.lastAt()).toBe(42)
+  })
+})
+
+describe("callApi save safeguard (D-A, spec NG-9027)", () => {
+  let user: PageUser
+  let log: string[]
+
+  /** A client whose page user is pinned to `pinned` (none when `null`). */
+  function guardedClient(pinned: number | null = 42) {
+    user = createPageUser()
+    if (pinned !== null) user.pin(pinned)
+    events = createSessionEvents()
+    published = []
+    events.subscribe("session-expired", () => published.push("session-expired"))
+    return createCallApi({ events, locks: () => undefined, pageUser: user })
+  }
+
+  /** Logs every request as "METHOD path"; `myself` answers in turn (the last one repeats), every other call 200 `{}`. */
+  function upstream(...myself: (() => Response)[]) {
+    log = []
+    let myselfCalls = 0
+    server.use(
+      http.get("/api/1h/v2/user/myself", () => {
+        log.push("GET /api/1h/v2/user/myself")
+        myselfCalls += 1
+        return (myself[myselfCalls - 1] ?? myself[myself.length - 1] ?? (() => HttpResponse.json({ id: 42 })))()
+      }),
+      http.all("/api/*", ({ request }) => {
+        log.push(`${request.method} ${new URL(request.url).pathname}`)
+        return request.method === "HEAD" ? new HttpResponse(null, { status: 200 }) : HttpResponse.json({})
+      }),
+    )
+  }
+
+  const EDIT = "/api/1h/v2/user/edit"
+  const put = { method: "PUT", body: "{}" } as const
+
+  it("same user: one fresh myself GET, then the write, once", async () => {
+    upstream(() => HttpResponse.json({ id: 42 }))
+    const res = await guardedClient()("ctx", EDIT, put)
+    expect(res).toMatchObject({ success: true, statusCode: 200 })
+    expect(log).toEqual(["GET /api/1h/v2/user/myself", "PUT /api/1h/v2/user/edit"])
+    expect(published).toEqual([])
+  })
+
+  it("another user: nothing sent, session-expired published once, SESSION_EXPIRED returned", async () => {
+    upstream(() => HttpResponse.json({ id: 43 }))
+    const call = guardedClient()
+    expect(await call("ctx", EDIT, put)).toEqual({ success: false, statusCode: 401, errorCode: "SESSION_EXPIRED" })
+    expect(await call("ctx", "/api/pp/file/7", { method: "DELETE" })).toEqual({ success: false, statusCode: 401, errorCode: "SESSION_EXPIRED" })
+    expect(log).toEqual(["GET /api/1h/v2/user/myself", "GET /api/1h/v2/user/myself"])
+    expect(published).toEqual(["session-expired"])
+    expect(mapApiError("phone", await call("ctx", EDIT, put))).toEqual({ kind: "session" })
+  })
+
+  it.each([
+    ["a network failure", () => HttpResponse.error(), { success: false, errorCode: "NETWORK_ERROR" }, { kind: "network" }],
+    ["a 502", () => proxyError("UPSTREAM_ERROR", 502), { success: false, statusCode: 502, errorCode: "UPSTREAM_ERROR" }, { kind: "network" }],
+    ["a body without a numeric id", () => HttpResponse.json({}), { success: false, statusCode: 200 }, { kind: "generic" }],
+  ] as const)("a check that fails with %s: nothing sent, the check's failure returned, no publish", async (_label, answer, expected, mapped) => {
+    upstream(answer)
+    const res = await guardedClient()("ctx", EDIT, put)
+    expect(res).toMatchObject(expected)
+    expect(mapApiError("phone", res)).toEqual(mapped)
+    expect(log).toEqual(["GET /api/1h/v2/user/myself"])
+    expect(published).toEqual([])
+  })
+
+  it("a check whose refresh finds the session expired: nothing sent, SESSION_EXPIRED published once by the check", async () => {
+    upstream(() => proxyError("TOKEN_EXPIRED", 401))
+    server.use(http.post("/api/session/refresh", () => proxyError("SESSION_EXPIRED", 401)))
+    const res = await guardedClient()("ctx", EDIT, put)
+    expect(res).toMatchObject({ success: false, statusCode: 401, errorCode: "SESSION_EXPIRED" })
+    expect(log).toEqual(["GET /api/1h/v2/user/myself"])
+    expect(published).toEqual(["session-expired"])
+  })
+
+  it.each([
+    ["POST", "/api/1h/v2/user/contact-point"],
+    ["put (lower-case)", "/api/1h/v2/x"],
+    ["DELETE", "/api/pp/file/7"],
+    ["POST", "/api/pp/mfa/validate?x=1"],
+    ["PUT", "/api//1h/v2/user/edit"],
+  ])("checks a %s to %s", async (method, path) => {
+    upstream(() => HttpResponse.json({ id: 42 }))
+    await guardedClient()("ctx", path, { method: method.split(" ")[0], body: "{}" })
+    expect(log[0]).toBe("GET /api/1h/v2/user/myself")
+    expect(log).toHaveLength(2)
+  })
+
+  it.each([
+    ["a GET", "/api/1h/v2/x", { method: "GET" }],
+    ["a userInitiated GET", "/api/1h/v2/x", { userInitiated: true }],
+    ["a HEAD", "/api/1h/v2/x", { method: "HEAD" }],
+    ["an OPTIONS", "/api/pp/practice-support", { method: "OPTIONS" }],
+    ["the ping", "/api/session/ping", { method: "POST" }],
+    ["the logout", "/api/session/logout", { method: "POST" }],
+    ["the launch", "/api/token", { method: "POST", body: "{}" }],
+    ["a Places call", "/api/places/autocomplete", { method: "POST", body: "{}" }],
+  ] as const)("never checks %s", async (_label, path, init) => {
+    upstream(() => HttpResponse.json({ id: 43 }))
+    await guardedClient()("ctx", path, init)
+    expect(log).toEqual([`${"method" in init ? init.method : "GET"} ${path}`])
+    expect(published).toEqual([])
+  })
+
+  it("no pinned user yet (no myself ever loaded): nothing sent, a network failure (Retry); once pinned, the same write goes through", async () => {
+    upstream(() => HttpResponse.json({ id: 42 }))
+    const call = guardedClient(null)
+    const res = await call("ctx", EDIT, put)
+    expect(res).toEqual({ success: false, errorCode: "NETWORK_ERROR", error: "ctx failed (network)" })
+    expect(mapApiError("phone", res)).toEqual({ kind: "network" })
+    expect(await call("ctx", "/api/pp/file/7", { method: "DELETE" })).toMatchObject({ errorCode: "NETWORK_ERROR" })
+    expect(log).toEqual([])
+    expect(published).toEqual([])
+    user.pin(42)
+    expect((await call("ctx", EDIT, put)).success).toBe(true)
+    expect(log).toEqual(["GET /api/1h/v2/user/myself", "PUT /api/1h/v2/user/edit"])
+  })
+
+  it("inside a verified batch: no per-write check; after it, checks again", async () => {
+    upstream(() => HttpResponse.json({ id: 42 }))
+    const call = guardedClient()
+    await user.runVerified(async () => {
+      await call("a", EDIT, put)
+      await call("b", "/api/pp/file/7", { method: "DELETE" })
+    })
+    expect(log).toEqual(["PUT /api/1h/v2/user/edit", "DELETE /api/pp/file/7"])
+    await call("c", EDIT, put)
+    expect(log.slice(2)).toEqual(["GET /api/1h/v2/user/myself", "PUT /api/1h/v2/user/edit"])
+  })
+
+  it("defaults to the page-lifetime pageUser", async () => {
+    upstream(() => HttpResponse.json({ id: 43 }))
+    defaultPageUser.pin(42)
+    const res = await createCallApi({ events: createSessionEvents(), locks: () => undefined })("ctx", EDIT, put)
+    expect(res).toMatchObject({ errorCode: "SESSION_EXPIRED" })
+    expect(log).toEqual(["GET /api/1h/v2/user/myself"])
   })
 })

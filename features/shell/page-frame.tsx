@@ -1,7 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { mapFetchError } from "@/lib/api"
+import { mapFetchError, pageUser } from "@/lib/api"
 import type { PageIdleTiming } from "@/lib/shared/bff-contract"
 import { environmentOfPortalUrl } from "@/lib/shared/environments"
 import { AppBar } from "./app-bar"
@@ -28,12 +28,16 @@ function MyselfReadState() {
   return <ReadStateFor error={mapFetchError("page", error)} onRetry={retry} className="mx-4 mt-4 md:mx-6" />
 }
 
-/** The page's drafts, keyed to the Launching user once `myself` loads (Story 1.15). */
+/**
+ * The page's drafts, keyed to the Launching user once `myself` loads (Story
+ * 1.15): the pinned page user (D-A), so a later `myself` of another user
+ * (a launch as B in this browser) never moves A's unsaved edits to B's key.
+ */
 function PageDrafts({ children }: { readonly children: ReactNode }) {
   const { myself } = useMyself()
   const environment = environmentOfPortalUrl(usePortalUrl())
   return (
-    <DraftsProvider userId={myself?.id} environment={environment}>
+    <DraftsProvider userId={pageUser.id() ?? myself?.id} environment={environment}>
       {children}
     </DraftsProvider>
   )

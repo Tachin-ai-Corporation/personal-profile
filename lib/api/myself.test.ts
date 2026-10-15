@@ -1,7 +1,7 @@
 import { http, HttpResponse } from "msw"
 import { describe, expect, it } from "vitest"
 import { server } from "@/test/msw-server"
-import { fetchers, fetchMyself, isProctor, isTenantMember, keys, myselfPath, swrFetcher, toMyself, type Myself } from "."
+import { fetchers, fetchMyself, isProctor, isTenantMember, keys, myselfPath, pageUser, swrFetcher, toMyself, type Myself } from "."
 
 const MYSELF = "/api/1h/v2/user/myself"
 
@@ -142,6 +142,20 @@ describe("fetchMyself", () => {
     expect(await fetchMyself()).toMatchObject({ success: false, errorCode: "UPSTREAM_ERROR", data: undefined })
     server.use(http.get(MYSELF, () => HttpResponse.json({ nope: true })))
     expect(await fetchMyself()).toMatchObject({ success: false, statusCode: 200, error: "myself/fetchMyself returned an unexpected shape" })
+  })
+
+  it("pins the first user it loads as the page user (D-A); failures and other shapes pin nothing; a later id never replaces it", async () => {
+    server.use(http.get(MYSELF, () => HttpResponse.json({ errorCode: "UPSTREAM_ERROR", source: "proxy" }, { status: 502 })))
+    await fetchMyself()
+    server.use(http.get(MYSELF, () => HttpResponse.json({ id: "42" })))
+    await fetchMyself()
+    expect(pageUser.id()).toBeUndefined()
+    server.use(http.get(MYSELF, () => HttpResponse.json({ id: 42 })))
+    await fetchMyself()
+    expect(pageUser.id()).toBe(42)
+    server.use(http.get(MYSELF, () => HttpResponse.json({ id: 43 })))
+    expect((await fetchMyself()).data?.id).toBe(43)
+    expect(pageUser.id()).toBe(42)
   })
 
   it("is registered for keys.myself() and exposed as fetchers.myself", async () => {

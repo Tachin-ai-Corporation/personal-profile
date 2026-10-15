@@ -1,3 +1,4 @@
+import { callApi, checkPageUser, mapApiError, pageUser } from "@/lib/api"
 import { formatMessage, SECTION_MESSAGES } from "@/lib/shared/messages"
 import { telemetry } from "@/lib/shared/telemetry"
 import { isCancelled, isSessionExpired, type SectionId } from "./nav-types"
@@ -60,6 +61,15 @@ function inSaveOrder(sections: readonly RegisteredSection[], order: readonly Sec
  * `SESSION_EXPIRED`. Sections don't toast from here (only their own Save
  * does). `save_all` telemetry fires once when anything was sent (unless
  * `trackTelemetry: false`). Participants without `save` are never queued.
+ *
+ * Save safeguard (D-A, spec NG-9027, human decision 2026-10-15): after
+ * validation and before any save, the page user is checked once for the
+ * whole batch (`checkPageUser`). Same user: the saves run inside
+ * `pageUser.runVerified`, so their writes skip the per-write check. Another
+ * user: nothing is saved and the run ends as `session` (`session-expired`
+ * was published). A failed check, or no page user pinned yet: the saves run
+ * unflagged, so each write checks itself (still fail closed: with no pin
+ * `callApi` blocks every write as a network error).
  */
 export async function runSaveAll(
   registry: SectionRegistry,
@@ -88,25 +98,34 @@ export async function runSaveAll(
   const saved: SectionRef[] = []
   const failed: SectionRef[] = []
   const cancelled: SectionRef[] = []
-  let sessionEnded = false
-  for (const section of queue) {
-    const result = await section.save()
-    if (result.ok) {
-      saved.push(ref(section))
-      continue
+  if (queue.length === 0) return { kind: "done", saved, failed, cancelled }
+
+  // D-A: one page-user check for the whole batch.
+  const check = await checkPageUser(callApi)
+  if (check.kind === "other") return { kind: "session", saved, failed, cancelled }
+  // The check's own refresh found the session expired (already published): nothing to save.
+  if (check.kind === "failed" && mapApiError("page", check.response).kind === "session") return { kind: "session", saved, failed, cancelled }
+
+  async function saveQueue(): Promise<boolean> {
+    for (const section of queue) {
+      const result = await section.save()
+      if (result.ok) {
+        saved.push(ref(section))
+        continue
+      }
+      if (isCancelled(result)) {
+        cancelled.push(ref(section))
+        continue
+      }
+      failed.push(ref(section))
+      if (isSessionExpired(result)) return true
     }
-    if (isCancelled(result)) {
-      cancelled.push(ref(section))
-      continue
-    }
-    failed.push(ref(section))
-    if (isSessionExpired(result)) {
-      sessionEnded = true
-      break
-    }
+    return false
   }
+
+  const sessionEnded = check.kind === "same" ? await pageUser.runVerified(saveQueue) : await saveQueue()
   // `failed` excludes cancels (a user's choice, not a failure).
-  if (trackTelemetry && queue.length > 0) telemetry.track("save_all", { saved: saved.length, failed: failed.length })
+  if (trackTelemetry) telemetry.track("save_all", { saved: saved.length, failed: failed.length })
   return { kind: sessionEnded ? "session" : "done", saved, failed, cancelled }
 }
 

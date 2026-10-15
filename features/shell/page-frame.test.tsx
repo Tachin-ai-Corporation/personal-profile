@@ -1,14 +1,19 @@
 import { act, fireEvent, render, screen } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { sessionEvents } from "@/lib/api"
+import { pageUser, sessionEvents } from "@/lib/api"
+import { environmentConfig } from "@/lib/shared/environments"
+import { stubViewport } from "@/test/media"
 import { server } from "@/test/msw-server"
 import { setTestUrl } from "@/test/next-navigation"
 import { TestProviders, testIdle } from "@/test/providers"
+import { FIXTURE_DRAFT_FIELDS, FixtureSection, fixtureDraftDiff } from "./__fixtures__/fixture-section"
 import { resetLeaveState } from "./leave"
 import { PageFrame } from "./page-frame"
+import { PortalUrlProvider } from "./portal-url-provider"
 import { ProfileTabs } from "./profile-tabs"
 import { useDirtyCount } from "./section-registry"
+import { useMyself } from "./use-myself"
 
 vi.mock("next/navigation", async () => (await import("@/test/next-navigation")).nextNavigationMock)
 
@@ -118,5 +123,47 @@ describe("PageFrame", () => {
     )
     expect(screen.queryByTestId("save-all")).toBeNull()
     await act(async () => undefined)
+  })
+
+  it("keeps the drafts owner on the pinned page user when myself revalidates as another user (D-A)", async () => {
+    let id = 42
+    server.use(http.get(MYSELF, () => HttpResponse.json({ id, firstName: "Ann", lastName: "Lee" })))
+    const key = (userId: number) => `pp:draft:v1:demo:${userId}:phone`
+    stubViewport(1280)
+    window.localStorage.clear()
+    try {
+      function Revalidate() {
+        const { myself, retry } = useMyself()
+        return (
+          <button type="button" onClick={retry}>
+            {`myself ${myself?.id ?? "none"}`}
+          </button>
+        )
+      }
+      render(
+        <TestProviders>
+          <PortalUrlProvider portalUrl={environmentConfig("demo").portalUrl}>
+            <PageFrame page="profile" header={<Revalidate />} idle={testIdle()}>
+              <FixtureSection draftFields={[...FIXTURE_DRAFT_FIELDS]} describeDraftDiff={fixtureDraftDiff} dataStatus="loaded" />
+            </PageFrame>
+          </PortalUrlProvider>
+        </TestProviders>,
+      )
+      await screen.findByRole("button", { name: "myself 42" })
+      expect(pageUser.id()).toBe(42)
+      fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+      fireEvent.change(screen.getByRole("textbox", { name: "Number" }), { target: { value: "4155550000" } })
+      await vi.waitFor(() => expect(window.localStorage.getItem(key(42))).not.toBeNull(), { timeout: 2000 })
+
+      id = 43
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "myself 42" })))
+      await screen.findByRole("button", { name: "myself 43" })
+      fireEvent.change(screen.getByRole("textbox", { name: "Number" }), { target: { value: "4155550001" } })
+      await vi.waitFor(() => expect(JSON.parse(window.localStorage.getItem(key(42)) ?? "{}").values?.number).toBe("4155550001"), { timeout: 2000 })
+      expect(window.localStorage.getItem(key(43))).toBeNull()
+      expect(pageUser.id()).toBe(42)
+    } finally {
+      window.localStorage.clear()
+    }
   })
 })

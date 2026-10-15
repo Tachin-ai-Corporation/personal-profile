@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, type Page } from "@playwright/test"
 import { sealedSessionCookie } from "./session-cookie"
-import { mockContacts, mockExit, mockMyself, mockProfileDefaults, PORTAL_URL, setTheme, signIn, test } from "./fixtures"
+import { ANN, mockContacts, mockExit, mockMyself, mockProfileDefaults, PORTAL_URL, setTheme, signIn, test } from "./fixtures"
 
 /**
  * The shell on `/` (foundation-owned). Every test runs under the fail-fast
@@ -387,6 +387,170 @@ test.describe("leave guard (Story 1.13, fixture page)", () => {
       resolve(dialog.type())
       void dialog.accept()
     }))
+    await page.close({ runBeforeUnload: true })
+    expect(await prompted).toBe("beforeunload")
+  })
+})
+
+test.describe("leave guard: every Story 1.13 case (fixture page; spec NG-9027)", () => {
+  const BODY = "Save your changes before you leave, or discard them."
+  const CANNOT_SAVE = "These changes can't be saved from here. Keep editing to finish them, or discard them."
+  /** Another Section's draft of this user: a hand-off keeps it, Return to 1health purges it. */
+  const OTHER_DRAFT = `pp:draft:v1:demo:${ANN.id}:email`
+  /** The fixture's participants: a Save-all one, a guard-only one that can save, one that can't. */
+  const PARTICIPANTS = { "Fixture phone": "phone", "Fixture editor": "social", "Fixture insurance": "insurance" } as const
+  type Participant = keyof typeof PARTICIPANTS
+
+  const dialog = (page: Page) => page.getByRole("alertdialog", { name: "You have unsaved changes" })
+  const status = (page: Page, label: Participant) => page.getByTestId(`fixture-${PARTICIPANTS[label]}`).locator("output")
+  const storedDraft = (page: Page) => page.evaluate((key) => window.localStorage.getItem(key), OTHER_DRAFT)
+
+  async function open(page: Page, query = ""): Promise<void> {
+    await mockProfileDefaults(page)
+    await page.goto(`${FIXTURE}${query}`)
+    await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
+  }
+
+  async function seedOtherDraft(page: Page): Promise<void> {
+    await page.evaluate((key) => {
+      window.localStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), baseHash: "0".repeat(64), values: { value: "ann@example.com" } }))
+    }, OTHER_DRAFT)
+  }
+
+  const COMBINATIONS: readonly (readonly Participant[])[] = [
+    ["Fixture phone"],
+    ["Fixture editor"],
+    ["Fixture insurance"],
+    ["Fixture phone", "Fixture editor"],
+    ["Fixture phone", "Fixture insurance"],
+    ["Fixture editor", "Fixture insurance"],
+    ["Fixture phone", "Fixture editor", "Fixture insurance"],
+  ]
+
+  for (const dirty of COMBINATIONS) {
+    const canSave = !dirty.includes("Fixture insurance")
+    test(`a tab switch with ${dirty.join(" + ")} dirty: ${canSave ? "Save saves every one" : "no Save, the cannot-save body; Discard discards every one"}, then the tab changes`, async ({ page }) => {
+      await open(page)
+      for (const label of dirty) await page.getByLabel(label).fill("x")
+      await page.getByRole("tab", { name: "Insurance" }).click()
+      await expect(dialog(page).getByRole("button")).toHaveText(canSave ? ["Keep editing", "Discard", "Save"] : ["Keep editing", "Discard"])
+      await expect(dialog(page)).toContainText(canSave ? BODY : CANNOT_SAVE)
+      await dialog(page).getByRole("button", { name: canSave ? "Save" : "Discard" }).click()
+      await expect(page).toHaveURL(/\?tab=insurance$/)
+      for (const label of dirty) {
+        if (canSave) await expect(status(page, label)).toHaveText("saved")
+        else {
+          await expect(page.getByLabel(label)).toHaveValue("")
+          // Discarded, never saved.
+          await expect(status(page, label)).toHaveText("")
+        }
+      }
+    })
+  }
+
+  test("Save with an invalid value sends nothing, closes, stays and focuses that input", async ({ page }) => {
+    await open(page)
+    await page.getByLabel("Fixture phone").fill("415")
+    await page.getByLabel("Fixture editor").fill("invalid")
+    await page.getByRole("tab", { name: "Insurance" }).click()
+    await dialog(page).getByRole("button", { name: "Save" }).click()
+    await expect(dialog(page)).toBeHidden()
+    await expect(page.getByLabel("Fixture editor")).toBeFocused()
+    await expect(page).toHaveURL(/\?tab=contacts$/)
+    await expect(status(page, "Fixture phone")).toHaveText("")
+    await expect(status(page, "Fixture editor")).toHaveText("")
+  })
+
+  test("a failing Save stays: the others still save, the partial toast, focus on the failed Section's heading", async ({ page }) => {
+    await open(page, "?fail=phone")
+    await page.getByLabel("Fixture phone").fill("415")
+    await page.getByLabel("Fixture editor").fill("x")
+    await page.getByRole("tab", { name: "Insurance" }).click()
+    await dialog(page).getByRole("button", { name: "Save" }).click()
+    await expect(dialog(page)).toBeHidden()
+    await expect(page).toHaveURL(/[?&]tab=contacts$/)
+    await expect(status(page, "Fixture phone")).toHaveText("not saved")
+    await expect(status(page, "Fixture editor")).toHaveText("saved")
+    await expect(page.getByRole("region", { name: /Notifications/ }).getByText("1 saved, 1 failed")).toBeVisible()
+    await expect(page.locator("#phone-heading")).toBeFocused()
+  })
+
+  test("a hand-off while dirty: Discard → /handoff/portal in the same tab, no logout, another Section's draft kept", async ({ page }) => {
+    const logouts = await mockExit(page)
+    await page.route("**/handoff/portal", (route) => route.fulfill({ status: 200, contentType: "text/html", body: "<title>hand-off</title>hand-off" }))
+    await open(page)
+    await seedOtherDraft(page)
+    await page.getByLabel("Fixture phone").fill("415")
+    await page.getByRole("button", { name: "Hand off" }).click()
+    await dialog(page).getByRole("button", { name: "Discard" }).click()
+    await page.waitForURL(/\/handoff\/portal$/)
+    expect(logouts()).toBe(0)
+    expect(await storedDraft(page)).not.toBeNull()
+  })
+
+  test("Return to 1health while dirty: Discard purges this user's drafts, then logout and the portal", async ({ page }) => {
+    const logouts = await mockExit(page)
+    await open(page)
+    await seedOtherDraft(page)
+    await page.getByLabel("Fixture phone").fill("415")
+    await page.getByRole("link", { name: "Return to 1health" }).click()
+    await dialog(page).getByRole("button", { name: "Discard" }).click()
+    await page.waitForURL((url) => url.origin === new URL(PORTAL_URL).origin)
+    expect(logouts()).toBe(1)
+    // Back on this origin (the logout was mocked, so the session is still there): the draft is gone.
+    await open(page)
+    expect(await storedDraft(page)).toBeNull()
+  })
+
+  test("a scoped close asks about its participant only: Keep editing keeps it, Discard discards only it", async ({ page }) => {
+    await open(page)
+    await page.getByLabel("Fixture phone").fill("415")
+    await page.getByLabel("Fixture insurance").fill("x")
+    await page.getByRole("button", { name: "Close insurance" }).click()
+    await expect(dialog(page).getByRole("button")).toHaveText(["Keep editing", "Discard"])
+    await dialog(page).getByRole("button", { name: "Keep editing" }).click()
+    await expect(dialog(page)).toBeHidden()
+    await expect(page.getByTestId("scoped-close")).toHaveText("false")
+    await expect(page.getByLabel("Fixture insurance")).toHaveValue("x")
+    await page.getByRole("button", { name: "Close insurance" }).click()
+    await dialog(page).getByRole("button", { name: "Discard" }).click()
+    await expect(page.getByTestId("scoped-close")).toHaveText("true")
+    await expect(page.getByLabel("Fixture insurance")).toHaveValue("")
+    await expect(page.getByLabel("Fixture phone")).toHaveValue("415")
+  })
+
+  test("Escape keeps editing and returns focus to the trigger (a tab, the hand-off button)", async ({ page }) => {
+    await open(page)
+    await page.getByLabel("Fixture phone").fill("415")
+    // A tab (pressed with the pointer: see the NG-9027 notes on keyboard activation of a tab while dirty).
+    const tab = page.getByRole("tab", { name: "Insurance" })
+    await tab.click()
+    await expect(dialog(page)).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(dialog(page)).toBeHidden()
+    await expect(tab).toBeFocused()
+    // The hand-off button, from the keyboard.
+    const handoff = page.getByRole("button", { name: "Hand off" })
+    await handoff.focus()
+    await expect(handoff).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect(dialog(page)).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(dialog(page)).toBeHidden()
+    await expect(handoff).toBeFocused()
+    await expect(page).toHaveURL(/\?tab=contacts$/)
+    await expect(page.getByLabel("Fixture phone")).toHaveValue("415")
+  })
+
+  test("beforeunload fires on close while only a guard-only participant is dirty", async ({ page }) => {
+    await open(page)
+    await page.getByLabel("Fixture editor").fill("x")
+    const prompted = new Promise<string>((resolve) =>
+      page.once("dialog", (dialog) => {
+        resolve(dialog.type())
+        void dialog.accept()
+      }),
+    )
     await page.close({ runBeforeUnload: true })
     expect(await prompted).toBe("beforeunload")
   })

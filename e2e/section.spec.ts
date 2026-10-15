@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, test, type Page } from "@playwright/test"
-import { mockContacts, mockMyself, setTheme, signIn } from "./fixtures"
+import { ANN, mockContacts, mockMyself, mockProxy, mockUserEdit, setTheme, signIn } from "./fixtures"
 
 const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]
 const FIXTURE = "/test-fixtures/section"
@@ -156,5 +156,99 @@ test.describe("Section edit model (spec F3-2, fixture Section)", () => {
     }
     await expectNoAxeViolations(page, `edit view (${isMobile ? "360" : "desktop"})`)
     await expectNoHorizontalScroll(page)
+  })
+})
+
+/** The phone-duplicate upstream 400 (`lib/api/errors/contacts.ts`), shown at the Number field. */
+const DUPLICATE = { message: "Duplicate Contact Points specified.", code: 400 }
+const toasts = (page: Page) => page.getByRole("region", { name: /Notifications/ })
+const sectionBanner = (page: Page) => section(page).locator("[data-slot~='inline-banner']")
+const draftKey = (userId: number) => `pp:draft:v1:demo:${userId}:phone`
+const storedDraft = (page: Page, key: string) => page.evaluate((name) => window.localStorage.getItem(name), key)
+
+/** Edit → type → send the next save as a real PUT (`v2/user/edit`) → Save. */
+async function saveToServer(page: Page, value = "4155550000"): Promise<void> {
+  await section(page).getByRole("button", { name: "Edit" }).click()
+  await number(page).fill(value)
+  await page.getByLabel("Send the next save to the server").check()
+  await section(page).getByRole("button", { name: "Save" }).click()
+}
+
+test.describe("save errors, toasts and load errors (Story 1.12, fixture Section; spec NG-9027)", () => {
+  test("a mapped 400 (phone duplicate): the error at Number with focus there, edits kept, no toast; axe", async ({ page }) => {
+    const edits = await mockUserEdit(page, { status: 400, body: DUPLICATE })
+    await saveToServer(page)
+    await expect(number(page)).toBeFocused()
+    await expect(number(page)).toHaveAttribute("aria-invalid", "true")
+    await expect(number(page)).toHaveAccessibleDescription("This number is already on your profile")
+    await expect(number(page)).toHaveValue("4155550000")
+    await expect(section(page).getByText("Editing")).toBeVisible()
+    expect(edits()).toEqual([{ number: "4155550000", note: "" }])
+    await expect(sectionBanner(page)).toHaveCount(0)
+    await expect(toasts(page).locator("li")).toHaveCount(0)
+    await expectNoAxeViolations(page, "mapped field error")
+    await expectNoHorizontalScroll(page)
+  })
+
+  test("a generic 400: \"Couldn't save phone.\" with Retry at Section level (focused), no toast", async ({ page }) => {
+    await mockUserEdit(page, { status: 400, body: { message: "Something else.", code: 400 } })
+    await saveToServer(page)
+    const banner = sectionBanner(page)
+    await expect(banner).toBeFocused()
+    await expect(banner.getByRole("alert")).toHaveText("Couldn't save phone.")
+    await expect(banner.getByRole("button", { name: "Retry" })).toBeVisible()
+    await expect(number(page)).toHaveValue("4155550000")
+    await expect(toasts(page).locator("li")).toHaveCount(0)
+    await expectNoAxeViolations(page, "generic save error")
+  })
+
+  test("toasts are announced politely; the network error toast's own Retry saves (\"Phone saved.\")", async ({ page }) => {
+    const message = "Couldn't save phone. Check your connection."
+    await page.getByLabel("Fail the next save").check()
+    await section(page).getByRole("button", { name: "Edit" }).click()
+    await number(page).fill("4155550000")
+    await section(page).getByRole("button", { name: "Save" }).click()
+    await expect(toasts(page).getByText(message)).toBeVisible()
+    // Radix announces each toast in a polite status region (the toaster's type="background").
+    await expect(page.locator("[role='status'][aria-live='polite']").filter({ hasText: message })).toBeAttached()
+    await toasts(page).getByRole("button", { name: "Retry" }).click()
+    await expect(toasts(page).getByText("Phone saved.")).toBeVisible()
+    await expect(page.locator("[role='status'][aria-live='polite']").filter({ hasText: "Phone saved." })).toBeAttached()
+    await expect(toasts(page).getByText(message)).toHaveCount(0)
+    await expect(page.getByTestId("saves-sent")).toHaveText("2")
+    await expect(section(page).getByRole("cell", { name: "4155550000" })).toBeVisible()
+  })
+
+  test("the Section load error: \"Couldn't load phones\" + Retry (myself 404 once, then 200), with no page banner", async ({ page }) => {
+    let calls = 0
+    await mockProxy(page, "v2/user/myself", () => (++calls === 1 ? { status: 404, body: { message: "Not found", code: 404 } } : { body: ANN }))
+    await page.reload()
+    const banner = page.locator("[data-slot~='inline-banner']").filter({ hasText: "Couldn't load phones" })
+    await expect(banner).toBeVisible()
+    await expect(heading(page)).toHaveCount(0)
+    await expect(page.getByText("Something went wrong while loading profile information")).toHaveCount(0)
+    await expectNoAxeViolations(page, "Section load error")
+    await banner.getByRole("button", { name: "Retry" }).click()
+    await expect(heading(page)).toBeVisible()
+    await expect(section(page).getByRole("cell", { name: "4155512125" })).toBeVisible()
+    expect(calls).toBeGreaterThanOrEqual(2)
+  })
+
+  test("D-A: another user launched in this browser → the save sends nothing, the session dialog shows, the draft stays under the page user", async ({ page }) => {
+    // The page loaded as Ann (42); the session is now another user's (43).
+    const checks = await mockProxy(page, "v2/user/myself", { body: { ...ANN, id: 43, firstName: "Bo" } })
+    const edits = await mockUserEdit(page)
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    await saveToServer(page)
+    await expect(page.getByRole("alertdialog", { name: "Your session ended" })).toBeVisible()
+    expect(checks().length).toBeGreaterThanOrEqual(1)
+    expect(edits()).toEqual([])
+    // The Section stays in edit with the user's value and no error UI.
+    await expect(section(page).getByText("Editing")).toBeVisible()
+    await expect(section(page).getByRole("textbox", { name: "Number", includeHidden: true })).toHaveValue("4155550000")
+    await expect(sectionBanner(page)).toHaveCount(0)
+    await expect(toasts(page).locator("li")).toHaveCount(0)
+    expect(JSON.parse((await storedDraft(page, draftKey(ANN.id))) ?? "null")).toMatchObject({ values: { number: "4155550000", note: "" } })
+    expect(await storedDraft(page, draftKey(43))).toBeNull()
   })
 })

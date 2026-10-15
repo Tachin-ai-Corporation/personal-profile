@@ -1,8 +1,12 @@
+import { readdirSync, readFileSync } from "node:fs"
+import { join } from "node:path"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import axe from "axe-core"
+import { http, HttpResponse } from "msw"
 import { useState, type ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { createSessionEvents } from "@/lib/api"
+import { createSessionEvents, pageUser } from "@/lib/api"
+import { server } from "@/test/msw-server"
 import { FixtureParticipant, type FixtureParticipantProps } from "./__fixtures__/fixture-participant"
 import { confirmUnload, requestLeave, resetLeaveState } from "./leave"
 import { LeaveGuard } from "./leave-guard"
@@ -528,5 +532,60 @@ describe("LeaveGuard: scoped requestLeave({ scope }) (Stories 1.13 / 5.2, spec F
     expect(answer()).toBe("true")
     expect((screen.getByLabelText("Insurance") as HTMLInputElement).value).toBe("")
     expect((screen.getByLabelText("Phone") as HTMLInputElement).value).toBe("")
+  })
+})
+
+describe("LeaveGuard: beforeunload and the save safeguard", () => {
+  const unload = () => {
+    const event = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(event)
+    return event.defaultPrevented
+  }
+
+  it("attaches beforeunload while only a guard-only participant is dirty", () => {
+    render(
+      <Page>
+        {phone()}
+        {editor()}
+      </Page>,
+    )
+    expect(unload()).toBe(false)
+    type("Insurance", "x")
+    expect(unload()).toBe(true)
+    type("Insurance", "")
+    expect(unload()).toBe(false)
+  })
+
+  it("Save on another user's session (D-A, via runSaveAll): nothing saved, the leave is refused and the dialog closes", async () => {
+    pageUser.pin(42)
+    server.use(http.get("/api/1h/v2/user/myself", () => HttpResponse.json({ id: 43 })))
+    const onSave = vi.fn()
+    render(<Page>{phone({ onSave })}</Page>)
+    type("Phone", "1")
+    await leave()
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save" })))
+    await waitFor(() => expect(answer()).toBe("false"))
+    expect(onSave).not.toHaveBeenCalled()
+    expect(screen.queryByRole("alertdialog")).toBeNull()
+    expect((screen.getByLabelText("Phone") as HTMLInputElement).value).toBe("1")
+  })
+
+  it("only features/shell/leave.ts and leave-guard.tsx add a beforeunload handler (one leave guard, R10)", () => {
+    const root = process.cwd()
+    const SKIP = new Set(["node_modules", ".next", "coverage", "e2e", "test-results", "_bmad", "_bmad-output", ".git", "public", "docs", ".claude", "playwright-report"])
+    const files: string[] = []
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
+        const path = dir ? `${dir}/${entry.name}` : entry.name
+        if (entry.isDirectory()) {
+          if (!SKIP.has(entry.name)) walk(path)
+        } else if (/\.(ts|tsx|js|jsx|mjs)$/.test(entry.name) && !/\.test\.(ts|tsx)$/.test(entry.name)) files.push(path)
+      }
+    }
+    walk("")
+    expect(files).toContain("features/shell/leave-guard.tsx")
+    const adding = files.filter((path) => /addEventListener\(\s*["'`]beforeunload|onbeforeunload|useBeforeUnload/.test(readFileSync(join(root, path), "utf8")))
+    expect(adding.filter((path) => !["features/shell/leave.ts", "features/shell/leave-guard.tsx"].includes(path))).toEqual([])
+    expect(adding).toContain("features/shell/leave-guard.tsx")
   })
 })
