@@ -271,3 +271,9 @@
   summary: (Team B) add page-level e2e on `/account` for a non-403 read failure with per-frame Retry, a `myself` failure (page banner vs `useClaimMyselfError`) and session expiry, once Stories 7.4/8.1/9.1/10.1 add real reads.
   evidence: the stubs make no reads today; the behaviour is unit-tested in the foundation (`state-frame`, `page-frame`, `session-dialog`).
 
+
+### Deferred from: CI flake triage on feat/NG-9019-story-7-1 (2026-10-15)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-f3-1-ui-primitives-and-toasts.md`
+  summary: (Foundation) `e2e/primitives.spec.ts` "DisabledAction … Escape" is flaky on `mobile-360` (2/35 local runs): after a forced tap on the DisabledAction and Escape, the reason tooltip stays open (`toHaveCount(0)` gets 1). Likely an interaction between the tap toggle (`openAtPressRef`), `keepOpenOnPress` and the focus-open in `components/ui/tooltip.tsx`; diagnose with a Playwright trace before changing the component.
+  evidence: `pnpm exec playwright test e2e/primitives.spec.ts --repeat-each=5 --workers=2` → 2 failed / 68 passed, both at the final `toHaveCount(0)` on mobile-360; desktop never fails.

@@ -75,6 +75,8 @@ test.describe("F3-1 primitives", () => {
   test("DisabledAction: Enter, Space and a click do nothing (its form is never submitted), focus stays, the reason is announced and shown", async ({ page }) => {
     const action = page.getByRole("button", { name: "Add phone" })
     await action.focus()
+    // Focus must have landed before the keys (a slow runner can still be hydrating).
+    await expect(action).toBeFocused()
     await page.keyboard.press("Enter")
     await page.keyboard.press("Space")
     // force: Playwright treats aria-disabled as disabled and would wait forever; this is a real mouse click.

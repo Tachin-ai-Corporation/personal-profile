@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
+import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useState, type ReactNode } from "react"
 
 /**
  * Who shows a failed `myself` read (F6-1 review H1). `PageFrame` shows one
@@ -35,7 +35,8 @@ export function MyselfErrorClaimProvider({ children }: { readonly children: Reac
 /** Holds a claim while `active` (the Section is showing its own `myself` load error) and mounted. */
 export function useClaimMyselfError(active: boolean): void {
   const claim = useContext(MyselfErrorClaimContext)?.claim
-  useEffect(() => {
+  // Layout effect: the claim lands before paint, so the page banner never flashes next to the Section's own error.
+  useLayoutEffect(() => {
     if (!active || !claim) return
     return claim()
   }, [active, claim])
