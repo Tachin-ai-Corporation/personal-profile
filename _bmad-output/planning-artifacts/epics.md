@@ -679,6 +679,13 @@ D10–D13 (human, 2026-10-14) settle follow-up questions:
 - **D12 Deny list and kill-switch ownership.** Story 1.3 is the single owner of the full deny list, the `profile: true` allowlist-entry tag and the proxy-level `ACCOUNT_DISABLED=1` 503 for tagged entries. Story 7.2 owns only the page/route-level kill switch (`/account`, `/handoff/**`, `/api/pp/{mfa,org-logo,practice-support}/**`) and the test rows verifying the 1.3 deny list against Profile templates. Stories 7.5–10.3 tag their Profile-only entries.
 - **D13 Design tokens.** Dedicated `link-text` (`text-link-text`) and `destructive-fill` (`bg-destructive-fill`) tokens, never `text-info-strong` / `bg-error-strong` for those roles; a new `primary-text` token (#246b8f light, #6fb6d8 dark) for text in the primary hue; a new `scrim` token (graphite 45 % light, black 60 % dark) for every dialog and the drawer, replacing `bg-black/50`.
 
+D14–D17 (human, 2026-10-14, after the main-parity audit of the other team's Stories 1.1–1.8):
+
+- **D14 Replayed TOKEN_EXPIRED.** A request still answered `TOKEN_EXPIRED` after one refresh + replay ends the session (Story 1.5 AC). Main's forced refresh (`?force=1`, 10 s guard) is not restored.
+- **D15 `/api/token` failures.** Every `/api/token` failure, including 405, 415 and `PP_DISABLED`, clears the session cookie (spec 7.0a). Main's 1-1r "cookie untouched" behaviour is not restored.
+- **D16 Refresh IdP errors.** Only an IdP 401 or a 400 `invalid_grant` ends the session. IdP 403, any other 400 and a non-JSON 400 answer 503 (retryable) and keep the cookie, as on main (spec R5-1).
+- **D17 `myself` retry.** The `myself` read retries automatically with backoff on 5xx and network errors (never on 4xx), as on main; the manual Retry shows once retries are exhausted (spec R5-2).
+
 ### Epic 1: Launch, session and profile shell
 Users open Personal Profile from the 1health portal, arrive signed in and safe, see their name and picture, and move between tabs. Unsaved work is protected and the session expires safely. Includes the foundation: proxy, sealed session, CI and tests, one Vercel deployment serving demo and prod (D1), design tokens, and the shell building blocks (Section registry, Save all, drafts, leave guard, session-expired dialog, idle logoff).
 **FRs covered:** FR1, FR2, FR3, FR4, FR5, FR6, FR7, FR8, FR9, FR10, FR32
