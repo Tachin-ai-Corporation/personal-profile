@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { server } from "@/test/msw-server"
 import { onBeforeExit, onBeforeSessionExpired, runBeforeExit, runBeforeSessionExpired } from "./exit-hooks"
 import { beginExit, confirmUnload, isUnloadConfirmed, requestLeave, resetLeaveState, setLeaveGuard, UNLOAD_CONFIRM_MS } from "./leave"
-import { isAccountTab, isProfileTab, pageOfPath, type NavTarget } from "./nav-types"
+import { isAccountTab, isProfileTab, pageOfPath, pageTabTarget, TAB_PARAM, type NavTarget } from "./nav-types"
 import { LOGOUT_TIMEOUT_MS, navigate, type NavigateDeps } from "./navigate"
 
 const PORTAL = "https://portal.test"
@@ -269,5 +269,46 @@ describe("navigate: exits", () => {
     expect(logout).not.toHaveBeenCalled()
     expect(before).not.toHaveBeenCalled()
     expect(isUnloadConfirmed()).toBe(true)
+  })
+
+  it.each(["https://evil.example/", "//evil.example/handoff/portal", "/handoff/portalx", "/handoff/portal/../x", "/account", "javascript:alert(1)", ""])(
+    "handoff: %s is not the hand-off route → false, no guard, nothing assigned (F6-1)",
+    async (href) => {
+      const { deps, calls } = setup("/account")
+      const guard = vi.fn(async () => true)
+      const clear = setLeaveGuard(guard)
+      expect(await navigate({ external: "handoff", href }, deps)).toBe(false)
+      clear()
+      expect(guard).not.toHaveBeenCalled()
+      expect(calls).toEqual([])
+      expect(isUnloadConfirmed()).toBe(false)
+    },
+  )
+
+  it("handoff: the bare route is followed", async () => {
+    const { deps, calls } = setup("/account")
+    expect(await navigate({ external: "handoff", href: "/handoff/portal" }, deps)).toBe(true)
+    expect(calls).toEqual(["assign /handoff/portal"])
+  })
+})
+
+describe("a page's tab param (F6-1)", () => {
+  it("a same-page tab move sets `tabParam` instead of `tab`, other params kept", async () => {
+    const { deps, calls } = setup("/account", {}, "?tab=keep&view=personal")
+    expect(await navigate({ page: "account", tab: "provider", tabParam: "view" }, deps)).toBe(true)
+    expect(calls).toContain("replace /account?tab=keep&view=provider")
+  })
+
+  it("a cross-page move puts the tab in `tabParam`", async () => {
+    const { deps, calls } = setup("/")
+    expect(await navigate({ page: "account", tab: "organizations", tabParam: "view" }, deps)).toBe(true)
+    expect(calls).toContain("push /account?view=organizations")
+  })
+
+  it("pageTabTarget types a page's tab and adds tabParam only when it isn't `tab`", () => {
+    expect(pageTabTarget("profile", "insurance")).toEqual({ page: "profile", tab: "insurance" })
+    expect(pageTabTarget("profile", "personal")).toBeNull()
+    expect(pageTabTarget("account", "provider", "view")).toEqual({ page: "account", tab: "provider", tabParam: "view" })
+    expect(pageTabTarget("account", "medical", TAB_PARAM)).toBeNull()
   })
 })

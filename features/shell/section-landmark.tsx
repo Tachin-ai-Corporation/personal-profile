@@ -2,13 +2,13 @@
 
 import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
-import type { AccountAnchor } from "./anchors"
+import type { AccountSectionId } from "./anchors"
 import { sectionHeadingId, type SectionId } from "./nav-types"
 import { SectionHeader } from "./section-header"
 
 export interface SectionLandmarkProps {
-  /** The Section id or `/account` anchor (e.g. `authenticator`): the `<section id>` and URL hash. */
-  readonly id: SectionId | AccountAnchor
+  /** The Section id or `/account` landmark (`authenticator`, or `provider` which is no deep-link anchor): the `<section id>`. */
+  readonly id: SectionId | AccountSectionId
   readonly title: string
   /** Right-aligned header tools (Edit, Add …), from the Section. */
   readonly tools?: ReactNode

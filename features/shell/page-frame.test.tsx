@@ -7,7 +7,7 @@ import { setTestUrl } from "@/test/next-navigation"
 import { TestProviders, testIdle } from "@/test/providers"
 import { resetLeaveState } from "./leave"
 import { PageFrame } from "./page-frame"
-import { ProfileTabs } from "./page-tabs"
+import { ProfileTabs } from "./profile-tabs"
 import { useDirtyCount } from "./section-registry"
 
 vi.mock("next/navigation", async () => (await import("@/test/next-navigation")).nextNavigationMock)

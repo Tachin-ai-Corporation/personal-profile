@@ -10,7 +10,7 @@ import { FixtureParticipant } from "./__fixtures__/fixture-participant"
 import { resetLeaveState } from "./leave"
 import { LeaveGuard } from "./leave-guard"
 import { CurrentPageProvider } from "./navigate"
-import { ProfileTabs } from "./page-tabs"
+import { ProfileTabs } from "./profile-tabs"
 import { SectionRegistryProvider } from "./section-registry"
 
 vi.mock("next/navigation", async () => (await import("@/test/next-navigation")).nextNavigationMock)

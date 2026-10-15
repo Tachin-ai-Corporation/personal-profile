@@ -3,7 +3,7 @@
 import type { ReactNode } from "react"
 import { SECTION_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
-import type { AccountAnchor } from "./anchors"
+import type { AccountSectionId } from "./anchors"
 import { sectionHeadingId, type SectionId } from "./nav-types"
 
 /**
@@ -15,7 +15,7 @@ const HEADING_FOCUS = "rounded-sm outline-none focus:outline-solid focus:outline
 
 export interface SectionHeaderProps {
   /** A Section id, or an `/account` anchor container (e.g. `authenticator`). */
-  readonly id: SectionId | AccountAnchor
+  readonly id: SectionId | AccountSectionId
   /** The Section title (catalog copy), e.g. "Phone". */
   readonly title: string
   /** Read view: the count of saved entries (e.g. `3`); omitted when the Section shows none. */

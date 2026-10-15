@@ -4,8 +4,9 @@ import { useRouter } from "next/navigation"
 import { createContext, useCallback, useContext } from "react"
 import { endSession, recordUserActivity } from "@/lib/api"
 import { runBeforeExit } from "./exit-hooks"
+import { isHandoffHref } from "./handoff"
 import { beginExit, cancelExit, confirmUnload, requestLeave } from "./leave"
-import { HASH_NAVIGATE_EVENT, PAGE_PATHS, pageOfPath, type NavTarget, type PageId } from "./nav-types"
+import { HASH_NAVIGATE_EVENT, PAGE_PATHS, pageOfPath, TAB_PARAM, type NavTarget, type PageId } from "./nav-types"
 import { usePortalUrl } from "./portal-url-provider"
 
 /** Logout gets at most this long before the portal navigation (Story 1.7). */
@@ -35,10 +36,10 @@ export interface NavigateDeps {
   readonly recordActivity?: () => unknown
 }
 
-/** `?…` with `tab` set (or left as is), every other param kept. */
-function queryWith(search: string, tab: string | undefined): string {
+/** `?…` with the tab param (`TAB_PARAM` unless `param`) set, or left as is; every other param kept. */
+function queryWith(search: string, tab: string | undefined, param: string = TAB_PARAM): string {
   const params = new URLSearchParams(search)
-  if (tab) params.set("tab", tab)
+  if (tab) params.set(param, tab)
   const query = params.toString()
   return query ? `?${query}` : ""
 }
@@ -70,12 +71,15 @@ async function logoutWithin(logout: () => Promise<unknown>, timeoutMs: number): 
  * - tab on the current page: `?tab=` by history replace (other params kept), the old hash dropped, no scroll;
  *   with a `hash`, `HASH_NAVIGATE_EVENT` then lets `useHashAnchors` scroll to it.
  * - portal: before-exit callbacks → logout (≤ 3 s, failures ignored) → same-tab `location.assign(portalUrl)`.
- * - handoff: same-tab `location.assign(href)`; no logout, no before-exit callbacks.
+ * - handoff: same-tab `location.assign(href)`; no logout, no before-exit callbacks. Only an `href`
+ *   on `BFF_PATHS.handoffPortal` (`handoffHref()`) is followed; any other resolves `false` untouched.
  */
 export async function navigate(target: NavTarget, deps: NavigateDeps): Promise<boolean> {
   const location = deps.location ?? window.location
 
   if ("external" in target) {
+    // Only the hand-off route may be a hand-off target (`handoffHref()`, F6-1): anything else goes nowhere.
+    if (target.external === "handoff" && !isHandoffHref(target.href)) return false
     // One exit at a time: a second activation while logout is pending does nothing.
     if (!beginExit()) return false
     if (!(await requestLeave())) {
@@ -103,12 +107,12 @@ export async function navigate(target: NavTarget, deps: NavigateDeps): Promise<b
   if (samePage) {
     const history = deps.history ?? window.history
     // `null` state: Next's patched history then syncs `useSearchParams` and keeps its own tree.
-    history.replaceState(null, "", withHash(`${location.pathname}${queryWith(location.search, target.tab)}`, target.hash))
+    history.replaceState(null, "", withHash(`${location.pathname}${queryWith(location.search, target.tab, target.tabParam)}`, target.hash))
     // A replace fires no hashchange: tell the page's anchors (useHashAnchors) to follow the new hash.
     if (target.hash && typeof window !== "undefined") window.dispatchEvent(new Event(HASH_NAVIGATE_EVENT))
     return true
   }
-  deps.router.push(withHash(`${PAGE_PATHS[target.page]}${queryWith("", target.tab)}`, target.hash))
+  deps.router.push(withHash(`${PAGE_PATHS[target.page]}${queryWith("", target.tab, target.tabParam)}`, target.hash))
   return true
 }
 

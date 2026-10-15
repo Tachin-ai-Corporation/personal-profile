@@ -5,37 +5,27 @@ import { useEffect, useRef, type ReactNode } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { SHELL_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
-import { ContactsPanel } from "./contacts-panel"
-import { InsurancePanel } from "./insurance-panel"
-import { DEFAULT_PROFILE_TAB, isProfileTab, PROFILE_TABS, type NavTarget, type ProfileTab } from "./nav-types"
+import { pageTabTarget, TAB_PARAM, type PageId } from "./nav-types"
 import { useNavigate } from "./navigate"
-
-export interface PageTabDefinition<T extends string> {
-  readonly value: T
-  readonly label: ReactNode
-}
+import type { PageTabDefinition } from "./page-tabs-config"
 
 export interface PageTabsProps<T extends string> {
+  /** The page the strip belongs to: tab changes are `navigate({ page, tab })` (leave guard first). */
+  readonly page: PageId
+  /** The tabs in order (static config, e.g. `PROFILE_TAB_DEFINITIONS`). */
   readonly tabs: readonly PageTabDefinition<T>[]
-  readonly isTab: (value: unknown) => value is T
-  readonly defaultTab: T
-  /** The `navigate()` target that selects a tab (the leave guard can intercept it). */
-  readonly toTarget: (tab: T) => NavTarget
-  readonly renderPanel: (tab: T) => ReactNode
   /**
-   * Per-panel overrides: `bare` drops the default gutters (the panel lays out
-   * its own), `skipInTabOrder` takes the panel out of the Tab order (its first
-   * control follows the tab directly, e.g. the Section menu).
+   * Each tab's panel, as React elements composed by the route (server
+   * components welcome). Only the selected one is mounted, so a panel's reads
+   * start when its tab is first opened.
    */
-  readonly panelOptions?: (tab: T) => PanelOptions
+  readonly panels: Readonly<Record<T, ReactNode>>
+  readonly defaultTab: T
+  /** The query parameter that holds the tab; defaults to `tab` (AD-7). */
+  readonly param?: string
+  /** The tablist's accessible name, when the page needs one. */
+  readonly "aria-label"?: string
 }
-
-export interface PanelOptions {
-  readonly bare?: boolean
-  readonly skipInTabOrder?: boolean
-}
-
-const DEFAULT_PANEL_OPTIONS: PanelOptions = {}
 
 /** Scrolls the strip sideways (never the page) so the selected tab is in view. */
 function keepInView(list: HTMLElement | null): void {
@@ -47,67 +37,6 @@ function keepInView(list: HTMLElement | null): void {
   else if (end > list.scrollLeft + list.clientWidth) list.scrollLeft = end - list.clientWidth
 }
 
-/**
- * The tab strip bound to `?tab=` (Story 1.8, AD-7): ARIA tabs with manual
- * activation; every change goes through `navigate()`; a missing or unknown
- * `?tab=` shows the default tab and is normalized with a replace.
- */
-export function PageTabs<T extends string>({ tabs, isTab, defaultTab, toTarget, renderPanel, panelOptions }: PageTabsProps<T>) {
-  const navigate = useNavigate()
-  const raw = useSearchParams().get("tab")
-  const current: T = isTab(raw) ? raw : defaultTab
-  const listRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (raw === current) return
-    const { pathname, search, hash } = window.location
-    const params = new URLSearchParams(search)
-    params.set("tab", current)
-    // `null` state, as Next documents: its patched history syncs `useSearchParams`.
-    window.history.replaceState(null, "", `${pathname}?${params.toString()}${hash}`)
-  }, [raw, current])
-
-  useEffect(() => keepInView(listRef.current), [current])
-
-  return (
-    <Tabs
-      value={current}
-      onValueChange={(next) => {
-        if (isTab(next) && next !== current) void navigate(toTarget(next))
-      }}
-    >
-      <TabsList ref={listRef} className="px-4 md:px-6">
-        {tabs.map((tab) => (
-          <TabsTrigger key={tab.value} value={tab.value}>
-            {tab.label}
-          </TabsTrigger>
-        ))}
-      </TabsList>
-      {/* Every panel exists (so each tab's aria-controls resolves); Radix renders only the selected one's content. */}
-      {tabs.map((tab) => {
-        const options = panelOptions?.(tab.value) ?? DEFAULT_PANEL_OPTIONS
-        return (
-          <TabsContent
-            key={tab.value}
-            value={tab.value}
-            // Only when skipping: an explicit `undefined` would override Radix's own tabIndex=0.
-            {...(options.skipInTabOrder ? { tabIndex: -1 } : {})}
-            className={cn("focus-ring", !options.bare && "px-4 py-6 md:px-6")}
-          >
-            {renderPanel(tab.value)}
-          </TabsContent>
-        )
-      })}
-    </Tabs>
-  )
-}
-
-const PROFILE_TAB_LABELS: Readonly<Record<ProfileTab, string>> = {
-  contacts: SHELL_MESSAGES.profileTabContacts,
-  insurance: SHELL_MESSAGES.profileTabInsurance,
-  medical: SHELL_MESSAGES.profileTabMedical,
-}
-
 function ComingSoonTag() {
   return (
     <span className="rounded-sm bg-muted px-1.5 py-0.5 text-caption font-medium text-muted-foreground">
@@ -117,51 +46,68 @@ function ComingSoonTag() {
   )
 }
 
-const PROFILE_TAB_DEFINITIONS: readonly PageTabDefinition<ProfileTab>[] = PROFILE_TABS.map((value) => ({
-  value,
-  label:
-    value === "medical" ? (
-      <>
-        {PROFILE_TAB_LABELS[value]}
-        <ComingSoonTag />
-      </>
-    ) : (
-      PROFILE_TAB_LABELS[value]
-    ),
-}))
+/**
+ * A page's tab strip bound to `?tab=` (Stories 1.8, 7.1; AD-7; generic since
+ * F6-1: it knows no page's tabs). ARIA tabs with manual activation; every
+ * change goes through `navigate()`. A missing, unknown or repeated `?tab=`
+ * (`?tab=a&tab=b`) shows `defaultTab` and is normalized to one value with a
+ * replace (other params and the hash kept).
+ */
+export function PageTabs<T extends string>({ page, tabs, panels, defaultTab, param = TAB_PARAM, "aria-label": ariaLabel }: PageTabsProps<T>) {
+  const navigate = useNavigate()
+  const values = useSearchParams().getAll(param)
+  const isTab = (value: unknown): value is T => tabs.some((tab) => tab.id === value)
+  const single = values.length === 1 ? values[0] : null
+  const current: T = isTab(single) ? single : defaultTab
+  const normalized = single === current
+  const listRef = useRef<HTMLDivElement>(null)
 
-/** A quiet centered muted panel, no action (DESIGN.md Empty state: Medical). */
-function QuietPanel({ children }: { readonly children: ReactNode }) {
-  return <p className="py-12 text-center text-body-sm text-muted-foreground">{children}</p>
-}
+  useEffect(() => {
+    if (normalized) return
+    const { pathname, search, hash } = window.location
+    const params = new URLSearchParams(search)
+    params.set(param, current)
+    // `null` state, as Next documents: its patched history syncs `useSearchParams`.
+    window.history.replaceState(null, "", `${pathname}?${params.toString()}${hash}`)
+  }, [normalized, current, param])
 
-/** Contacts (Section menu + five Sections) and Insurance (one Section), in their loading frames until Epics 2–5; Medical is final. */
-function profilePanel(tab: ProfileTab): ReactNode {
-  switch (tab) {
-    case "contacts":
-      return <ContactsPanel />
-    case "insurance":
-      return <InsurancePanel />
-    case "medical":
-      return <QuietPanel>{SHELL_MESSAGES.medicalComingSoon}</QuietPanel>
-  }
-}
+  useEffect(() => keepInView(listRef.current), [current])
 
-/** Contacts lays out its own columns, and Tab goes from the tab straight to its Section menu. */
-function profilePanelOptions(tab: ProfileTab): PanelOptions {
-  return tab === "contacts" ? { bare: true, skipInTabOrder: true } : DEFAULT_PANEL_OPTIONS
-}
-
-/** The Personal Profile tab strip: Contacts, Insurance, Medical. */
-export function ProfileTabs() {
   return (
-    <PageTabs
-      tabs={PROFILE_TAB_DEFINITIONS}
-      isTab={isProfileTab}
-      defaultTab={DEFAULT_PROFILE_TAB}
-      toTarget={(tab) => ({ page: "profile", tab })}
-      renderPanel={profilePanel}
-      panelOptions={profilePanelOptions}
-    />
+    <Tabs
+      value={current}
+      onValueChange={(next) => {
+        if (next === current) return
+        const target = pageTabTarget(page, next, param)
+        if (target) void navigate(target)
+      }}
+    >
+      <TabsList ref={listRef} aria-label={ariaLabel} className="px-4 md:px-6">
+        {tabs.map((tab) => (
+          <TabsTrigger key={tab.id} value={tab.id}>
+            {tab.comingSoon ? (
+              <>
+                {tab.label}
+                <ComingSoonTag />
+              </>
+            ) : (
+              tab.label
+            )}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+      {/* Every panel exists (so each tab's aria-controls resolves); Radix renders only the selected one's content. */}
+      {tabs.map((tab) => (
+        <TabsContent
+          key={tab.id}
+          value={tab.id}
+          // Only when skipping: an explicit `undefined` would override Radix's own tabIndex=0.
+          {...(tab.skipInTabOrder ? { tabIndex: -1 } : {})}
+          className={cn("focus-ring", !tab.bare && "px-4 py-6 md:px-6")}
+        >
+          {panels[tab.id]}
+        </TabsContent>
+      ))}
+    </Tabs>
   )
 }

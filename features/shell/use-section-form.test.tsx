@@ -741,7 +741,7 @@ describe("F4 draft signals", () => {
     })
     return (
       <>
-        <button type="button" onClick={section.startEdit}>
+        <button type="button" onClick={() => section.startEdit()}>
           Edit
         </button>
         <button type="button" onClick={() => section.form.setValue("note", "preset")}>

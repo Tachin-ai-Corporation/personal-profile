@@ -21,7 +21,11 @@ export {
   DEFAULT_PROFILE_TAB,
   PAGE_PATHS,
   PROFILE_TABS,
+  CANCELLED_CODE,
   SESSION_EXPIRED_CODE,
+  TAB_PARAM,
+  isCancelled,
+  pageTabTarget,
   isAccountTab,
   isProfileTab,
   isSessionExpired,
@@ -69,6 +73,7 @@ export {
   type SectionFooterBindings,
   type SectionForm,
   type SectionMode,
+  type StartEditOptions,
   type UseSectionFormOptions,
 } from "./use-section-form"
 export { SectionHeader, type SectionHeaderProps } from "./section-header"
@@ -97,7 +102,27 @@ export { IdleWarning, IDLE_PING_TIMEOUT_MS, IDLE_SAFETY_MARGIN_MS, IDLE_WARNING_
 export { AppBar } from "./app-bar"
 export { PageNav } from "./page-nav"
 export { ReturnLink } from "./return-link"
-export { PageTabs, ProfileTabs, type PageTabDefinition, type PageTabsProps, type PanelOptions } from "./page-tabs"
+
+// Page composition (F6-1): generic tabs, page presets, slots and placeholders. Composition happens only in app/**.
+export { PageTabs, type PageTabsProps } from "./page-tabs"
+export { ACCOUNT_TAB_DEFINITIONS, PROFILE_TAB_DEFINITIONS, type PageTabDefinition } from "./page-tabs-config"
+export { ProfileTabs, QuietPanel, type ProfileTabsProps } from "./profile-tabs"
+export { AccountTabs, type AccountTabsProps } from "./account-tabs"
+export { AccountPersonalPanel, AnchoredPanel, type AccountPersonalPanelProps, type AnchoredPanelProps } from "./anchored-panel"
+export {
+  AccountSectionPlaceholder,
+  AccountTabPlaceholder,
+  ProfileSectionPlaceholder,
+  type AccountPlaceholderId,
+  type AccountSectionPlaceholderProps,
+  type AccountTabPlaceholderId,
+  type AccountTabPlaceholderProps,
+  type ProfilePlaceholderId,
+  type ProfileSectionPlaceholderProps,
+} from "./placeholders"
+export { SectionFrameProvider, useSectionFrame, type SectionFrame, type SectionFrameProviderProps } from "./section-frame"
+export { SAVE_ORDER } from "./save-order"
+export { handoffHref, isHandoffHref, isTenantId, TENANT_ID_PATTERN, type HandoffTarget } from "./handoff"
 
 // Read states and Section navigation (F3-3).
 export {
@@ -109,6 +134,7 @@ export {
   type FrameSkeletonProps,
   type FrameState,
   type LoadErrorCopy,
+  type BarWidth,
   type SkeletonVariant,
   type StateFrameProps,
 } from "./state-frame"
@@ -122,14 +148,15 @@ export {
   SIGNATURE_ANCHOR,
   isProfileSectionId,
   type AccountAnchor,
+  type AccountSectionId,
   type ProfileSectionId,
 } from "./anchors"
 export { SectionLandmark, type SectionLandmarkProps } from "./section-landmark"
 export { SectionNav, useSectionNavigation, type SectionNavProps, type SectionNavState } from "./section-nav"
 export { motionAwareScrollBehavior, useHashAnchors, type HashAnchors, type HashAnchorsOptions } from "./use-hash-anchors"
 export { SectionCountProvider, useReportSectionCount, useSectionCounts, type SectionCounts } from "./section-counts"
-export { ContactsPanel } from "./contacts-panel"
-export { InsurancePanel } from "./insurance-panel"
+export { ContactsPanel, type ContactsPanelProps } from "./contacts-panel"
+export { InsurancePanel, type InsurancePanelProps } from "./insurance-panel"
 export { PageFrame, type PageFrameProps } from "./page-frame"
 export { DESKTOP_QUERY, useMediaQuery } from "./use-media-query"
 export {

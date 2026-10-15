@@ -74,9 +74,9 @@ describe("skeleton variants", () => {
 
   it.each<[SkeletonVariant, string, number, string[]]>([
     ["kv", '[data-slot="frame-skeleton-row"]', 4, ["h-11"]],
-    ["tiles", '[data-slot="skeleton"]', 5, ["h-28"]],
+    ["tiles", '[data-slot="skeleton"]', 5, ["aspect-square", "md:size-28", "md:shrink-0"]],
     ["bars", '[data-slot="skeleton"]', 2, ["h-11", "max-w-[480px]"]],
-    ["cards", '[data-slot="frame-skeleton-card"]', 12, ["border", "rounded-md"]],
+    ["cards", '[data-slot="frame-skeleton-card"]', 12, ["border", "rounded-md", "min-h-62"]],
   ])("%s: %s × %i", (variant, selector, count, classes) => {
     const { container } = render(<FrameSkeleton variant={variant} />)
     const skeleton = container.querySelector('[data-slot="frame-skeleton"]')
@@ -94,6 +94,21 @@ describe("skeleton variants", () => {
     expect(grid?.className).toBe(ORG_GRID_CLASSES)
     hasClasses(grid, "grid-cols-1", "sm:grid-cols-2", "lg:grid-cols-3", "xl:grid-cols-4", "gap-4")
     hasClasses(container.querySelector('[data-slot="frame-skeleton-card"] [data-slot="skeleton"]'), "size-18")
+  })
+
+  it("tiles: one row of five 112 px squares from 768 px, a 3-column grid below (UX-DR-P31, F6-1)", () => {
+    const { container } = render(<FrameSkeleton variant="tiles" />)
+    hasClasses(container.querySelector('[data-slot="frame-skeleton"]'), "grid", "grid-cols-3", "md:flex", "md:flex-row")
+  })
+
+  it("bars: `wide` caps them at 720 px (Story 9.1), through StateFrame too", () => {
+    const { container } = render(frame({ level: "tab", skeleton: "bars", barWidth: "wide" }))
+    const bars = container.querySelectorAll('[data-slot="skeleton"]')
+    expect(bars).toHaveLength(2)
+    for (const bar of bars) {
+      hasClasses(bar, "max-w-[720px]")
+      expect(bar.classList.contains("max-w-[480px]")).toBe(false)
+    }
   })
 
   it("a tab-level frame has no container of its own", () => {

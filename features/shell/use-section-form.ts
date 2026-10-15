@@ -19,6 +19,7 @@ import { formatMessage, messageFor, SECTION_MESSAGES } from "@/lib/shared/messag
 import { telemetry } from "@/lib/shared/telemetry"
 import {
   SESSION_EXPIRED_CODE,
+  CANCELLED_CODE,
   sectionHeadingId,
   type DraftDiffRow,
   type DraftValues,
@@ -75,6 +76,20 @@ export interface UseSectionFormOptions<T extends FieldValues> {
   readonly dataStatus?: SectionDataStatus
   /** F4 drafts: the changed fields between a draft and the current server values. */
   readonly describeDraftDiff?: (draft: DraftValues, current: DraftValues) => readonly DraftDiffRow[]
+  /**
+   * F6-1 (Story 4.2): makes a field that has no mounted control visible (e.g.
+   * expands its collapsed address row) and returns `true` when it will be
+   * mounted on the next render. Called with a field path (`rows.2.city`)
+   * before the hook focuses it: the first invalid field (own Save, Save all,
+   * leave guard), a server field error and `startEdit({ focus })`.
+   */
+  readonly revealField?: (path: string) => boolean
+}
+
+/** `startEdit` options. */
+export interface StartEditOptions<T extends FieldValues> {
+  /** The field (or row field) to focus instead of the first in `fieldOrder` (e.g. a row's kebab "Edit", Story 4.2). */
+  readonly focus?: Path<T>
 }
 
 /** The footer wiring, spread onto `SectionFooter` (the ref lets the hook focus the Section error). */
@@ -90,8 +105,8 @@ export interface SectionForm<T extends FieldValues> {
   readonly isDirty: boolean
   /** The baseline the edit is diffed against (the read view's values). */
   readonly baseline: T
-  /** Read → edit; focus moves to the first field. */
-  readonly startEdit: () => void
+  /** Read → edit; focus moves to `focus` (revealed first if hidden) or else the first field in `fieldOrder`. */
+  readonly startEdit: (options?: StartEditOptions<T>) => void
   /** Reverts only this Section to its baseline (no confirm) and returns to read view. */
   readonly cancel: () => void
   /** The Section's own Save: validates first (nothing sent if invalid), then saves once. */
@@ -107,7 +122,8 @@ export interface SectionForm<T extends FieldValues> {
   readonly footerProps: SectionFooterBindings
 }
 
-type FocusTarget = "heading" | "edit" | "error" | { readonly field: string }
+/** `firstInvalid`: focus the first invalid field again after `revealField` mounted hidden ones. */
+type FocusTarget = "heading" | "edit" | "error" | "firstInvalid" | { readonly field: string; readonly revealed?: boolean }
 
 const UNEXPECTED: SaveResult = { ok: false, error: { code: "UNEXPECTED", mapped: { kind: "generic" } } }
 
@@ -148,6 +164,7 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
     draftFields,
     describeDraftDiff,
     dataStatus,
+    revealField,
   } = options
   const registry = useSectionRegistry()
 
@@ -228,7 +245,9 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
     if (target === "heading") document.getElementById(sectionHeadingId(id))?.focus()
     else if (target === "edit") document.getElementById(editButtonId)?.focus()
     else if (target === "error") errorRef.current?.focus()
-    else focusField(target.field)
+    // Hidden fields were revealed last render: they are mounted now; no second reveal, no second Section error.
+    else if (target === "firstInvalid") invalidState(false).focusFirst(true)
+    else focusField(target.field, target.revealed === true)
   })
 
   // A new baseline (server data, or a rebase): the read view shows it; an edit keeps the fields the user changed.
@@ -253,9 +272,11 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
     setOverride(deepEqual(next, options.baseline) ? null : { value: next })
   }
 
-  function focusField(name: string): void {
+  /** Focuses a field; an unmounted one is first revealed (`revealField`) and focused after the next render. */
+  function focusField(name: string, revealed: boolean): void {
     const control = controls.current.get(name)
     if (control) control.focus()
+    else if (!revealed && revealField?.(name)) requestFocus({ field: name, revealed: true })
     else form.setFocus(name as Path<T>)
   }
 
@@ -272,10 +293,13 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
 
   /**
    * The current errors: how many fields to fix, and how to focus the first
-   * (in page order). An error with no registered control (a schema refine,
-   * a root path) shows as the Section error instead.
+   * (in page order). An error with no registered control is first offered
+   * to `revealField` (a collapsed row, F6-1): when anything is revealed,
+   * focus waits a render and then goes to the first invalid field in page
+   * order. An error nothing can show (a schema refine, a root path) shows as
+   * the Section error instead. `allowReveal: false` is that second pass.
    */
-  function invalidState(): { readonly count: number; readonly focusFirst: (withUi: boolean) => void } {
+  function invalidState(allowReveal = true): { readonly count: number; readonly focusFirst: (withUi: boolean) => void } {
     // From the schema itself: RHF's `formState` is a render snapshot, and `trigger()` keeps only mounted fields' errors.
     const parsed = schema.safeParse(form.getValues())
     const leaves: ErrorLeaf[] = parsed.success ? [] : parsed.error.issues.map((issue) => ({ path: issue.path.map(String).join("."), message: issue.message }))
@@ -283,10 +307,18 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
       .map((leaf) => ({ leaf, control: controlFor(leaf.path) }))
       .filter((entry): entry is { leaf: ErrorLeaf; control: HTMLElement } => entry.control !== undefined)
       .toSorted((a, b) => (a.control.compareDocumentPosition(b.control) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
-    const unlocated = leaves.find((leaf) => controlFor(leaf.path) === undefined)
+    const hidden = leaves.filter((leaf) => controlFor(leaf.path) === undefined)
     return {
       count: Math.max(1, leaves.length),
       focusFirst: (withUi) => {
+        const revealing = allowReveal && revealField ? hidden.filter((leaf) => revealField(leaf.path)) : []
+        // The second pass already showed the Section error for what stayed hidden.
+        const unlocated = allowReveal ? hidden.find((leaf) => !revealing.includes(leaf)) : undefined
+        if (revealing.length > 0) {
+          if (unlocated) showSectionError(unlocated.message ?? formatMessage(SECTION_MESSAGES.saveFailed, { section: label.toLowerCase() }), withUi, false)
+          requestFocus("firstInvalid")
+          return
+        }
         if (unlocated) {
           showSectionError(unlocated.message ?? formatMessage(SECTION_MESSAGES.saveFailed, { section: label.toLowerCase() }), withUi, false)
           if (!located[0]) {
@@ -327,9 +359,10 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
     setMode("read")
   }
 
-  function startEdit(): void {
+  function startEdit(startOptions?: StartEditOptions<T>): void {
     if (mode === "read") enterEdit()
-    if (fieldOrder[0] !== undefined) requestFocus({ field: fieldOrder[0] })
+    const target = startOptions?.focus ?? fieldOrder[0]
+    if (target !== undefined) requestFocus({ field: target })
   }
 
   function cancel(): void {
@@ -403,7 +436,13 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
     } catch {
       result = UNEXPECTED
     }
-    telemetry.track("section_save", { sectionId: id, ok: result.ok, code: result.ok ? null : (result.error.code ?? "GENERIC") })
+    // The user declined a step (F6-1, Story 2.4): back to edit as it was, no error, no focus move, no telemetry.
+    const code = result.ok ? null : (result.error.code ?? "GENERIC")
+    if (code === CANCELLED_CODE) {
+      setMode("edit")
+      return result
+    }
+    telemetry.track("section_save", { sectionId: id, ok: result.ok, code })
     if (result.ok) {
       synced.current = values
       form.reset(values)
@@ -522,7 +561,7 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
       }
     },
     errorFor: (name) => form.getFieldState(name, form.formState).error?.message,
-    editButtonProps: { id: editButtonId, onClick: startEdit },
+    editButtonProps: { id: editButtonId, onClick: () => startEdit() },
     footerProps: {
       ref: errorRef,
       dirty: isDirty,

@@ -17,13 +17,26 @@ export const DEFAULT_ACCOUNT_TAB: AccountTab = "personal"
 
 export type PageId = "profile" | "account"
 
+/** The URL query parameter that holds a page's tab (AD-7); `PageTabs` and `navigate()` default to it. */
+export const TAB_PARAM = "tab"
+
+/**
+ * A page's tab as a `navigate()` target (with `tabParam` only when it isn't
+ * `TAB_PARAM`); `null` when `tab` isn't one of that page's tabs.
+ */
+export function pageTabTarget(page: PageId, tab: string, tabParam: string = TAB_PARAM): NavTarget | null {
+  const param = tabParam === TAB_PARAM ? {} : { tabParam }
+  if (page === "profile") return isProfileTab(tab) ? { page, tab, ...param } : null
+  return isAccountTab(tab) ? { page, tab, ...param } : null
+}
+
 /** The app's two pages and their paths. */
 export const PAGE_PATHS: Readonly<Record<PageId, string>> = { profile: "/", account: "/account" }
 
 /** Every cross-page, tab and external move (AD-26). */
 export type NavTarget =
-  | { readonly page: "profile"; readonly tab?: ProfileTab; readonly hash?: string }
-  | { readonly page: "account"; readonly tab?: AccountTab; readonly hash?: string }
+  | { readonly page: "profile"; readonly tab?: ProfileTab; readonly hash?: string; readonly tabParam?: string }
+  | { readonly page: "account"; readonly tab?: AccountTab; readonly hash?: string; readonly tabParam?: string }
   | { readonly external: "portal" }
   | { readonly external: "handoff"; readonly href: string }
 
@@ -69,9 +82,23 @@ export type AccountSavePart = "details" | "timeZone" | "locale"
  * `SESSION_EXPIRED` means the session ended: runners stop at once and the
  * session-expired dialog takes over (no error, no toast).
  */
-export type SaveErrorCode = TelemetryErrorCode
+export type SaveErrorCode = TelemetryErrorCode | typeof CANCELLED_CODE
 
 export const SESSION_EXPIRED_CODE = "SESSION_EXPIRED" satisfies SaveErrorCode
+
+/**
+ * The user declined a step of the save (e.g. Story 2.4's "Remove your
+ * signature?" Cancel), so nothing was sent for the Section (F6-1).
+ * `useSectionForm` shows no error, moves no focus and fires no
+ * `section_save` telemetry; the Section stays in edit. Save all and the
+ * leave guard count it as not saved.
+ */
+export const CANCELLED_CODE = "CANCELLED"
+
+/** Whether a save was cancelled by the user. */
+export function isCancelled(result: SaveResult): boolean {
+  return !result.ok && result.error.code === CANCELLED_CODE
+}
 
 export interface SaveError {
   /** `UNEXPECTED` when `save()` threw or rejected; otherwise the mapped error's code. */

@@ -5,7 +5,7 @@ import { SESSION_COOKIE, sealSession, unsealSession } from "@/lib/server/session
 import type { SessionPayload } from "@/lib/server/session/types"
 import { stubServerEnv } from "@/test/env-fixture"
 import { makeSession, NOW } from "@/test/session-fixture"
-import { proxy } from "./proxy"
+import { isNoStorePath, proxy } from "./proxy"
 
 /**
  * The root request interceptor: AD-21 headers everywhere, and the Story 1.6
@@ -62,6 +62,38 @@ describe("security headers", () => {
     expect(response.status).toBe(200)
     expect(response.headers.get("Location")).toBeNull()
     expect(response.headers.get("Set-Cookie")).toBeNull()
+  })
+})
+
+describe("no-store pages and hand-off (AD-18, Stories 7.2, 7.3; F6-1)", () => {
+  it.each(["/", "/?tab=insurance", "/account", "/account/", "/account?tab=provider", "/handoff", "/handoff/portal?to=create-org", "//handoff/portal"])(
+    "%s answers the no-store set (navigation, RSC and prefetch alike)",
+    async (path) => {
+      for (const headers of [NAVIGATE, { rsc: "1" }, { "next-router-prefetch": "1" }, {}] as Record<string, string>[]) {
+        const response = await proxy(request(path, headers))
+        expectNoStore(response)
+        expectSecurityHeaders(response)
+      }
+    },
+  )
+
+  it.each(["/auth", "/favicon.png", "/accounts", "/handoffx", "/api/session/ping"])("%s is left to its own caching", async (path) => {
+    const response = await proxy(request(path, NAVIGATE))
+    expect(response.headers.get("Cache-Control")).toBeNull()
+  })
+
+  it("the no-store set also rides the cleared-session 307 to /auth", async () => {
+    const response = await proxy(request("/account", { ...NAVIGATE, cookie: `${SESSION_COOKIE}=garbage` }))
+    expect(response.status).toBe(307)
+    expectNoStore(response)
+  })
+
+  it("isNoStorePath matches only the pages and /handoff/**", () => {
+    expect(isNoStorePath("/")).toBe(true)
+    expect(isNoStorePath("/account//")).toBe(true)
+    expect(isNoStorePath("/%68andoff/portal")).toBe(true)
+    expect(isNoStorePath("/auth")).toBe(false)
+    expect(isNoStorePath("/account/x")).toBe(false)
   })
 })
 

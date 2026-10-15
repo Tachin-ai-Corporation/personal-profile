@@ -31,6 +31,13 @@ export const ACCOUNT_ANCHORS = ["account", "authenticator"] as const
 
 export type AccountAnchor = (typeof ACCOUNT_ANCHORS)[number]
 
+/**
+ * Every `/account` landmark id (`SectionLandmark`, `SectionHeader`): the two
+ * deep-link anchors plus the Provider tab's "Healthcare credentials" Section
+ * `provider` (Story 9.1), which is not a deep-link anchor (F6-1).
+ */
+export type AccountSectionId = AccountAnchor | "provider"
+
 /** Column headers per Section table; empty for the key/value table and the Insurance cards. */
 export const SECTION_COLUMNS: Readonly<Record<ProfileSectionId | "insurance", readonly string[]>> = {
   personal: [],

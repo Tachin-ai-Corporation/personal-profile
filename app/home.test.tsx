@@ -2,8 +2,17 @@ import { act, render, screen } from "@testing-library/react"
 import axe from "axe-core"
 import { http, HttpResponse } from "msw"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { AccountSettingsSection } from "@/features/account"
+import { AddressesSection } from "@/features/addresses"
+import { EmailSection, PhoneSection, SocialSection } from "@/features/contacts"
 import { ProfileHeader } from "@/features/header"
-import { PageFrame, ProfileTabs } from "@/features/shell"
+import { InsuranceSection } from "@/features/insurance"
+import { AuthenticatorSection } from "@/features/mfa"
+import { OrganizationsTab } from "@/features/organizations"
+import { PersonalSection } from "@/features/personal"
+import { ProviderTab } from "@/features/provider"
+import { AccountPersonalPanel, AccountTabs, ContactsPanel, InsurancePanel, PageFrame, ProfileTabs, SAVE_ORDER } from "@/features/shell"
+import { axeViolations } from "@/test/axe"
 import { stubLayoutApis } from "@/test/dom-stubs"
 import { stubViewport } from "@/test/media"
 import { server } from "@/test/msw-server"
@@ -16,8 +25,21 @@ vi.mock("next/navigation", async () => (await import("@/test/next-navigation")).
 function renderHome() {
   return render(
     <TestProviders>
-      <PageFrame page="profile" header={<ProfileHeader />} idle={testIdle()}>
-        <ProfileTabs />
+      <PageFrame page="profile" header={<ProfileHeader />} idle={testIdle()} saveOrder={SAVE_ORDER}>
+        <ProfileTabs
+          contacts={
+            <ContactsPanel
+              sections={{
+                personal: <PersonalSection />,
+                phone: <PhoneSection />,
+                email: <EmailSection />,
+                social: <SocialSection />,
+                addresses: <AddressesSection />,
+              }}
+            />
+          }
+          insurance={<InsurancePanel section={<InsuranceSection />} />}
+        />
       </PageFrame>
     </TestProviders>,
   )
@@ -65,6 +87,46 @@ describe("/ page frame", () => {
     expect(names.some((n) => n.startsWith("tabpanel:"))).toBe(false)
     expect(names.some((n) => n.endsWith(":1health"))).toBe(false)
     expect(window.location.search).toBe("?tab=contacts")
+  })
+
+  it("the feature stubs fill every slot with the shell's placeholders: the page looks as before (F6-1)", async () => {
+    renderHome()
+    await screen.findByRole("heading", { level: 1, name: "Ann Lee" })
+    expect([...document.querySelectorAll("section")].map((s) => s.id)).toEqual(["personal", "phone", "email", "social", "addresses"])
+    expect(document.querySelectorAll('[data-slot="state-frame"][data-state="loading"]')).toHaveLength(5)
+    expect(document.getElementById("signature")).toBeTruthy()
+  })
+
+  it("the /account composition Story 7.1 wires (stubs in AccountTabs / AccountPersonalPanel) renders both landmarks", async () => {
+    setTestUrl("/account?tab=personal")
+    render(
+      <TestProviders>
+        <PageFrame page="account" header={<ProfileHeader />} idle={testIdle()}>
+          <AccountTabs
+            personal={<AccountPersonalPanel account={<AccountSettingsSection />} authenticator={<AuthenticatorSection />} />}
+            provider={<ProviderTab />}
+            organizations={<OrganizationsTab />}
+          />
+        </PageFrame>
+      </TestProviders>,
+    )
+    await screen.findByRole("heading", { level: 1, name: "Ann Lee" })
+    expect([...document.querySelectorAll("section")].map((s) => s.id)).toEqual(["account", "authenticator"])
+    expect(screen.getByRole("link", { name: "Account" }).getAttribute("aria-current")).toBe("page")
+    expect(await axeViolations()).toEqual([])
+  })
+
+  it.each(["/account?tab=provider", "/account?tab=organizations"])("%s: the stub tab renders its placeholder", async (url) => {
+    setTestUrl(url)
+    render(
+      <TestProviders>
+        <PageFrame page="account" header={<ProfileHeader />} idle={testIdle()}>
+          <AccountTabs provider={<ProviderTab />} organizations={<OrganizationsTab />} />
+        </PageFrame>
+      </TestProviders>,
+    )
+    await screen.findByRole("heading", { level: 1, name: "Ann Lee" })
+    expect(document.querySelector('[data-slot="state-frame"]')?.getAttribute("data-level")).toBe("tab")
   })
 
   it.each(["light", "dark"])("has no axe violations in %s mode", async (theme) => {

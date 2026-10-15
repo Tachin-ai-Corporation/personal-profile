@@ -105,6 +105,17 @@ test.describe("/ page frame (Stories 1.8, 1.9)", () => {
     await expect(page.getByRole("tab", { name: /^Medical/ })).toHaveAttribute("aria-selected", "true")
   })
 
+  test("a repeated ?tab= opens Contacts and is normalized to one value by replace (F6-1, Story 7.1 rule)", async ({ page }) => {
+    await mockMyself(page)
+    await mockContacts(page)
+    await page.goto("/?tab=insurance&tab=medical#email")
+    await expect(page).toHaveURL(/\/\?tab=contacts#email$/)
+    await expect(page.getByRole("tab", { name: "Contacts" })).toHaveAttribute("aria-selected", "true")
+    // The composed feature stubs keep the five Section landmarks and the #signature row.
+    await expect(page.locator("main section")).toHaveCount(5)
+    await expect(page.locator("#signature")).toHaveCount(1)
+  })
+
   test("header: primary phone and email at 768 px and above; none fetched below; a failed type is omitted", async ({ page, isMobile }) => {
     await mockMyself(page)
     const seen = await mockContacts(page, {

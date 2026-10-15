@@ -42,6 +42,16 @@ const ACTIVITY_PAGES = new Set(["/", "/account"])
 /** `/account/` is the same page as `/account`. */
 const pagePath = (pathname: string): string => (pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname)
 
+/**
+ * AD-18 (Stories 7.2, 7.3; F6-1): the pages and the hand-off route are never
+ * cached. Their responses (pages, RSC payloads, the no-session redirect to
+ * `/auth`, hand-off 303/405) carry `NO_STORE_HEADERS`.
+ */
+export function isNoStorePath(pathname: string): boolean {
+  const path = pagePath(normalizePath(pathname))
+  return ACTIVITY_PAGES.has(path) || path === "/handoff" || path.startsWith("/handoff/")
+}
+
 /** A top-level browser navigation to an activity page (not a prefetch, not an RSC fetch). */
 function isPageNavigation(request: NextRequest): boolean {
   if (request.method !== "GET" || !ACTIVITY_PAGES.has(pagePath(request.nextUrl.pathname))) return false
@@ -137,6 +147,7 @@ export async function proxy(request: NextRequest): Promise<Response> {
 
   const response = NextResponse.next({ request: { headers: requestHeaders } })
   for (const [name, value] of Object.entries(headers)) response.headers.set(name, value)
+  if (isNoStorePath(request.nextUrl.pathname)) withHeaders(response, NO_STORE_HEADERS)
   if (activity.kind === "renewed") response.headers.append("Set-Cookie", activity.setCookie)
   return response
 }

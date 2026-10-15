@@ -1,59 +1,48 @@
 "use client"
 
-import { SHELL_MESSAGES } from "@/lib/shared/messages"
-import { PROFILE_SECTIONS, SECTION_COLUMNS, SIGNATURE_ANCHOR } from "./anchors"
-import { SectionLandmark } from "./section-landmark"
+import { Fragment, type ReactNode } from "react"
+import { PROFILE_SECTIONS, type ProfileSectionId } from "./anchors"
+import { ProfileSectionPlaceholder } from "./placeholders"
 import { SectionCountProvider } from "./section-counts"
+import { SectionFrameProvider } from "./section-frame"
 import { SectionNav, useSectionNavigation } from "./section-nav"
-import { StateFrame } from "./state-frame"
 
-/** Placeholder frames have nothing to retry until Epics 2–4 give them data. */
-const noRetry = (): void => undefined
+export interface ContactsPanelProps {
+  /**
+   * The five Sections, by id, composed by the route (`app/page.tsx`). Each
+   * element renders its own `SectionLandmark id={id}` (the `<section id>`
+   * the Section menu, Jump to and deep links target) and passes
+   * `useSectionFrame(id).onReady` to its `StateFrame`. A missing entry shows
+   * that Section's loading placeholder.
+   */
+  readonly sections?: Partial<Record<ProfileSectionId, ReactNode>>
+}
 
 /**
- * The Contacts tab body (F3-3, port of main's Story 1.8B): the Section menu
- * (≥ 768 px) or Jump to (< 768 px) beside / above the five Sections, each a
- * `StateFrame` in its loading state until Epics 2–4 give it content.
+ * The Contacts tab body (F3-3, port of main's Story 1.8B; slots since F6-1):
+ * the Section menu (≥ 768 px) or Jump to (< 768 px) beside / above the five
+ * Sections, always in `PROFILE_SECTIONS` order.
  */
-export function ContactsPanel() {
+export function ContactsPanel({ sections }: ContactsPanelProps = {}) {
   return (
     <SectionCountProvider>
-      <ContactsBody />
+      <ContactsBody sections={sections} />
     </SectionCountProvider>
   )
 }
 
-function ContactsBody() {
+function ContactsBody({ sections }: ContactsPanelProps) {
   const nav = useSectionNavigation()
   return (
     <div className="md:grid md:grid-cols-[200px_minmax(0,1fr)]">
       <SectionNav state={nav} />
       <div className="flex min-w-0 flex-col gap-8 px-4 py-4 md:p-6">
-        {PROFILE_SECTIONS.map((section) => (
-          <SectionLandmark key={section.id} id={section.id} title={section.label}>
-            <StateFrame
-              state="loading"
-              skeleton="table"
-              columns={SECTION_COLUMNS[section.id]}
-              loadError={{ kind: "section", sectionId: section.id }}
-              level="section"
-              onRetry={noRetry}
-              onReady={() => nav.frameReady(section.id)}
-              anchors={section.id === "personal" ? <SignaturePlaceholder /> : undefined}
-            />
-          </SectionLandmark>
-        ))}
+        <SectionFrameProvider onReady={nav.frameReady}>
+          {PROFILE_SECTIONS.map((section) => (
+            <Fragment key={section.id}>{sections?.[section.id] ?? <ProfileSectionPlaceholder id={section.id} />}</Fragment>
+          ))}
+        </SectionFrameProvider>
       </div>
-    </div>
-  )
-}
-
-/** The `#signature` deep-link target inside Personal information while it loads. */
-function SignaturePlaceholder() {
-  return (
-    <div id={SIGNATURE_ANCHOR} role="group" aria-label={SHELL_MESSAGES.signature} className="flex h-11 items-center gap-4 border-t px-3">
-      <span className="text-muted-foreground w-24 shrink-0 text-body-sm">{SHELL_MESSAGES.signature}</span>
-      <span aria-hidden="true" className="bg-muted h-3 min-w-0 flex-1 animate-pulse rounded-sm motion-reduce:animate-none" />
     </div>
   )
 }

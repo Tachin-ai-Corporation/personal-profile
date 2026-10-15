@@ -193,14 +193,28 @@ const CARDS = 12
 
 const repeat = (count: number): number[] => Array.from({ length: count }, (_, i) => i)
 
+/**
+ * `bars` width cap: `control` (480 px, an ordinary input) or `wide` (720 px,
+ * DESIGN.md `control-max-wide`: the Healthcare credentials comboboxes, Story 9.1).
+ */
+export type BarWidth = "control" | "wide"
+
+const BAR_WIDTHS: Readonly<Record<BarWidth, string>> = { control: "max-w-[480px]", wide: "max-w-[720px]" }
+
 export interface FrameSkeletonProps {
   readonly variant: SkeletonVariant
   /** `table` only: the real column headers (the 36 px header row is left out when empty). */
   readonly columns?: readonly string[]
+  /** `bars` only: the bars' width cap; default `control`. */
+  readonly barWidth?: BarWidth
 }
 
-/** The loading placeholders of one frame (DESIGN.md Skeleton / Skeletons (/account)). */
-export function FrameSkeleton({ variant, columns = [] }: FrameSkeletonProps): JSX.Element {
+/**
+ * The loading placeholders of one frame (DESIGN.md Skeleton / Skeletons
+ * (/account), UX-DR-P27/P31): `tiles` five 112 px squares in one row from
+ * 768 px (3-column grid below); `cards` 248 px tall minimum (UX-DR-P20).
+ */
+export function FrameSkeleton({ variant, columns = [], barWidth = "control" }: FrameSkeletonProps): JSX.Element {
   switch (variant) {
     case "table":
       return (
@@ -237,10 +251,11 @@ export function FrameSkeleton({ variant, columns = [] }: FrameSkeletonProps): JS
         </div>
       )
     case "tiles":
+      // UX-DR-P31: one row of five 112 px squares from 768 px; a 3-column grid of squares below.
       return (
-        <div data-slot="frame-skeleton" data-variant="tiles" aria-hidden="true" className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div data-slot="frame-skeleton" data-variant="tiles" aria-hidden="true" className="grid grid-cols-3 gap-3 p-3 md:flex md:flex-row">
           {repeat(TILES).map((i) => (
-            <Bar key={i} className="h-28 w-full rounded-md" />
+            <Bar key={i} className="aspect-square w-full rounded-md md:size-28 md:shrink-0" />
           ))}
         </div>
       )
@@ -248,7 +263,7 @@ export function FrameSkeleton({ variant, columns = [] }: FrameSkeletonProps): JS
       return (
         <div data-slot="frame-skeleton" data-variant="bars" aria-hidden="true" className="flex flex-col gap-3 p-3">
           {repeat(BARS).map((i) => (
-            <Bar key={i} className="h-11 w-full max-w-[480px] rounded-md" />
+            <Bar key={i} className={cn("h-11 w-full rounded-md", BAR_WIDTHS[barWidth])} />
           ))}
         </div>
       )
@@ -256,7 +271,7 @@ export function FrameSkeleton({ variant, columns = [] }: FrameSkeletonProps): JS
       return (
         <div data-slot="frame-skeleton" data-variant="cards" aria-hidden="true" className={ORG_GRID_CLASSES}>
           {repeat(CARDS).map((i) => (
-            <div key={i} data-slot="frame-skeleton-card" className="bg-card flex flex-col gap-3 rounded-md border p-4">
+            <div key={i} data-slot="frame-skeleton-card" className="bg-card flex min-h-62 flex-col gap-3 rounded-md border p-4">
               <Bar className="size-18 rounded-md" />
               <Bar className="h-4 w-3/4" />
               <Bar className="h-11 w-full rounded-md" />
@@ -274,6 +289,8 @@ export interface StateFrameProps {
   readonly skeleton: SkeletonVariant
   /** `table` skeleton column headers. */
   readonly columns?: readonly string[]
+  /** `bars` skeleton width cap (`wide` = 720 px, Story 9.1). */
+  readonly barWidth?: BarWidth
   readonly loadError: LoadErrorCopy
   readonly level: FrameLevel
   /** Revalidates only this frame's keys. */
@@ -311,6 +328,7 @@ export function StateFrame({
   state,
   skeleton,
   columns,
+  barWidth,
   loadError,
   level,
   onRetry,
@@ -340,7 +358,7 @@ export function StateFrame({
         <span data-slot="frame-loading-label" className="sr-only">
           {loadingLabel(loadError)}
         </span>
-        <FrameSkeleton variant={skeleton} columns={columns} />
+        <FrameSkeleton variant={skeleton} columns={columns} barWidth={barWidth} />
       </>
     )
   else if (typeof state === "object")

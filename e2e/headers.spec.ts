@@ -1,4 +1,5 @@
 import { expect, test, type APIResponse } from "@playwright/test"
+import { signIn } from "./fixtures"
 
 const CSP = /^default-src 'self'; script-src 'self' 'nonce-([A-Za-z0-9+/=]+)' 'strict-dynamic'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests$/
 
@@ -31,6 +32,30 @@ test.describe("AD-21 security headers", () => {
     expect(response.status()).toBe(200)
     expectSecurityHeaders(response)
   })
+
+  // AD-18 (Stories 7.2, 7.3; F6-1): root proxy.ts sends the exact NO_STORE_HEADERS on the pages and /handoff/**.
+  // Next 16 keeps Cache-Control and Pragma on a rendered page, but replaces Vary with its RSC list, and a 404
+  // (`/account`, `/handoff/portal` until Stories 7.1 and 7.3 add them) gets Next's own, stricter no-store value.
+  const NEXT_NOT_FOUND_NO_STORE = "private, no-cache, no-store, max-age=0, must-revalidate"
+
+  for (const path of ["/", "/?tab=insurance"]) {
+    test(`${path} answers the exact no-store set (AD-18)`, async ({ page }) => {
+      await signIn(page)
+      const response = await page.goto(path)
+      expect(response?.status()).toBe(200)
+      const headers = (await response?.allHeaders()) ?? {}
+      expect(headers["cache-control"]).toBe("private, no-store, max-age=0")
+      expect(headers["pragma"]).toBe("no-cache")
+    })
+  }
+
+  for (const path of ["/", "/account", "/account?tab=provider", "/handoff/portal", "/handoff/portal?to=create-org"]) {
+    test(`${path} without a session is never cached (AD-18)`, async ({ request }) => {
+      const response = await request.get(path, { maxRedirects: 0 })
+      expect(["private, no-store, max-age=0", NEXT_NOT_FOUND_NO_STORE]).toContain(response.headers()["cache-control"])
+      expect(response.headers()["pragma"]).toBe("no-cache")
+    })
+  }
 
   test("two requests get different nonces", async ({ request }) => {
     const first = expectSecurityHeaders(await request.get("/auth"))

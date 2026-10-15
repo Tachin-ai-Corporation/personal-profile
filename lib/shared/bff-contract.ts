@@ -62,6 +62,12 @@ export const BFF_PATHS = {
   orgLogoPrefix: "/api/pp/org-logo/",
   placesAutocomplete: "/api/places/autocomplete",
   placesDetails: "/api/places/details",
+  /**
+   * The portal hand-off route (Story 7.3 builds `app/handoff/portal/route.ts`):
+   * `?to=tenant&tenantId=<n>` or `?to=create-org`. Clients build it only with
+   * `features/shell/handoff.ts#handoffHref` (F6-1).
+   */
+  handoffPortal: "/handoff/portal",
 } as const
 
 /** `GET /api/pp/profile-picture-id` (Story 1.9). */

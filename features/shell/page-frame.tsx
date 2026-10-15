@@ -41,8 +41,16 @@ interface PageFrameBaseProps {
   readonly children: ReactNode
   /** The idle warning's deadlines, from `requirePageSession()` (Story 1.6). */
   readonly idle: PageIdleTiming
-  /** The leave guard's save order (Team A's `SAVE_ORDER` on `/`); defaults to `displayOrder`. */
+  /** The leave guard's save order (`SAVE_ORDER` on `/`); defaults to `displayOrder`. */
   readonly saveOrder?: readonly SectionId[]
+  /**
+   * Who shows a failed `myself` read (F6-1). `"page"` (default): one load-error
+   * banner under the header, while every Section is still a placeholder.
+   * `"sections"`: no page banner, because the Sections that read `myself`
+   * show it in their own `StateFrame` (Stories 2.1, 7.4, 8.1); the route
+   * switches to it when the first such Section lands, so the error is never shown twice.
+   */
+  readonly myselfLoadError?: "page" | "sections"
 }
 
 /**
@@ -62,7 +70,7 @@ export type PageFrameProps = PageFrameBaseProps &
  * (Story 1.15), its leave guard, the idle warning and the session dialog. Must sit inside
  * `PortalUrlProvider`.
  */
-export function PageFrame({ page, header, children, idle, saveAllSlot, saveOrder }: PageFrameProps) {
+export function PageFrame({ page, header, children, idle, saveAllSlot, saveOrder, myselfLoadError = "page" }: PageFrameProps) {
   return (
     <CurrentPageProvider value={page}>
       <SectionRegistryProvider>
@@ -71,7 +79,7 @@ export function PageFrame({ page, header, children, idle, saveAllSlot, saveOrder
             <AppBar current={page} />
             <main>
               {header}
-              <MyselfReadState />
+              {myselfLoadError === "page" ? <MyselfReadState /> : null}
               {children}
             </main>
             {page === "profile" ? saveAllSlot : null}
