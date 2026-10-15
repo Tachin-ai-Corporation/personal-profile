@@ -7,12 +7,21 @@
  * any call with `userInitiated: true`, carries `X-PP-Activity: user`; any caller-supplied
  * value is removed otherwise, and the refresh POST never carries it. A valid
  * `X-PP-Activity-At` echo is handed to `activity.note`.
+ *
+ * Save safeguard (D-A, spec NG-9027): before a write to 1health data (any
+ * method but GET/HEAD/OPTIONS under `/api/1h/` or `/api/pp/`; never the
+ * session, token or Places routes) it checks the page user with
+ * `checkPageUser` and sends nothing on another user, a failed check, or when
+ * no `myself` was ever pinned (that one answers like a network failure, so
+ * the Section offers Retry). No per-write check inside a verified batch
+ * (`runSaveAll`).
  */
 
 import { ACTIVITY_AT_HEADER, ACTIVITY_HEADER, ACTIVITY_USER, BFF_PATHS } from "@/lib/shared/bff-contract"
 import { activity as defaultActivity, type Activity } from "./activity"
 import { parseErrorBody } from "./errors-codes"
 import { bodyForLog, logApiCall } from "./log-api-call"
+import { checkPageUser, pageUser as defaultPageUser, type PageUser } from "./page-user"
 import {
   browserLocks,
   createRefreshCoordinator,
@@ -58,6 +67,17 @@ interface SendOptions {
 
 /** Reads: never activity unless `userInitiated`. */
 const READ_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"])
+
+/** Where 1health data is written (D-A): the proxy and the named ops. */
+const CHECKED_WRITE_PREFIXES: readonly string[] = [BFF_PATHS.proxyPrefix, "/api/pp/"]
+
+/** A write the page user is checked before (D-A): a non-read method to the proxy or a named op. */
+function isDataWrite(method: string, path: string): boolean {
+  if (READ_METHODS.has(method)) return false
+  // `/api//1h/…` reaches the proxy too: compare with repeated slashes collapsed.
+  const pathname = path.split(/[?#]/, 1)[0].replace(/\/{2,}/g, "/")
+  return CHECKED_WRITE_PREFIXES.some((prefix) => pathname.startsWith(prefix))
+}
 
 /** An echo is the server's clock in epoch ms: digits only. */
 const ACTIVITY_AT = /^\d{1,16}$/
@@ -162,6 +182,8 @@ export interface ApiClientDeps {
   readonly events?: SessionEvents
   readonly locks?: () => LockManagerLike | undefined
   readonly activity?: Activity
+  /** The pinned page user (D-A); defaults to the page-lifetime `pageUser`. */
+  readonly pageUser?: PageUser
 }
 
 export type CallApi = <T = unknown>(context: string, path: string, init?: CallApiInit) => Promise<ApiResponse<T>>
@@ -173,6 +195,7 @@ const REFRESH_UNAVAILABLE: ApiResponse<never> = { success: false, statusCode: 50
 export function createCallApi(deps: ApiClientDeps = {}): CallApi {
   const events = deps.events ?? sessionEvents
   const activity = deps.activity ?? defaultActivity
+  const pageUser = deps.pageUser ?? defaultPageUser
 
   /** The refresh POST is never user activity. */
   async function runRefresh(): Promise<RefreshOutcome> {
@@ -189,19 +212,29 @@ export function createCallApi(deps: ApiClientDeps = {}): CallApi {
     return sent.response
   }
 
-  return async function callApi<T = unknown>(context: string, path: string, callerInit: CallApiInit = {}): Promise<ApiResponse<T>> {
+  const callApi: CallApi = async function callApi<T = unknown>(context: string, path: string, callerInit: CallApiInit = {}): Promise<ApiResponse<T>> {
     if (!isApiPath(path)) {
       return { success: false, errorCode: "BAD_PATH", error: `${context}: only same-origin /api/ paths are allowed` }
     }
 
     const { userInitiated, ...callerRest } = callerInit
+    const method = (callerRest.method ?? "GET").toUpperCase()
     // The first send and the replay carry the same init (and activity header).
     let init: RequestInit
     try {
-      init = buildInit(callerRest, userInitiated === true || !READ_METHODS.has((callerRest.method ?? "GET").toUpperCase()))
+      init = buildInit(callerRest, userInitiated === true || !READ_METHODS.has(method))
     } catch {
       // Invalid caller headers: fail like a network error, never throw.
       return networkError<T>(context).response
+    }
+    // D-A: a write goes out only for the page user (fail closed); a verified batch checked once already.
+    if (isDataWrite(method, path) && !pageUser.isVerified()) {
+      const check = await checkPageUser(callApi, { pageUser, events })
+      // Another user: the session-ended answer (`session-expired` already published once by the check).
+      if (check.kind === "other") return SESSION_EXPIRED
+      if (check.kind === "failed") return check.response
+      // No `myself` ever loaded, so no page user to check against: blocked like a failed check (network error, Retry).
+      if (check.kind === "unpinned") return networkError<T>(context).response
     }
     const options: SendOptions = { activity }
     const first = await send<T>(context, path, init, options)
@@ -223,6 +256,7 @@ export function createCallApi(deps: ApiClientDeps = {}): CallApi {
     }
     return publishFor(replay)
   }
+  return callApi
 }
 
 /** The app's transport. Always import it from `@/lib/api`. */

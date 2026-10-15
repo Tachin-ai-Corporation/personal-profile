@@ -10,6 +10,7 @@ import { hasProctorRole } from "@/lib/shared/person-rules"
 import { callApi } from "./client"
 import { proxyPath } from "./config"
 import { registerFetcher, unwrap } from "./fetcher"
+import { pageUser } from "./page-user"
 import type { ApiResponse } from "./types"
 
 export interface MyselfTenant {
@@ -139,13 +140,17 @@ export function myselfPath(): string {
   return proxyPath("v2/user/myself")
 }
 
+/**
+ * The Launching user. The first one this page loads is pinned as the page
+ * user (`pageUser`, D-A): a later, different id never replaces it.
+ */
 export async function fetchMyself(): Promise<ApiResponse<Myself>> {
   const res = await callApi<unknown>("myself/fetchMyself", myselfPath())
   if (!res.success) return { ...res, data: undefined }
   const myself = toMyself(res.data)
-  return myself
-    ? { success: true, data: myself, statusCode: res.statusCode }
-    : { success: false, statusCode: res.statusCode, error: "myself/fetchMyself returned an unexpected shape" }
+  if (!myself) return { success: false, statusCode: res.statusCode, error: "myself/fetchMyself returned an unexpected shape" }
+  pageUser.pin(myself.id)
+  return { success: true, data: myself, statusCode: res.statusCode }
 }
 
 /** The SWR loader of `keys.myself()`. */

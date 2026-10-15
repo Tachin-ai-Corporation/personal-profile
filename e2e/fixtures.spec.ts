@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright"
 import { expect, test as base } from "@playwright/test"
 import {
   ANN,
@@ -124,5 +125,32 @@ test("expectHeaderTabOrder on /: app bar → header → the selected tab (with a
   await mockHeaderPicture(page)
   await page.goto("/?tab=insurance")
   await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
-  expect(await expectHeaderTabOrder(page)).toEqual(["a:Personal Profile", "a:Account", "a:Return to 1health", "tab:Insurance"])
+  expect(await expectHeaderTabOrder(page)).toEqual(["a:Personal Profile", "a:Account", "a:Return to 1health", ...HEADER_TAB_STOPS.profile, "tab:Insurance"])
+})
+
+test("the Save all fixture page (spec NG-9027, for Story 1.14): the / frame, its participants registered, axe clean", async ({ page }) => {
+  await signIn(page)
+  await mockProfileDefaults(page)
+  await page.goto("/test-fixtures/save-all?fail=email")
+  await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
+  const dirty = page.getByTestId("dirty-count")
+  await expect(dirty).toHaveText("0")
+  await page.getByLabel("Fixture personal").fill("a")
+  await page.getByLabel("Fixture phone").fill("b")
+  await page.getByLabel("Fixture email").fill("c")
+  await expect(dirty).toHaveText("3")
+  // The guard-only participant is registered (it guards a leave) but never counted by Save all.
+  await page.getByLabel("Fixture insurance").fill("d")
+  await expect(dirty).toHaveText("3")
+  const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze()
+  expect(results.violations).toEqual([])
+  // `?fail=email` reaches its participant: the leave guard's Save runs them all, Email fails, the page stays.
+  await page.getByRole("link", { name: "Account" }).click()
+  const dialog = page.getByRole("alertdialog", { name: "You have unsaved changes" })
+  await dialog.getByRole("button", { name: "Save" }).click()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByTestId("fixture-email").locator("output")).toHaveText("not saved")
+  for (const id of ["personal", "phone", "insurance"]) await expect(page.getByTestId(`fixture-${id}`).locator("output")).toHaveText("saved")
+  await expect(dirty).toHaveText("1")
+  await expect(page).toHaveURL(/\/test-fixtures\/save-all\?fail=email$/)
 })

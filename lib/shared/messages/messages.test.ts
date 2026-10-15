@@ -114,6 +114,21 @@ describe("message catalog: verbatim against EXPERIENCE.md Voice and Tone", () =>
     "First name",
     "Last name",
     "Birth date",
+    // Every other Epic 1 Voice and Tone string already in the catalog (spec NG-9027, D-B).
+    // Not yet in it (Story 1.14's Save all bar): "{N} unsaved sections", "Save all (N)", "Discard all".
+    "Coming soon: medications, allergies and conditions will appear here",
+    "Couldn't load phones",
+    "Email has 1 field to fix",
+    "2 saved, 1 failed",
+    "Removed on save",
+    "New · not saved",
+    "You have unsaved changes from your last visit.",
+    "Restore",
+    "This section changed since your draft. Choose which version to keep.",
+    "Your version",
+    "Current",
+    "Keep mine",
+    "Use current",
   ])("holds the shell/state/dialog copy %j", (copy) => {
     expect(VOICE_AND_TONE.has(copy)).toBe(true)
     expect(catalogValues().some((value) => matchesTemplate(value, copy))).toBe(true)

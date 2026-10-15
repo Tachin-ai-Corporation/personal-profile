@@ -237,6 +237,22 @@
   summary: CLOSED — file deletes no longer trust the client's id. The backend's `DELETE v2/file/{id}` checks only the tenant, so the proxy denies `DELETE v2/file/**` and Stories 1.10, 2.4 and 5.3 delete through the named op `DELETE /api/pp/file/{fileId}` (`fileDeletePath`), which proves with the session's token that the id is the caller's profile picture, Signature or one of their insurance cards before hard-deleting; anything else is 404 `NO_FILE`. Still open (backend follow-up, Team A item above): hard delete may leave private S3 objects.
   evidence: lib/server/named-ops/file-delete.ts, app/api/pp/file/[fileId]/route.ts, lib/server/proxy/deny-list.ts, lib/api/files.ts#fileDeletePath.
 
+- source_spec: `_bmad-output/implementation-artifacts/spec-ng-9027-foundation-tests-safeguard.md`
+  summary: Accepted limit of the D-A save safeguard (human decision 2026-10-15). Reads are not checked, so user A's open tab can show user B's data, after B launches in the same browser, until A tries to save. Only writes are stopped.
+  evidence: The check runs before writes in `callApi` and once per `runSaveAll` batch; nothing revalidates the user on reads.
+- source_spec: `_bmad-output/implementation-artifacts/spec-ng-9027-foundation-tests-safeguard.md`
+  summary: Accepted limit of the D-A save safeguard (human decision 2026-10-15). A launch in the other environment (demo vs prod) whose user id happens to match the pinned page user is not caught.
+  evidence: The pin and the check compare `myself.id` only. `/myself` does not return the environment, and ids are not environment-scoped.
+- source_spec: `_bmad-output/implementation-artifacts/spec-ng-9027-foundation-tests-safeguard.md`
+  summary: Accepted limit of the D-A save safeguard (human decision 2026-10-15). There is a short window between the `/myself` check and the write: per write, or across a whole Save-all or leave-guard batch, which checks once. While a batch runs, its single check also covers any other write the page sends (the bypass is page-wide).
+  evidence: The check and the write are separate requests, and the batch check is deliberate, to avoid one extra request per Section. Browsers have no async context to scope the bypass to the batch's own calls, so it is a page-wide flag (`pageUser.runVerified`, spec NG-9027 review #2).
+- source_spec: `_bmad-output/implementation-artifacts/spec-ng-9027-foundation-tests-safeguard.md`
+  summary: (Integrator, T8) Document the D-A save safeguard: FOUNDATION §3.2 Transport/Session events (`checkPageUser` also publishes `session-expired`; one fresh `myself` GET per data write, one per `runSaveAll` batch; `pageUser` pin/runVerified; the drafts owner is the pinned page user) and §6 (replace the D5 point 3 accepted risk with D-A and its three accepted limits); AUTH-ARCHITECTURE "no session binding (D5)" with the D-A mitigation; CLAUDE.md/AGENTS.md transport line.
+  evidence: The spec forbids story/foundation-PR edits to agent-context docs (T8); review finding #11.
+- source_spec: `_bmad-output/implementation-artifacts/spec-ng-9027-foundation-tests-safeguard.md`
+  summary: (Foundation shell bug, pre-existing) On a dirty page, Enter or Space on a tab opens the leave dialog and the same key press activates the initially focused "Keep editing", so the dialog closes at once and the tab never changes by keyboard. A pointer click works.
+  evidence: Reproduced in Playwright while building spec NG-9027 (its e2e uses a pointer click for the tab trigger). WCAG 2.1.1 (keyboard) risk; fix in `features/shell/page-tabs.tsx` / `leave-guard.tsx` (e.g. act on keyup or defer focus).
+
 ### Deferred from: code review of spec-7-0a-bff-foundation-and-tooling (2026-10-14)
 
 - Upstream 401 on a clock-fresh access token ends the session instead of forcing a refresh (Story 1.5 L1050/L1067 behaviour); revisit with a force-refresh flag when 1.6/7.0b touch refresh.
