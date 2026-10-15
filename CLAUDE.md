@@ -9,7 +9,7 @@ A Next.js App Router + Tailwind v4 + shadcn/ui front end built from the **1healt
 ## Use the shared foundation first
 
 - **Before implementing any story, read [`docs/FOUNDATION.md`](docs/FOUNDATION.md).** It catalogs everything already built in specs 7.0a–7.0c-1 and F1–F7: modules, components, hooks, routes, recipes, and a story → foundation map. Also read the story's *Foundation 2026-10-14* lines in `_bmad-output/planning-artifacts/epics.md`.
-- **Don't rebuild or bypass a foundation piece.** If something is missing, extend the module that owns it and add it to `docs/FOUNDATION.md` in the same change.
+- **Don't rebuild or bypass a foundation piece.** If something is missing, propose it in a foundation PR (extend the module that owns it); the integrator updates `docs/FOUNDATION.md` when it lands.
 - **1health traffic:** the browser goes only through `callApi` (`@/lib/api`) to `/api/1h/*`. Add each endpoint to its area file `lib/server/proxy/allowlist/<area>.ts`, never to `index.ts`. Server work across calls goes in a named op (`createNamedOp` → `/api/pp/*`).
 - **Copy and errors:** copy comes only from `lib/shared/messages/<area>.ts`. Errors go only through `mapApiError(scope, response)`, with upstream text matched only in `lib/api/errors/<area>.ts`.
 - **UI:** Sections use `useSectionForm` with the Section chrome, `StateFrame` for every read, `runSaveSteps` for multi-request saves, the shell toasts, and the `components/ui` controls (Select, DateInput, Combobox, InfoPopover, DisabledAction…).

@@ -1,13 +1,13 @@
 import { expect, test as base, type Page, type Request, type Route } from "@playwright/test"
 import { environmentConfig } from "../../lib/shared/environments"
 import { sealedSessionCookie } from "../session-cookie"
-import { mockContacts } from "./contacts"
 
 /**
  * Shared e2e helpers (spec F6-3 split `e2e/fixtures.ts` per area): sign-in,
- * the generic proxy mock, `myself`, exit, theme, the shell defaults and the
- * mocks of endpoints both teams call (spec F7-1: `mockUserEdit`,
- * `mockFileDownload`, `mockProfilePicturePreview`). Area helpers live in their
+ * the generic proxy mock, `myself`, the Contact Point lists, exit, theme, the
+ * shell defaults and the mocks of endpoints both teams call (spec F7-1:
+ * `mockUserEdit`, `mockFileDownload`, `mockProfilePicturePreview`,
+ * `mockProfilePicture`). Foundation-owned: core imports no area file. Area helpers live in their
  * area files (`header.ts`, `personal.ts`, `contacts.ts`, `addresses.ts`,
  * `insurance.ts` for Team A; `account.ts`, `mfa.ts`, `npi.ts`, `orgs.ts` for
  * Team B) and each page's defaults in `defaults-profile.ts` (A) /
@@ -105,6 +105,27 @@ export async function mockProfilePictureId(page: Page, answer: ProxyAnswer = {})
   await page.route("**/api/pp/profile-picture-id", (route) => json(route, answer.status ?? 200, answer.body ?? { fileId: null }))
 }
 
+export type ContactType = "Email" | "Mobile" | "Landline" | "Social Media"
+
+export type ContactAnswer = readonly Record<string, unknown>[] | { readonly status: number; readonly body: unknown }
+
+/**
+ * `GET v2/user/contact-point/list?type=…` per type (a type left out answers
+ * `[]`): the header on both pages, Contacts (Epic 3) and the `/account`
+ * pickers (7.6). Foundation-owned read (spec F7-1); Contacts write mocks live
+ * in `contacts.ts`. Returns the types requested, in order.
+ */
+export async function mockContacts(page: Page, byType: Partial<Record<ContactType, ContactAnswer>> = {}): Promise<string[]> {
+  const seen: string[] = []
+  await page.route("**/api/1h/v2/user/contact-point/list?**", (route) => {
+    const type = new URL(route.request().url()).searchParams.get("type") as ContactType
+    seen.push(type)
+    const answer = byType[type] ?? []
+    return "status" in answer ? json(route, answer.status, answer.body) : json(route, 200, answer)
+  })
+  return seen
+}
+
 /**
  * The reads of the shell and the shared header, on both pages (spec F7-1):
  * `myself` (`ANN`), every Contact Point type (`[]`) and the picture id (no
@@ -142,19 +163,33 @@ export async function mockFileDownload(page: Page, fileId: number | "*" = "*", a
   return () => [...seen]
 }
 
-/** The file id `mockProfilePicturePreview` answers with by default. */
+/**
+ * `GET v2/user/profile-picture/preview?v={fileId}` (Story 1.9's `asImage`
+ * entry: the header `<img>` on both pages, `v` busting the cache). Answers
+ * any `v` with `image` (default `PNG_1X1`). Returns the requests it answered.
+ */
+export async function mockProfilePicturePreview(page: Page, image: FileAnswer = {}): Promise<() => Request[]> {
+  const seen: Request[] = []
+  await page.route("**/api/1h/v2/user/profile-picture/preview*", (route) => {
+    seen.push(route.request())
+    return route.fulfill({ status: image.status ?? 200, contentType: image.contentType ?? "image/png", body: image.body ?? PNG_1X1 })
+  })
+  return () => [...seen]
+}
+
+/** The picture id `mockProfilePicture` answers with by default. */
 export const PROFILE_PICTURE_FILE_ID = 9001
 
 /**
- * The header's Profile Picture (shown on both pages): the picture id
- * (`/api/pp/profile-picture-id` → `{ fileId }`) and that file's image
- * (`mockFileDownload`). Story 1.10 (Team A) keeps this in step with how the
- * header loads the picture; Team B's specs call it, or Team A's
- * `mockHeaderPicture`, to show one on `/account`. Returns the image requests.
+ * A Profile Picture in the header (both pages): the picture id
+ * (`/api/pp/profile-picture-id` → `{ fileId }`) and the preview image
+ * (`mockProfilePicturePreview`). Written against Story 1.9's planned flow, so
+ * Story 1.9 does not edit core; Team A's `mockHeaderPicture` wraps it.
+ * Returns the preview requests.
  */
-export async function mockProfilePicturePreview(page: Page, fileId: number = PROFILE_PICTURE_FILE_ID, image: FileAnswer = {}): Promise<() => Request[]> {
+export async function mockProfilePicture(page: Page, fileId: number = PROFILE_PICTURE_FILE_ID, image: FileAnswer = {}): Promise<() => Request[]> {
   await mockProfilePictureId(page, { body: { fileId } })
-  return mockFileDownload(page, fileId, image)
+  return mockProfilePicturePreview(page, image)
 }
 
 /** One `PUT v2/user/edit` the page sent: its JSON body. */

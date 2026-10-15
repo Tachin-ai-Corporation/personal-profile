@@ -77,7 +77,7 @@ function draftUserId(myself: PageReadOptions["myself"]): number {
  * `TestProviders` (fresh SWR cache, portal URL) → `CurrentPageProvider` →
  * `SectionRegistryProvider` → `DraftsProvider` (demo environment, the fixture
  * user) → a spy `SectionFrameProvider`. Before rendering it installs the
- * page's read handlers (`test/page-handlers.ts`; `myself` / `contacts` are
+ * page's read handlers (`test/page-handlers/`; `myself` / `contacts` are
  * passed through), then `handlers`, which win. A `server.use(…)` made before
  * this call is shadowed by the defaults: pass it as `handlers` instead.
  *

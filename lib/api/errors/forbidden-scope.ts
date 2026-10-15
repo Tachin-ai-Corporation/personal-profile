@@ -5,7 +5,7 @@
  * here, so every feature reads it through `@/lib/api`; a feature decides
  * where to render the `NoAccess` panel from the owner's `level`.
  *
- * Adding an owner or a row is a foundation change (FOUNDATION.md §1, team ownership rules 3–4): features
+ * Adding an owner or a row is a foundation change (FOUNDATION.md §1, T3–T4): features
  * never `switch` exhaustively over `ForbiddenOwner`; they compare with their
  * own owner (`scope?.owner === "addresses"`).
  *

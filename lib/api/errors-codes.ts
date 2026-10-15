@@ -14,7 +14,7 @@ import { BFF_ERROR_SOURCE, isBffErrorCode, type BffErrorCode } from "@/lib/share
  * message (area tables), or from a proxy upload refusal (spec F7-2:
  * `UPLOAD_TOO_LARGE` = 413 `TOO_LARGE`, `UPLOAD_UNSUPPORTED_MEDIA` = 415
  * `UNSUPPORTED_MEDIA`; test with `isUploadRejected`). A new member is a
- * foundation change (FOUNDATION.md §1, team ownership rules 3–4): add it here and to
+ * foundation change (FOUNDATION.md §1, T3–T4): add it here and to
  * `TelemetryErrorCode`, never `switch` exhaustively over it in a feature.
  */
 export type DerivedErrorCode =

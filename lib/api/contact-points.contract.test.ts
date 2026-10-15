@@ -19,40 +19,37 @@ import {
  * CONSUMER CONTRACT, owned by Team B (spec F7-1). The Contact Points read API
  * (`lib/api/contact-points.ts`, shared with Team A's Contacts and the header)
  * as Stories 7.4 (Primary phone region) and 7.6 (the Primary email and phone
- * pickers) use it. Frozen: a change that breaks a line here fails in the PR
- * that makes it; agree it with Team B, then Team B updates this file. The
- * module's own tests stay in `contact-points.test.ts`.
+ * pickers) use it. Only what Team B reads is frozen (the fields `id`,
+ * `value`, `type`, `label`, `isVerified`, `phoneNumberRegion`; the Email,
+ * Mobile and Landline types), so additive changes (a new field or type) pass;
+ * a change that breaks a line here fails in the PR that makes it: agree it
+ * with Team B, then Team B updates this file. The module's own tests stay in
+ * `contact-points.test.ts`.
  */
 
-const row = (overrides: Partial<ContactPoint> = {}): ContactPoint => ({
-  id: 1,
-  name: null,
-  value: "+14155552671",
-  type: "Mobile",
-  label: "Primary",
-  isVerified: true,
-  isNotificationEnabled: true,
-  phoneNumberRegion: "US",
-  ...overrides,
-})
+/** The fields Stories 7.4 / 7.6 and the header read. */
+interface UsedContactPoint {
+  readonly id: number | null
+  readonly value: string | null
+  readonly type: string | null
+  readonly label: string | null
+  readonly isVerified: boolean | null
+  readonly phoneNumberRegion: string | null
+}
+
+const row = (overrides: Partial<UsedContactPoint> = {}): ContactPoint =>
+  ({ id: 1, value: "+14155552671", type: "Mobile", label: "Primary", isVerified: true, phoneNumberRegion: "US", ...overrides }) as ContactPoint
 
 describe("Contact Points read API (contract for 7.4 / 7.6)", () => {
-  it("ContactPoint has exactly these nullable fields", () => {
-    expectTypeOf<ContactPoint>().toEqualTypeOf<{
-      readonly id: number | null
-      readonly name: string | null
-      readonly value: string | null
-      readonly type: string | null
-      readonly label: string | null
-      readonly isVerified: boolean | null
-      readonly isNotificationEnabled: boolean | null
-      readonly phoneNumberRegion: string | null
-    }>()
+  it("ContactPoint has at least the fields Team B reads, with these types", () => {
+    expectTypeOf<ContactPoint>().toExtend<UsedContactPoint>()
+    expectTypeOf<ContactPoint["value"]>().toEqualTypeOf<string | null>()
+    expectTypeOf<ContactPoint["phoneNumberRegion"]>().toEqualTypeOf<string | null>()
   })
 
-  it("the four types, the Primary label, the type guard", () => {
-    expect(CONTACT_POINT_TYPES).toEqual(["Email", "Mobile", "Landline", "Social Media"])
-    expectTypeOf<ContactPointType>().toEqualTypeOf<"Email" | "Mobile" | "Landline" | "Social Media">()
+  it("the types Team B reads, the Primary label, the type guard", () => {
+    expect(CONTACT_POINT_TYPES).toEqual(expect.arrayContaining(["Email", "Mobile", "Landline"]))
+    expectTypeOf<"Email" | "Mobile" | "Landline">().toExtend<ContactPointType>()
     expect(PRIMARY_LABEL).toBe("Primary")
     expect(isContactPointType("Mobile")).toBe(true)
     expect(isContactPointType("Fax")).toBe(false)
@@ -62,12 +59,15 @@ describe("Contact Points read API (contract for 7.4 / 7.6)", () => {
     expect(keys.contactPoints("Email")).toEqual(["pp", "contact-points", "Email"])
     expect(keys.contactPoints("Mobile")).toEqual(["pp", "contact-points", "Mobile"])
     expect(contactPointsPath("Email")).toBe("/api/1h/v2/user/contact-point/list?type=Email")
-    expect(contactPointsPath("Social Media")).toBe("/api/1h/v2/user/contact-point/list?type=Social%20Media")
+    expect(contactPointsPath("Mobile")).toBe("/api/1h/v2/user/contact-point/list?type=Mobile")
   })
 
-  it("toContactPoints maps every field, missing ones to null; a non-list is null", () => {
+  it("toContactPoints maps the used fields, missing ones to null; a non-list is null", () => {
     expect(toContactPoints([{ id: 3, value: "ann@example.com", type: "Email", label: "Primary", isVerified: false }])).toEqual([
-      { id: 3, name: null, value: "ann@example.com", type: "Email", label: "Primary", isVerified: false, isNotificationEnabled: null, phoneNumberRegion: null },
+      expect.objectContaining({ id: 3, value: "ann@example.com", type: "Email", label: "Primary", isVerified: false, phoneNumberRegion: null }),
+    ])
+    expect(toContactPoints([{ value: "+442071838750", phoneNumberRegion: "GB" }])).toEqual([
+      expect.objectContaining({ id: null, value: "+442071838750", type: null, label: null, isVerified: null, phoneNumberRegion: "GB" }),
     ])
     expect(toContactPoints([])).toEqual([])
     expect(toContactPoints({ content: [] })).toBeNull()

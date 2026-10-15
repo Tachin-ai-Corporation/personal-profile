@@ -65,7 +65,7 @@ operation (§4.6, [AUTH-ARCHITECTURE.md](../AUTH-ARCHITECTURE.md#named-operation
    module (e.g. `user-edit-path.internal.ts`), never re-exported; export
    names must be unique across modules and generic ones carry the area's
    prefix (`addressesListPath`, not `listPath`; `planned-modules.test.ts`,
-   FOUNDATION.md §1 team ownership rule 6).
+   FOUNDATION.md §1 T6).
 6. Copy goes in `lib/shared/messages/<area>.ts`; upstream messages your
    feature must recognise go in `lib/api/errors/<area>.ts` (anchored `^…$`).
 7. Test it with Vitest + MSW at the `/api` boundary (`test/msw-server.ts`).

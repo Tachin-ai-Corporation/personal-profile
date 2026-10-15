@@ -4,9 +4,12 @@ import {
   expectHeaderTabOrder,
   failOnUnmockedProxy,
   mockAccountDefaults,
+  HEADER_TAB_STOPS,
+  headerPageOf,
   mockFileDownload,
   mockHeaderPicture,
   mockProfileDefaults,
+  mockProfilePicture,
   mockProfilePicturePreview,
   mockProxy,
   mockUserEdit,
@@ -81,20 +84,38 @@ test("mockUserEdit records PUT bodies and answers ANN merged with the body; othe
   expect(edits()).toEqual([{ firstName: "Bo" }])
 })
 
-test("mockProfilePicturePreview answers the picture id and a PNG for that file; mockFileDownload any answer per id", async ({ page }) => {
+test("mockProfilePicture answers the picture id and the preview image (any v); mockFileDownload any answer per file id", async ({ page }) => {
   await signIn(page)
-  const images = await mockProfilePicturePreview(page)
-  const other = await mockFileDownload(page, 7, { status: 404, contentType: "application/json", body: Buffer.from("{}") })
+  const previews = await mockProfilePicture(page)
+  const files = await mockFileDownload(page)
+  const missing = await mockFileDownload(page, 7, { status: 404, contentType: "application/json", body: Buffer.from("{}") })
   await page.goto("/auth")
-  const answers = await page.evaluate(async (fileId) => {
-    const id = await fetch("/api/pp/profile-picture-id").then((res) => res.json())
-    const image = await fetch(`/api/1h/v2/file/${fileId}/download`)
-    const missing = await fetch("/api/1h/v2/file/7/download")
-    return { id, type: image.headers.get("content-type"), bytes: (await image.arrayBuffer()).byteLength, missing: missing.status }
-  }, PROFILE_PICTURE_FILE_ID)
-  expect(answers).toEqual({ id: { fileId: PROFILE_PICTURE_FILE_ID }, type: "image/png", bytes: PNG_1X1.length, missing: 404 })
-  expect(images()).toHaveLength(1)
-  expect(other()).toHaveLength(1)
+  const answers = await page.evaluate(async () => {
+    const { fileId } = (await fetch("/api/pp/profile-picture-id").then((res) => res.json())) as { fileId: number }
+    const preview = await fetch(`/api/1h/v2/user/profile-picture/preview?v=${fileId}`)
+    const file = await fetch("/api/1h/v2/file/501/download")
+    const gone = await fetch("/api/1h/v2/file/7/download")
+    return { fileId, type: preview.headers.get("content-type"), bytes: (await preview.arrayBuffer()).byteLength, file: file.status, gone: gone.status }
+  })
+  expect(answers).toEqual({ fileId: PROFILE_PICTURE_FILE_ID, type: "image/png", bytes: PNG_1X1.length, file: 200, gone: 404 })
+  expect(previews().map((request) => new URL(request.url()).search)).toEqual([`?v=${PROFILE_PICTURE_FILE_ID}`])
+  expect(files()).toHaveLength(1)
+  expect(missing()).toHaveLength(1)
+})
+
+test("mockProfilePicturePreview alone answers the preview with the given image", async ({ page }) => {
+  await signIn(page)
+  await mockProfilePicturePreview(page, { status: 404, contentType: "application/json", body: Buffer.from("{}") })
+  await page.goto("/auth")
+  expect(await page.evaluate(async () => (await fetch("/api/1h/v2/user/profile-picture/preview?v=1")).status)).toBe(404)
+})
+
+test("headerPageOf picks the header stops by URL", () => {
+  expect(headerPageOf("https://localhost:3000/?tab=contacts")).toBe("profile")
+  expect(headerPageOf("https://localhost:3000/test-fixtures/leave-guard")).toBe("profile")
+  expect(headerPageOf("https://localhost:3000/account?tab=personal")).toBe("account")
+  expect(headerPageOf("https://localhost:3000/accounts")).toBe("profile")
+  expect(HEADER_TAB_STOPS.account).toEqual([])
 })
 
 test("expectHeaderTabOrder on /: app bar → header → the selected tab (with a header picture)", async ({ page }) => {
