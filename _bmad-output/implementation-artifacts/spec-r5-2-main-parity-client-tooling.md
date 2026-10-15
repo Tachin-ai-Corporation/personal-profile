@@ -2,7 +2,7 @@
 title: 'R5-2 Main parity recovery: client, tooling and docs'
 type: 'fix'
 created: '2026-10-14'
-status: 'in-review'
+status: 'done'
 baseline_commit: '3d485ab'
 route: 'dispatch'
 review_loop_iteration: 0

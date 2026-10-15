@@ -2,7 +2,7 @@
 title: 'R5-1 Main parity recovery: server and e2e'
 type: 'bugfix'
 created: '2026-10-14'
-status: 'in-review'
+status: 'done'
 baseline_commit: '3d485ab'
 route: 'dispatch'
 review_loop_iteration: 0
