@@ -81,8 +81,11 @@ test.describe("launch entry (/auth)", () => {
 
     await page.goBack()
     expect(page.url()).not.toContain("lpl")
-    await page.goForward()
-    await page.reload()
+    await page.goForward({ waitUntil: "load" })
+    // Let the forward navigation settle before reloading (a reload racing it aborts on slow CI runners).
+    await expect(page.getByRole("heading", { name: "Ann Lee" })).toBeVisible()
+    await page.waitForLoadState("networkidle")
+    await page.reload({ waitUntil: "load" })
     await expect(page.getByRole("heading", { name: "Ann Lee" })).toBeVisible()
     expect(posts).toBe(1)
     expect(await cookieAccessed(page)).toBe(false)

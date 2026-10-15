@@ -217,6 +217,8 @@ test.describe("Row kit", () => {
   test("the kebab menu repeats every action; a disabled item does nothing; Escape returns focus to the kebab", async ({ page }) => {
     const button = kebab(page, "+1 (415) 551-2125")
     await button.focus()
+    await expect(button).toBeFocused()
+    await settleFocus(page)
     await page.keyboard.press("Enter")
     const menu = page.getByRole("menu")
     await expect(menu.getByRole("menuitem")).toHaveText(["Verify", "Make primaryAlready primary", "Remove"])
