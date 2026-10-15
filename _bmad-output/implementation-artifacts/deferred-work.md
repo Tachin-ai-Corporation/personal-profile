@@ -50,10 +50,10 @@
 ## Team B (`/account`, Epics 7-10)
 
 - source_spec: none
-  summary: Story 7.1 Account page — route, tabs, deep links and states, built on 7.0a + 7.0b.
+  summary: Story 7.1 Account page — route, tabs, deep links and states, built on 7.0a + 7.0b. (resolved 2026-10-15, spec-7-1-account-page: `app/account/page.tsx` composes the foundation; tests in `app/account.test.tsx` and `e2e/account-page.spec.ts`)
   evidence: Split from the Epic 7 start (user-approved 2026-10-14); depends on the 7.0a/7.0b foundation specs.
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-0b-2-shell-navigation.md`
-  summary: The e2e "page switch (clean)" journey goes to a 404 because /account does not exist yet, so its "myself not refetched" assertion proves nothing about the shared SWR cache.
+  summary: The e2e "page switch (clean)" journey goes to a 404 because /account does not exist yet, so its "myself not refetched" assertion proves nothing about the shared SWR cache. (resolved 2026-10-15, spec-7-1-account-page: `/account` is a real page; `e2e/shell.spec.ts` page-switch and leave-guard tests now expect `/account?tab=personal` (human-approved T2 exception), `e2e/account-page.spec.ts` asserts Account `aria-current` and one `myself` request on / → Account, and `app/account.test.tsx` proves / → Account → / issues one `myself` request within SWR's dedupe window)
   evidence: PageNav targets /account; Story 7.1 adds app/account/page.tsx and must assert the shared cache (one /myself request) and Account aria-current on the real page.
 - source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
   summary: Confirm publicFilesOrigin (bocore-public-files-{demo,prod}.s3.us-west-1.amazonaws.com, found only in 2022–2023 backend git history) against a live tenantLogo.publicUrl on demo and prod before Story 10.2; SVG tenant logos will always show initials.
@@ -261,3 +261,19 @@
 - `callApi` answers `NETWORK_ERROR` for invalid caller headers, which `isTransientReadFailure` counts as transient, so a `myself` read with bad headers would be retried 3 times; give it its own code (e.g. `BAD_HEADERS`) if a read ever passes caller headers.
 - CI `cache: pnpm` with `corepack enable` before `setup-node` (and again for Node 24) is unconfirmed until the first GitHub Actions run; if `pnpm store path` fails there, add `pnpm/action-setup` before `setup-node`.
 - Move `test/page-session.test.ts` next to `lib/server/session/session.test.ts` once R5-1 and R5-2 are merged (it sits in `test/` only because `lib/server/**` was frozen for R5-2).
+
+### Deferred from: code review of spec-7-1-account-page (2026-10-15)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-1-account-page.md`
+  summary: (Team B) `/account?lpl=x` with a session keeps `lpl` in the address bar/history after tab normalization; consider dropping it with the same replace.
+  evidence: AC 7.1 only requires that `lpl` is ignored (no exchange); the code is single-use, so this is hygiene, not a leak of a usable credential.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-1-account-page.md`
+  summary: (Team B) add page-level e2e on `/account` for a non-403 read failure with per-frame Retry, a `myself` failure (page banner vs `useClaimMyselfError`) and session expiry, once Stories 7.4/8.1/9.1/10.1 add real reads.
+  evidence: the stubs make no reads today; the behaviour is unit-tested in the foundation (`state-frame`, `page-frame`, `session-dialog`).
+
+
+### Deferred from: CI flake triage on feat/NG-9019-story-7-1 (2026-10-15)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-f3-1-ui-primitives-and-toasts.md`
+  summary: (Foundation) `e2e/primitives.spec.ts` "DisabledAction … Escape" is flaky on `mobile-360` (2/35 local runs): after a forced tap on the DisabledAction and Escape, the reason tooltip stays open (`toHaveCount(0)` gets 1). Likely an interaction between the tap toggle (`openAtPressRef`), `keepOpenOnPress` and the focus-open in `components/ui/tooltip.tsx`; diagnose with a Playwright trace before changing the component.
+  evidence: `pnpm exec playwright test e2e/primitives.spec.ts --repeat-each=5 --workers=2` → 2 failed / 68 passed, both at the final `toHaveCount(0)` on mobile-360; desktop never fails.

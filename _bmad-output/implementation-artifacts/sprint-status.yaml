@@ -34,7 +34,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 10-13-2026 15:00
-last_updated: 10-14-2026 22:00
+last_updated: 10-15-2026 09:30
 project: personal-profile
 project_key: NOKEY
 tracking_system: file-system
@@ -119,7 +119,7 @@ development_status:
   f7-2-contract-hardening: done  # ownership rules T1-T8/R1-R11, FIELD_MESSAGES, PersonalInformationPayload, upload codes, export * everywhere, ownership-checked DELETE /api/pp/file/{id}, FallbackImage, orgInitials, scoped requestLeave, lint/grep rules
   r5-1-main-parity-server-e2e: done  # main-parity audit of Stories 1.1-1.8: e2e upstream mock (PP_E2E_MOCK, e2e- creds only) + real launch/proxy/logout e2e, redeemed mapping, expires_in range, env boot checks, /api/token fail-closed, D16
   r5-2-main-parity-client-tooling: done  # lint/token/vitest gates restored, myself auto-retry (D17), keepalive logout, lock fallback, isApiPath dot-segments, ported main tests, housekeeping
-  7-1-account-page-route-tabs-deep-links-and-states: backlog  # 2026-10-14: per-page DraftsProvider in PageFrame + portal purge / hand-off keep built in spec-f4-drafts; 2026-10-14: AccountTabs/AccountPersonalPanel/AnchoredPanel presets, account placeholders, feature stubs (AccountSettingsSection, AuthenticatorSection, ProviderTab, OrganizationsTab), repeated ?tab= normalized, PAGE_TAB_PARAM, useClaimMyselfError (spec-f6-1); mockAccountDefaults (spec-f6-3) built. Remaining (Team B): app/account/page.tsx composing the presets (no features/account/account-page.tsx), tests
+  7-1-account-page-route-tabs-deep-links-and-states: review  # 2026-10-15: built in spec-7-1-account-page (app/account/page.tsx composing the F6-1 AccountTabs/AccountPersonalPanel + feature stubs; app/account.test.tsx lazy tabs, organizations 403, one myself request, title; e2e/account-page.spec.ts deep links, lpl ignored, ?tab normalization, anchors, page switch, tab order, axe). Remaining: none (Epics 7.4/8/9/10 fill the stubs)
   7-2-account-page-hardening-denies-kill-switch-headers-mobile-and-a: backlog  # 2026-10-14: page/route-level ACCOUNT_DISABLED kill switch + 503 screen + e2e matrix built in spec-f2. Remaining (Team B): /account no-store test (needs 7.1), Profile deny/traversal rows, /account header asserts, mobile + keyboard/axe runs; 2026-10-14: NO_STORE_HEADERS from proxy.ts on /, /account, /handoff/** incl. redirects (unit + e2e) built in spec-f6-1. Remaining (Team B): Profile deny/traversal rows, header asserts on the real /account, RSC/prefetch no-store e2e + Vary: Cookie decision (deferred-work), mobile + keyboard/axe runs
   7-3-portal-hand-off-route: backlog  # 2026-10-14: handoffHref/isHandoffHref/isTenantId, BFF_PATHS.handoffPortal, navigate() hand-off href guard, no-store on /handoff/** built in spec-f6-1. Remaining (Team B): app/handoff/portal/route.ts + lib/server/handoff.ts
   7-4-view-personal-account-settings: backlog  # 2026-10-14: AccountSettingsSection stub, useClaimMyselfError (spec-f6-1); isNotProvided in KeyValueTable (spec-f6-3); mono-value (spec-f6-2) built

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { useState } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -290,12 +290,12 @@ describe("the myself error claim (F6-1 review H1)", () => {
       </TestProviders>,
     )
     expect(await screen.findByText("own error")).toBeTruthy()
-    expect(screen.queryAllByText(LOAD_ERROR)).toHaveLength(0)
+    await waitFor(() => expect(screen.queryAllByText(LOAD_ERROR)).toHaveLength(0))
     await act(async () => fireEvent.mouseDown(screen.getByRole("tab", { name: "My Organizations" }), { button: 0 }))
     expect(await screen.findByText(LOAD_ERROR)).toBeTruthy()
     await act(async () => fireEvent.mouseDown(screen.getByRole("tab", { name: "Personal Account" }), { button: 0 }))
     expect(screen.getByText("own error")).toBeTruthy()
-    expect(screen.queryAllByText(LOAD_ERROR)).toHaveLength(0)
+    await waitFor(() => expect(screen.queryAllByText(LOAD_ERROR)).toHaveLength(0))
   })
 
   it("without a claiming Section the page banner shows", async () => {
