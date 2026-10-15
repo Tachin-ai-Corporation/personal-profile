@@ -1,302 +1,219 @@
 # Epic 1 Context: Launch, session and profile shell
 
 <!-- Compiled from planning artifacts. Edit freely. Regenerate with compile-epic-context if planning docs change. -->
+<!-- Recompiled 2026-10-15 on feat/NG-9027-epic1-continue from origin/main 78647d6 (PRs #4–#6: foundation 7.0a–7.0c-1, F1–F7, R5-1/R5-2, Story 7.1). Sources: epics.md (D1–D17, "Foundation F6 and path corrections", per-story Foundation lines), ARCHITECTURE-SPINE.md, docs/FOUNDATION.md, CLAUDE.md, sprint-status.yaml, deferred-work.md, sprint-change-proposal-2026-10-14.md. -->
 
-**Shared foundation (F1–F6) is built — before writing any code read `docs/FOUNDATION.md` (catalog: `_bmad-output/planning-artifacts/shared-foundation-catalog.md`). Use it; do not rebuild.**
+**Read `docs/FOUNDATION.md` before writing any code.** It is the catalog of everything already built (7.0a–7.0c-1, F1–F7, R5). This file doesn't repeat it. It names the pieces Epic 1's remaining stories use, the rules a Team A story PR must follow, and what is still open. Where this file and FOUNDATION disagree, FOUNDATION and the code win.
 
 ## Goal
 
-Epic 1 delivers the foundation and shell of Personal Profile (Jira NG-9027, NG-9020, NG-9021). The portal opens the app in its own tab at `/auth?lpl=…`. The user arrives signed in on the Contacts tab with no login form, sees their name, picture and primary contacts, and moves between the Contacts, Insurance and Medical tabs and to Account. The epic builds the security and session spine: one Vercel deployment serving demo and prod, a sealed cookie, an allowlisted server proxy, client-coordinated token refresh, idle logoff, and logout with platform revocation. It also builds the reusable shell that every later epic plugs into: the Section registry and edit model, error, message and toast mapping, the leave guard and `navigate()`, Save all, drafts and design tokens. It ends with the deployment runbooks. Epics 2–5 and 7 depend only on this epic. **Project note:** the launch and environment decisions of 2026-10-14 (D1–D13) override the architecture spine, CLAUDE.md and the existing code wherever they differ. Stories 1.1–1.8 were built and put in review before those decisions, so they still contain `/launch`, `/launch-error`, `APP_ENV`, `csrf.ts`, `session-binding.ts`, `sessionBinding` and `use-is-framed`. They must be reworked to the amended story text. *(2026-10-14: done; specs 7.0a, 7.0b-1, 7.0b-2 and 7.0c-1 rebuilt this foundation under D1–D13, see "Foundation already built".)*
+Epic 1 delivers the foundation and shell of Personal Profile (Jira NG-9027, NG-9020, NG-9021). The portal opens the app in its own tab at `/auth?lpl=…`. The user arrives signed in on the Contacts tab with no login form, sees their name, picture and primary contacts, and moves between tabs and to Account. Unsaved work is protected and the session expires safely. Epics 2–5 and 7 depend only on this epic.
 
-## Stories
+**State on 2026-10-15:** the shared foundation built the security and session spine and the reusable shell. Stories 1.1–1.8, 1.11 and 1.15 and the reworks 1-3r, 1-7r and 1-8r are done. Story 1.12 and Story 1.13 are covered except for test cases that live in foundation-owned files. Only the Team A work in Stories 1.9, 1.10, 1.14 and 1.16 is left.
 
-- Story 1.1: Foundation (environment config, security headers, test tooling, CI and legacy removal)
-- Story 1.2: Launch from the portal and arrive signed in
-- Story 1.3: Secure 1health proxy (allowlist, deny list, normalization, content-type check, kill switches, no-store and logging)
-- Story 1.4: `callApi` transport, SWR keys and `useMyself`
-- Story 1.5: Client-coordinated token refresh
-- Story 1.6: Idle logoff, activity ping and cross-tab activity
-- Story 1.7: Logout, platform revocation and the session-expired dialog
-- Story 1.8: Profile page shell (tokens, app bar, tabs and Section navigation)
-- Story 1.9: Profile header view (name, picture and primary contacts)
-- Story 1.10: Change Profile Picture
-- Story 1.11: Section framework (registry, edit model, inline validation and shared primitives)
-- Story 1.12: Error mapping, message catalog, toasts and Retry
-- Story 1.13: Leave guard
-- Story 1.14: Save all
-- Story 1.15: Drafts (keep unsaved edits across an expired session)
-- Story 1.16: Deployments, environments and operations runbooks
+## Stories and status
 
-## Foundation already built (2026-10-14)
-
-Built on `feat/NG-9019-epic-7` by specs 7.0a, 7.0b-1, 7.0b-2, 7.0c-1, F1, F2, F3-1, F3-2, F3-3, F4, F5-1, F5-2, F6-1, F6-2 and F6-3 (all `done`). Use these pieces; do not rebuild or fork them. The shared foundation is complete; the full catalog is `docs/FOUNDATION.md`.
-
-| Piece | Spec | Paths and public API |
+| Story | Status | What is left (Team A) |
 |---|---|---|
-| Env, environment map, app env | 7.0a | `lib/server/env.ts` (named vars, `IS_LOCAL_DEV`, `DEFAULT_TENANT_ID`, `getSecretKey`, `getAppId`, `PP_DISABLED`, `ACCOUNT_DISABLED`, `PP_E2E_FIXTURES`); `lib/shared/environments.ts` (`apiRoot`, `apiBase`, `portalUrl`, `publicFilesOrigin`); `lib/shared/app-env.ts` (`isLocalDev`, `isProductionBuild`) |
-| Security headers, lint, tooling, CI | 7.0a, 7.0b-1 | root `proxy.ts` + `lib/server/security/headers.ts` (nonce CSP, AD-21); ESLint layering and AD-26 navigation bans; Vitest 5 + MSW 3 + Playwright + `@axe-core/playwright`; `.github/workflows/ci.yml`; `scripts/check-forbidden.sh`, `scripts/check-tokens.sh` |
-| Server HTTP helpers | 7.0a | `lib/server/http/{responses,cache-headers,content-type,fetch-with-timeout,guard-route}.ts` (`seeOther`, `jsonError`, `methodNotAllowed`, no-store headers, 415 check, `guardRoute`); `lib/server/log.ts` |
-| Launch and session | 7.0a | `/auth` (`features/shell/auth-screen.tsx`, `launch-flow.ts`), `POST /api/token` (`lib/server/launch/*`), `__Host-pp_s` (`lib/server/session/{session,types,environment-cookie,revoke}.ts`), `requirePageSession()` in `lib/server/page-session.ts` (returns `{ portalUrl, idle }`), `lib/shared/login-intent.ts` (`saveLoginIntent`, `consumeLoginIntent`, `consumeLaunchIntent`: relaunch lands only on `/`) |
-| Proxy | 7.0a | `/api/1h/[...path]` (`lib/server/proxy/*`): allowlist, exact deny list, normalization, `me` owner substitution, `profile: true` tag + proxy-level `ACCOUNT_DISABLED` 503, `asImage` forces `preview=true`; `lib/shared/bff-contract.ts` (`BffErrorCode`, `BFF_PATHS`, activity headers). Entries: `GET v2/user/myself`, `GET v2/user/contact-point/list`, `PUT v2/user/edit` |
-| Client transport | 7.0a | `@/lib/api`: `callApi` (never throws; `ApiResponse` with `errorCode`, `upstreamCode`, `platformMessage`, `source`), `configureApiClient`, `getPortalUrl`, `sessionEvents` (`session-expired` only), `keys` (every planned key since F1, see below), `swrFetcher`, `logApiCall`, `startSession`/`endSession`; one root `SWRConfig` (`features/shell/swr-provider.tsx`); `useMyself`; `usePortalUrl` |
-| Token refresh | 7.0a | `/api/session/refresh`, `lib/api/refresh-coordinator.ts` (single-flight + `navigator.locks`; non-GET replayed only after a proxy `TOKEN_EXPIRED`) |
-| Logout | 7.0a | `/api/session/logout` (POST/GET; best-effort `logout/all-devices`; always 204) |
-| Idle logoff and activity | 7.0c-1 | 15 min / 8 h limits (`isSessionAged`), `POST /api/session/ping`, proxy and page-navigation `lastSeen` re-seal, `lib/api/activity.ts` (`pp-activity`), `recordUserActivity()`, `IdleWarning` (mounted once in `PageFrame`), `IDLE_MESSAGES` |
-| Design tokens | 7.0b-1 | `app/globals.css`: `link-text`, `destructive-fill`, `primary-text`, `scrim`, `control-border`, `tooltip`, `tooltip-foreground`; `Button` `touch` size and `destructive` variant; `dialog.tsx` on `bg-scrim` |
-| Copy and errors | 7.0b-1 | message catalog with verbatim + voice tests (split per area by F1, see below); `mapApiError`/`mapFetchError` (`forbidden`, `generic`, `network`, `session`; replaced by mapper v2 in `lib/api/errors/` by F1, see below) |
-| Confirm dialog and read states | 7.0b-1 | `components/ui/confirm-dialog.tsx` (`ConfirmDialog`: `standard \| destructive`, `extraAction`, `busy`, `cancelLabel`, `showConfirm`, `onCloseFocus`); `features/shell/read-state.tsx` (`LoadError`, `NoAccess`, `ReadStateFor`) |
-| Navigation | 7.0b-2 | `features/shell/navigate.ts` (`navigate`, `useNavigate`, `CurrentPageProvider`; targets `{page,tab?,hash?}`, `{external:"portal"}`, `{external:"handoff",href}`), `features/shell/leave.ts` (`requestLeave`, `setLeaveGuard`), `features/shell/exit-hooks.ts` (`onBeforeExit`, `onBeforeSessionExpired`), `features/shell/nav-types.ts` (`ProfileTab`, `AccountTab`, `PROFILE_TABS`, `ACCOUNT_TABS`, `PAGE_PATHS`, `SectionId`, `SectionRegistration`, `SaveResult` with `failedParts`, `ValidateResult`) |
-| Shell UI | 7.0b-2 | `AppBar`, `PageNav`, `ReturnLink`, `PageTabs`/`ProfileTabs` + `components/ui/tabs.tsx`, `PageFrame` (registry, leave guard, session dialog, idle warning), `useMediaQuery`/`DESKTOP_QUERY` |
-| Section registry | 7.0b-2 | `features/shell/section-registry.tsx` (`SectionRegistryProvider`, `useRegisterSection`, `useSectionRegistry`, `useIsAnyDirty`; dev throw on duplicate id; `UNEXPECTED` save wrapper; `canSave: false`) |
-| Leave guard and session dialog | 7.0b-2 | `LeaveGuard` (Keep editing / Discard / Save on `ConfirmDialog`, validate-first, `beforeunload` while dirty); `SessionDialog` ("Your session ended", saves the login intent) |
-| Header (initials only) | 7.0b-2 | `features/header` (`ProfileHeader`, `displayName`, `initials`), `lib/api/contact-points.ts` (`fetchContactPoints`, `findPrimary`, `ContactPoint`) |
-| Per-area registries | F1 | Allowlist `lib/server/proxy/allowlist/{core,personal,contacts,files,addresses,insurance,account,mfa,npi,orgs}.ts` → `ALLOWLIST` (`index.ts`); copy `lib/shared/messages/{common,shell,section,state,header,leave-guard,session,idle,person,contacts,addresses,insurance,account,mfa,npi,orgs,places,disabled,launch}.ts` → `MESSAGE_CATALOG`, `MessageKey`, `messageFor`, `formatMessage` (`@/lib/shared/messages`); errors `lib/api/errors/{personal,contacts,addresses,insurance,account,mfa,npi,orgs}.ts` (`Field` + `rules`) → `ERROR_RULES`. Every planned area file exists and is aggregated once: a story edits only its own area file, never an `index.ts` |
-| Cross-team allowlist entries | F1 | `PUT v2/user/edit` = full `PersonalInformationDTO` (`userEditBodySchema`, `RACES`, `ETHNICITIES`, `BIOLOGICAL_GENDERS` in `allowlist/personal.ts`; backend lengths/enums/patterns, trimmed names, rejects `locale`/`username`/`enabled`/`receiveNotifications`, accepts `email`, `phoneNumber` + `phoneNumberRegion` only together); `GET v2/user/contact-point/list` `type` incl. `Social Media` (`allowlist/contacts.ts`); `GET v2/file/{fileId}/download` `asImage`, numeric id, no client query, `preview=true` forced (`allowlist/files.ts`; inline/attachment hardening is F2). None is `profile: true` |
-| `Myself` domain module | F1 | `lib/api/myself.ts` (replaces `user.ts`): `Myself` = `id`, `personId`, `username`, `firstName`, `middleName`, `lastName`, `namePrefix`, `nameSuffix`, `otherNames`, `titles`, `birthDate` (`YYYY-MM-DD`, null = withheld), `cityOfBirth`, `race`, `ethnicity`, `biologicalGender`, `genderIdentity`, `sexualOrientation`, `socialSecurityNumber` (masked), `signature {id,name}`, `email`, `phoneNumber`, `roles`, `preferredLanguage`, `timeZone`, `locale`, `tenants {id,name}[]`, `mfaEnabled`, `totpEnabled` (all nullable but `id`; no `phoneNumberRegion`); `toMyself`, `fetchMyself`, `loadMyself`, `myselfPath`, `isProctor(roles)`, `isTenantMember(myself, tenantId)`. No story extends it |
-| SWR keys and fetchers | F1 | `lib/api/keys.ts`: `keys.{myself, profilePictureId, typeKey(type), contactPoints(type), addresses, insurance, npi, practiceSupport, orgs(name,page)}`, `ContactPointType` = `Email\|Mobile\|Landline\|Social Media`, `CONTACT_POINT_TYPES`, `SWR_RESOURCES`, `mutateMyself()`, `mutateContactPoints(...types)`; `lib/api/fetcher.ts` `registerFetcher(resource, loader)` (one loader per family; a module registers its own and is re-exported from `lib/api/index.ts`); modules own their paths via `proxyPath()`. Keys without a loader are declared only (`profilePictureId`, `typeKey`, `addresses`, `insurance`, `npi`, `practiceSupport`, `orgs`) |
-| Contact points | F1 | `lib/api/contact-points.ts`: `primaryPhoneRegion(mobileRows, myself)` (Primary Mobile row, or the row equal to `myself.phoneNumber`; default `"us"`), `isContactPointType`, `contactPointsPath`, `loadContactPoints` |
-| Error mapper v2 and codes | F1 | `mapApiError(scope, response)` / `mapFetchError(scope, error)` → `forbidden \| network \| session \| generic{message?} \| field{field, messageKey} \| coded{code}`; `ErrorScope` = `SectionId` ∪ `authenticator\|provider\|organizations\|page`; `mappedErrorCode()`. Rows (upstream 4xx, own scope only): SSN taken → `personal` `field ssn` `person.ssnTaken`; email in use → `account` `field primaryEmail` `account.primaryEmailInUse`; contact duplicates → `phone\|email\|social` `field value`; MFA → `coded MFA_NOT_ENABLED\|TOTP_ALREADY_ENABLED`; NPI taken (`Operation failed. The chosen (Personal\|Practice) NPI Number: <n> is already registered.`) → `coded NPI_ALREADY_REGISTERED` (does not say which NPI). BFF codes `NO_LOGO`, `NO_PRACTICE` (`lib/shared/bff-contract.ts`); client `FORBIDDEN` + derived codes (`lib/api/errors-codes.ts`). Only `lib/api/errors/*` matches upstream text (test-enforced) |
-| Shared rules and formatters | F1 | `lib/shared/person-rules.ts` (`NAME_MAX_LENGTH` 24, `PREFIX_SUFFIX_MAX_LENGTH` 10, `SHORT_TEXT_MAX_LENGTH` 128, `normalizeName`, `nameIssue`, `textIssue`, `hasProctorRole`, `birthDateAgeRange(roles)`, `isBirthDateInRange(date, roles, today)`, backend `minusYears` semantics) + `PERSON_MESSAGES`; `lib/shared/dates.ts` (`parseWireDate`, `parseDisplayDate`, `wireToDisplayDate`, `displayToWireDate`, `formatDisplayDate`, `localCalendarDate`, `minusYears`, `wholeYearsBetween`; no timezone shift, impossible dates rejected); `lib/shared/phone.ts` (`formatPhoneDisplay(value, region)`, `normalizeRegion`, `DEFAULT_PHONE_REGION`; the header uses it); `lib/shared/safe-href.ts` (`safeHref(value, protocols?)`, default `https:`/`mailto:`/`tel:`); `lib/shared/telemetry.ts` (`telemetry.track`, no-op sink, `setTelemetrySink`, typed `section_save`/`save_all`/`mfa_link`); `lib/shared/initials.ts` (`initials(...names)`: first letter of each name); `lib/shared/section-ids.ts` (`SECTION_IDS`, `SectionId`) |
-| Ownership lint | F1 | `eslint.config.mjs` (fixture `eslint.config.test.ts`): `updateAccount` importable only in `features/account/**` (static and dynamic); `@/hooks/use-toast` only in `features/shell/toasts.ts`; no string or template literals as zod messages in `features/**/schema.ts` |
-| Named-op wrapper | F2 | `lib/server/named-op.ts#createNamedOp(config, deps)` for every `/api/pp/*` and `/api/places/*` route: fixed order kill switch (`killSwitch: "pp"` = `PP_DISABLED`; `"account"` = `PP_DISABLED \|\| ACCOUNT_DISABLED`) → method (others 405, explicit HEAD/OPTIONS) → session → query rules (default none → 400 `BAD_QUERY`) → `params` → JSON `body` zod schema (415 non-JSON, capped read `NAMED_OP_MAX_BODY_BYTES` 16 KiB, 400 `BAD_BODY`) → token freshness when `upstream: "1health"` (401 `TOKEN_EXPIRED`) → `handle(ctx)`; `ctx.upstream.json({method, segments, query?, body?})` → `ok` / `client-error` (route relays with `relayClientError` or masks) / `failed` (401 `TOKEN_EXPIRED`, 3xx 502 `UPSTREAM_REDIRECT`, 5xx/network 502, timeout 504); `ctx.setOutcome(code)` for PHI-free log reasons; always no-store + nosniff, template-only log line. Route logic in `lib/server/named-ops/*.ts`, thin `app/api/pp/**` / `app/api/places/**` route files. Named ops never go through the allowlist |
-| Named ops | F2 | `GET /api/pp/profile-picture-id` (`"pp"`, `{fileId:number\|null}`), `POST /api/places/{autocomplete,details}` (`"pp"`, `PLACES_ENABLED`, requests carry a per-lookup UUID `lookupId`), `POST /api/pp/mfa/validate` (`"account"`, `{code}` 6 digits, boolean relayed, code never logged), `GET /api/pp/practice-support` (`"account"`, `{name?, phone?, phoneRegion?, email?}`, 404 `NO_PRACTICE`, 403 relayed), `GET /api/pp/org-logo/[tenantId]` (`"account"`, members only, `publicFilesOrigin`, PNG/JPEG/WebP ≤ 512 KB inline, every failure 404 `NO_LOGO`); request/response types and `BFF_PATHS.{profilePictureId, mfaValidate, practiceSupport, orgLogoPrefix, placesAutocomplete, placesDetails}` in `lib/shared/bff-contract.ts`. Client loaders and UIs stay with Stories 1.9, 4.3, 8.2, 9.3, 10.2 |
-| Kill switches and disabled screen | F2 | `lib/server/kill-switch.ts` (`killSwitchFor(pathname)` segment-prefix match, `isSwitchedOff`, `normalizePath`; `"pp"`: `/`, `/auth`, `/account`, `/handoff`, `/api/1h`, `/api/pp`, `/api/places`, `/api/session/{refresh,ping}`; `"account"`: `/account`, `/handoff`, `/api/pp/{mfa,org-logo,practice-support}`; never logout or `/api/token`) applied first in root `proxy.ts`: API → 503 `SERVICE_DISABLED`; pages/RSC/prefetch → rewrite to `app/disabled/route.ts` (`lib/server/disabled-screen.ts`, 503 static HTML, AD-21 + no-store + `Retry-After: 300`, copy `lib/shared/messages/disabled.ts#DISABLED_MESSAGES` DRAFT, portal link from session → cookie → referrer → prod); `e2e/kill-switch.spec.ts` (builds on ports 3101/3102) |
-| Image downloads, uploads, HTTP helpers | F2 | `asImage` responses sniffed (`lib/server/http/image-sniff.ts#sniffImage`/`peekStream`: inline + type from PNG/JPEG/BMP bytes, else `attachment`; upstream `Set-Cookie`/`Content-Disposition`/`Content-Length` dropped); `fetchWithTimeout(url, init, {timeoutMs, bodyIdleMs})` (10 s idle timer on streamed bodies, `UpstreamBodyTimeoutError`); `lib/server/http/upstream-url.ts#buildUpstreamUrl`; `lib/server/http/read-capped.ts#readCapped`/`readStreamCapped` (413 `TOO_LARGE`) for every proxy and `/api/token` body; deny list re-checked after `me` substitution; upload entries `AllowlistEntry.upload {part, types}` + `maxBytes` (`lib/server/proxy/upload.ts#readUpload`, `sanitizeFileName`): picture (`allowlist/core.ts`, 4 MB, PNG/JPEG/BMP, `isPublic=true`, no client query), signature + signature version (`allowlist/personal.ts`, 1 MB PNG), insurance front/back (`allowlist/insurance.ts`, 4 MB PNG/JPEG). Upload ids other than `me` are only regex-checked (backend has no ownership check: deferred-work) |
-| `publicFilesOrigin` | F2 | `EnvironmentConfig.publicFilesOrigin` in `lib/shared/environments.ts` (demo/prod `bocore-public-files-{demo,prod}.s3.us-west-1.amazonaws.com`), unconfirmed until Story 10.2 checks a live `tenantLogo.publicUrl` (deferred-work) |
-| Tooltip and DisabledAction | F3-1 | `components/ui/tooltip.tsx`: `Tooltip({ content, wide?, side?, contentId?, contentClassName?, keepOpenOnPress? })` (`@radix-ui/react-tooltip@1.2.16`; `tooltip` tokens, caption type, arrow, side top; opens on hover, focus, touch/pen tap; closes on Escape, blur, outside tap; empty content renders only the trigger; `wide` wraps at 320 px), `TooltipProvider` mounted once in `app/layout.tsx` (300 ms delay/skip-delay); `components/ui/disabled-action.tsx`: `DisabledAction({ reason, wideReason? })` (Button look, `aria-disabled`, in tab order, always `type="button"`, click/Enter/Space no-ops, reason in a Tooltip a press keeps open and in a visually hidden `aria-describedby` line) |
-| InfoIconButton | F3-1 | `components/ui/info-icon-button.tsx`: `InfoIconButton({ "aria-label", icon?: "help" \| "info" })` (44 px target, 18 px `CircleHelp`/`Info`, `muted-foreground`, `forwardRef`: a Tooltip trigger now, a Popover trigger in F5) |
-| Form controls | F3-1 | `components/ui/form-field.tsx`: `FormField({ label, optional?, required?, help?, error?, id?, labelAddon?, children: (control) => … })` (render prop gets `id`, `aria-describedby` help then error, `aria-invalid`, `required`/`aria-required`; polite error region; muted "(optional)") + `FieldError({ id, children })`; `components/ui/input.tsx` restyled (44 px, `text-body`, `control-border`, `focus-ring`, 2 px `error` border on `aria-invalid`; `INPUT_STYLES`); `components/ui/input-locked.tsx`: `InputLocked({ value, help })` (muted fill, lock icon, `readOnly` + `aria-readonly`, focusable, help first in `aria-describedby`); `components/ui/select.tsx` ported from main `b005536` (`Select`, `SelectTrigger`, `SelectContent`, `SelectItem`, `SelectValue`, `SelectGroup`, `SelectLabel`, `SelectSeparator`, scroll buttons; `@radix-ui/react-select@2.3.7`; no `aria-disabled` + helper yet → F5) |
-| Busy Button | F3-1 | `components/ui/button.tsx`: `busy`, `busyLabel` (spinner + label, `aria-busy`, inert, focus kept, visually hidden polite status); `busy` or `aria-disabled` makes any Button inert (also `asChild`); `ConfirmDialog` confirm and `IdleWarning` use it (the `ConfirmDialog` busy confirm reads "Saving…") |
-| Inline banner and read states | F3-1 | `components/ui/inline-banner.tsx`: `InlineBanner({ variant: "error" \| "info", action?, focusable?, announceKey? })` (only the sentence is the live region, `alert`/`status`; the action sits outside it; `announceKey` remounts it to re-announce); `features/shell/read-state.tsx` `LoadError` and `ReadStateFor` now render on it and take `attempt`: **callers must pass `attempt` (failure count) so a repeated failure is announced again** |
-| StatusBadge | F3-1 | `components/ui/status-badge.tsx`: `StatusBadge({ status: "verified" \| "notVerified" \| "pending", children })` (CheckCircle `success-strong`, AlertCircle `warning-strong`, muted no icon; the word is the children, e.g. "Verified", "Enabled", "Link sent · Resend in 60 s") |
-| Toasts | F3-1 | `features/shell/toasts.ts` (only importer of `hooks/use-toast`): `toastSuccess(text)` 5 s paused on hover/focus, `toastPartial(text)` 5 s, `toastError(text, { onRetry })` persistent with "Retry" (runs `onRetry` once, always closes); each returns `{ id, dismiss }`. `components/ui/{toast,toaster}.tsx`: tones, polite, bottom-center < 768 px / bottom-right from `md`, `--toast-bottom-offset` (`:root` `0px`; the Save all pill raises it), `rounded-md`, 44 px "Dismiss notification" close. `TOAST_LIMIT` 3 (oldest non-error evicted first; error toasts never dropped). Copy: `SECTION_MESSAGES.saveFailed`/`allSaved`/`partialSaved`, `COMMON_MESSAGES.optionalSuffix`/`dismissNotification` |
-| Focus ring | F3-1 | `@utility focus-ring` in `app/globals.css` (2 px ring outline, 2 px offset, `shadow-glow` on `:focus-visible`); used by Button, Input, Select, toast action/close, dialog close, page nav, Return to 1health (tabs keep their inset ring). New interactive elements use `focus-ring`, not a hand-rolled rule |
-| Section registry (final) | F3-2 | `features/shell/{nav-types,section-registry}.tsx`: `RegisteredSection.saveAll`, `getDirty()`, `getDirtyCount()` + `useDirtyCount()` (only `saveAll !== false` with a `save`), `isAnyDirty()`, `subscribe()`; `ValidateResult` invalid branch `{ invalidCount, focusFirstInvalid }` (a throwing `validate` = 1); `SaveError { code?, mapped?, failedParts? }`, `SESSION_EXPIRED_CODE`, `isSessionExpired()`, `sectionHeadingId(id)` (`<id>-heading`); typed F4 hooks `getDraftValues`, `getDraftBase`, `applyDraft`, `describeDraftDiff`; a registration without `save` is guard-only (`saveAll: false`) |
-| Section edit model | F3-2 | `features/shell/use-section-form.ts`: `useSectionForm({ id, label, displayOrder, schema, baseline, save(values, baseline), saveAll?, onNoChanges?: "close" \| "status", successToast?: string \| false, cancelFocus?: "heading" \| "edit", fieldOrder?, errorFields?, describeError?, draftFields?, describeDraftDiff? })` → `{ form, mode, isEditing, isSaving, isDirty, baseline, startEdit, cancel, submit, rebase, field(name), errorFor(name), editButtonProps, footerProps }`. RHF + zodResolver on blur, no `<form>` (Enter/Escape inert); dirty = `deepEqual` with the baseline (`lib/shared/deep-equal.ts`); invalid Save sends nothing and focuses the first invalid field; saving = `readOnly` inputs, inert Cancel, one send; success → read view, focus (`h2`), `section_save`, "{label} saved." toast only from the Section's own Save; network → Section error + Retry + error toast; generic → "Couldn't save {section}."; session → nothing; registers itself (registered `save()` never toasts or moves focus) |
-| Section chrome | F3-2, F3-3 | `SectionHeader({ id, title, count?, editing, actions? })` (44 px, `h2#<id>-heading` `tabIndex=-1`, "Editing"), `SectionContainer({ editing })` (primary border + 3 px accent halo), `SectionFooter` (spread `footerProps`; polite "Unsaved changes", error InlineBanner + Retry, polite status, `addRow?: { label, onClick, disabledReason? }`, Cancel, busy Save), `SectionLandmark({ id: SectionId \| AccountAnchor, title, tools? })` (`<section id aria-labelledby>` + header) |
-| Key/value table | F3-2 | `features/shell/key-value-table.tsx`: `KeyValueTable({ rows: { key, label, value?, rowId? }[], labelledBy? })` (desktop 4 columns row by row with a vertical hairline, `th scope="row"`; mobile one pair per row; "Not provided" for empty; `rowId` anchor), `KeyValueEditTable({ rows: { key, label, optional?, required?, help?, error?, labelAddon?, controlId?, rowId?, render(control) }[], labelledBy? })` (240 px key column, controls ≤ 480 px, label above control on mobile); layout via `useMediaQuery`, no CSS twins |
-| Save runners | F3-2 | `features/shell/run-save-steps.ts`: `runSaveSteps(steps: { part, skip?, run }[], { scope, mode: "stop" \| "attemptAll", refetch?, rebase?, applySucceeded? })` → `{ ok, succeeded, error?: { code, mapped, failedParts } }` (never throws; refetch + rebase after a non-session failure; a session error stops at once); `features/shell/save-all.ts`: `runSaveAll(registry, { order?, includeGuardOnly?, trackTelemetry? })` → `clean \| invalid \| session \| done`, `saveAllSummary(outcome)`; `LeaveGuard` Save runs it (`includeGuardOnly`, `PageFrame saveOrder`); `PageFrame saveAllSlot` (profile page only); copy `SECTION_MESSAGES.{noChanges,invalidOne,invalidMany}` |
-| State frames | F3-3 | `features/shell/state-frame.tsx`: `StateFrame({ state: "loading" \| "ready" \| { error: MappedError }, skeleton: "table" \| "kv" \| "tiles" \| "bars" \| "cards", columns?, loadError: { kind: "section", sectionId } \| { kind: "page" }, level: "section" \| "tab", onRetry, attempt?, anchors?, onReady? })`: session → nothing; forbidden → `NoAccess({ level })` (tab = centred bordered panel, Section = one row); else InlineBanner + Retry for that frame only; `/` copy "Couldn't load {noun}" (`SECTION_LOAD_NOUNS`), `/account` copy "Something went wrong while loading profile information"; sr-only "Loading {noun}"; static under reduced motion. Also `FrameSkeleton`, `ORG_GRID_CLASSES`, `loadErrorMessage`, `loadingLabel`; `LoadError` (+ `message`, `attempt`), `NoAccess`, `ReadStateFor` (+ `loadError`, `level`) still importable from `read-state.tsx` |
-| 403 owner table | F3-3 | `lib/api/errors/forbidden-scope.ts` (from `@/lib/api`): `forbiddenScopeFor(path, page: "profile" \| "account")` → `{ owner, level: "tab" \| "section" \| "control" \| "popover" } \| null`, `FORBIDDEN_SCOPE_TABLE`, `normalizeForbiddenPath`. `/account`: `contact-point/list` → `account-pickers` (control); `mfa/*`, `pp/mfa/validate` → `authenticator` (section); `user/npi`, `public/npi/list`, `user/register/npi` → `provider` (tab); `user/organization/portal` → `organizations` (tab); `pp/practice-support` → `practice-popover`. `/`: `contact-point/list` by `type` → `phone`/`email`/`social` (section) |
-| Signature thumbnail | F3-3 | `features/shell/signature-thumb.tsx`: `SignatureThumb({ fileId, fallback, alt? })` (112 × 32, `object-contain`, src from `lib/api/files.ts#fileDownloadPath` (`isFileId`), skeleton while loading, error or no file → `fallback` text: "Not provided" (2.1) / "No signature available" (9.3), `key={fileId}`) |
-| Section navigation and anchors | F3-3 | `features/shell/anchors.ts` (`PROFILE_SECTIONS`, `PROFILE_SECTION_IDS`, `SIGNATURE_ANCHOR`, `PROFILE_SUB_ANCHORS`, `ACCOUNT_ANCHORS` = `account`, `authenticator`, `AccountAnchor`, `SECTION_COLUMNS`); `SectionNav` + `useSectionNavigation()` (menu, Jump to, scroll-spy; hash via `history.replaceState`, never `navigate()`/`requestLeave()`); `useHashAnchors(ids, { focusHeading?, subAnchors?, onFollow? })` → `{ frameReady(id), cancelPending() }` (load, `hashchange`, `HASH_NAVIGATE_EVENT`; unknown hashes ignored; one re-scroll on the target `StateFrame` `onReady`); `hand-scroll.ts#onHandScroll`; `SectionCountProvider` + `useReportSectionCount(id, n)`; `ContactsPanel`, `InsurancePanel`; `PageTabs` tab definitions `bare`/`skipInTabOrder` (F6-1; `panelOptions` is gone) |
-| Drafts | F4 | `features/shell/drafts.ts` (key `pp:draft:v1:<environment>:<userId>:<sectionId>`, environment from `lib/shared/environments.ts#environmentOfPortalUrl`; 500 ms debounce; SHA-256 `baseHash`; denylist in any case and at any depth incl. `ssn`, `signature`, MFA `code`/`qrCode`, NPI ids, `username`, `password` (dev throw, prod drop + `draft_fields_dropped` telemetry); 24 h purge; storage failures swallowed; store not exported; `DRAFT_DEBOUNCE_MS`, `DRAFT_DENYLIST`, `DRAFT_MAX_AGE_MS`, `defaultDraftDiff`), `draft-provider.tsx` (`DraftsProvider` mounted by `PageFrame`: flush on `onBeforeSessionExpired`/`pagehide`/`visibilitychange: hidden`, purge on `onBeforeExit` only; `useSectionDraft(id)` → `none \| restore \| conflict`), `SectionDraftNotice` (rendered by `SectionContainer sectionId`), `DraftCompare`; registry `observe`/`report`/`get`; `useSectionForm` `dataStatus` + `userChanged` (values set with `form.setValue` never count as a user change; change values through registered inputs or `Controller`s); `applyDraft` returns a boolean; `describeDraftDiff` required with `draftFields`; copy `DRAFT_MESSAGES`, `COMMON_MESSAGES.discard`/`.restore` |
-| Select (extended), Popover, InfoPopover | F5-1 | `components/ui/select.tsx` root props `ariaDisabled` (focusable, opening and typeahead blocked), `helper` (ReactNode, joins `aria-describedby`), `loading` (`aria-busy`, spinner, "Loading…" row), `placeholder`, `unlistedValue: { value, label? }`; `components/ui/popover.tsx` (`Popover`, `PopoverTrigger`, `PopoverAnchor`, `PopoverContent`, `POPOVER_CONTENT_STYLES`); `components/ui/info-popover.tsx` `InfoPopover({ trigger, title \| label (one required), children, state?: "loading" \| "error" \| "forbidden", errorMessage?, onRetry?, onOpenChange? })` (280 px, hover 150 ms / focus / tap, Escape → trigger, Tab bridged into its links), `LinkTextButton` (`components/ui/link-text-button.tsx`); copy `CONTROL_MESSAGES` (`loading`, `loadError`, `tryAgain`, `chooseDate`, `datePlaceholder`), `NPI_MESSAGES.practiceSupportLoadError` (9.3) |
-| DateInput + Calendar | F5-1 | `components/ui/date-input.tsx` `DateInput({ value, onChange(value, { text }), min?, max?, calendar?, calendarLabel?, today?, resetKey? })` (masked `MM/DD/YYYY`, wire `YYYY-MM-DD \| ""`; forms bump `resetKey` on reset/Cancel), `components/ui/calendar.tsx` (modal Popover calendar, month/year dropdowns, `CALENDAR_YEARS_BACK` 120 / `CALENDAR_YEARS_AHEAD` 20); `lib/shared/person-rules.ts#birthDateBounds(roles, today)`, `lib/shared/dates.ts` (`isWireDateWithin`, `parseDateBounds`, mask helpers); messages from the caller's schema (`PERSON_MESSAGES`); e2e port override `PP_E2E_PORT` |
-| Async Combobox | F5-2 | `components/ui/use-combobox.ts` `useCombobox<T>({ load?, getKey, getLabel, debounceMs, minChars, pageSize?, maxResults?, openOnFocus?, mode: "select-only" \| "free-text", allowAdd?, staticOptions?, searchDisabled?, quiet?, emptyMessage?, endMessage?, text?/defaultText?/onTextChange?, selection?/defaultSelection?, onSelect?, onClear? })` (loader may return `exactMatch: false`), `components/ui/combobox.tsx` `Combobox` (+ `label`, `placeholder`, `maxLength`, `searchIcon`, `optionLayout: "one-line" \| "two-line"`, `renderOption`, `highlightMatch`), `ComboboxOptionText`, `HighlightMatch`; variants NPI (9.1), address (4.3), insurer (5.2), gender identity (2.2); copy `COMBOBOX_MESSAGES`; `components/ui/focus.ts#tabbables` |
-| Page composition and slots | F6-1 | Composition happens only in `app/**`. `PageTabs<T>({ page, tabs: PageTabDefinition<T>[], panels, defaultTab, "aria-label"? })` (definitions `{ id, label, comingSoon?, bare?, skipInTabOrder? }`, config validated outside production; replaces `renderPanel`/`panelOptions`), page configs `PROFILE_TAB_DEFINITIONS`/`ACCOUNT_TAB_DEFINITIONS`/`PAGE_TAB_LIST_LABELS` (`page-tabs-config.ts`), `PAGE_TAB_PARAM` (a repeated or unknown `?tab=` opens the default tab, normalized by replace); presets `ProfileTabs({ contacts?, insurance?, medical? })`, `AccountTabs({ personal?, provider?, organizations? })`, `ContactsPanel({ sections?: Partial<Record<ProfileSectionId, ReactNode>> })`, `InsurancePanel({ section? })`, `AnchoredPanel({ anchors, focusHeading?, subAnchors? })`, `AccountPersonalPanel({ account?, authenticator? })`; placeholders `ProfileSectionPlaceholder`, `AccountSectionPlaceholder`, `AccountTabPlaceholder`; ready signal `useSectionFrame(id)` → `{ onReady }` (`SectionFrameProvider`; `SectionFrameId`), dev landmark check `useLandmarkCheck`. Feature stubs (fill the body, keep the export): `features/personal` `PersonalSection`, `features/contacts` `PhoneSection`/`EmailSection`/`SocialSection` (one folder, Contact Point engine inside), `features/addresses` `AddressesSection`, `features/insurance` `InsuranceSection`, `features/account` `AccountSettingsSection`, `features/mfa` `AuthenticatorSection`, `features/provider` `ProviderTab`, `features/organizations` `OrganizationsTab`, `features/save-all` `SaveAllBar`. `app/page.tsx` composes the `/` ones; `app/home.test.tsx` shows the `/account` composition Story 7.1 wires. A Section renders `SectionLandmark id` on its first render and never remounts it |
-| Shell extension points | F6-1 | `useClaimMyselfError(Boolean(error))` + `MyselfErrorClaimProvider` (in `PageFrame`; the page `myself` banner hides only while a mounted Section claims the error); `useSectionForm` `startEdit({ focus? })`, `revealField?: (path) => boolean`, `confirmBeforeSave?: (values) => Promise<boolean>`; `CANCELLED_CODE`, `isCancelled` (no error UI, no toast, no focus move, no `section_save`; `runSaveAll` `cancelled` bucket, `SECTION_MESSAGES.savedCount`; the leave guard stays open quietly); `SAVE_ORDER` (`save-order.ts`); `AccountSectionId` (`account`, `authenticator`, `provider`); `StateFrame` `tiles` (five 112 px in a row from 768 px, 3-column grid below), `cards` (min 248 px), `bars` `barWidth?: "control" \| "wide"` (480 / 720 px) |
-| Hand-off helper and page no-store | F6-1 | `features/shell/handoff.ts`: `handoffHref({ to: "tenant", tenantId } \| { to: "create-org" })`, `isHandoffHref`, `isTenantId`, `TENANT_ID_PATTERN`; `BFF_PATHS.handoffPortal = "/handoff/portal"`; `navigate({ external: "handoff", href })` returns `false` for any other href. Root `proxy.ts#isNoStorePath` adds `NO_STORE_HEADERS` to `/`, `/account`, `/handoff/**` (incl. redirects); Next 16 replaces `Vary` on rendered pages (unit-asserted only; deferred to 7.2). The route itself is Story 7.3 |
-| Menus, toggles, dialogs, sheet | F6-2 | `components/ui/dropdown-menu.tsx` (`@radix-ui/react-dropdown-menu@2.1.24`, 44 px items, destructive in `error-strong`), `checkbox.tsx` / `switch.tsx` (`ariaDisabled`), `dialog.tsx` (`size` `default` 440 / `lg` 640 px, `fullScreenOnMobile`, `DialogBody`, `ModalCloseButton`, `dismissible={false}`, `initialFocus`, focus back to the opener), `sheet.tsx` (right 480 px, full screen + Back below 768 px, sticky header/footer, Close/Back/Escape/scrim → `onOpenChange(false)`), `ConfirmDialog busyLabel`, `Button variant="outline-destructive"` |
-| Chips, empty states, announcer, tokens | F6-2 | `components/ui/chip.tsx` (`Chip` `label`/`primary`/`deleted`, `OverflowChip` "+N"; square in table cells, `Badge` keeps the pill), `empty-state.tsx` (`EmptyState` `card`/`row`, `titleAs`, `EmptyStateLine`), `live-status.tsx` (`LiveStatus`, `useAnnounce({ clearAfterMs? })`: identical text is re-announced), `Combobox inputRef`; `app/globals.css` `qr-surface` (#ffffff both themes, `bg-qr-surface`), `@utility` `mono-value`, `cell-strong`, `section-title`, `kv-value-empty`, `control-max-wide` (720 px) |
-| Row kit and countdown | F6-2 | `features/shell/{row-actions,row-removal,section-table,use-countdown}`: `RowActions({ actions: { id, label, onSelect, inline?, destructive?, disabledReason? }[], name, … })` (inline actions on hover/focus with a fine pointer, 44 px kebab "More actions for {name}" repeating every action), `RowRemoval`, `RowEditStatus` ("Removed on save" / "New · not saved"), `ROW_EDIT_STATE_CLASSES`, `SectionTable` (desktop table, stacked mobile cards, `renderExpanded`, mobile edit blocks; the 768 px swap remounts cells, keep per-row state in the Section), `useCountdown` (deadline-based, `onDone` once). Fixture `app/test-fixtures/ui-kit` + `e2e/ui-kit.spec.ts` |
-| Phone input | F6-2 | `components/ui/phone-input.tsx` (`PhoneInput`, country `Select` + national input, value `{ region, national }`), `lib/shared/phone.ts` (`phoneRegions`, `regionFlag`, `dialCodeOf`, `isPhoneRegion`, `phoneDigits`, `clampPhoneInput`, `formatPhoneInput`, `parseInternationalPhone`, `phoneInputFrom`, `phoneIssue` → `required`/`tenDigits`/`invalid`, `toE164`, `EMPTY_PHONE_INPUT`); copy `CONTACT_MESSAGES.phoneTenDigits`, `SECTION_MESSAGES.phoneInvalid`/`countryCode` |
-| `lib/api` stubs and the type-key loader | F6-3 | One stub per planned module, re-exported by `lib/api/index.ts` (never edit it; `fetchers` frozen; internal helpers `*.internal.ts`): `personal`, `profile-picture`, `addresses` (+ `keys.countries()`), `places`, `insurance`, `type-keys`, `account`, `mfa`, `npi`, `organizations`, `practice-support`; `user-edit-path.internal.ts#userEditPath`. `type-keys.ts`: `TYPE_KEYS`, `toTypeInfo`, `valueListOptions`, `typeKeyPath`, `loadTypeKey` (`registerFetcher("type-key")`), entries `GET v2/type/key/{Person,ContactPoint,Insurance}` in their area allowlists. Live searches (insurer, NPI, Places) never use SWR |
-| Proxy and error rules | F6-3 | `QueryParamRule.required?: true` (missing → 400 `BAD_QUERY`; never also fixed); 403 owner row `health/npi/{n}/is-registered` → `provider` tab (9.3 ignores errors of that call); NPI-taken `field` rules `personalNpi`/`practiceNpi` (`npi.personalNpiTaken`/`practiceNpiTaken`), `NPI_ALREADY_REGISTERED` no longer emitted |
-| Shared rules, constants and copy | F6-3 | `lib/shared/display-value.ts` (`isNotProvided`, `providedOrNull`, `joinProvided`; `KeyValueTable` uses it), `PLACES_COUNTRIES` in `lib/shared/bff-contract.ts`, `lib/shared/profile-constants.ts` (`CHECKOUT_URL`, `INTERNAL_EMAIL_DOMAINS`, `isInternalEmail`), `COMMON_MESSAGES` shared words (`close`, `remove`, `delete`, `replace`, `clear`, `submit`, `back`, `previous`, `next`, `moreActionsFor`, `primary`, `makePrimary`, `verified`, `notVerified`, `verify`, `resendVerification`) |
-| Test scaffolding | F6-3 | `e2e/fixtures/{core,contacts,addresses,insurance,account,mfa,npi,orgs,defaults,index}.ts` (`mockProxy`, `mockTypeKey`, `mockProfilePictureId`, `mockProfileDefaults`, `mockAccountDefaults`, `failOnUnmockedProxy` and the fail-fast `test`), `test/myself-fixture.ts` (`myselfWire`, `contactPointWire`, `myselfHandlers`), fixture pages under `app/test-fixtures/**/page.tsx` discovered by `app/test-fixtures.test.ts`; tracking: `deferred-work.md` by team, `sprint-status.yaml` header rule |
+| 1.1 Foundation | done (7.0a) | nothing |
+| 1.2 Launch | done (7.0a, 7.0b-2) | nothing |
+| 1.3 Proxy | done (7.0a, F1, F2, F7-2) | nothing; each story adds its own allowlist entries |
+| 1.4 `callApi` + SWR | done (7.0a, F1, R5-2) | nothing |
+| 1.5 Token refresh | done (7.0a, R5-1: D14, D16) | nothing |
+| 1.6 Idle logoff | done (7.0c-1) | nothing |
+| 1.7 Logout + session dialog | done (7.0a, 7.0b-2, F4) | nothing |
+| 1.8 Page shell | done (7.0b-1, 7.0b-2, F3-1, F3-3, F6-1) | nothing |
+| 1-1r / 1-3r / 1-7r / 1-8r reworks | done (R1 merged in PR #4; R2–R4 superseded by 7.0a / 7.0b) | nothing; the WIP is archived as tag `archive/NG-9027-r2-transport` (branch deleted 2026-10-15) |
+| **1.9 Header picture** | backlog | the `profile-picture-id` loader, the avatar on `FallbackImage`, the mutate-refresh component test, axe |
+| **1.10 Change picture** | backlog | the dialog, `components/ui/image-reencode.ts`, the avatar button (only on `/`), the client upload → delete flow, the EXIF decision |
+| 1.11 Section framework | done (F3-2, F6-1, F6-2) | per-Section wiring only, owned by 3.2, 3.5, 3.7, 4.4 |
+| **1.12 Errors / toasts** | backlog (code complete) | one Playwright case: a mocked 400 with a mapped `errorCode` on the fixture Section (foundation-owned files, see "Open decisions") |
+| **1.13 Leave guard** | backlog (code complete) | Playwright cases for the scoped close and for the two guard-only fixtures (foundation-owned files, see "Open decisions"); the Sheet wiring belongs to 5.2 |
+| **1.14 Save all** | backlog | replace the `SaveAllBar` body (bar, pill, Discard all, `--toast-bottom-offset`), focus after the run, the Playwright spec; **plus the D-A save safeguard** (approved 2026-10-14), built in a foundation PR merged first |
+| 1.15 Drafts | done (F4) | per-Section wiring only |
+| **1.16 Deployments / ops** | backlog | Vercel project, the `promote` workflow, `docs/ops/*` runbooks, the rollback and kill-switch rehearsal, PM review of the DRAFT disabled copy (owner and ownership decisions, see "Open decisions") |
 
-**Epic 1 status:** Stories 1.1–1.7 are fully covered (done). Partly covered: 1.8 (Section menu, Jump to, `SectionFrame` → F3), 1.9 (`keys.profilePictureId`, `Social Media` entry, `formatPhoneDisplay`, `lib/shared/initials` built in F1; `/api/pp/profile-picture-id` and `asImage` sniffing built in F2; left: Team A loader, `profile-picture/preview` entry, `<img>` avatar), 1.10 (upload mechanism and picture entry built in F2, with no client `?fileName=`; left: Team A dialog, `image-reencode`, `DELETE v2/file` entry, server-side EXIF decision), 1.16 (kill-switch matcher + 503 disabled screen `app/disabled/route.ts` built in F2; left: Team A Vercel, `promote`, `docs/ops/*` runbooks, rehearsal), 1.11 (zod-message lint and `telemetry` built in F1; edit model → F3), 1.12 (mapper v2, catalog split and `use-toast` lint built in F1; toasts → F3), 1.13 (drafts purge → F4, Save-all runner → F3, scoped `requestLeave` → Team A). Not built: 1.14 (F3 runner + Team A bar/pill; `save_all` telemetry type built in F1), 1.15 (F4). Each story in `epics.md` carries dated *Foundation 2026-10-14* lines naming what is built, what remains and which area files it edits. From F3-1: the 1.11 primitives (`DisabledAction`, `Tooltip`, `FormField`/`FieldError`, `Input`, `InputLocked`, busy `Button`), the 1.12 toasts and `InlineBanner` (with `LoadError` on it) and the 1.8 Select port + `focus-ring` are built; 1.8, 1.11 and 1.12 stay partly covered (F3-2: edit model, save-failure UI, fixture Section and spec; F3-3: Section navigation and `SectionFrame`). From F3-2 / F3-3 (2026-10-14): 1.8 is fully covered (Section menu, Jump to, scroll-spy, deep links, `StateFrame` in place of `SectionFrame`, Contacts/Insurance panels). 1.11 keeps only Team A `RowActions`, `RowRemoval`, the "Add {thing}" new-row entry and their Playwright cases; 1.12 only the e2e mapped-400 fixture case; 1.13 the F4 purge and Team A scoped `requestLeave`; 1.14 Team A `SAVE_ORDER`, bar/pill, focus after the run and specs (runner, `useDirtyCount`, `saveAllSummary`, `saveAllSlot` built); 1.15 stays F4 (draft hooks typed in F3-2). Feature Sections replace the placeholder frames in `features/shell/contacts-panel.tsx` / `insurance-panel.tsx`. From F4 / F5 (2026-10-14): 1.15 is fully covered by spec F4 (done); each Section's own story wires `draftFields`, `describeDraftDiff`, `applyDraft` (via `useSectionForm`), `dataStatus` and `SectionContainer sectionId`. 1.13 keeps only Team A scoped `requestLeave({ scope })` (the portal purge and leave-guard draft deletes are built); 1.14 is unchanged (Save all / Discard all draft deletes are built). Team A stories consume F5: 2.2 `DateInput` + `birthDateBounds` + gender identity `Combobox`; 4.2 `Select` `loading`; 4.3 address `Combobox`; 5.2 insurer `Combobox` + `DateInput calendar`. From F6 (2026-10-14): Story 1.11 is fully covered (done: F6-2 `RowActions` + DropdownMenu, `RowRemoval`/`RowEditStatus`, `SectionTable`, `e2e/ui-kit.spec.ts`; F6-1 `startEdit({ focus })`, `revealField`, `CANCELLED`, `confirmBeforeSave`); its per-Section wiring (read-view Remove → Restore focus) belongs to 3.2, 3.5, 3.7, 4.4. 1.14 gets `SAVE_ORDER` and the wired `SaveAllBar` stub (only the bar/pill body, post-run focus and specs remain); 1.13 keeps scoped `requestLeave({ scope })` (the `Sheet` exists); 1.10 keeps the dialog content, the image re-encode helper (a browser-only module, not `lib/shared`), the `DELETE v2/file/{id}` entry (first), the avatar button and the EXIF decision; 1.9 fills `lib/api/profile-picture.ts`. Sections are composed only in `app/page.tsx`: Team A stories fill their stubs (`features/personal`, `features/contacts` (Phone, Email, Social and the Contact Point engine), `features/addresses`, `features/insurance`, `features/save-all`) and never edit `features/shell/*` (the earlier "replace the placeholder frames in `contacts-panel.tsx`/`insurance-panel.tsx`" is superseded). Team A uses the type-key loader (2.1, 3.1, 5.2), `PhoneInput` (3.2), `useCountdown` + `useAnnounce` (2.3, 3.3, 3.6), `Sheet` (5.2), `revealField` + `SectionTable renderExpanded` (4.2), `confirmBeforeSave` + `CANCELLED` (2.4), `isNotProvided` (2.1). Stale AC paths are corrected in `epics.md` ("Path corrections" under the Epic List).
+**Suggested order:** 1.9 → 1.10 (it builds on 1.9's avatar) → 1.14 → close 1.12/1.13 once decided → 1.16 (blocked on the owner).
 
-## Requirements & Constraints
+## Rules for a Team A story PR (FOUNDATION §1, T1–T8, R1–R11)
 
-- **Launch:**
-  - A valid payload lands on `/` (Contacts) in one flow, with no `view` or `tab` launch param.
-  - A failure ends, after the client retries, in the `/auth` error alert, never a blank page or raw error.
-  - The server exchanges each payload exactly once per request. `lpl` is removed with `replaceState` before the first request, so no history entry holds it.
+- **Edit only Team A paths** (T1):
+  - `features/{personal,contacts,addresses,insurance,header,save-all}/**`
+  - `app/page.tsx`, `app/page.test.tsx`
+  - `test/page-handlers/profile.ts`
+  - `e2e/fixtures/{defaults-profile,header,personal,contacts,addresses,insurance}.ts`, `e2e/profile-*`
+  - Team A area files inside foundation folders:
+    - `lib/api/{profile-picture,personal,contacts,addresses,places,insurance}.ts` with their own tests
+    - `lib/server/proxy/allowlist/<area>.ts` and `<area>.test.ts` for `personal`, `contacts`, `addresses` and `insurance`
+    - `lib/api/errors/<area>.ts`
+    - `lib/shared/messages/{person,header,contacts,addresses,insurance,places}.ts`
+  - A brand-new `components/ui/*` file is allowed.
+- **Never edit in a story PR** (T2): `features/shell/**`, existing `components/ui/*`, existing `lib/shared` helpers, foundation message files, `test/**` (except `test/page-handlers/profile.ts`), `e2e/fixtures/{core,index}.ts`, `e2e/shell.spec.ts` and the shared-control specs, `app/test-fixtures/**`, `features/shell/__fixtures__/**`, `eslint.config.mjs`, `scripts/**`, `.github/**`, `docs/FOUNDATION.md`, `CLAUDE.md`, `AGENTS.md`, `lib/api/index.ts`, `allowlist/index.ts`, the `sprint-status.yaml` header.
+  - A missing shared piece ships first as its own small foundation PR, reviewed by both teams.
+- **Add, never change** shared unions and helpers (T3). Compare with your own member instead of switching exhaustively over a shared union (T4).
+- **Copy:** grep the whole catalog first (T5, `messages.test.ts` rejects duplicates). Shared words are in `COMMON_MESSAGES`, shared labels in `FIELD_MESSAGES`. New strings are marked `// DRAFT COPY` unless they are verbatim from Voice and Tone.
+- **Prefix generic export names with the area** (T6; `planned-modules.test.ts`).
+- **Before merging** (T7): rebase, regenerate `pnpm-lock.yaml`, then run the full check: `pnpm lint && pnpm typecheck && pnpm vitest run --coverage && pnpm test:e2e && pnpm build && bash scripts/check-forbidden.sh`.
+- **Tracking:** in `sprint-status.yaml` change only your own story's line. Append deferred items at the end of the Team A section of `deferred-work.md`.
+- **Tests** (R11):
+  - A Section test renders with `renderInPage(ui, { page: "profile" })`.
+  - A spec that visits `/` imports the fail-fast `test` from `./fixtures`, uses `mockProfileDefaults`, then overrides.
+  - A story that adds a read on `/` adds its default to `profileReadHandlers` and `defaults-profile.ts` in the same change.
+  - `ANN` and `myselfWire()` are frozen; override per test.
+
+## Pieces the remaining stories use
+
+Everything below is built. Use it as is (FOUNDATION §3–§5 has the full API).
+
+- **1.9:**
+  - Components and modules:
+    - `features/header` (`ProfileHeader`, `displayName`, `use-primary-contacts.ts`)
+    - `lib/api/profile-picture.ts` (`profilePictureIdPath`, `profilePicturePreviewPath(fileId)` → `/api/1h/v2/user/profile-picture/preview?v={id}` or `null`)
+    - `keys.profilePictureId()`
+    - `registerFetcher("profile-picture-id", …)`, which goes at the bottom of `profile-picture.ts`
+  - Server pieces already in place:
+    - the named op `GET /api/pp/profile-picture-id` → `{ fileId: number | null }`
+    - the `preview` `asImage` entry in `allowlist/files.ts` (F7-2 review; **do not add it again**)
+  - Avatar and formatting helpers:
+    - `FallbackImage` (initials as `fallback`, which must carry the same accessible name)
+    - `initials`, `formatPhoneDisplay`
+  - Tests:
+    - `mockProfilePictureId` / `mockProfilePicture` / `mockProfilePicturePreview` (core)
+    - `mockHeaderPicture` and `expectHeaderTabOrder` in `e2e/fixtures/header.ts` (Team A)
+- **1.10:**
+  - Upload path:
+    - the picture upload entry in `allowlist/core.ts` (4 MB, PNG/JPEG/BMP, `isPublic=true` forced, **no client `?fileName=`**: the name comes from the multipart part)
+    - `profilePictureUploadPath()`
+  - Deleting the old picture: `fileDeletePath(oldId)`, which calls the ownership-checked named op `DELETE /api/pp/file/{fileId}`. `DELETE v2/file/**` is denied in the proxy, so **no allowlist entry is added**.
+  - Upload errors: `isUploadRejected(mapped)` + `COMMON_MESSAGES.uploadRejected` for 413/415.
+  - Dialog and feedback:
+    - `Dialog` (`size` default 440 px, `dismissible={false}` while busy, `initialFocus`, `DialogBody`), busy `Button busyLabel`
+    - `FieldError` / `InlineBanner`
+    - `toastSuccess`, `toastError({ onRetry })`
+  - Messages: copy goes in `lib/shared/messages/header.ts`.
+  - The avatar is a button **only on `/`**. The header decides with `useCurrentPage()` (FOUNDATION R11 decision 2026-10-14), so Team B files never change. This replaces the story's "`pictureEditable` prop" suggestion.
+  - The re-encode helper is a brand-new `components/ui/image-reencode.ts` (FOUNDATION §3.5, browser-only). 2.4 and 5.3 reuse it.
+- **1.14:**
+  - Save-all runner and summary:
+    - `runSaveAll(registry, { order: SAVE_ORDER })`
+    - `saveAllSummary`, which returns no "failed" copy for cancels
+  - Counts and toasts:
+    - `useDirtyCount()`, `useSectionRegistry()`
+    - `toastPartial`, `--toast-bottom-offset`
+  - Copy: `SECTION_MESSAGES` (`allSaved`, `partialSaved`, `savedCount`, `invalidOne` / `invalidMany`).
+  - Layout: `useMediaQuery(DESKTOP_QUERY)`.
+  - Wiring is already done: `SAVE_ORDER` and the `features/save-all` `SaveAllBar` stub are passed to `PageFrame` in `app/page.tsx`, so 1.14 **edits no `app/page.tsx` or shell file**.
+  - Already tested: the `/account` no-Save-all case, in `app/account.test.tsx` and `features/shell/page-frame.test.tsx`.
+- **1.12 / 1.13:**
+  - Fixture pages: `app/test-fixtures/{section,leave-guard}`, built on `features/shell/__fixtures__/{fixture-section,fixture-participant}.tsx`.
+  - Existing specs: `e2e/section.spec.ts`, `e2e/shell.spec.ts`, `features/shell/leave-guard.test.tsx` (scoped `requestLeave({ scope })` unit cases, F7-2).
+- **1.16:**
+  - Already in place:
+    - `lib/shared/environments.ts`
+    - kill switches (`lib/server/kill-switch.ts`, `app/disabled/route.ts`, `DISABLED_MESSAGES` DRAFT)
+    - `.env.example`
+    - `.github/workflows/ci.yml`
+    - `e2e/kill-switch.spec.ts`
+
+## Requirements and constraints (still binding)
+
+- **Launch (D1, D2, D9):**
+  - A valid payload lands on `/`. A relaunch lands only on `/` (`consumeLaunchIntent`).
+  - Failures end in the `/auth` error alert.
+  - `lpl` is stripped before the first request.
   - Only tenant `1` may launch.
-  - Pages without a session redirect to `/auth`, and there is no login form.
+  - A page without a session redirects to `/auth`.
 - **Session:**
-  - Refresh is silent.
-  - The session ends after 15 min without user activity or 8 h after launch. A warning appears at 14 min.
-  - Only user-initiated requests count as activity: a top-level page load, the ping, and `callApi` calls that send `X-PP-Activity: user`. Background SWR revalidation and refresh never count.
-  - Activity in one tab resets the others through `BroadcastChannel("pp-activity")`, carrying a timestamp only.
-- **Drafts:**
-  - Unsaved edits are kept in `localStorage`, keyed by `userId`, for 24 h. They are offered back only to the same user on the same device.
-  - Drafts never contain SSN, Signature, MFA codes or QR data, or NPI selections, and Insurance never writes one.
-  - If the server data changed meanwhile, the user chooses "Keep mine" or "Use current". Drafts are never merged automatically.
-  - Drafts are deleted on save, on discard and on the app-bar "Return to 1health" (user-wide). They are kept on the session-expired "Return to 1health" and on portal hand-offs.
+  - One sealed cookie, `__Host-pp_s` (`SameSite=Lax`, never framed: D10).
+  - Limits: 15 min idle with a warning at 14 min, and 8 h absolute.
+  - Only user-initiated requests count as activity.
+  - Refresh is client-coordinated:
+    - The proxy answers `401 TOKEN_EXPIRED`, and `callApi` refreshes once and replays.
+    - A replayed `TOKEN_EXPIRED` ends the session (D14).
+    - Only an IdP 401 or a 400 `invalid_grant` ends the session; other IdP errors answer 503 and keep the cookie (D16).
+  - `myself` auto-retries on 5xx and network errors (D17).
+- **D5 accepted risks:**
+  - There is no CSRF check and no session binding, so `SameSite=Lax` plus the 415 JSON check are the only cross-site write protection.
+  - Logout also accepts GET.
+  - Another account launching in another tab isn't detected. Its write consequence is **not** accepted: the D-A save safeguard (approved 2026-10-14, under Story 1.14) stops those saves.
 - **Section editing:**
-  - Each Section has a read view and an edit view, and several can be open at once. Each has its own Cancel and Save, and "Unsaved changes" means deep inequality with the baseline.
-  - Inline errors show before any request is sent. Nothing auto-saves. In edit view, Escape doesn't cancel and Enter doesn't submit.
-  - Save all validates every dirty Section first, then saves them one at a time (not atomic). It reports "X saved, Y failed" and never says "All saved" unless F = 0.
-  - A failure in one Section never blocks the others. Network failures offer Retry, and there is no offline queue.
-- **Leave protection:** a tab switch, an app-bar page switch, Return to 1health, a portal hand-off, or closing the page with unsaved edits asks first.
-- **Accessibility and layout:**
-  - WCAG 2.1 AA, keyboard-only completion, visible focus ring, reduced motion respected and 44 × 44 px targets.
-  - 360 px to desktop with no horizontal scroll at 360 px (automated check).
-  - axe runs in light and dark, at desktop and 360 px.
+  - Every Section uses `useSectionForm` with the Section chrome and `StateFrame`.
+  - Nothing auto-saves.
+  - Save all is not atomic. It never says "All saved" unless nothing failed, and a failure in one Section never blocks the others.
+- **Leave protection:** a tab switch, a page switch, Return to 1health, a hand-off or closing the page with unsaved edits asks first (`navigate()` + `LeaveGuard`).
+- **Accessibility:**
+  - WCAG 2.1 AA, 44 px targets, the `focus-ring` utility, reduced motion.
+  - 360 px with no horizontal scroll.
+  - axe in light and dark, at desktop and 360 px.
 - **No PHI leaks:**
-  - Server logs never contain bodies, also under `next dev`. Proxy log lines are `{requestId, method, template, status, durationMs}`. Other routes log only `{requestId, routeTemplate, status, …}`.
-  - Telemetry is a no-op sink with only `section_save {sectionId, ok, code}` and `save_all {saved, failed}`.
-  - Every server response is no-store.
-  - The Medical tab shows only "Coming soon: your medical information will appear here." and makes no request.
-- **Copy:** every string lives in `lib/shared/messages.ts`. EXPERIENCE.md Voice and Tone strings are verbatim and checked by a test, which also covers the Profile-module rows. Anything else is marked `// DRAFT COPY`. There are no exclamation marks.
-- **Kill switches:**
-  - `PP_DISABLED=1`: API routes, including `/api/token`, answer 503 `SERVICE_DISABLED` with no upstream call. `/auth` and `/` render a 503 disabled screen. Logout keeps working.
-  - `ACCOUNT_DISABLED=1`: proxy entries tagged `profile: true` answer 503, and all other entries keep working.
-- **CI:** forbidden-pattern gate → lint → typecheck → test → e2e → build, on Node 24 with pnpm 12 via corepack, using dummy secrets only.
+  - Server logs never contain bodies.
+  - Telemetry is a no-op sink.
+  - Every page and route is no-store.
+  - Drafts never hold SSN, Signature, codes, NPI, username or password.
+- **Tokens:** semantic tokens only (`check-tokens.sh`), and `text-primary-text` for primary-coloured text.
 
-## Technical Decisions
+## UX for the remaining stories
 
-- **Config (D1, D4):**
-  - `lib/server/env.ts` is `server-only` and is checked at boot from `instrumentation.ts`.
-    - It exports `ONEHEALTH_SECRET_KEY_DEMO|PROD`, `APP_ID_DEMO|PROD`, `SESSION_SECRET` (≥ 32 chars), optional `SESSION_SECRET_PREVIOUS`, `PLACES_ENABLED`, `GOOGLE_PLACES_KEY`, `PP_DISABLED`, `ACCOUNT_DISABLED`, `IS_LOCAL_DEV`, `DEFAULT_TENANT_ID = 1`, `getSecretKey(env)` and `getAppId(env)`.
-    - The flags are `true` only for the exact string `"1"`.
-  - There is **no** `APP_ENV`, `API_ORIGIN`, `APP_ORIGIN`, `PORTAL_URL`, `PORTAL_ORIGIN`, `PUBLIC_FILES_ORIGIN`, `APP_ID`, `ONEHEALTH_SECRET_KEY` or `NEXT_PUBLIC_*` variable, and no `dev` environment. The forbidden-pattern gate fails on these names, as well as on `X-PP-Session`, `sessionBinding`, `SameSite=None`, `Partitioned`, `window.top` and `bg-black/50`.
-  - `lib/shared/environments.ts` holds `Environment = "demo"|"prod"`. Per environment it holds `apiRoot` (`https://1health.demo.1health.io` / `https://1health.app.1health.io`), `apiBase` (`<apiRoot>/api`), `portalUrl` (the same root) and `publicFilesOrigin`. It is the only place that knows a 1health origin.
-  - The only `process.env` read outside `env.ts` is `lib/shared/app-env.ts#isLocalDev()`.
-- **Launch (D2, D9):**
-  - `/auth` is a force-dynamic server wrapper that passes the `onehealth_environment` cookie to the client screen `features/shell/auth-screen.tsx`.
-  - Each attempt is `POST /api/token {lpl}`, with spaces turned into `+`.
-  - Retries: up to 5 attempts, 1500 ms apart with no backoff. The client stops early when a body says `retryable: false`.
-  - **Environment detection:** the server tries `ONEHEALTH_SECRET_KEY_PROD` and then `_DEMO`, each first as stored and then trimmed. The trimmed variant logs a warning without the value. The AES-256-GCM decryption uses an HKDF key, the first 12 bytes as IV and the last 16 bytes as tag. The key that decrypts sets `environment`. The client never sends an environment.
-  - **Checks and exchange:**
-    1. `APP_ID_<ENV>` must equal `required.apiKey.name`.
-    2. The server makes one exchange to `<apiRoot>/api/v2/public/external-application/auth/oauth2/user/token`, with a 25 s timeout and no server retry.
-    3. It reads only the plaintext `tenantId` claim, which must be `1`, or the launch answers `WRONG_TENANT`.
-    4. `userId` and `personId` come from one `GET v2/user/myself`.
-  - **Error codes:** `LAUNCH_INVALID`, `LAUNCH_USED`, `LAUNCH_EXPIRED`, `WRONG_TENANT`, `LAUNCH_CONFIG` and `UNSUPPORTED_MEDIA`. Each error body carries a user-safe `message` and never upstream text.
-  - **Success:** the response is `{ok:true, environment}`. It also sets `onehealth_environment` (`HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`).
-  - **After success:** the client waits 1200 ms, then calls `location.assign(consumeLoginIntent("/"))`. `lib/shared/login-intent.ts` validates the stored path: it must be same-origin relative and must not start with `/auth` or `/api`.
-  - **Removed routes:** there is no `/launch*` or `/launch-error` route, no `lpl` handling in `proxy.ts`, no dev-only launch page and no blocked-cookie screen.
-- **Session cookie:**
-  - One iron-session cookie, `__Host-pp_s`, set `HttpOnly; Secure; SameSite=Lax; Path=/`, with no `Partitioned`, `Domain`, `Max-Age` or `Expires`. It must be ≤ 3,800 bytes.
-  - It holds the tokens, the expiry, `environment`, `userId`, `personId`, `tenantId`, `sid`, `gen`, `iat` and `lastSeen`.
-  - It never stores `id_token` or the API root.
-  - `SESSION_SECRET_PREVIOUS` is accepted for unsealing only.
-- **Headers and framing (D10):**
-  - `proxy.ts` sets a per-request CSP nonce on every path: `script-src 'self' 'nonce-…' 'strict-dynamic'`, `img-src 'self' blob: data:`, `connect-src 'self'` and `frame-ancestors 'none'`.
-  - Every response also carries `X-Frame-Options: DENY`, HSTS, nosniff, `Referrer-Policy: no-referrer`, a Permissions-Policy and COOP `same-origin`.
-  - The app is never framed. There is no framed branch and no `postMessage`.
-  - Lint bans `dangerouslySetInnerHTML` and `NextResponse.redirect` in `app/handoff/**` (use `seeOther()`). It also bans raw links and `next/link` to `/`, `/account`, `/handoff/**` or a `portalUrl` outside `features/shell` and `/auth`.
-- **Proxy (`/api/1h/[...path]`, the only path to 1health):**
-  - **Allowlist:** entries are `{method, template, query, body, maxBytes?, asImage?, profile?}`, and **each story adds its entry in the same change as the caller**.
-  - **Owner ids:** `me` is the only accepted owner segment, filled in from the session. Other ids must match `^\d{1,19}$`.
-  - **Exact denies (D12, owned here):** `* /auth/**`, `* v2/public/external-application/**`, admin, GraphQL, `POST v2/mfa/enable|disable`, `* v2/mfa/{enable,disable,validate}/<n>`, `* v2/user/switch-tenant/**`, `* v2/user/update-password` and `* v2/tenant/sys-config`.
-  - **Normalization:** a malformed path answers `BAD_PATH`, and an unknown query param answers `BAD_QUERY`. Server-fixed params (`isPublic`, `hardDelete`, `preview=true` on `asImage` entries) ignore client values.
-  - **Error envelope:** every BFF error body is `{errorCode, source:"proxy"}`. Upstream 4xx `{message, code:int}` passes through untouched.
-  - **Status codes:** `NOT_ALLOWED` 403, 405 for a wrong method or for HEAD/OPTIONS/TRACE, `UNSUPPORTED_MEDIA` 415, `SESSION_EXPIRED` 401, `TOKEN_EXPIRED` 401 (within 30 s of expiry or on an upstream 401), `UPSTREAM_REDIRECT` and `UPSTREAM_ERROR` 502, `UPSTREAM_TIMEOUT` 504 and `SERVICE_DISABLED` 503.
-  - **No CSRF or binding (D5):** there is no `Sec-Fetch-Site` or `Origin` check, no `X-PP-Session`, no 403 `CSRF` and no 409 `SESSION_CHANGED`. Only the 415 JSON content-type check remains, and SameSite=Lax is the sole cross-site write protection.
-  - **Headers:** an allowlist of request and response headers is forwarded, and `Cookie` is never forwarded. The proxy never refreshes.
-- **Transport:**
-  - **`callApi`:** it is the only browser transport (`fetch` is lint-banned elsewhere). It never throws and returns `ApiResponse {success, data?, error?, statusCode?, errorCode?, upstreamCode?, details?}`.
-  - **Envelopes:** a BFF body sets `errorCode`. An upstream body sets `upstreamCode` (an integer), and `errors.ts` derives `errorCode` from it.
-  - **Session events:** `callApi` branches on `errorCode` only. The only session event is `session-expired`, published once per page; there is no `session-changed`.
-  - **Dev logging (D6):** `logApiCall` is the only console logger. It runs in local development only and redacts SSN-shaped values, MFA `code`, `qrCode` and token-like fields.
-  - **Page config:** the server pages embed `portalUrl` through one shared server helper. It resolves the session environment first, then the `onehealth_environment` cookie, then `prod`. The pages embed no binding.
-  - **SWR:** every key comes from `lib/api/keys.ts` (`["pp", resource, ...]`). There is one root `SWRConfig` in `app/layout.tsx`, shared by `/` and `/account`.
-  - **Header keys:**
-    - `myself()`, `profilePictureId()` and `contactPoints(type)`, with exactly one type per key (`Mobile`, `Landline`, `Email`).
-    - There is no composite `"Phone"` key.
-    - Epics 3 and 7 must `mutate` these keys.
-- **Refresh:**
-  - `POST /api/session/refresh` answers 200 with no IdP call when the token still has more than 30 s. Otherwise it calls `<apiRoot>/auth/oauth2/token` once.
-  - On success it re-seals the cookie with `gen + 1` and the same `sid`. An IdP 401 or `invalid_grant` clears the cookie and answers `SESSION_EXPIRED`. Other failures keep the cookie and answer 503 `REFRESH_UNAVAILABLE`.
-  - The backend confirmed that 1health **rotates refresh tokens with no reuse detection**, so a refresh that loses a race fails. That is why single-flight is mandatory, both in the tab (a shared promise) and across tabs (`navigator.locks` `"pp-refresh"`).
-  - **Replay rules:**
-    - Only a proxy-originated `TOKEN_EXPIRED` triggers a refresh, and each failed call is replayed once.
-    - A non-GET is never replayed after a 5xx, a timeout or a network error.
-    - A second `TOKEN_EXPIRED` becomes `SESSION_EXPIRED`.
-- **Logout (D3):** `POST` (or `GET`) `/api/session/logout` first makes a best-effort call to `POST <apiRoot>/auth/user/logout/all-devices` with the Bearer token and a 5 s timeout. Failures are swallowed and logged without the token. The route always answers 204 and clears the cookie.
-- **Navigation (AD-26):**
-  - `features/shell/navigate.ts#navigate()` is the single entry point for cross-page and external navigation. Its targets are:
-    - `{page:"profile"|"account", tab?, hash?}`, which runs the leave guard, then `router.push`
-    - `{external:"portal"}`, which runs the leave guard → before-exit callbacks (`drafts.purgeUser`) → logout (wait at most 3 s) → same-tab `location.assign(portalUrl)`
-    - `{external:"handoff", href}`, used in Epic 10
-  - `requestLeave()` / `setLeaveGuard()` live in `features/shell/leave.ts`.
-- **Section contract:**
-  - **Registration:** `useRegisterSection({id, label, displayOrder, form, validate, save, discard, draftFields, saveAll?})` registers a Section. There is one registry per page: `/` and `/account` each mount their own.
-  - **Typed ids:**
-    - `SectionId` is `personal|phone|email|social|addresses|insurance|account`, and `insurance` registers guard-only (`saveAll:false`).
-    - The tab enums are `ProfileTab` (`contacts|insurance|medical`) and `AccountTab` (`personal|provider|organizations`).
-  - **Save rules:**
-    - `save()` never throws: the wrapper turns a throw into `UNEXPECTED`. The result shape also allows `{failedParts}` for the Account Section.
-    - `runSaveSteps` refetches and rebases on failure, so a retry sends only the remaining diff.
-    - `SAVE_ORDER` is `personal → email → phone → social → addresses` and exists only on `/` (built F6-1: `features/shell/save-order.ts`, passed as `PageFrame saveOrder` in `app/page.tsx`).
-    - A `SESSION_EXPIRED` result stops a Save-all run.
-- **Single owners:**
+- **Header (1.9):**
+  - A 40 px avatar and `{first} {last}` as the single `h1`.
+  - From 768 px, the primary phone and email; a missing or failed contact renders nothing.
+  - Initials when there is no picture or the image fails to load; a user icon when there is no name.
+- **Change picture (1.10):**
+  - The avatar button has a 44 px hit area, the accessible name "Change profile picture" and a camera badge, on `/` only.
+  - It opens the native picker. JPG, PNG or BMP files up to 6 MB are accepted.
+  - The dialog (440 px) shows a 96 px preview, "Choose another file", Cancel and Save.
+  - Errors for an oversized or unsupported file disable Save with `aria-disabled` and a reason.
+  - Save:
+    1. Re-encodes the file to JPEG ≤ 4 MB.
+    2. Uploads it, then deletes the old file best-effort.
+    3. Mutates `keys.profilePictureId()`.
+    4. Shows the toast "Profile picture saved.".
+    5. Returns focus to the avatar.
+  - A 413/415 shows the `uploadRejected` line. Network or 5xx shows Retry with the same blob. `SESSION_EXPIRED` closes the dialog.
+- **Save all (1.14):**
+  - From 768 px, a sticky bottom bar with "{N} unsaved sections", Discard all and "Save all (N)".
+  - Below 768 px, a floating pill, hidden while the on-screen keyboard is open.
+  - Neither appears on `/account`.
+  - The pill raises `--toast-bottom-offset`.
+  - After a run, focus moves to the first failed Section's error, or to the first saved `h2`.
 
-  | Concern | Owner |
-  |---|---|
-  | `errorCode` / `upstreamCode` inspection | `lib/api/errors/*` (was `lib/api/errors.ts`; plus the `callApi` session branch) |
-  | Message-text matching (the exact-message tables: `MFA_NOT_ENABLED`, `TOTP_ALREADY_ENABLED`; NPI-taken → `field personalNpi`/`practiceNpi` since F6-3) | `lib/api/errors/<area>.ts` |
-  | Copy | `lib/shared/messages/<area>.ts` (shared words in `common.ts`) |
-  | Toasts | `features/shell/toasts.ts` (lint bans direct `use-toast`) |
-  | Confirm dialogs | `components/ui/confirm-dialog.tsx`: four named confirms plus the leave guard, no others |
-  | Image re-encoding | one browser-only module created by Story 1.10 (not `lib/shared`, which is pure and isomorphic; e.g. `features/shell/image-reencode.ts`, recorded in `docs/FOUNDATION.md`) |
-  | Draft writes and restores | the registry |
-  | Draft deletes | `features/shell/drafts.ts` |
-  | Session dialog | `SessionDialogs` |
+## Decisions and conflicts (owner: Daniel Garcia / integrator)
 
-  Error mapping: upstream 403 (no `source`) → `FORBIDDEN`, proxy `NOT_ALLOWED` → generic error with Retry (never "no access"), and network or 5xx → `{kind:"network"}`.
-- **Files:**
-  - Uploads are re-encoded in the browser to JPEG ≤ 4 MB (Signature to PNG ≤ 1 MB).
-  - Upload entries check `maxBytes` (413), exactly one part named `file`, and PNG/JPEG/BMP magic bytes (415).
-  - `asImage` responses are inline only when the type and leading bytes match, and `attachment` otherwise.
-  - Order is replace-then-`DELETE v2/file/{id}` (`hardDelete=true` forced). A failed delete never fails the save.
-  - `GET /api/pp/profile-picture-id` is the only GraphQL path, with the query stored on the server and variables taken from the session.
-- **Deploy (D1):**
-  - **Project:** one Vercel project, `personal-profile`, serves both environments. Production is deployed only through the `promote` workflow, which takes a SHA that is on `main` and passed CI, and needs `production` environment approval.
-  - **Previews:** previews never get `_PROD` secrets.
-  - **Runbooks:** `docs/ops/` holds deployments, secrets rotation, rollback (Vercel rollback → `ACCOUNT_DISABLED` → `PP_DISABLED` → `isAllowedForPatients=false`), External Application registration (launch URL `<app origin>/auth`) and the go-live checklist.
+1. **D-A save safeguard: APPROVED** by the epic owner on 2026-10-14 (recorded 2026-10-15). It replaces the accepted D5 point 3 risk.
+   - **Rule:** before any save, compare the page's loaded `myself.id` with a fresh `GET /myself`. On a mismatch, send nothing, end the page like an expired session, and keep the edits on the device.
+   - **Scope:** every save path: a Section's own Save, Save all and the leave-guard Save.
+   - **Ownership:** assigned to **Story 1.14** and delivered as a **foundation PR merged before 1.14**, because the save path is `features/shell` / `lib/api` and T2 bars a Team A story PR from editing it.
+   - **D5 limits:** there is no session binding. `X-PP-Session`, `sessionBinding` and `SESSION_CHANGED` / `session-changed` stay banned by `check-forbidden.sh`.
+   - **Integrator:** record the approval next to D5 in `epics.md` and FOUNDATION §6.
+2. **The remaining 1.12 and 1.13 tests live in foundation-owned files** (`e2e/section.spec.ts`, `e2e/shell.spec.ts`, `app/test-fixtures/**`, `features/shell/__fixtures__/**`; T1, T2, R11). Options:
+   - (a) a small foundation PR adds the mapped-400 case and the scoped-close and two-guard-only cases, and then 1.12 and 1.13 close;
+   - (b) the owner accepts the existing Vitest coverage and marks both done.
+3. **1.16 touches foundation-owned paths:**
+   - the `promote` workflow lives in `.github/**`;
+   - `docs/ops/**` is unowned, which makes it foundation by T1;
+   - the Vercel project, the registrations and preview secrets need the owner.
+   
+   1.16 should be split: an integrator or foundation PR for the workflow and docs, plus owner tasks.
+4. **1.10 EXIF:** strip the metadata on the server (for example with sharp, as a foundation change to `lib/server/proxy/upload.ts`), or record public pictures keeping EXIF as an accepted AD-13 risk.
+5. **Stale planning text that the code or FOUNDATION supersedes** (to be fixed by the integrator; `epics.md` is shared planning):
+   - The `epics.md` "Not built" list (Foundation F6 section):
+     - It still has 1.10 adding a `DELETE v2/file/{id}` entry; F7-2 replaced that with the named op, and the proxy denies it.
+     - It says 1.13 builds scoped `requestLeave`; F7-2 built it.
+     - It places the re-encode helper at `features/shell/image-reencode.ts`. FOUNDATION §3.5 puts it at `components/ui/image-reencode.ts`, and `features/shell` is foundation, so a story can't add it there.
+   - The Story 1.9 and 1.10 AC text: the `preview` entry is already added; `?fileName=`, `hooks/use-toast` and `pictureEditable` are superseded as noted above.
 
-## UX & Interaction Patterns
+## Cross-story dependencies
 
-- **`/auth` screen (D9, patient-vault parity):**
-  - **Progress:** attempt 1 shows "Authenticating..." / "Connecting to {Demo|Production} environment". From attempt 2 it shows "Confirming your login...". Success shows "Success!" / "Loading app...".
-  - **Error state:** a destructive Alert shows "Authentication Failed" with the server message (or the fallback text), or "Connection Error". Its buttons are "Enter LPL Manually", "Switch Environment" and "Go to 1health ({env})".
-  - **Manual entry:** the card "Authentication Required" has one field, "Launch Payload (LPL)", and its Submit is disabled while the field is empty. It is available in every environment.
-  - **Environment for display:** the referrer, the cookie or the "Choose Environment" card only pick the labels and the link shown. They never change a request.
-- **Layout:** top to bottom, the page shows the app bar, the header, the tab strip and the body. From 768 px the body adds a sticky 200 px numbered Section menu (`aria-current="location"` scroll-spy). Below 768 px a "Jump to" select replaces it. Neither appears on Insurance or Medical.
-- **App bar:**
-  - It is 52 px tall. The "1health" wordmark is a plain `span` in `primary-text`: it is not focusable and has no href or handler (D11).
-  - A two-item page nav, Personal Profile | Account, carries `aria-current="page"`. Below 768 px it becomes a segmented control, which wraps onto its own row below 400 px.
-  - "Return to 1health" is always rendered and goes through `navigate({external:"portal"})`.
-- **Tab order:** page nav → Return to 1health → header → tabs → menu or Jump to → Sections → Save all last.
-- **Tabs and deep links:** the tabs follow the ARIA tablist pattern with manual activation. `?tab=` changes through a URL replace, and an unknown value normalizes to `contacts`. `#personal|phone|email|social|addresses|signature` deep links survive a refresh, and an unknown hash leaves the page at the top.
-- **Header:**
-  - It shows a 40 px avatar button ("Change profile picture", camera badge) and `{first} {last}` as the single `h1`.
-  - From 768 px it also shows the primary phone and email. A missing primary contact or a failed read renders nothing.
-  - When there is no picture, the avatar falls back to initials.
-- **Dialogs:**
-  - The session-expired dialog is non-dismissable. It reads "Your session ended" / "Your changes are kept on this device. Relaunch from 1health to continue." with one button, "Return to 1health", which navigates the same tab, keeps drafts and doesn't log out. Only one dialog opens at a time, and there is no session-changed dialog.
-  - The idle warning is an `alertdialog`: "You'll be signed out in 1 minute" / "Stay signed in".
-  - Confirm dialogs use `role="alertdialog"` over the `scrim` overlay. Focus starts on Cancel, and Escape or an overlay click equals Cancel.
-  - The leave guard offers "Keep editing" (initial focus), "Discard" and "Save". Save is hidden when a participant can't save.
-- **Editing primitives:**
-  - Edit view adds a primary border and an accent halo.
-  - The footer shows a warning dot and "Unsaved changes" in a polite live region.
-  - `RowActions`: inline actions on hover, plus a kebab that is always visible.
-  - `RowRemoval`: "Removed on save" plus "Restore".
-  - `DisabledAction`: `aria-disabled` plus a tooltip that opens on hover, focus or tap.
-- **Save all:** from 768 px it is a sticky bottom bar ("{N} unsaved sections", Discard all, "Save all (N)"). Below 768 px it is a floating pill, hidden while the on-screen keyboard is open. Neither appears on `/account`.
-- **Toasts:** bottom-right on desktop and bottom-center on mobile. Success auto-dismisses after 5 s. An error persists and offers Retry. There is no undo toast.
-- **Drafts:** the restore banner reads "You have unsaved changes from your last visit." with Restore and Discard. The conflict banner shows a per-field compare ("Your version" / "Current") with "Keep mine" and "Use current".
-- **Tokens (D13):**
-  - Text tokens: `link-text` (#256a8c / #8fd8e6) and `primary-text` (#246b8f / #6fb6d8).
-  - Fill and border tokens: `destructive-fill` (#b23a31) and `control-border` (#7a8696 / #aeb8c4).
-  - Overlay: `scrim` (graphite 45 % / black 60 %).
-  - Rules: no hex values or palette classes, no `text-info-strong` on links and no `bg-error-strong`. Red is for errors and destructive actions only. Light is the default, and dark is enabled by `class="dark"`.
-
-## Cross-Story Dependencies
-
-- Stories run in order 1.1 → 1.16, and each depends only on earlier ones.
-- **Rework first:** bring 1.1–1.8 (in review) in line with D1–D13 before building 1.9 and later. *(2026-10-14: done by specs 7.0a–7.0c-1; remaining shared work is F1–F5.)* The rework covers the env vars and environment map, `/auth` + `/api/token`, removing CSRF/binding/`session-changed`/framed code, platform logout, the D13 tokens and the D11 wordmark.
-- **Reused by later epics:**
-  - the allowlist pattern, the `profile: true` tag and the deny list
-  - `callApi`/`ApiResponse` with `upstreamCode`, `errors.ts` and `messages.ts`
-  - the keys `myself` and `contactPoints(type)`, which Epics 3 and 7 must mutate
-  - the registry, `runSaveSteps` and `SAVE_ORDER`
-  - `StateFrame` (was `SectionFrame`), `RowActions`, `RowRemoval`, `SectionTable`, `DisabledAction` and the confirm dialog (all built: F3-1, F3-3, F6-2)
-  - toasts, drafts (`purgeUser`, denylist) and `image-reencode`
-  - the proxy's `asImage`, upload and file-delete mechanisms
-- **What Epic 7 relies on:** `navigate()` and the leave guard, the per-page registry, `AccountTab`, the shared `portalUrl` helper, the root `SWRConfig` and the 1.3 proxy-level `ACCOUNT_DISABLED` 503. Story 7.2 owns only the page- and route-level kill switch. The app-bar "Account" item may point at `/account` before Epic 7 lands.
-- **Open items and external dependencies (owner Daniel Garcia):**
-  - **Registrations:** External Application registration for demo, then prod (launch URL `<app origin>/auth`, Active, allowed for patients).
-  - **Login deep link:** the registered app name for the portal deep link `<portalUrl>/login?openApp=…`. Until it is confirmed, links go to the portal root.
-  - **Public files:** the `publicFilesOrigin` values for each environment.
-  - **Previews:** whether previews may hold the `_DEMO` secrets.
-  - **Client id:** confirmation that `public-client` isn't overridden in demo or prod.
-  - **BAAs:** with Vercel before real PHI, and with Google before `PLACES_ENABLED=1`.
-  - **Dates:** demo QA of UJ-1 to UJ-5 by 2026-10-24, feature freeze on 2026-10-22, and production go-live on 2026-10-29 (release "Conduit"). There is no 1health-fe change or flag: the legacy `/profile` and `/personal-settings` screens stay as the fallback.
+- Epics 2–5 reuse:
+  - `image-reencode` (2.4, 5.3)
+  - `fileDeletePath` (2.4, 5.3)
+  - the 1.14 bar, through `SAVE_ORDER` and the registry
+- Epic 7 already reuses the shell.
+- 1.9's `mutate` contract: Contacts saves (Epic 3) and Account saves (7.5, 7.6) refresh the header through `mutateMyself()` / `mutateContactPoints(...)`.
+- External items for the owner:
+  - the External Application registration (demo, then prod; launch URL `<origin>/auth`)
+  - the `openApp` deep-link name (D4)
+  - whether previews may hold the `_DEMO` secrets
+  - `public-client` id overrides
+  - BAAs (Vercel; Google before Places)
+  - dates: feature freeze 2026-10-22, demo QA of UJ-1 to UJ-5 by 2026-10-24, go-live 2026-10-29
