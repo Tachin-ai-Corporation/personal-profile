@@ -46,6 +46,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-f6-2-shared-ui-kit.md` (review, 2026-10-14)
   summary: The phone input re-renders all 245 country `SelectItem`s on every keystroke; memoize the item list per locale if a phone-heavy Section (3.2 with many rows, 5.2) shows input lag.
   evidence: components/ui/phone-input.tsx maps `phoneRegions(locale)` (the data is cached, the elements are not).
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-10-change-profile-picture.md`
+  summary: (Cosmetic, accepted 2026-10-15) After a picture change the avatar may still show the initials briefly. The bounded preload of the new preview can't be reused by the `<img>`, because `v2/user/profile-picture/preview` is served `private, no-store`, so the browser may fetch it again. Caching stays unchanged (human decision).
+  evidence: Story 1.10 implementation report; `asImage` responses are always no-store (F2). The spec's preload was kept; the flash was not confirmed in a real browser.
 
 ## Team B (`/account`, Epics 7-10)
 
