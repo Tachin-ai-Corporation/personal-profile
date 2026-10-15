@@ -1,7 +1,7 @@
 import "server-only"
 
 import { DISABLED_MESSAGES } from "@/lib/shared/messages"
-import { environmentConfig, environmentFromReferrer, type Environment } from "@/lib/shared/environments"
+import { ENVIRONMENTS, environmentConfig, environmentFromReferrer, type Environment } from "@/lib/shared/environments"
 import { serverEnv, type ServerEnv } from "@/lib/server/env"
 import { withNoStore } from "@/lib/server/http/cache-headers"
 import { SERVICE_DISABLED_RETRY_AFTER } from "@/lib/server/http/responses"
@@ -98,14 +98,15 @@ a:focus-visible{outline-color:${d.ring}}
  * The environment whose portal "Go to 1health" opens. Never from a URL parameter.
  * - Switched-off `/auth`: as the `/auth` screen itself picks it (D2): the
  *   referrer, else the remembered `onehealth_environment` cookie, else prod.
+ *   Only `configured` environments count for both (an unconfigured dev, D18).
  * - Any other page: the session's (sealed, even if aged), else the remembered
  *   cookie, else prod.
  */
-export async function disabledScreenEnvironment(request: Request): Promise<Environment> {
+export async function disabledScreenEnvironment(request: Request, configured: readonly Environment[] = ENVIRONMENTS): Promise<Environment> {
   const cookies = request.headers.get("cookie")
-  const remembered = parseEnvironmentCookie(readCookie(cookies, ENVIRONMENT_COOKIE))
+  const remembered = parseEnvironmentCookie(readCookie(cookies, ENVIRONMENT_COOKIE), configured)
   if (request.headers.get(DISABLED_FROM_HEADER) === DISABLED_FROM_AUTH) {
-    return environmentFromReferrer(request.headers.get("referer") ?? "") ?? remembered ?? "prod"
+    return environmentFromReferrer(request.headers.get("referer") ?? "", configured) ?? remembered ?? "prod"
   }
   let session = null
   try {
@@ -141,7 +142,7 @@ export function createDisabledScreenHandler(deps: DisabledScreenDeps = {}): (req
     if (env.PP_DISABLED || env.ACCOUNT_DISABLED) {
       headers.set("Content-Type", "text/html; charset=utf-8")
       headers.set("Retry-After", SERVICE_DISABLED_RETRY_AFTER)
-      const portalUrl = environmentConfig(await disabledScreenEnvironment(request)).portalUrl
+      const portalUrl = environmentConfig(await disabledScreenEnvironment(request, env.configuredEnvironments)).portalUrl
       response = new Response(request.method === "HEAD" ? null : disabledScreenHtml(portalUrl), { status: 503, headers })
     } else {
       response = new Response(null, { status: 404, headers })

@@ -60,6 +60,7 @@ boot fails (naming the variable, never its value) when one is invalid.
 |---|---|
 | `ONEHEALTH_SECRET_KEY_DEMO` / `_PROD` | External Application secret key per environment (LPL decryption + code signature) |
 | `APP_ID_DEMO` / `APP_ID_PROD` | External Application id the launch payload must name |
+| `ONEHEALTH_SECRET_KEY_DEV`, `APP_ID_DEV` | Optional pair for the dev environment (`https://dev.1hdev.io`): both set enables dev, neither disables it, exactly one fails the boot |
 | `SESSION_SECRET` | Seals the session cookie (at least 32 characters) |
 | `SESSION_SECRET_PREVIOUS` | Optional, accepted for unseal only during a rotation |
 | `PP_DISABLED`, `ACCOUNT_DISABLED` | Kill switches, on only for `"1"`: the whole app, or `/account` and its routes |
@@ -68,9 +69,21 @@ boot fails (naming the variable, never its value) when one is invalid.
 | `PP_E2E_MOCK` | Test only: `"1"` installs the server-side upstream mock (`test/e2e-upstream-mock.ts`); boot requires `e2e-` dummy credentials. Never set in a deployment |
 
 Base URLs are hardcoded per environment (`lib/shared/environments.ts`):
-`https://1health.demo.1health.io` (demo) and `https://1health.app.1health.io` (prod).
-The launch detects the environment by the key that decrypts the payload, and
-the session remembers it.
+`https://1health.demo.1health.io` (demo), `https://1health.app.1health.io` (prod)
+and `https://dev.1hdev.io` (dev, only when its pair is set). The launch detects
+the environment by the key that decrypts the payload (prod, then demo, then
+dev), and the session remembers it. All configured secret keys must differ.
+
+### Deploying on Vercel
+
+- Set the env vars above for the target environment(s) in the Vercel project
+  (demo and prod are always required; add the dev pair to accept dev launches).
+- In each 1health environment's External Application, set the App URL to the
+  stable deployment domain plus `/auth` (for example
+  `https://<your-domain>/auth`), not a per-deployment preview URL.
+- Turn off Vercel Deployment Protection for that domain: the portal opens the
+  app in the user's browser, which has no Vercel login.
+- Redeploy after any env var change: the values are read and validated at boot.
 
 ## Commands
 

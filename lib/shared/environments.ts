@@ -7,7 +7,13 @@
  * env vars, request input or response data.
  */
 
-export const ENVIRONMENTS = ["demo", "prod"] as const
+/**
+ * Every environment the app knows, in display order. `demo` and `prod` are
+ * always configured; `dev` (D18) only when its credential pair is set, so the
+ * server decides which of these a deployment offers (`lib/server/env.ts`
+ * `configuredEnvironments`).
+ */
+export const ENVIRONMENTS = ["demo", "prod", "dev"] as const
 
 export type Environment = (typeof ENVIRONMENTS)[number]
 
@@ -39,14 +45,16 @@ function config(apiRoot: string, publicFilesOrigin: string | null, referrerHostF
  * `tenantLogo.publicUrl` on demo and prod before Story 10.2; tracked in
  * `_bmad-output/implementation-artifacts/deferred-work.md` ("Confirm
  * publicFilesOrigin", source spec F2). A mismatch only falls back to initials.
+ * Dev (D18) has none confirmed, so `null`: every dev org logo 404s (initials).
  */
 const CONFIG: Readonly<Record<Environment, EnvironmentConfig>> = {
   demo: config("https://1health.demo.1health.io", "https://bocore-public-files-demo.s3.us-west-1.amazonaws.com", "demo.1health", "Demo"),
   prod: config("https://1health.app.1health.io", "https://bocore-public-files-prod.s3.us-west-1.amazonaws.com", "app.1health", "Production"),
+  dev: config("https://dev.1hdev.io", null, "dev.1hdev.io", "Dev"),
 }
 
 export function isEnvironment(value: unknown): value is Environment {
-  return value === "demo" || value === "prod"
+  return (ENVIRONMENTS as readonly unknown[]).includes(value)
 }
 
 export function environmentConfig(environment: Environment): EnvironmentConfig {
@@ -58,15 +66,19 @@ export function environmentOfPortalUrl(portalUrl: string): Environment | null {
   return ENVIRONMENTS.find((environment) => CONFIG[environment].portalUrl === portalUrl) ?? null
 }
 
-/** Display-only Demo/Prod guess from the page that opened `/auth` (never sent with a request). */
-export function environmentFromReferrer(referrer: string): Environment | null {
+/**
+ * Display-only environment guess from the page that opened `/auth` (never sent
+ * with a request). Only `configured` environments are recognised (D18: a dev
+ * referrer means nothing while dev is off).
+ */
+export function environmentFromReferrer(referrer: string, configured: readonly Environment[] = ENVIRONMENTS): Environment | null {
   let hostname: string
   try {
     hostname = new URL(referrer).hostname
   } catch {
     return null
   }
-  for (const environment of ENVIRONMENTS) {
+  for (const environment of configured) {
     if (hostname.includes(CONFIG[environment].referrerHostFragment)) return environment
   }
   return null

@@ -4,6 +4,9 @@ export const TEST_SERVER_ENV = {
   ONEHEALTH_SECRET_KEY_PROD: "e2e-prod-secret-key",
   APP_ID_DEMO: "e2e-app-demo",
   APP_ID_PROD: "e2e-app-prod",
+  /** The optional dev pair (D18), set so e2e covers a dev launch and the Dev option. */
+  ONEHEALTH_SECRET_KEY_DEV: "e2e-dev-secret-key",
+  APP_ID_DEV: "e2e-app-dev",
   SESSION_SECRET: "e2e-session-secret-0123456789abcdef",
   /** Serves /test-fixtures/** (the leave-guard fixture page). */
   PP_E2E_FIXTURES: "1",
@@ -16,12 +19,13 @@ export const TEST_SERVER_ENV = {
 
 /**
  * Each environment's launch credentials as the e2e server boots with them, for
- * `makeLpl` (`e2e/fixtures/core.ts`). Kept here so the `_DEMO`/`_PROD` names
+ * `makeLpl` (`e2e/fixtures/core.ts`). Kept here so the `_DEMO`/`_PROD`/`_DEV` names
  * stay in the files `check-forbidden.sh` allows.
  */
 export const E2E_LAUNCH = {
   demo: { secretKey: TEST_SERVER_ENV.ONEHEALTH_SECRET_KEY_DEMO, appId: TEST_SERVER_ENV.APP_ID_DEMO },
   prod: { secretKey: TEST_SERVER_ENV.ONEHEALTH_SECRET_KEY_PROD, appId: TEST_SERVER_ENV.APP_ID_PROD },
+  dev: { secretKey: TEST_SERVER_ENV.ONEHEALTH_SECRET_KEY_DEV, appId: TEST_SERVER_ENV.APP_ID_DEV },
 } as const
 
 /** Ports used per run: the base (app) and the two kill-switch servers at base + 1 and base + 2. */

@@ -4,7 +4,7 @@ import { setLogSink } from "@/lib/server/log"
 import { stubServerEnv, testEnv } from "@/test/env-fixture"
 import { server, trackAllRequests } from "@/test/msw-server"
 import { makeSession, NOW } from "@/test/session-fixture"
-import { DEMO, idpTokenUrl, logoutAllUrl, PROD, refreshResponse } from "@/test/upstream-fixture"
+import { DEMO, DEV, idpTokenUrl, logoutAllUrl, PROD, refreshResponse } from "@/test/upstream-fixture"
 import { SESSION_COOKIE, sealSession, unsealSession } from "./session"
 import { REVOKE_TIMEOUT_MS } from "./revoke"
 import { createLogoutHandler, createPingHandler, createRefreshHandler } from "./session-routes"
@@ -61,6 +61,13 @@ describe("POST /api/session/refresh", () => {
     server.use(http.post(idpTokenUrl(PROD.apiRoot), () => HttpResponse.json(refreshResponse("prod-access"))))
     const response = await handler(await refreshRequest(makeSession({ environment: "prod", accessExpiresAt: NOW })))
     expect(response.status).toBe(200)
+  })
+
+  it("refreshes a dev session at the dev IdP (D18)", async () => {
+    server.use(http.post(idpTokenUrl(DEV.apiRoot), () => HttpResponse.json(refreshResponse("dev-access"))))
+    const response = await handler(await refreshRequest(makeSession({ environment: "dev", accessExpiresAt: NOW })))
+    expect(response.status).toBe(200)
+    expect(await setCookieSession(response)).toMatchObject({ accessToken: "dev-access", environment: "dev" })
   })
 
   it("clears the cookie on an IdP rejection (401 SESSION_EXPIRED)", async () => {
@@ -278,6 +285,19 @@ describe("/api/session/logout (D3, D5)", () => {
     expect(response.status).toBe(204)
     expect(response.headers.get("Set-Cookie")).toBe(CLEARED)
     expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0")
+  })
+
+  it("revokes a dev session at the dev root (D18)", async () => {
+    let revoked = false
+    server.use(
+      http.post(logoutAllUrl(DEV.apiRoot), () => {
+        revoked = true
+        return new HttpResponse(null, { status: 200 })
+      }),
+    )
+    const response = await handler(await request("/api/session/logout", "POST", makeSession({ environment: "dev" })))
+    expect(revoked).toBe(true)
+    expect(response.status).toBe(204)
   })
 
   it.each([

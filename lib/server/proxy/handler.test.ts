@@ -10,7 +10,7 @@ import { server, trackAllRequests } from "@/test/msw-server"
 import { makeSession, NOW } from "@/test/session-fixture"
 import { IMAGES, imageOfSize } from "@/test/image-fixture"
 import { multipart, multipartInit, type Part, type Transfer } from "@/test/multipart-fixture"
-import { DEMO, PROD } from "@/test/upstream-fixture"
+import { DEMO, DEV, PROD } from "@/test/upstream-fixture"
 import { ALLOWLIST } from "./allowlist"
 import { createProxyHandler } from "./handler"
 import type { AllowlistEntry } from "./types"
@@ -243,6 +243,12 @@ describe("proxy: forwarding", () => {
     server.use(http.get(`${PROD.apiBase}/v2/user/myself`, () => HttpResponse.json({ env: "prod" })))
     const response = await call({ path: "v2/user/myself", session: makeSession({ environment: "prod" }) })
     expect(await response.json()).toEqual({ env: "prod" })
+  })
+
+  it("sends a dev session to the dev API base (D18)", async () => {
+    server.use(http.get(`${DEV.apiBase}/v2/user/myself`, () => HttpResponse.json({ env: "dev" })))
+    const response = await call({ path: "v2/user/myself", session: makeSession({ environment: "dev" }) })
+    expect(await response.json()).toEqual({ env: "dev" })
   })
 
   it("substitutes me with the session personId and logs only the template", async () => {

@@ -4,6 +4,7 @@ import { fakeAccessToken } from "./session-fixture"
 /** Upstream URLs per environment, always derived from the environment map. */
 export const DEMO = environmentConfig("demo")
 export const PROD = environmentConfig("prod")
+export const DEV = environmentConfig("dev")
 
 export const exchangeUrl = (apiRoot: string): string => `${apiRoot}/api/v2/public/external-application/auth/oauth2/user/token`
 export const myselfUrl = (apiRoot: string): string => `${apiRoot}/api/v2/user/myself`

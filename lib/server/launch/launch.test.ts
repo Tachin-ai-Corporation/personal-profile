@@ -2,24 +2,28 @@ import { http, HttpResponse } from "msw"
 import { describe, expect, it, vi } from "vitest"
 import { secretKeyVariable } from "@/lib/server/env"
 import { setLogSink } from "@/lib/server/log"
-import { TEST_DEMO_SECRET, TEST_PROD_SECRET, testEnv } from "@/test/env-fixture"
+import { TEST_DEMO_SECRET, TEST_DEV_ENV, TEST_DEV_SECRET, TEST_PROD_SECRET, testEnv } from "@/test/env-fixture"
 import { encryptLpl, launchPayload } from "@/test/lpl-fixture"
 import { server, trackAllRequests } from "@/test/msw-server"
 import { fakeAccessToken, NOW } from "@/test/session-fixture"
-import { DEMO, exchangeUrl, logoutAllUrl, myselfUrl, PROD, tokenResponse } from "@/test/upstream-fixture"
+import { DEMO, DEV, exchangeUrl, logoutAllUrl, myselfUrl, PROD, tokenResponse } from "@/test/upstream-fixture"
 import { classifyExchangeError, exchangeCode, fetchMyselfIds, readTenantId } from "./exchange"
-import { detectEnvironment, keyVariants, launch, parseLaunchPayload, type LaunchCredentials } from "./launch"
+import { DETECTION_ORDER, detectEnvironment, keyVariants, launch, parseLaunchPayload, type LaunchCredentials } from "./launch"
 import { signCode } from "./lpl-crypto"
 import { sessionPayloadSchema } from "@/lib/server/session/types"
 
-const ENV = testEnv()()
+const ENV = testEnv(TEST_DEV_ENV)()
 const DEMO_KEY = TEST_DEMO_SECRET
 const PROD_KEY = TEST_PROD_SECRET
+const DEV_KEY = TEST_DEV_SECRET
 
-function credentials(keys: { demo?: string; prod?: string } = {}): LaunchCredentials {
+/** Demo and prod keys (overridable); dev only when `keys.dev` is given (D18). */
+function credentials(keys: { demo?: string; prod?: string; dev?: string } = {}): LaunchCredentials {
+  const stored = { demo: keys.demo ?? DEMO_KEY, prod: keys.prod ?? PROD_KEY, dev: keys.dev ?? "" }
   return {
-    getSecretKey: (env) => (env === "demo" ? (keys.demo ?? DEMO_KEY) : (keys.prod ?? PROD_KEY)),
+    getSecretKey: (env) => stored[env],
     getAppId: (env) => ENV.getAppId(env),
+    configuredEnvironments: keys.dev === undefined ? ["demo", "prod"] : ["demo", "prod", "dev"],
   }
 }
 
@@ -57,6 +61,16 @@ describe("environment detection by key (D2)", () => {
       "demo:d:true",
     ])
     expect(keyVariants(credentials({ demo: "   ", prod: "p" })).map((v) => v.environment)).toEqual(["prod"])
+  })
+
+  it("tries dev last, and only when configured (D18)", () => {
+    expect(DETECTION_ORDER).toEqual(["prod", "demo", "dev"])
+    expect(keyVariants(credentials({ dev: DEV_KEY })).map((v) => v.environment)).toEqual(["prod", "demo", "dev"])
+    expect(keyVariants(credentials()).map((v) => v.environment)).toEqual(["prod", "demo"])
+    // A dev key the env did not configure is never tried.
+    const unconfigured = { ...credentials({ dev: DEV_KEY }), configuredEnvironments: ["demo", "prod"] as const }
+    expect(keyVariants(unconfigured).map((v) => v.environment)).toEqual(["prod", "demo"])
+    expect(detectEnvironment(encryptLpl("{}", DEV_KEY), keyVariants(unconfigured))).toBeNull()
   })
 
   it("a prod-key payload → prod; a demo-key payload → demo; neither → null", () => {
@@ -126,6 +140,20 @@ describe("launch", () => {
     upstream(PROD.apiRoot)
     const result = await launch(encryptLpl(launchPayload({ appId: ENV.getAppId("prod") }), PROD_KEY), credentials(), NOW)
     expect(result.kind === "ok" && result.session.environment).toBe("prod")
+  })
+
+  it("detects dev by key and talks to the dev root (D18)", async () => {
+    const calls: string[] = []
+    upstream(DEV.apiRoot, { onExchange: () => calls.push("exchange") })
+    const result = await launch(encryptLpl(launchPayload({ appId: ENV.getAppId("dev") }), DEV_KEY), credentials({ dev: DEV_KEY }), NOW)
+    expect(result.kind === "ok" && result.session.environment).toBe("dev")
+    expect(calls).toEqual(["exchange"])
+    expect(sessionPayloadSchema.safeParse(result.kind === "ok" && result.session).success).toBe(true)
+  })
+
+  it("rejects a dev payload carrying the demo app id", async () => {
+    const result = await launch(encryptLpl(launchPayload({ appId: ENV.getAppId("demo") }), DEV_KEY), credentials({ dev: DEV_KEY }), NOW)
+    expect(result).toEqual({ kind: "failed", errorCode: "LAUNCH_INVALID", status: 400, retryable: false, environment: "dev" })
   })
 
   it("accepts a key that only matches after trim, warning without the value, and signs with the trimmed key", async () => {

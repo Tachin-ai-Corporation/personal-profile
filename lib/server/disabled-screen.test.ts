@@ -5,7 +5,7 @@ import { environmentConfig } from "@/lib/shared/environments"
 import { setLogSink } from "@/lib/server/log"
 import { resetServerEnvCache } from "@/lib/server/env"
 import { SESSION_COOKIE, sealSession } from "@/lib/server/session/session"
-import { stubServerEnv, testEnv } from "@/test/env-fixture"
+import { stubServerEnv, TEST_DEV_ENV, testEnv } from "@/test/env-fixture"
 import { makeSession, NOW } from "@/test/session-fixture"
 import {
   createDisabledScreenHandler,
@@ -19,6 +19,7 @@ import {
 
 const DEMO_PORTAL = environmentConfig("demo").portalUrl
 const PROD_PORTAL = environmentConfig("prod").portalUrl
+const DEV_PORTAL = environmentConfig("dev").portalUrl
 
 beforeEach(() => stubServerEnv())
 
@@ -123,6 +124,18 @@ describe("disabledScreenEnvironment (/auth: referrer → cookie → prod; other 
     expect(await disabledScreenEnvironment(request({ ...fromAuth, cookie: `${SESSION_COOKIE}=${await sealSession(makeSession({ environment: "demo" }))}` }))).toBe("prod")
   })
 
+  it("dev (D18): a dev session, and a dev referrer or cookie only while dev is configured", async () => {
+    const fromAuth = { [DISABLED_FROM_HEADER]: DISABLED_FROM_AUTH }
+    const withDev = ["demo", "prod", "dev"] as const
+    const withoutDev = ["demo", "prod"] as const
+    const seal = await sealSession(makeSession({ environment: "dev" }))
+    expect(await disabledScreenEnvironment(request({ cookie: `${SESSION_COOKIE}=${seal}` }), withoutDev)).toBe("dev")
+    expect(await disabledScreenEnvironment(request({ ...fromAuth, referer: "https://dev.1hdev.io/" }), withDev)).toBe("dev")
+    expect(await disabledScreenEnvironment(request({ ...fromAuth, referer: "https://dev.1hdev.io/" }), withoutDev)).toBe("prod")
+    expect(await disabledScreenEnvironment(request({ cookie: "onehealth_environment=dev" }), withDev)).toBe("dev")
+    expect(await disabledScreenEnvironment(request({ cookie: "onehealth_environment=dev" }), withoutDev)).toBe("prod")
+  })
+
   it("survives a misconfigured env (the session cannot be unsealed)", async () => {
     vi.stubEnv("SESSION_SECRET", "short")
     resetServerEnvCache()
@@ -144,6 +157,13 @@ describe("the /disabled handler", () => {
     expect(response.headers.get("Retry-After")).toBe("300")
     expect(await response.text()).toContain(`href="${DEMO_PORTAL}"`)
     expect(JSON.parse(lines[0])).toMatchObject({ routeTemplate: "/disabled", status: 503 })
+  })
+
+  it("links the dev portal for a remembered dev only when the env configures dev (D18)", async () => {
+    const withDev = createDisabledScreenHandler({ env: testEnv({ PP_DISABLED: "1", ...TEST_DEV_ENV }), now: () => NOW })
+    expect(await (await withDev(request({ cookie: "onehealth_environment=dev" }))).text()).toContain(`href="${DEV_PORTAL}"`)
+    const withoutDev = createDisabledScreenHandler({ env: testEnv({ PP_DISABLED: "1" }), now: () => NOW })
+    expect(await (await withoutDev(request({ cookie: "onehealth_environment=dev" }))).text()).toContain(`href="${PROD_PORTAL}"`)
   })
 
   it("answers HEAD with no body and other methods with the same screen", async () => {

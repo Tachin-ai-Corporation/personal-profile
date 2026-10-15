@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { stubServerEnv, TEST_ENV } from "@/test/env-fixture"
+import { stubServerEnv, TEST_DEV_ENV, TEST_ENV } from "@/test/env-fixture"
 import { makeSession, NOW } from "@/test/session-fixture"
-import { rememberedEnvironment, requirePageSession } from "@/lib/server/page-session"
+import { configuredEnvironments, rememberedEnvironment, requirePageSession } from "@/lib/server/page-session"
 import { ENVIRONMENT_COOKIE, environmentSetCookie, parseEnvironmentCookie, resolveEnvironment } from "./environment-cookie"
 import {
   ABSOLUTE_TIMEOUT_MS,
@@ -155,8 +155,22 @@ describe("reading the session", () => {
     expect(await rememberedEnvironment()).toBeNull()
     cookieJar.set(ENVIRONMENT_COOKIE, "demo")
     expect(await rememberedEnvironment()).toBe("demo")
+    cookieJar.set(ENVIRONMENT_COOKIE, "staging")
+    expect(await rememberedEnvironment()).toBeNull()
+  })
+
+  it("rememberedEnvironment ignores a remembered dev while dev is not configured (D18)", async () => {
     cookieJar.set(ENVIRONMENT_COOKIE, "dev")
     expect(await rememberedEnvironment()).toBeNull()
+    expect(configuredEnvironments()).toEqual(["demo", "prod"])
+    stubServerEnv(TEST_DEV_ENV)
+    expect(await rememberedEnvironment()).toBe("dev")
+    expect(configuredEnvironments()).toEqual(["demo", "prod", "dev"])
+  })
+
+  it("requirePageSession embeds the dev portal URL for a dev session", async () => {
+    cookieJar.set(SESSION_COOKIE, await sealSession(makeSession({ environment: "dev", iat: NOW - 60_000, lastSeen: NOW - 5_000 })))
+    expect((await requirePageSession(NOW)).portalUrl).toBe("https://dev.1hdev.io")
   })
 })
 
@@ -213,5 +227,13 @@ describe("environment cookie (D4)", () => {
     expect(resolveEnvironment(null, "nope")).toBe("prod")
     expect(resolveEnvironment(null, undefined)).toBe("prod")
     expect(parseEnvironmentCookie("prod")).toBe("prod")
+    expect(resolveEnvironment("dev", "prod")).toBe("dev")
+  })
+
+  it("accepts dev only when configured (default: every environment)", () => {
+    expect(environmentSetCookie("dev")).toBe("onehealth_environment=dev; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000")
+    expect(parseEnvironmentCookie("dev")).toBe("dev")
+    expect(parseEnvironmentCookie("dev", ["demo", "prod"])).toBeNull()
+    expect(parseEnvironmentCookie("demo", ["demo", "prod"])).toBe("demo")
   })
 })

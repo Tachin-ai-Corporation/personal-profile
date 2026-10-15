@@ -4,17 +4,20 @@
 #   1. `document.cookie` or `access_token` in any file under app/, components/,
 #      contexts/, hooks/, features/ or lib/ outside lib/server/ (tests included).
 #   2. A `NEXT_PUBLIC_*SECRET*` name anywhere.
-#   3. Any `_DEMO`/`_PROD`-suffixed name (`ONEHEALTH_SECRET_KEY_*`, `APP_ID_*`,
-#      …) outside lib/server/env.ts, its test, .env.example and the CI/test
-#      fixtures (D1 keeps those names; spec R5-1 restored main's broad pattern).
+#   3. Any `_DEMO`/`_PROD`/`_DEV`-suffixed name (`ONEHEALTH_SECRET_KEY_*`,
+#      `APP_ID_*`, …) outside lib/server/env.ts, its test, .env.example and the
+#      CI/test fixtures (D1 keeps those names; spec R5-1 restored main's broad
+#      pattern; D18 added the optional dev pair under the same rule).
 #   4. Removed concepts in app code (tests excluded, since they assert absence):
 #      APP_ENV, API_ORIGIN, APP_ORIGIN, PORTAL_URL, PORTAL_ORIGIN,
 #      PUBLIC_FILES_ORIGIN, X-PP-Session, sessionBinding, SESSION_CHANGED,
 #      Sec-Fetch-Site, SameSite=None, Partitioned, window.top, bg-black/50, and
 #      any /launch route.
-#   5. A hard-coded 1health origin in app code outside lib/shared/environments.ts
-#      (and, in lib/shared/profile-constants.ts, only the exact CHECKOUT_URL
-#      line, Story 10.1; spec F6-3: any other 1health URL there still fails).
+#   5. A hard-coded 1health origin (`*.1health.io`, and since D18 the dev host
+#      `*.1hdev.io`; with a scheme or protocol-relative, any case) in app code
+#      outside lib/shared/environments.ts (and, in lib/shared/profile-constants.ts,
+#      only the exact CHECKOUT_URL line, Story 10.1; spec F6-3: any other 1health
+#      URL there still fails).
 #   6. `switch-tenant` in any case and spelling (`switchTenant`, `SWITCH_TENANT`) in app code outside lib/server/proxy/deny-list.ts
 #      (Story 7.3, AD-22, R7; spec F7-2): no module references
 #      `v2/user/switch-tenant`; the deny rule is the one mention (tests
@@ -75,8 +78,8 @@ hits=$(hits_in "$all_files" 'NEXT_PUBLIC_[A-Z0-9_]*SECRET')
 [[ -n "$hits" ]] && report "NEXT_PUBLIC_*SECRET* name:" "$hits"
 
 ALLOWED_SUFFIXED='^(lib/server/env\.ts|lib/server/env\.test\.ts|test/env-fixture\.ts|\.env\.example|playwright\.config\.ts|e2e/server-env\.ts|\.github/workflows/ci\.yml)$'
-hits=$(hits_in "$(printf '%s\n' "$all_files" | grep -Ev "$ALLOWED_SUFFIXED" || true)" '[A-Z][A-Z0-9_]*_(DEMO|PROD)([^A-Za-z0-9_]|$)')
-[[ -n "$hits" ]] && report "_DEMO/_PROD name outside the allowed files:" "$hits"
+hits=$(hits_in "$(printf '%s\n' "$all_files" | grep -Ev "$ALLOWED_SUFFIXED" || true)" '[A-Z][A-Z0-9_]*_(DEMO|PROD|DEV)([^A-Za-z0-9_]|$)')
+[[ -n "$hits" ]] && report "_DEMO/_PROD/_DEV name outside the allowed files:" "$hits"
 
 REMOVED='\b(APP_ENV|API_ORIGIN|APP_ORIGIN|PORTAL_URL|PORTAL_ORIGIN|PUBLIC_FILES_ORIGIN|SESSION_CHANGED)\b|X-PP-Session|sessionBinding|Sec-Fetch-Site|SameSite=None|Partitioned|window\.top|["'"'"'`]/launch([/?"'"'"'`]|$)'
 hits=$(hits_in "$app_code" "$REMOVED")
@@ -85,7 +88,7 @@ hits=$(hits_in "$app_code" 'bg-black/50')
 [[ -n "$hits" ]] && report "bg-black/50 (use the scrim token, D13):" "$hits"
 [[ -d app/launch ]] && report "a /launch route exists (D1):" "app/launch"
 
-ORIGIN_RE='https?://[a-z0-9.-]*1health\.io'
+ORIGIN_RE='([Hh][Tt][Tt][Pp][Ss]?:)?//[A-Za-z0-9.-]*(1[Hh][Ee][Aa][Ll][Tt][Hh]|1[Hh][Dd][Ee][Vv])\.[Ii][Oo]'
 PROFILE_CONSTANTS=lib/shared/profile-constants.ts
 CHECKOUT_LINE='^export const CHECKOUT_URL = "https://learnmore\.1health\.io/product-checkout"$'
 hits=$(hits_in "$(printf '%s\n' "$app_code" | grep -Fxv -e lib/shared/environments.ts -e "$PROFILE_CONSTANTS" || true)" "$ORIGIN_RE")
@@ -94,7 +97,7 @@ if [[ -f "$PROFILE_CONSTANTS" ]] && printf '%s\n' "$app_code" | grep -Fxq "$PROF
     hits=$(printf '%s\n%s' "$hits" "$PROFILE_CONSTANTS (only the CHECKOUT_URL line may name a 1health URL)" | sed '/^$/d')
   fi
 fi
-[[ -n "$hits" ]] && report "hard-coded 1health origin outside lib/shared/environments.ts:" "$hits"
+[[ -n "$hits" ]] && report "hard-coded 1health/1hdev origin outside lib/shared/environments.ts:" "$hits"
 
 # 6. Tenant switching stays denied (Story 7.3): only the deny list names it.
 hits=$(hits_in "$(printf '%s\n' "$app_code" | grep -Fxv lib/server/proxy/deny-list.ts || true)" '[Ss][Ww][Ii][Tt][Cc][Hh][-_]?[Tt][Ee][Nn][Aa][Nn][Tt]')
