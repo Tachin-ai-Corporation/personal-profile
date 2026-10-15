@@ -9,7 +9,8 @@ import type { Environment } from "@/lib/shared/environments"
  * calls `assertServerEnv()` at boot so a misconfigured deployment fails
  * immediately. Errors name the offending variable and never print its value.
  * Surrounding whitespace in a secret key is not an error: the launch also
- * tries the trimmed variant (Story 1.2).
+ * tries the trimmed variant (Story 1.2). A blank key, or two keys that are
+ * equal after trimming (every payload would detect as prod, D2), fail the boot.
  */
 
 /** AD-6: the default (patient) tenant. */
@@ -17,6 +18,9 @@ export const DEFAULT_TENANT_ID = 1
 
 const required = (name: string): z.ZodString =>
   z.string({ error: `${name} is required` }).min(1, { error: `${name} is required` })
+
+const secretKey = (name: string): z.ZodString =>
+  required(name).refine((value) => value.trim() !== "", { error: `${name} must not be blank` })
 
 const sessionSecret = (name: string): z.ZodString =>
   z.string({ error: `${name} is required` }).min(32, { error: `${name} must be at least 32 characters` })
@@ -34,8 +38,8 @@ const optionalString = z
 
 const envSchema = z
   .object({
-    ONEHEALTH_SECRET_KEY_DEMO: required("ONEHEALTH_SECRET_KEY_DEMO"),
-    ONEHEALTH_SECRET_KEY_PROD: required("ONEHEALTH_SECRET_KEY_PROD"),
+    ONEHEALTH_SECRET_KEY_DEMO: secretKey("ONEHEALTH_SECRET_KEY_DEMO"),
+    ONEHEALTH_SECRET_KEY_PROD: secretKey("ONEHEALTH_SECRET_KEY_PROD"),
     APP_ID_DEMO: required("APP_ID_DEMO"),
     APP_ID_PROD: required("APP_ID_PROD"),
     SESSION_SECRET: sessionSecret("SESSION_SECRET"),
@@ -45,9 +49,16 @@ const envSchema = z
     PP_DISABLED: flag,
     ACCOUNT_DISABLED: flag,
     PP_E2E_FIXTURES: flag,
+    PP_E2E_MOCK: flag,
     NODE_ENV: z.string().optional(),
   })
   .superRefine((env, ctx) => {
+    if (env.ONEHEALTH_SECRET_KEY_DEMO.trim() === env.ONEHEALTH_SECRET_KEY_PROD.trim()) {
+      // Both variables are named (one issue each, one message); never the values.
+      for (const name of ["ONEHEALTH_SECRET_KEY_DEMO", "ONEHEALTH_SECRET_KEY_PROD"]) {
+        ctx.addIssue({ code: "custom", path: [name], message: "ONEHEALTH_SECRET_KEY_DEMO and ONEHEALTH_SECRET_KEY_PROD must differ" })
+      }
+    }
     if (env.PLACES_ENABLED && !env.GOOGLE_PLACES_KEY) {
       ctx.addIssue({ code: "custom", path: ["GOOGLE_PLACES_KEY"], message: "GOOGLE_PLACES_KEY is required when PLACES_ENABLED=1" })
     }
@@ -66,6 +77,8 @@ export interface ServerEnv {
   readonly ACCOUNT_DISABLED: boolean
   /** Serves the Playwright fixture pages under `/test-fixtures/**` (never set in a deployment). */
   readonly PP_E2E_FIXTURES: boolean
+  /** Installs the server-side e2e upstream mock (`test/e2e-upstream-mock.ts`; Playwright only, never set in a deployment). */
+  readonly PP_E2E_MOCK: boolean
   /** `NODE_ENV === "development"`. */
   readonly IS_LOCAL_DEV: boolean
   /** The External Application secret key of an environment, as stored. */
@@ -76,7 +89,7 @@ export interface ServerEnv {
 
 export class ServerEnvError extends Error {
   constructor(readonly variables: readonly string[], messages: readonly string[]) {
-    super(`Invalid server environment: ${messages.join("; ")}`)
+    super(`Invalid server environment: ${[...new Set(messages)].join("; ")}`)
     this.name = "ServerEnvError"
   }
 }
@@ -107,6 +120,7 @@ export function parseServerEnv(source: EnvSource): ServerEnv {
     PP_DISABLED: env.PP_DISABLED,
     ACCOUNT_DISABLED: env.ACCOUNT_DISABLED,
     PP_E2E_FIXTURES: env.PP_E2E_FIXTURES,
+    PP_E2E_MOCK: env.PP_E2E_MOCK,
     IS_LOCAL_DEV: env.NODE_ENV === "development",
     getSecretKey: (environment) => secretKeys[environment],
     getAppId: (environment) => appIds[environment],

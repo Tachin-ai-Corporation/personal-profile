@@ -1,7 +1,7 @@
 import "server-only"
 
 import { withNoStore } from "@/lib/server/http/cache-headers"
-import { discardBody, fetchWithTimeout, UPSTREAM_BODY_IDLE_MS } from "@/lib/server/http/fetch-with-timeout"
+import { discardBody, fetchWithTimeout, isOpaqueRedirect, UPSTREAM_BODY_IDLE_MS } from "@/lib/server/http/fetch-with-timeout"
 import { IMAGE_CONTENT_TYPES, peekStream, sniffImage, type ImageKind } from "@/lib/server/http/image-sniff"
 import { jsonError } from "@/lib/server/http/responses"
 import type { ProxyMethod } from "./types"
@@ -80,7 +80,7 @@ export async function forward(input: ForwardInput): Promise<ForwardResult> {
     discard()
     return { kind: "token-expired" }
   }
-  if (upstream.status >= 300 && upstream.status < 400) {
+  if (isOpaqueRedirect(upstream) || (upstream.status >= 300 && upstream.status < 400)) {
     discard()
     return { kind: "response", response: jsonError(502, "UPSTREAM_REDIRECT") }
   }

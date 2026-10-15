@@ -135,9 +135,20 @@ export async function fetchWithTimeout(url: string, init: RequestInit, timeouts:
     timer.clear()
     return controller.signal.aborted ? { kind: "timeout" } : { kind: "network" }
   }
+  // An opaque redirect (status 0) has nothing to read, and a status-0 Response
+  // can't be re-wrapped: hand it back as is (callers treat it as a redirect).
+  if (isOpaqueRedirect(response)) {
+    timer.clear()
+    return { kind: "response", response }
+  }
   // Headers arrived: from now on only a pending upstream read is timed.
   if (timeouts.bodyIdleMs !== undefined) timer.clear()
   return { kind: "response", response: guardBody(response, controller, timer, timeouts.bodyIdleMs) }
+}
+
+/** A `redirect: "manual"` answer some runtimes expose as `type: "opaqueredirect"`, status 0 (AD-2). */
+export function isOpaqueRedirect(response: Response): boolean {
+  return response.type === "opaqueredirect" || response.status === 0
 }
 
 /** Releases an upstream body the caller will not read; a failed cancel changes nothing. */

@@ -2,7 +2,7 @@ import { http, HttpResponse } from "msw"
 import { describe, expect, it, vi } from "vitest"
 import { secretKeyVariable } from "@/lib/server/env"
 import { setLogSink } from "@/lib/server/log"
-import { TEST_DEMO_SECRET, TEST_ENV, TEST_PROD_SECRET, testEnv } from "@/test/env-fixture"
+import { TEST_DEMO_SECRET, TEST_PROD_SECRET, testEnv } from "@/test/env-fixture"
 import { encryptLpl, launchPayload } from "@/test/lpl-fixture"
 import { server, trackAllRequests } from "@/test/msw-server"
 import { fakeAccessToken, NOW } from "@/test/session-fixture"
@@ -106,7 +106,7 @@ describe("launch", () => {
 
   it("detects prod by key and talks to the prod root", async () => {
     upstream(PROD.apiRoot)
-    const result = await launch(encryptLpl(launchPayload({ appId: TEST_ENV.APP_ID_PROD }), PROD_KEY), credentials(), NOW)
+    const result = await launch(encryptLpl(launchPayload({ appId: ENV.getAppId("prod") }), PROD_KEY), credentials(), NOW)
     expect(result.kind === "ok" && result.session.environment).toBe("prod")
   })
 
@@ -121,6 +121,18 @@ describe("launch", () => {
     expect(lines).toHaveLength(1)
     expect(lines[0]).toContain(secretKeyVariable("demo"))
     expect(lines[0]).not.toContain(DEMO_KEY)
+  })
+
+  it("logs no warning when the padded key itself decrypts (signing with the key as stored)", async () => {
+    const padded = `  ${DEMO_KEY}\n`
+    const exchanges: unknown[] = []
+    upstream(DEMO.apiRoot, { onExchange: (body) => exchanges.push(body) })
+    const { lines, restore } = captureWarnings()
+    const result = await launch(encryptLpl(launchPayload(), padded), credentials({ demo: padded }), NOW)
+    restore()
+    expect(result.kind).toBe("ok")
+    expect(exchanges).toEqual([{ securityCode: "one-time-code", signature: signCode("one-time-code", padded) }])
+    expect(lines).toEqual([])
   })
 
   it("answers 503 LAUNCH_CONFIG when no key is usable", async () => {
@@ -149,9 +161,10 @@ describe("launch", () => {
   })
 
   it.each([
-    ["Security code was already used", 400, "LAUNCH_USED", 400],
-    ["Security code expired", 400, "LAUNCH_EXPIRED", 400],
-    ["Bad signature", 400, "LAUNCH_INVALID", 400],
+    ["External application security code: 'one-time-code' has already been redeemed.", 400, "LAUNCH_USED", 400],
+    ["External application security code: 'one-time-code' has expired.", 400, "LAUNCH_EXPIRED", 400],
+    ["Could not find external application security code: 'one-time-code'", 400, "LAUNCH_INVALID", 400],
+    ["Invalid signature provided.", 400, "LAUNCH_INVALID", 400],
     ["boom", 500, "LAUNCH_INVALID", 502],
   ])("maps an exchange answer %j (%i) to %s %i, retryable", async (message, upstreamStatus, errorCode, status) => {
     server.use(http.post(exchangeUrl(DEMO.apiRoot), () => HttpResponse.json({ message }, { status: upstreamStatus })))
@@ -231,7 +244,7 @@ describe("launch: revocation of issued tokens after a post-exchange failure (A11
   })
 
   it("does not revoke on an exchange failure (no tokens were issued)", async () => {
-    server.use(http.post(exchangeUrl(DEMO.apiRoot), () => HttpResponse.json({ message: "already used" }, { status: 400 })))
+    server.use(http.post(exchangeUrl(DEMO.apiRoot), () => HttpResponse.json({ message: "External application security code: 'c' has already been redeemed." }, { status: 400 })))
     const bearers = trackRevocations()
     expect(await launch(demoLpl(), credentials(), NOW)).toMatchObject({ errorCode: "LAUNCH_USED" })
     expect(bearers).toEqual([])
@@ -278,10 +291,34 @@ describe("exchangeCode", () => {
     expect(await exchange()).toEqual({ kind: "failed", reason: "rejected" })
   })
 
-  it("classifies messages by substring", () => {
-    expect(classifyExchangeError('{"message":"Code already USED"}')).toBe("used")
-    expect(classifyExchangeError("token has expired")).toBe("expired")
-    expect(classifyExchangeError("")).toBe("rejected")
+  /** The backend's exact texts (`Messages.java`), as `ErrorMessageDTO` `{ message, code }` bodies. */
+  const body = (message: string) => JSON.stringify({ message, code: 400 })
+
+  it.each([
+    [body("External application security code: 'abc123' has already been redeemed."), "used"],
+    [body("External application security code: 'abc123' has expired."), "expired"],
+    [body("Could not find external application security code: 'abc123'"), "rejected"],
+    [body("Invalid signature provided."), "rejected"],
+    [body("External application security code with ID: 7 could not be redeemed."), "rejected"],
+    // The code value never decides: a code spelling "has expired." stays what its message says.
+    [body("Could not find external application security code: 'x has expired.'"), "rejected"],
+    [body("External application security code: 'has already been redeemed.' has expired."), "expired"],
+    // A plain-text body is read as the message; anything else is rejected.
+    ["External application security code: 'abc123' has already been redeemed.", "used"],
+    [JSON.stringify({ message: 7 }), "rejected"],
+    [JSON.stringify(null), "rejected"],
+    ["Code already USED", "rejected"],
+    ["", "rejected"],
+  ])("classifies %s as %s", (text, reason) => {
+    expect(classifyExchangeError(text)).toBe(reason)
+  })
+
+  it.each([
+    ["has already been redeemed", "used"],
+    ["has expired", "expired"],
+  ])("a real 400 '%s' body → %s", async (suffix, reason) => {
+    server.use(http.post(exchangeUrl(DEMO.apiRoot), () => HttpResponse.json({ message: `External application security code: 'c' ${suffix}.`, code: 400 }, { status: 400 })))
+    expect(await exchange()).toEqual({ kind: "failed", reason })
   })
 })
 

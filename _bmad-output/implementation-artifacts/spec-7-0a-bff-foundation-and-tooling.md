@@ -199,6 +199,7 @@ Decisions the docs left open (recorded here, low user visibility): session expir
 
 ## Spec Change Log
 
+- 2026-10-14 -- Corrected by spec R5-1: "the server-side exchange cannot be mocked from Playwright" no longer holds. `PP_E2E_MOCK=1` installs `test/e2e-upstream-mock.ts` from `instrumentation.ts`, and `e2e/launch.spec.ts` drives the real `/api/token`, proxy and logout end to end.
 - 2026-10-14 -- Code reworked to A1–A10 and the Alignment section; all gates green (see Implementation Notes, second pass).
 - 2026-10-14 -- The human amended the intent after implementation with A1–A10 (key-based environment, logout revocation, remembered environment, environment map, no CSRF/session binding, dev-only logApiCall, public-files origin, no blocked-cookie detection, patient-vault /auth UX, deny-list ownership; epics.md D1–D13). Boundaries, I/O matrix and the affected Tasks were realigned and reopened. The code is not yet updated.
 

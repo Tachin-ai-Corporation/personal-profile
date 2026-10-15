@@ -79,10 +79,35 @@ test.describe("/ page frame (Stories 1.8, 1.9)", () => {
       for (const target of targets) {
         const box = await target.boundingBox()
         expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+        expect(box?.width ?? 0).toBeGreaterThanOrEqual(44)
       }
       await expectNoAxeViolations(page, `/?tab=${tab}`)
     })
   }
+
+  test("360 px: 16 px gutters on the app bar, header, tabs, Sections and Jump to; 44 × 44 Jump to", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "the 360 px layout runs on the mobile-360 project")
+    await mockProfileDefaults(page)
+    await page.goto("/?tab=contacts")
+    await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
+    const jumpTo = page.getByRole("combobox", { name: "Jump to" })
+    const jumpBox = await jumpTo.boundingBox()
+    expect(jumpBox?.height ?? 0).toBeGreaterThanOrEqual(44)
+    expect(jumpBox?.width ?? 0).toBeGreaterThanOrEqual(44)
+    const avatar = await page.getByText("AL", { exact: true }).boundingBox()
+    const gutters = await page.evaluate(() => {
+      const pad = (el: Element | null | undefined) => (el ? `${getComputedStyle(el).paddingLeft} ${getComputedStyle(el).paddingRight}` : "missing")
+      return {
+        appBar: pad(document.querySelector("body header")?.firstElementChild),
+        tabs: pad(document.querySelector('[role="tablist"]')),
+        sections: pad(document.getElementById("personal")?.parentElement),
+        jumpTo: pad(document.querySelector('[role="combobox"][aria-labelledby]')?.parentElement),
+      }
+    })
+    expect(gutters).toEqual({ appBar: "16px 16px", tabs: "16px 16px", sections: "16px 16px", jumpTo: "16px 16px" })
+    // The header's avatar starts at the 16 px gutter (inside its padded row, whatever the border).
+    expect(Math.round(avatar?.x ?? 0)).toBe(16)
+  })
 
   test("tabs: arrows, Home/End move focus; Enter activates by replace; bogus tab normalized; refresh keeps the tab", async ({ page }) => {
     await mockProfileDefaults(page)

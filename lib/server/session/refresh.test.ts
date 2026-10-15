@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import { server } from "@/test/msw-server"
 import { makeSession, NOW } from "@/test/session-fixture"
 import { DEMO, idpTokenUrl, PROD, refreshResponse } from "@/test/upstream-fixture"
-import { EXPIRY_SKEW_MS, isAccessTokenFresh, refreshSession } from "./refresh"
+import { EXPIRY_SKEW_MS, FALLBACK_EXPIRES_IN_S, isAccessTokenFresh, refreshSession } from "./refresh"
 
 const IDP = idpTokenUrl(DEMO.apiRoot)
 
@@ -44,14 +44,19 @@ describe("refreshSession", () => {
   it.each([
     ["401", () => new HttpResponse(null, { status: 401 }), "rejected"],
     ["400 invalid_grant", () => HttpResponse.json({ error: "invalid_grant" }, { status: 400 }), "rejected"],
-    ["400 other error", () => HttpResponse.json({ error: "invalid_request" }, { status: 400 }), "rejected"],
-    ["400 non-JSON", () => new HttpResponse("nope", { status: 400 }), "rejected"],
-    ["403", () => new HttpResponse(null, { status: 403 }), "rejected"],
+    ["401 with a body", () => HttpResponse.json({ error: "invalid_token" }, { status: 401 }), "rejected"],
+    // Decision (c), 2026-10-14: only 401 and 400 invalid_grant end the session.
+    ["400 other error", () => HttpResponse.json({ error: "invalid_client" }, { status: 400 }), "unavailable"],
+    ["400 non-JSON", () => new HttpResponse("nope", { status: 400 }), "unavailable"],
+    ["400 JSON without error", () => HttpResponse.json(null, { status: 400 }), "unavailable"],
+    ["403", () => HttpResponse.json({ error: "forbidden" }, { status: 403 }), "unavailable"],
+    ["404", () => new HttpResponse(null, { status: 404 }), "unavailable"],
     ["500", () => new HttpResponse(null, { status: 500 }), "unavailable"],
     ["503", () => new HttpResponse(null, { status: 503 }), "unavailable"],
     ["302", () => new HttpResponse(null, { status: 302, headers: { Location: "https://elsewhere.test" } }), "unavailable"],
     ["200 non-JSON", () => new HttpResponse("nope", { status: 200 }), "unavailable"],
     ["200 schema-invalid", () => HttpResponse.json({ token: "x" }), "unavailable"],
+    ["200 non-string access_token", () => HttpResponse.json({ access_token: 123, expires_in: 3600 }), "unavailable"],
     ["network error", () => HttpResponse.error(), "unavailable"],
   ])("%s → %s", async (_label, resolver, kind) => {
     server.use(http.post(IDP, resolver))
@@ -70,6 +75,31 @@ describe("refreshSession", () => {
     await vi.advanceTimersByTimeAsync(25_000)
     expect((await pending).kind).toBe("unavailable")
     vi.useRealTimers()
+  })
+
+  it("honours a numeric-string expires_in", async () => {
+    server.use(http.post(IDP, () => HttpResponse.json({ access_token: "a", expires_in: "3600" })))
+    const result = await refreshSession(makeSession(), NOW)
+    expect(result.kind === "refreshed" && result.session.accessExpiresAt).toBe(NOW + 3_600_000)
+  })
+
+  it.each([
+    ["missing", {}],
+    ["zero", { expires_in: 0 }],
+    ["negative", { expires_in: -5 }],
+    ["non-numeric string", { expires_in: "soon" }],
+    ["blank string", { expires_in: "  " }],
+    ["Infinity string", { expires_in: "Infinity" }],
+    ["null", { expires_in: null }],
+  ])("expires_in %s → the 300 s fallback; the new tokens are kept", async (_label, extra) => {
+    server.use(http.post(IDP, () => HttpResponse.json({ access_token: "new-access", refresh_token: "rotated", ...extra })))
+    const session = makeSession()
+    const result = await refreshSession(session, NOW)
+    expect(FALLBACK_EXPIRES_IN_S).toBe(300)
+    expect(result).toEqual({
+      kind: "refreshed",
+      session: { ...session, accessToken: "new-access", refreshToken: "rotated", accessExpiresAt: NOW + 300_000, gen: session.gen + 1 },
+    })
   })
 
   it("keeps whole milliseconds for a fractional expires_in (the session schema needs an integer)", async () => {

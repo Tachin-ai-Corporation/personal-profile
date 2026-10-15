@@ -2,7 +2,7 @@
 title: 'R5-1 Main parity recovery: server and e2e'
 type: 'bugfix'
 created: '2026-10-14'
-status: 'draft'
+status: 'in-review'
 baseline_commit: '3d485ab'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -75,21 +75,23 @@ context:
 - `lib/server/session/refresh.ts` (+ tests, `session-routes.test.ts`) -- refresh mapping and `expires_in`.
 - `lib/server/http/fetch-with-timeout.ts`, `lib/server/proxy/forward.ts` (+ tests) -- opaque redirect.
 - `scripts/check-forbidden.sh` (+ test) -- `_DEMO`/`_PROD` name gate.
+- `instrumentation-client.ts` -- `z.config({ jitless: true })` (see Implementation Notes).
+- `docs/AUTH-ARCHITECTURE.md`, `.env.example` -- refresh mapping, exchange texts, fail-closed launch, `PP_E2E_MOCK`.
 - `app/auth/page.test.tsx`, `app/api/**/route.test.ts` -- `force-dynamic` rows.
 
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] Upstream mock + flag + instrumentation + guard tests; `PP_E2E_MOCK` in `TEST_SERVER_ENV`.
-- [ ] `makeLpl`/`freshCode`/`launch` in `e2e/fixtures/core.ts`; `e2e/launch.spec.ts`.
-- [ ] `classifyExchangeError` on the real texts, exact-string tests.
-- [ ] Refresh `expires_in` + decision (c), main's rows ported.
-- [ ] Boot key checks + tests; broad `_DEMO`/`_PROD` gate + tests.
-- [ ] `/api/token` fail-closed catch + injected-throw test.
-- [ ] Proxy opaque redirect + test.
-- [ ] Unit gaps: `force-dynamic` on token/refresh/logout/1h/auth; `app/auth/page.test.tsx`; non-string `lpl` and JSON array rows; no warning when the padded key itself decrypts; 5xx activity re-seal row; unsealable-cookie rows for logout and refresh.
-- [ ] E2E gaps: 360 px 16 px gutters and 44 px widths; CSP violation + `pageerror` listener on signed-in `/`; AD-21 + no-store on `POST /api/token` 400 and 415; Pragma on proxy errors; Choose Environment → Production; `/auth` Cache-Control; `headers.spec.ts` signed-in tests under the fail-fast `test` with `mockProfileDefaults`.
-- [ ] One Spec Change Log line in spec 7.0a correcting "the server-side exchange cannot be mocked".
+- [x] Upstream mock + flag + instrumentation + guard tests; `PP_E2E_MOCK` in `TEST_SERVER_ENV`.
+- [x] `makeLpl`/`freshCode`/`launch` in `e2e/fixtures/core.ts`; `e2e/launch.spec.ts`.
+- [x] `classifyExchangeError` on the real texts, exact-string tests.
+- [x] Refresh `expires_in` + decision (c), main's rows ported.
+- [x] Boot key checks + tests; broad `_DEMO`/`_PROD` gate + tests.
+- [x] `/api/token` fail-closed catch + injected-throw test.
+- [x] Proxy opaque redirect + test.
+- [x] Unit gaps: `force-dynamic` on token/refresh/logout/1h/auth; `app/auth/page.test.tsx`; non-string `lpl` and JSON array rows; no warning when the padded key itself decrypts; 5xx activity re-seal row; unsealable-cookie rows for logout and refresh.
+- [x] E2E gaps: 360 px 16 px gutters and 44 px widths; CSP violation + `pageerror` listener on signed-in `/`; AD-21 + no-store on `POST /api/token` 400 and 415; Pragma on proxy errors; Choose Environment → Production; `/auth` Cache-Control; `headers.spec.ts` signed-in tests under the fail-fast `test` with `mockProfileDefaults`.
+- [x] One Spec Change Log line in spec 7.0a correcting "the server-side exchange cannot be mocked".
 
 **Acceptance Criteria:**
 - Given the e2e server, when any e2e runs, then no request reaches real 1health (the mock answers the launch, `myself` and revoke; the browser fail-fast guard answers the rest).
@@ -106,4 +108,18 @@ context:
 
 ## Spec Change Log
 
+- 2026-10-14 -- Implementation: the e2e upstream mock fails closed instead of delegating "anything else" to the real `fetch` for the two 1health roots (599 `E2E_UNMOCKED`, logged to stderr); other hosts still pass through. This enforces "no e2e ever reaches real 1health" at the server too. No e2e run logged an unmocked call.
+- 2026-10-14 -- Implementation: added `instrumentation-client.ts` (`z.config({ jitless: true })`); the new runtime CSP assertion on signed-in `/` found zod 4's `new Function("")` probe reported as a `script-src (eval)` violation.
+
 ## Implementation Notes
+
+- **Mock (task 1).** `test/e2e-upstream-mock.ts` patches `fetch` from `instrumentation.ts` only when `serverEnv().PP_E2E_MOCK` (exact `"1"`); `installUpstreamMock()` itself throws without the flag; `uninstallUpstreamMock()` is the test hook. Single-use codes (replay → the backend's "has already been redeemed." 400), a distinct tenant-1 access token per exchange, `myself` = frozen `ANN` (42/4242 Ann Lee), revoke records the Bearer and a revoked token's `myself` answers 401 (how the logout e2e proves the revoke: a replayed old cookie then gets 401 `TOKEN_EXPIRED` through the real proxy). Unit tests: `test/e2e-upstream-mock.test.ts`, `instrumentation.test.ts` (flag `"0"`/`"true"`/`""` leave `fetch` untouched).
+- **E2E fixtures.** `makeLpl`/`freshCode`/`launch` live in `e2e/fixtures/core.ts`; the keys and app ids come from `E2E_LAUNCH` in `e2e/server-env.ts`, so no `_DEMO`/`_PROD` name leaves the allowed files. `e2e/launch.spec.ts` (fail-fast `test` + `mockProfileDefaults` for every case): demo end to end (exact `Set-Cookie` strings of both cookies, cookie attributes, no `lpl`, reload = no second POST, CSP violations and page errors, back → stripped `/auth` "Connected to Demo…"), prod, raw `+`, replayed code (5 POSTs → error → cookie gone → `/` redirects), manual entry (padded paste), the real proxy `myself` via `page.request`, real logout (`Max-Age=0`, no-store, revoke proven).
+- **Exchange texts (task 2).** `classifyExchangeError` reads `message` from a JSON body (else the raw text), drops the quoted code and matches the ending: "has already been redeemed." → used, "has expired." → expired, else rejected. Rows use the exact `Messages.java` strings.
+- **Refresh (task 3, decision c).** `expires_in`: number or finite numeric string, positive, else `FALLBACK_EXPIRES_IN_S` (300); the tokens are always kept. Only 401 and 400 `invalid_grant` are `rejected`; 403, other 400s, non-JSON 400s, other 4xx → `unavailable` (503, cookie kept). Route rows for both sides plus an unsealable cookie.
+- **Boot (task 4).** Whitespace-only `ONEHEALTH_SECRET_KEY_*` → "`<NAME>` must not be blank"; keys equal after trim → one message naming both variables, `variables` lists both (duplicate messages are de-duplicated). `check-forbidden.sh` rule 3 now matches every `[A-Z][A-Z0-9_]*_(DEMO|PROD)` name; `launch.test.ts` reads the prod app id through `getAppId("prod")`; the gate's own test builds the names at runtime.
+- **Fail-closed `/api/token` (task 5).** `createTokenHandler({ launch })` seam; any throw from the launch or the success path → 502 `LAUNCH_INVALID`, retryable, cleared cookie, `logError` with the error name only. The over-budget seal keeps its 500 `LAUNCH_CONFIG` + revoke path (a classified failure, review-2 of 7.0a).
+- **Opaque redirect (task 6).** `isOpaqueRedirect()` in `fetch-with-timeout.ts`; `fetchWithTimeout` returns such a response unwrapped (a status-0 Response can't be re-wrapped) and `forward` maps it to 502 `UPSTREAM_REDIRECT`.
+- **Test gaps (task 7).** `dynamic` rows in the token/refresh/logout/1h route tests; `app/auth/page.test.tsx`; non-string `lpl`, JSON array and `null` rows; padded key that decrypts as stored → no warning; flagged 5xx re-seal row; unsealable-cookie rows for refresh and logout.
+- **E2E gaps (task 8).** `shell.spec.ts`: 44 px widths on the per-tab targets and a 360 px test (16 px left/right padding on app bar, tabs, Sections, Jump to; avatar at x = 16; Jump to 44 × 44). `headers.spec.ts`: fail-fast `test` + `mockProfileDefaults` for the signed-in cases, `/auth` no-store, runtime CSP/pageerror on signed-in `/`, `POST /api/token` 400/415 with AD-21 + no-store + cleared cookie, Pragma/nosniff/AD-21 on the proxy error. `auth.spec.ts`: fail-fast `test`, `mockProfileDefaults` instead of a lone `myself` mock, Choose Environment → Production.
+- **Gates (2026-10-14/15).** install, lint, typecheck, `vitest run --coverage` (3194 tests, no missing coverage), `PP_E2E_PORT=3250 test:e2e` twice (297 passed, 3 skipped, both runs; no unmocked 1health call logged), build, `check-forbidden.sh`: all green.

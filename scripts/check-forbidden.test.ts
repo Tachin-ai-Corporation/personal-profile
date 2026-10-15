@@ -87,3 +87,49 @@ describe("scripts/check-forbidden.sh: switch-tenant", () => {
     expect(run.stderr).not.toContain("  lib/server/proxy/deny-list.ts")
   })
 })
+
+// Names are assembled at runtime so this file never spells a `_DEMO`/`_PROD`
+// name itself (the gate scans scripts/ tests too).
+const demoKeyName = ["ONEHEALTH_SECRET_KEY", "DEMO"].join("_")
+const prodAppName = ["APP_ID", "PROD"].join("_")
+const demoAppName = ["APP_ID", "DEMO"].join("_")
+
+/** Rule 3 (D1; spec R5-1 restored main's broad pattern): every `_DEMO`/`_PROD` name, `APP_ID_*` included. */
+describe("scripts/check-forbidden.sh: per-environment names", () => {
+  it.each([
+    ["features/x.ts", `export const k = "${demoKeyName}"\n`],
+    ["lib/server/launch/launch.ts", `const k = env.${prodAppName}\n`],
+    ["lib/server/launch/launch.test.ts", `const k = TEST_ENV.${prodAppName}\n`],
+    ["app/api/token/route.ts", `// ${demoAppName}\n`],
+    ["proxy.ts", `const k = "${prodAppName}"\n`],
+    ["instrumentation.ts", `const k = "${demoKeyName}"\n`],
+    ["e2e/fixtures/core.ts", `const k = TEST_SERVER_ENV.${demoAppName}\n`],
+    ["e2e/launch.spec.ts", `const k = "${prodAppName}"`],
+  ])("fails on a name in %s", (path, body) => {
+    const run = check({ [path]: body })
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain("_DEMO/_PROD name outside the allowed files:")
+    expect(run.stderr).toContain(path)
+  })
+
+  it("allows them in env.ts, its test, the env fixtures, .env.example, the Playwright config and CI", () => {
+    const line = `${demoKeyName}=x ${prodAppName}=y ${demoAppName}=z\n`
+    const run = check({
+      "lib/server/env.ts": line,
+      "lib/server/env.test.ts": line,
+      "test/env-fixture.ts": line,
+      ".env.example": line,
+      "playwright.config.ts": line,
+      "e2e/server-env.ts": line,
+      ".github/workflows/ci.yml": line,
+    })
+    expect(run.stderr).toBe("")
+    expect(run.status).toBe(0)
+  })
+
+  it.each(["DEMO", "PROD", "IS_PRODUCTION", "SOME_PRODUCT", "ENV_DEMOGRAPHICS", "x_demo"])("ignores %j (no `_DEMO`/`_PROD` name)", (word) => {
+    const run = check({ "lib/x.ts": `export const value = "${word}"\n` })
+    expect(run.stderr).toBe("")
+    expect(run.status).toBe(0)
+  })
+})

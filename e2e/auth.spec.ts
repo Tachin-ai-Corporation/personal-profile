@@ -1,4 +1,6 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, type Page } from "@playwright/test"
+import { mockProfileDefaults, test } from "./fixtures"
+import { environmentConfig } from "../lib/shared/environments"
 import { sealedSessionCookie } from "./session-cookie"
 
 /** Records any page access to `document.cookie` (there must be none). */
@@ -25,6 +27,10 @@ test.describe("launch entry (/auth)", () => {
     await page.goto("/")
     await expect(page).toHaveURL(/\/auth$/)
     await expect(page.getByText("Choose Environment")).toBeVisible()
+    // Choosing only picks the labels and the link (D2, D9): no request carries it.
+    await page.getByRole("button", { name: "Production" }).click()
+    await expect(page.getByText("Connected to Production environment. No launch payload detected.")).toBeVisible()
+    await expect(page.getByRole("link", { name: "Go to 1health (Production)" })).toHaveAttribute("href", environmentConfig("prod").portalUrl)
   })
 
   test("a bad pasted LPL is rejected once (retryable:false) and sets no session cookie", async ({ page, context }) => {
@@ -56,7 +62,7 @@ test.describe("launch entry (/auth)", () => {
     await page.route("**/api/token", async (route) => {
       posts += 1
       posted = route.request().postDataJSON()
-      // Mocked BFF success with the same Set-Cookie the real route sends (its exchange is unit-tested).
+      // Mocked BFF success with the same Set-Cookie the real route sends (the real launch: e2e/launch.spec.ts).
       const cookie = await sealedSessionCookie()
       await route.fulfill({
         status: 200,
@@ -65,9 +71,7 @@ test.describe("launch entry (/auth)", () => {
         body: JSON.stringify({ ok: true, environment: "demo" }),
       })
     })
-    await page.route("**/api/1h/v2/user/myself", (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: 42, personId: 4242, firstName: "Ann", lastName: "Lee" }) }),
-    )
+    await mockProfileDefaults(page)
 
     await page.goto("/auth?lpl=abc+def")
     await expect(page.getByRole("heading", { name: "Ann Lee" })).toBeVisible({ timeout: 10_000 })

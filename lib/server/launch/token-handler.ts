@@ -8,7 +8,7 @@ import { serverEnv, type ServerEnv } from "@/lib/server/env"
 import { isJsonRequest } from "@/lib/server/http/content-type"
 import { readCapped } from "@/lib/server/http/read-capped"
 import { jsonResponse } from "@/lib/server/http/responses"
-import { logRequest, newRequestId } from "@/lib/server/log"
+import { logError, logRequest, newRequestId } from "@/lib/server/log"
 import { environmentSetCookie } from "@/lib/server/session/environment-cookie"
 import { buildSessionSetCookie, clearSessionSetCookie } from "@/lib/server/session/session"
 import { revokeAllDevices } from "@/lib/server/session/revoke"
@@ -62,6 +62,8 @@ export async function tokenMethodNotAllowed(): Promise<Response> {
 export interface TokenHandlerDeps {
   readonly env?: () => ServerEnv
   readonly now?: () => number
+  /** Test seam: the launch itself (default `launch`). */
+  readonly launch?: typeof launch
 }
 
 /**
@@ -73,6 +75,7 @@ export interface TokenHandlerDeps {
 export function createTokenHandler(deps: TokenHandlerDeps = {}): (request: Request) => Promise<Response> {
   const getEnv = deps.env ?? serverEnv
   const now = deps.now ?? Date.now
+  const runLaunch = deps.launch ?? launch
 
   return async function handleToken(request: Request): Promise<Response> {
     const requestId = newRequestId()
@@ -91,23 +94,34 @@ export function createTokenHandler(deps: TokenHandlerDeps = {}): (request: Reque
     const lpl = await readLpl(request)
     if (lpl === null) return fail(400, "LAUNCH_INVALID", false)
 
-    const result = await launch(lpl, env, now(), requestId)
-    if (result.kind === "failed") return fail(result.status, result.errorCode, result.retryable, result.environment)
+    const launchAndSeal = async (payload: string): Promise<Response> => {
+      const result = await runLaunch(payload, env, now(), requestId)
+      if (result.kind === "failed") return fail(result.status, result.errorCode, result.retryable, result.environment)
 
-    const { environment } = result.session
-    const headers = new Headers()
-    let sessionCookie: string
-    try {
-      sessionCookie = await buildSessionSetCookie(result.session)
-    } catch {
-      // A11: the cookie would exceed its budget. Revoke the just-issued tokens
-      // (best effort), then fail like any configuration problem: not retryable.
-      await revokeAllDevices(environmentConfig(environment).apiRoot, result.session.accessToken, { requestId, routeTemplate: ROUTE })
-      return fail(500, "LAUNCH_CONFIG", false, environment)
+      const { environment } = result.session
+      const headers = new Headers()
+      let sessionCookie: string
+      try {
+        sessionCookie = await buildSessionSetCookie(result.session)
+      } catch {
+        // A11: the cookie would exceed its budget. Revoke the just-issued tokens
+        // (best effort), then fail like any configuration problem: not retryable.
+        await revokeAllDevices(environmentConfig(environment).apiRoot, result.session.accessToken, { requestId, routeTemplate: ROUTE })
+        return fail(500, "LAUNCH_CONFIG", false, environment)
+      }
+      headers.append("Set-Cookie", sessionCookie)
+      headers.append("Set-Cookie", environmentSetCookie(environment))
+      const body: LaunchOkBody = { ok: true, environment }
+      return finish(jsonResponse(200, body, headers), "ok", environment)
     }
-    headers.append("Set-Cookie", sessionCookie)
-    headers.append("Set-Cookie", environmentSetCookie(environment))
-    const body: LaunchOkBody = { ok: true, environment }
-    return finish(jsonResponse(200, body, headers), "ok", environment)
+
+    try {
+      return await launchAndSeal(lpl)
+    } catch (error) {
+      // Fail closed (spec R5-1): an unexpected throw never leaves a session
+      // behind; it is retryable like any upstream hiccup and logged by name only.
+      logError({ requestId, routeTemplate: ROUTE, status: 502, errorName: error instanceof Error ? error.name : "UnknownError" })
+      return fail(502, "LAUNCH_INVALID", true)
+    }
   }
 }

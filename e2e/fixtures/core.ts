@@ -1,5 +1,7 @@
+import { createCipheriv, hkdfSync, randomBytes } from "node:crypto"
 import { expect, test as base, type Page, type Request, type Route } from "@playwright/test"
 import { environmentConfig } from "../../lib/shared/environments"
+import { E2E_LAUNCH } from "../server-env"
 import { sealedSessionCookie } from "../session-cookie"
 
 /**
@@ -47,6 +49,51 @@ export async function signIn(page: Page): Promise<void> {
   )
   await page.goto(SIGN_IN_PATH)
   await page.unroute(`**${SIGN_IN_PATH}`)
+}
+
+/** The environments a launch payload can be built for. */
+export type E2eEnvironment = keyof typeof E2E_LAUNCH
+
+/**
+ * A valid launch payload (LPL) for the e2e server's dummy credentials
+ * (`e2e/server-env.ts`, D1), the way the portal builds it:
+ * base64(IV(12) ‖ AES-256-GCM ciphertext ‖ tag(16)), the key derived with
+ * HKDF-SHA256 (zero salt, empty info) from that environment's secret, so
+ * `/api/token` detects `environment` by key (D2). The user id is the upstream
+ * mock's `myself` id (42). Ported from main (spec R5-1).
+ */
+export function makeLpl(code: string, environment: E2eEnvironment = "demo"): string {
+  const { secretKey, appId } = E2E_LAUNCH[environment]
+  const key = Buffer.from(hkdfSync("sha256", Buffer.from(secretKey, "utf8"), Buffer.alloc(32, 0), Buffer.alloc(0), 32))
+  const payload = JSON.stringify({
+    required: {
+      apiKey: { name: appId },
+      tenant: { id: 1 },
+      user: { id: ANN.id },
+      externalApplicationId: { id: 1 },
+      oneTimeCode: { value: code, issuedAt: "2026-10-14T00:00:00" },
+    },
+  })
+  const iv = randomBytes(12)
+  const cipher = createCipheriv("aes-256-gcm", key, iv)
+  const ciphertext = Buffer.concat([cipher.update(payload, "utf8"), cipher.final()])
+  return Buffer.concat([iv, ciphertext, cipher.getAuthTag()]).toString("base64")
+}
+
+/** A fresh one-time code (the upstream mock redeems each code once per server run). */
+export function freshCode(): string {
+  return `code-${randomBytes(8).toString("hex")}`
+}
+
+/**
+ * Signs in through the real launch (D1, D9): `/auth?lpl=…` → `POST /api/token`
+ * → the server-side upstream mock's exchange and `myself` → a real sealed
+ * `__Host-pp_s` → `/`. Mock the page's reads first (`mockProfileDefaults`):
+ * the fail-fast guard still covers the browser's data calls.
+ */
+export async function launch(page: Page, environment: E2eEnvironment = "demo"): Promise<void> {
+  await page.goto(`/auth?lpl=${encodeURIComponent(makeLpl(freshCode(), environment))}`)
+  await expect(page).toHaveURL(/\/\?tab=contacts$/, { timeout: 15_000 })
 }
 
 export const json = (route: Route, status: number, body: unknown) =>

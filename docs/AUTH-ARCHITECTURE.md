@@ -53,7 +53,10 @@ with a user-safe `message` from `lib/shared/messages/launch.ts` and clear any pr
 session. Decode, app-id and tenant failures, a missing `lpl`, a 415,
 `LAUNCH_CONFIG` (including a session too large for the cookie, after revoking
 the tokens) and `SERVICE_DISABLED` carry `retryable: false`; exchange and
-`myself` failures stay retryable. Without `lpl` the screen shows manual entry (environment known
+`myself` failures stay retryable. The exchange's 400 text decides the code:
+"…has already been redeemed." → `LAUNCH_USED`, "…has expired." →
+`LAUNCH_EXPIRED`, anything else → `LAUNCH_INVALID`. An unexpected throw fails
+closed: 502 `LAUNCH_INVALID`, retryable, cookie cleared. Without `lpl` the screen shows manual entry (environment known
 from the referrer or the cookie, display only) or "Choose Environment".
 
 ## The session
@@ -184,7 +187,10 @@ The proxy never refreshes. On a proxy `401 TOKEN_EXPIRED`, `callApi` runs one
 across tabs), then replays each waiting call once. A non-GET is replayed only
 after a proxy `TOKEN_EXPIRED`. The refresh route answers 200 without calling
 the IdP when the token is still fresh, clears the cookie on an IdP rejection
-(401 `SESSION_EXPIRED`) and keeps it otherwise (503 `REFRESH_UNAVAILABLE`).
+(only a 401 or a 400 `invalid_grant`: 401 `SESSION_EXPIRED`) and keeps it
+otherwise (403, any other 400, 5xx, 3xx, timeout, unreadable answer: 503
+`REFRESH_UNAVAILABLE`; human decision 2026-10-14, spec R5-1). `expires_in` may
+be a number or a numeric string; a missing or unusable one means 300 s.
 
 `session-expired` is published once per page on `lib/api/session-events.ts`
 (by `callApi` and by the idle warning); the shell's session dialog

@@ -79,6 +79,37 @@ describe("POST /api/session/refresh", () => {
     expect(response.headers.get("Set-Cookie")).toBe(CLEARED)
   })
 
+  it.each([
+    ["401", () => HttpResponse.json({ error: "invalid_token" }, { status: 401 })],
+    ["400 invalid_grant", () => HttpResponse.json({ error: "invalid_grant" }, { status: 400 })],
+  ])("decision (c): an IdP %s ends the session (401 SESSION_EXPIRED, cookie cleared)", async (_label, resolver) => {
+    server.use(http.post(IDP, resolver))
+    const response = await handler(await refreshRequest(makeSession({ accessExpiresAt: NOW })))
+    expect(response.status).toBe(401)
+    expect(response.headers.get("Set-Cookie")).toBe(CLEARED)
+  })
+
+  it.each([
+    ["403", () => HttpResponse.json({ error: "forbidden" }, { status: 403 })],
+    ["400 other error", () => HttpResponse.json({ error: "invalid_client" }, { status: 400 })],
+    ["400 non-JSON", () => new HttpResponse("nope", { status: 400 })],
+  ])("decision (c): an IdP %s keeps the session (503 REFRESH_UNAVAILABLE, no Set-Cookie)", async (_label, resolver) => {
+    server.use(http.post(IDP, resolver))
+    const response = await handler(await refreshRequest(makeSession({ accessExpiresAt: NOW })))
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ errorCode: "REFRESH_UNAVAILABLE", source: "proxy" })
+    expect(response.headers.get("Set-Cookie")).toBeNull()
+  })
+
+  it("an unsealable cookie → 401 SESSION_EXPIRED + cookie cleared, no IdP call", async () => {
+    const calls = trackAllRequests()
+    const response = await handler(new Request("http://localhost:3000/api/session/refresh", { method: "POST", headers: { cookie: `${SESSION_COOKIE}=garbage` } }))
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ errorCode: "SESSION_EXPIRED", source: "proxy" })
+    expect(response.headers.get("Set-Cookie")).toBe(CLEARED)
+    expect(calls()).toBe(0)
+  })
+
   it("keeps the cookie when the IdP is unavailable (503 REFRESH_UNAVAILABLE)", async () => {
     server.use(http.post(IDP, () => new HttpResponse(null, { status: 502 })))
     const response = await handler(await refreshRequest(makeSession({ accessExpiresAt: NOW })))
@@ -300,6 +331,14 @@ describe("/api/session/logout (D3, D5)", () => {
     expect(revokes).toBe(1)
     expect(response.status).toBe(204)
     expect(response.headers.get("Set-Cookie")).toBe(CLEARED)
+  })
+
+  it("an unsealable cookie: no upstream call, 204 + cleared cookie", async () => {
+    const calls = trackAllRequests()
+    const response = await handler(new Request("http://localhost:3000/api/session/logout", { method: "POST", headers: { cookie: `${SESSION_COOKIE}=garbage` } }))
+    expect(response.status).toBe(204)
+    expect(response.headers.get("Set-Cookie")).toBe(CLEARED)
+    expect(calls()).toBe(0)
   })
 
   it("makes no upstream call without a session", async () => {

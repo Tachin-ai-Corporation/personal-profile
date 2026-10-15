@@ -4,8 +4,9 @@
 #   1. `document.cookie` or `access_token` in any file under app/, components/,
 #      contexts/, hooks/, features/ or lib/ outside lib/server/ (tests included).
 #   2. A `NEXT_PUBLIC_*SECRET*` name anywhere.
-#   3. A `_DEMO`/`_PROD`-suffixed secret name outside lib/server/env.ts, its
-#      test, .env.example and the CI/test fixtures (D1 keeps those names).
+#   3. Any `_DEMO`/`_PROD`-suffixed name (`ONEHEALTH_SECRET_KEY_*`, `APP_ID_*`,
+#      …) outside lib/server/env.ts, its test, .env.example and the CI/test
+#      fixtures (D1 keeps those names; spec R5-1 restored main's broad pattern).
 #   4. Removed concepts in app code (tests excluded, since they assert absence):
 #      APP_ENV, API_ORIGIN, APP_ORIGIN, PORTAL_URL, PORTAL_ORIGIN,
 #      PUBLIC_FILES_ORIGIN, X-PP-Session, sessionBinding, SESSION_CHANGED,
@@ -74,8 +75,8 @@ hits=$(hits_in "$all_files" 'NEXT_PUBLIC_[A-Z0-9_]*SECRET')
 [[ -n "$hits" ]] && report "NEXT_PUBLIC_*SECRET* name:" "$hits"
 
 ALLOWED_SUFFIXED='^(lib/server/env\.ts|lib/server/env\.test\.ts|test/env-fixture\.ts|\.env\.example|playwright\.config\.ts|e2e/server-env\.ts|\.github/workflows/ci\.yml)$'
-hits=$(hits_in "$(printf '%s\n' "$all_files" | grep -Ev "$ALLOWED_SUFFIXED" || true)" '[A-Z0-9_]*(SECRET|KEY|TOKEN|PASSWORD)[A-Z0-9_]*_(DEMO|PROD)\b')
-[[ -n "$hits" ]] && report "_DEMO/_PROD secret name outside the allowed files:" "$hits"
+hits=$(hits_in "$(printf '%s\n' "$all_files" | grep -Ev "$ALLOWED_SUFFIXED" || true)" '[A-Z][A-Z0-9_]*_(DEMO|PROD)([^A-Za-z0-9_]|$)')
+[[ -n "$hits" ]] && report "_DEMO/_PROD name outside the allowed files:" "$hits"
 
 REMOVED='\b(APP_ENV|API_ORIGIN|APP_ORIGIN|PORTAL_URL|PORTAL_ORIGIN|PUBLIC_FILES_ORIGIN|SESSION_CHANGED)\b|X-PP-Session|sessionBinding|Sec-Fetch-Site|SameSite=None|Partitioned|window\.top|["'"'"'`]/launch([/?"'"'"'`]|$)'
 hits=$(hits_in "$app_code" "$REMOVED")

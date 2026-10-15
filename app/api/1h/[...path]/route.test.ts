@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest"
 import { stubServerEnv } from "@/test/env-fixture"
-import { DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT } from "./route"
+import { DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, dynamic } from "./route"
 
 beforeEach(() => stubServerEnv())
 
@@ -8,6 +8,10 @@ const NO_STORE = "private, no-store, max-age=0"
 const req = (method: string, path: string) => new Request(`http://localhost:3000/api/1h/${path}`, { method })
 
 describe("/api/1h/[...path] route exports", () => {
+  it("is force-dynamic (never cached or prerendered)", () => {
+    expect(dynamic).toBe("force-dynamic")
+  })
+
   it.each([
     ["GET", GET, "v2/user/myself"],
     ["PUT", PUT, "v2/user/edit"],

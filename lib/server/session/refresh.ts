@@ -24,17 +24,48 @@ export function canRenewLastSeen(session: SessionPayload, now: number): boolean 
   return session.accessExpiresAt - now > ACTIVITY_RESEAL_MIN_MS
 }
 
+/** Lifetime used when the IdP omits `expires_in` or sends an unusable one (0, negative, non-numeric). */
+export const FALLBACK_EXPIRES_IN_S = 300
+
+/** `expires_in` as positive finite seconds (a numeric string counts), else the 300 s fallback. */
+const expiresInSchema = z.unknown().optional().transform((value): number => {
+  const seconds = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : FALLBACK_EXPIRES_IN_S
+})
+
+/**
+ * A usable access token is never dropped for a bad `expires_in` (fallback),
+ * and a rotated `refresh_token` is always kept.
+ */
 const tokenResponseSchema = z.object({
   access_token: z.string().min(1),
-  expires_in: z.number().positive(),
+  expires_in: expiresInSchema,
   refresh_token: z.string().min(1).optional(),
 })
 
+/** Decision (c), 2026-10-14: only these IdP answers end the session. */
+async function isTerminalRejection(response: Response): Promise<boolean> {
+  if (response.status === 401) {
+    discardBody(response)
+    return true
+  }
+  if (response.status !== 400) {
+    discardBody(response)
+    return false
+  }
+  try {
+    const body: unknown = await response.json()
+    return typeof body === "object" && body !== null && "error" in body && body.error === "invalid_grant"
+  } catch {
+    return false
+  }
+}
+
 export type RefreshResult =
   | { readonly kind: "refreshed"; readonly session: SessionPayload }
-  /** The IdP answered 4xx (e.g. 401, `invalid_grant`, 403): the session is over. */
+  /** The IdP answered 401 or 400 `invalid_grant`: the session is over. */
   | { readonly kind: "rejected" }
-  /** Network error, timeout, 5xx, 3xx or an unreadable 2xx answer: keep the session. */
+  /** Network error, timeout, 5xx, 3xx, 403, any other 400 or an unreadable 2xx answer: keep the session. */
   | { readonly kind: "unavailable" }
 
 /**
@@ -57,11 +88,7 @@ export async function refreshSession(session: SessionPayload, now: number): Prom
   if (outcome.kind !== "response") return { kind: "unavailable" }
 
   const { response } = outcome
-  if (!response.ok) {
-    discardBody(response)
-    // Any 4xx means the refresh token can no longer be used; retrying would loop forever.
-    return response.status >= 400 && response.status < 500 ? { kind: "rejected" } : { kind: "unavailable" }
-  }
+  if (!response.ok) return (await isTerminalRejection(response)) ? { kind: "rejected" } : { kind: "unavailable" }
 
   let json: unknown
   try {

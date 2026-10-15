@@ -27,6 +27,27 @@ describe("forward", () => {
     if (result.kind === "response") expect(result.response.status).toBe(504)
   })
 
+  it.each([
+    ["type opaqueredirect, status 0", { type: "opaqueredirect", status: 0 }],
+    ["status 0 alone", { status: 0 }],
+  ])("an opaque redirect (%s) → 502 UPSTREAM_REDIRECT, no-store", async (_label, shape) => {
+    const opaque = new Response(null, { status: 302 })
+    for (const [name, value] of Object.entries(shape)) Object.defineProperty(opaque, name, { value })
+    vi.stubGlobal("fetch", async () => opaque)
+    const result = await forward({
+      url: "https://1health.demo.1health.io/api/moved",
+      method: "GET",
+      request: new Request("http://localhost/api/1h/moved"),
+      body: undefined,
+      accessToken: "t",
+      requestId: "r",
+    })
+    if (result.kind !== "response") throw new Error("expected a response")
+    expect(result.response.status).toBe(502)
+    expect(await result.response.json()).toEqual({ errorCode: "UPSTREAM_REDIRECT", source: "proxy" })
+    expect(result.response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0")
+  })
+
   it("passes a 204 through without a body", async () => {
     server.use(http.get("https://1health.demo.1health.io/api/empty", () => new HttpResponse(null, { status: 204 })))
     const result = await forward({

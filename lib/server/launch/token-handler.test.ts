@@ -93,6 +93,11 @@ describe("POST /api/token", () => {
     ["empty lpl", { lpl: "" }],
     ["oversized", "x".repeat(17 * 1024)],
     ["bad base64", { lpl: "%%%" }],
+    ["non-string lpl (number)", { lpl: 12345 }],
+    ["non-string lpl (object)", { lpl: { value: "x" } }],
+    ["non-string lpl (array)", { lpl: ["x"] }],
+    ["JSON array", [{ lpl: "x" }]],
+    ["JSON null", null],
   ])("rejects a %s body: 400 LAUNCH_INVALID, retryable:false, cleared session, environment cookie untouched", async (_label, body) => {
     const calls = trackAllRequests()
     const response = await POST(post(body))
@@ -176,6 +181,23 @@ describe("POST /api/token", () => {
       retryable: false,
     })
     expect(calls()).toBe(0)
+  })
+
+  it.each([
+    ["an Error", () => Promise.reject(new TypeError("boom with secret-detail"))],
+    ["a non-Error", () => Promise.reject("raw")],
+  ])("fails closed when the launch throws %s: 502 LAUNCH_INVALID, retryable, cookie cleared, logged by name only", async (_label, thrower) => {
+    const { lines, restore } = captureLogs()
+    const handler = createTokenHandler({ launch: thrower })
+    const response = await handler(post({ lpl: validLpl() }, "application/json", `${SESSION_COOKIE}=previous`))
+    restore()
+    expect(response.status).toBe(502)
+    expect(await response.json()).toEqual({ ok: false, errorCode: "LAUNCH_INVALID", source: "proxy", message: LAUNCH_ERROR_MESSAGES.expired })
+    expect(response.headers.getSetCookie()).toEqual([`${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`])
+    expectNoStore(response)
+    const errorLine = lines.find((line) => line.includes('"status":502') && line.includes("errorName")) ?? ""
+    expect(errorLine).toContain(_label === "an Error" ? "TypeError" : "UnknownError")
+    for (const line of lines) expect(line).not.toContain("secret-detail")
   })
 
   it("maps every error code to user-safe copy", () => {

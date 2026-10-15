@@ -7,6 +7,21 @@ export const TEST_SERVER_ENV = {
   SESSION_SECRET: "e2e-session-secret-0123456789abcdef",
   /** Serves /test-fixtures/** (the leave-guard fixture page). */
   PP_E2E_FIXTURES: "1",
+  /**
+   * Installs the server-side upstream mock (`test/e2e-upstream-mock.ts`): the
+   * launch exchange, `myself` and the logout revoke never reach 1health.
+   */
+  PP_E2E_MOCK: "1",
+} as const
+
+/**
+ * Each environment's launch credentials as the e2e server boots with them, for
+ * `makeLpl` (`e2e/fixtures/core.ts`). Kept here so the `_DEMO`/`_PROD` names
+ * stay in the files `check-forbidden.sh` allows.
+ */
+export const E2E_LAUNCH = {
+  demo: { secretKey: TEST_SERVER_ENV.ONEHEALTH_SECRET_KEY_DEMO, appId: TEST_SERVER_ENV.APP_ID_DEMO },
+  prod: { secretKey: TEST_SERVER_ENV.ONEHEALTH_SECRET_KEY_PROD, appId: TEST_SERVER_ENV.APP_ID_PROD },
 } as const
 
 /** Ports used per run: the base (app) and the two kill-switch servers at base + 1 and base + 2. */

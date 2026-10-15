@@ -409,6 +409,15 @@ describe("proxy: user activity (Story 1.6)", () => {
     expect(response.headers.get("X-PP-Activity-At")).toBe(String(NOW))
   })
 
+  it("a flagged request whose upstream answers 5xx still re-seals (502 UPSTREAM_ERROR + X-PP-Activity-At)", async () => {
+    server.use(http.get(`${UP}/v2/user/myself`, () => new HttpResponse("boom", { status: 500 })))
+    const session = makeSession({ lastSeen: NOW - 10 * MIN })
+    const response = await call({ path: "v2/user/myself", session, headers: ACTIVITY })
+    await expectError(response, 502, "UPSTREAM_ERROR")
+    expect(response.headers.get("X-PP-Activity-At")).toBe(String(NOW))
+    expect(await setCookieSession(response)).toEqual({ ...session, lastSeen: NOW })
+  })
+
   it.each([
     ["no flag (background revalidation)", {}],
     ["a flag other than user", { "X-PP-Activity": "yes" }],

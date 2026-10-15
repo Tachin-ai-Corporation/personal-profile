@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it } from "vitest"
 import { stubServerEnv } from "@/test/env-fixture"
-import { DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT } from "./route"
+import { DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, dynamic } from "./route"
 
 beforeEach(() => stubServerEnv())
 
 describe("/api/session/refresh route exports", () => {
+  it("is force-dynamic (never cached or prerendered)", () => {
+    expect(dynamic).toBe("force-dynamic")
+  })
+
   it("POST is the refresh handler: no cookie → 401 SESSION_EXPIRED", async () => {
     const response = await POST(new Request("http://localhost:3000/api/session/refresh", { method: "POST" }))
     expect(response.status).toBe(401)

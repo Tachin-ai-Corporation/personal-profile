@@ -5,7 +5,7 @@ import { stubServerEnv, TEST_DEMO_SECRET } from "@/test/env-fixture"
 import { encryptLpl, launchPayload } from "@/test/lpl-fixture"
 import { server } from "@/test/msw-server"
 import { DEMO, exchangeUrl, logoutAllUrl, myselfUrl, tokenResponse } from "@/test/upstream-fixture"
-import { DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT } from "./route"
+import { DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, dynamic } from "./route"
 
 beforeEach(() => stubServerEnv())
 
@@ -20,6 +20,10 @@ function post(body: unknown): Request {
 }
 
 describe("/api/token route exports", () => {
+  it("is force-dynamic (never cached or prerendered)", () => {
+    expect(dynamic).toBe("force-dynamic")
+  })
+
   it("POST is the guarded launch handler", async () => {
     const response = await POST(post({ lpl: "%%%" }))
     expect(response.status).toBe(400)

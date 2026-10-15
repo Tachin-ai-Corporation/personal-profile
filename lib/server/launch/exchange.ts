@@ -29,15 +29,31 @@ export type ExchangeResult =
   | { readonly kind: "ok"; readonly tokens: ExchangedTokens }
   | { readonly kind: "failed"; readonly reason: ExchangeFailure }
 
+/** The upstream error text: `message` of a JSON `{ message }` body, else the raw body. */
+function upstreamMessage(body: string): string {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return body
+  }
+  if (typeof parsed === "object" && parsed !== null && "message" in parsed && typeof parsed.message === "string") return parsed.message
+  return body
+}
+
 /**
- * Maps a rejected exchange to a reason by message substring (spec 7.0a design
- * note), with `rejected` (invalid) as the fallback until real upstream bodies
- * are recorded.
+ * Maps a rejected exchange to a reason by the backend's texts
+ * (`Messages.java`, `EXTERNAL_APPLICATION_SECURITY_CODE_*`; spec R5-1):
+ * "External application security code: '<code>' has already been redeemed."
+ * → `used`; "… has expired." → `expired`; everything else ("Could not find
+ * external application security code: …", "Invalid signature provided.",
+ * "… could not be redeemed.", an unreadable body) → `rejected`. The quoted
+ * code is dropped first, so its value can never change the result.
  */
 export function classifyExchangeError(body: string): "used" | "expired" | "rejected" {
-  const text = body.toLowerCase()
-  if (text.includes("used")) return "used"
-  if (text.includes("expired")) return "expired"
+  const text = upstreamMessage(body).replace(/'[^']*'/g, "''").trim().toLowerCase()
+  if (/ has already been redeemed\.?$/.test(text)) return "used"
+  if (/ has expired\.?$/.test(text)) return "expired"
   return "rejected"
 }
 

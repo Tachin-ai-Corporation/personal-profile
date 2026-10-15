@@ -1,13 +1,17 @@
 import { beforeEach, describe, expect, it } from "vitest"
 import { stubServerEnv } from "@/test/env-fixture"
 import { trackAllRequests } from "@/test/msw-server"
-import { DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT } from "./route"
+import { DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, dynamic } from "./route"
 
 beforeEach(() => stubServerEnv())
 
 const CLEARED = "__Host-pp_s=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0"
 
 describe("/api/session/logout route exports", () => {
+  it("is force-dynamic (never cached or prerendered)", () => {
+    expect(dynamic).toBe("force-dynamic")
+  })
+
   it.each([
     ["POST", POST],
     ["GET", GET],

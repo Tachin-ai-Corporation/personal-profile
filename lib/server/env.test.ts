@@ -28,6 +28,7 @@ describe("parseServerEnv", () => {
     expect(env.PP_DISABLED).toBe(false)
     expect(env.ACCOUNT_DISABLED).toBe(false)
     expect(env.PP_E2E_FIXTURES).toBe(false)
+    expect(env.PP_E2E_MOCK).toBe(false)
     expect(env.PLACES_ENABLED).toBe(false)
     expect(env.GOOGLE_PLACES_KEY).toBeUndefined()
     expect(env.IS_LOCAL_DEV).toBe(false)
@@ -61,6 +62,22 @@ describe("parseServerEnv", () => {
     expect(parseServerEnv({ ...valid, ONEHEALTH_SECRET_KEY_PROD: "  padded-key \n" }).getSecretKey("prod")).toBe("  padded-key \n")
   })
 
+  it.each(["ONEHEALTH_SECRET_KEY_DEMO", "ONEHEALTH_SECRET_KEY_PROD"])("fails on a whitespace-only %s, naming it", (name) => {
+    const error = failure({ ...valid, [name]: " \t\n " })
+    expect(error.variables).toEqual([name])
+    expect(error.message).toBe(`Invalid server environment: ${name} must not be blank`)
+  })
+
+  it.each([
+    ["identical", "same-secret-key-value", "same-secret-key-value"],
+    ["equal after trim", "  same-secret-key-value\n", "same-secret-key-value "],
+  ])("fails when the demo and prod keys are %s, naming both variables and never the value", (_label, demo, prod) => {
+    const error = failure({ ...valid, ONEHEALTH_SECRET_KEY_DEMO: demo, ONEHEALTH_SECRET_KEY_PROD: prod })
+    expect(error.variables).toEqual(["ONEHEALTH_SECRET_KEY_DEMO", "ONEHEALTH_SECRET_KEY_PROD"])
+    expect(error.message).toBe("Invalid server environment: ONEHEALTH_SECRET_KEY_DEMO and ONEHEALTH_SECRET_KEY_PROD must differ")
+    expect(error.message).not.toContain("same-secret-key-value")
+  })
+
   it("accepts Places with a key, a previous secret, and treats empty optionals as unset", () => {
     const previous = "p".repeat(40)
     const env = parseServerEnv({ ...valid, PLACES_ENABLED: "1", GOOGLE_PLACES_KEY: "k", SESSION_SECRET_PREVIOUS: previous })
@@ -75,11 +92,12 @@ describe("parseServerEnv", () => {
     ["true", false],
     ["0", false],
     [undefined, false],
-  ])("PP_DISABLED/ACCOUNT_DISABLED/PP_E2E_FIXTURES=%s → %s (only the exact string \"1\")", (value, expected) => {
-    const env = parseServerEnv({ ...valid, PP_DISABLED: value, ACCOUNT_DISABLED: value, PP_E2E_FIXTURES: value })
+  ])("PP_DISABLED/ACCOUNT_DISABLED/PP_E2E_FIXTURES/PP_E2E_MOCK=%s → %s (only the exact string \"1\")", (value, expected) => {
+    const env = parseServerEnv({ ...valid, PP_DISABLED: value, ACCOUNT_DISABLED: value, PP_E2E_FIXTURES: value, PP_E2E_MOCK: value })
     expect(env.PP_DISABLED).toBe(expected)
     expect(env.ACCOUNT_DISABLED).toBe(expected)
     expect(env.PP_E2E_FIXTURES).toBe(expected)
+    expect(env.PP_E2E_MOCK).toBe(expected)
   })
 
   it("flags local development", () => {
