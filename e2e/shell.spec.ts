@@ -173,7 +173,7 @@ test.describe("/ page frame (Stories 1.8, 1.9)", () => {
     await page.goto("/")
     await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
     await page.getByRole("link", { name: "Account" }).click()
-    await expect(page).toHaveURL(/\/account$/)
+    await expect(page).toHaveURL(/\/account\?tab=personal$/)
     // A client navigation: the document was not reloaded (no second myself request).
     expect(myselfCalls()).toBe(1)
   })
@@ -336,7 +336,7 @@ test.describe("leave guard (Story 1.13, fixture page)", () => {
     await expect(page.getByLabel("Fixture phone")).toHaveValue("415")
     await page.getByRole("link", { name: "Account" }).click()
     await page.getByRole("button", { name: "Discard" }).click()
-    await expect(page).toHaveURL(/\/account$/)
+    await expect(page).toHaveURL(/\/account\?tab=personal$/)
   })
 
   test("a dirty tab switch: Save saves, then the tab changes", async ({ page }) => {
