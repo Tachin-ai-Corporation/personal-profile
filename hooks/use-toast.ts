@@ -3,10 +3,12 @@
 // Inspired by react-hot-toast library
 import * as React from 'react'
 
-import type { ToastActionElement, ToastProps } from '@/components/ui/toast'
+import { TOAST_EXIT_MS, type ToastActionElement, type ToastProps } from '@/components/ui/toast'
 
-const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 1000000
+/** Up to three toasts at once (F3-1; e.g. a Save all burst); the oldest drops off. */
+export const TOAST_LIMIT = 3
+/** A dismissed toast leaves the DOM once its exit animation ends. */
+export const TOAST_REMOVE_DELAY = TOAST_EXIT_MS
 
 type ToasterToast = ToastProps & {
   id: string
@@ -69,12 +71,32 @@ const addToRemoveQueue = (toastId: string) => {
   toastTimeouts.set(toastId, timeout)
 }
 
+/**
+ * Makes room for one more toast within `TOAST_LIMIT`: drops the oldest
+ * non-error toasts first. Error toasts (persistent, with Retry) are never
+ * dropped by the limit, so the queue may exceed it when all are errors.
+ * An evicted toast's pending removal timeout is cleared.
+ */
+function evictForLimit(toasts: ToasterToast[]): ToasterToast[] {
+  const kept = [...toasts]
+  for (let i = kept.length - 1; i >= 0 && kept.length >= TOAST_LIMIT; i--) {
+    if (kept[i].tone === 'error') continue
+    const timeout = toastTimeouts.get(kept[i].id)
+    if (timeout !== undefined) {
+      clearTimeout(timeout)
+      toastTimeouts.delete(kept[i].id)
+    }
+    kept.splice(i, 1)
+  }
+  return kept
+}
+
 export const reducer = (state: State, action: Action): State => {
   switch (action.type) {
     case 'ADD_TOAST':
       return {
         ...state,
-        toasts: [action.toast, ...state.toasts].slice(0, TOAST_LIMIT),
+        toasts: [action.toast, ...evictForLimit(state.toasts)],
       }
 
     case 'UPDATE_TOAST':
@@ -166,6 +188,14 @@ function toast({ ...props }: Toast) {
   }
 }
 
+/** Test-only: drops every toast and pending removal, so each test starts empty. */
+function resetToasts(): void {
+  toastTimeouts.forEach((timeout) => clearTimeout(timeout))
+  toastTimeouts.clear()
+  memoryState = { toasts: [] }
+  listeners.forEach((listener) => listener(memoryState))
+}
+
 function useToast() {
   const [state, setState] = React.useState<State>(memoryState)
 
@@ -186,4 +216,4 @@ function useToast() {
   }
 }
 
-export { useToast, toast }
+export { useToast, toast, resetToasts }

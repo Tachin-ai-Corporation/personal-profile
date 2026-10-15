@@ -1,11 +1,3 @@
-// @vitest-environment node
-//
-// Story 1.8a + R1: the design-system color gate and the removed-symbol /
-// per-environment-secret bans in scripts/check-forbidden.sh.
-// The script runs from a temp copy of the repo layout (scripts/ + fixture
-// app/, components/, features/), so each case sees only its own fixtures. The
-// greps swallow their own errors, so this test (run in CI on GNU grep) is what
-// proves the patterns still match.
 import { spawnSync } from "node:child_process"
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -13,230 +5,131 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { afterEach, describe, expect, it } from "vitest"
 
-const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "check-forbidden.sh")
+const SCRIPTS = dirname(fileURLToPath(import.meta.url))
 
-const roots: string[] = []
+let root: string | undefined
 
-afterEach(() => {
-  for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true })
-})
-
-function runGate(files: Record<string, string>) {
-  const root = mkdtempSync(join(tmpdir(), "pp-gate-"))
-  roots.push(root)
+/** Runs check-forbidden.sh in a scratch git repo holding only `files` (untracked files count). */
+function check(files: Record<string, string>): { status: number | null; stderr: string } {
+  root = mkdtempSync(join(tmpdir(), "check-forbidden-"))
   mkdirSync(join(root, "scripts"))
-  copyFileSync(SCRIPT, join(root, "scripts", "check-forbidden.sh"))
-  for (const [path, body] of Object.entries(files)) {
+  for (const name of ["check-forbidden.sh", "check-tokens.sh"]) copyFileSync(join(SCRIPTS, name), join(root, "scripts", name))
+  for (const [path, content] of Object.entries(files)) {
     mkdirSync(dirname(join(root, path)), { recursive: true })
-    writeFileSync(join(root, path), body)
+    writeFileSync(join(root, path), content)
   }
-  const res = spawnSync("bash", [join(root, "scripts", "check-forbidden.sh")], { encoding: "utf8" })
-  return { code: res.status, out: `${res.stdout}${res.stderr}` }
+  spawnSync("git", ["init", "-q"], { cwd: root })
+  const run = spawnSync("bash", [join(root, "scripts/check-forbidden.sh")], { cwd: root, encoding: "utf8" })
+  return { status: run.status, stderr: run.stderr }
 }
 
-const tsx = (cls: string) => `export const X = () => <div className="${cls}" />\n`
+afterEach(() => {
+  if (root) rmSync(root, { recursive: true, force: true })
+  root = undefined
+})
 
-describe("check-forbidden color gate: hex", () => {
-  it.each([
-    ["arbitrary hex class", tsx("bg-[#fff]")],
-    ["hex string literal", `export const c = "#256a8c"\n`],
-    ["8-digit hex", `const c = '#256a8cff'\n`],
-    ["uppercase hex", `const c = "#ABC"\n`],
-  ])("fails on %s in features/ and prints file:line", (_name, body) => {
-    const { code, out } = runGate({ "features/x.tsx": `// line 1\n${body}` })
-    expect(code).toBe(1)
-    expect(out).toContain("FORBIDDEN [hex color]")
-    expect(out).toMatch(/features\/x\.tsx:2:/)
-  })
+const CHECKOUT = 'export const CHECKOUT_URL = "https://learnmore.1health.io/product-checkout"\n'
 
-  it("fails on hex in any file type (CSS module, JSON) under app/ and components/", () => {
-    const { code, out } = runGate({
-      "app/page.module.css": ".a { color: #fff; }\n",
-      "components/theme.json": `{ "c": "#000000" }\n`,
+/** Rule 5 (1health origins), spec F6-3: only environments.ts and the exact CHECKOUT_URL line of profile-constants.ts. */
+describe("scripts/check-forbidden.sh: 1health URLs", () => {
+  it("allows environments.ts and the CHECKOUT_URL line of profile-constants.ts", () => {
+    const run = check({
+      "lib/shared/environments.ts": 'export const A = "https://1health.app.1health.io"\n',
+      "lib/shared/profile-constants.ts": `/** Mentions 1health.io without a scheme. */\n${CHECKOUT}`,
     })
-    expect(code).toBe(1)
-    expect(out).toMatch(/app\/page\.module\.css:1:/)
-    expect(out).toMatch(/components\/theme\.json:1:/)
+    expect(run.stderr).toBe("")
+    expect(run.status).toBe(0)
   })
 
-  it("fails on a globals.css that is not exactly app/globals.css", () => {
-    const { code, out } = runGate({ "app/nested/globals.css": ":root { --x: #fff; }\n" })
-    expect(code).toBe(1)
-    expect(out).toMatch(/app\/nested\/globals\.css:1:/)
+  it("fails on any other 1health URL in profile-constants.ts", () => {
+    const run = check({ "lib/shared/profile-constants.ts": `${CHECKOUT}export const OTHER = "https://1health.app.1health.io/x"\n` })
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain("lib/shared/profile-constants.ts (only the CHECKOUT_URL line may name a 1health URL)")
+  })
+
+  it("fails on a changed CHECKOUT_URL line", () => {
+    const run = check({ "lib/shared/profile-constants.ts": 'export const CHECKOUT_URL = "https://evil.1health.io/product-checkout"\n' })
+    expect(run.status).toBe(1)
+  })
+
+  it("fails on the CHECKOUT_URL line copied into another file", () => {
+    const run = check({ "lib/shared/elsewhere.ts": CHECKOUT, "lib/shared/profile-constants.ts": CHECKOUT })
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain("lib/shared/elsewhere.ts")
+    expect(run.stderr).not.toContain("only the CHECKOUT_URL line")
   })
 })
 
-describe("check-forbidden color gate: Tailwind palette classes", () => {
-  it.each([
-    "bg-red-500",
-    "dark:text-white",
-    "bg-black/50",
-    "border-t-slate-200/40",
-    "hover:bg-blue-600",
-    "group-[.destructive]:text-red-300",
-  ])("fails on %s in components/", (cls) => {
-    const { code, out } = runGate({ "components/x.tsx": tsx(cls) })
-    expect(code).toBe(1)
-    expect(out).toContain("FORBIDDEN [Tailwind palette]")
-    expect(out).toMatch(/components\/x\.tsx:1:/)
-  })
+/** Rule 6 (spec F7-2, Story 7.3): only the deny list names switch-tenant. */
+describe("scripts/check-forbidden.sh: switch-tenant", () => {
+  const DENY = 'export const DENY = [{ method: "*", template: "v2/user/switch-tenant/**" }]\n'
 
-  // Every color-utility prefix in the spec's list, and every border side.
-  it.each([
-    "bg-red-500",
-    "text-sky-700",
-    "border-gray-200",
-    "border-x-zinc-300",
-    "border-y-stone-300",
-    "border-t-slate-200",
-    "border-r-red-200",
-    "border-b-lime-200",
-    "border-l-green-200",
-    "border-s-teal-200",
-    "border-e-cyan-200",
-    "ring-indigo-500",
-    "ring-offset-red-600",
-    "outline-violet-400",
-    "fill-purple-500",
-    "stroke-fuchsia-500",
-    "from-pink-500",
-    "via-rose-500",
-    "to-emerald-500",
-    "divide-amber-200",
-    "placeholder-orange-400",
-    "decoration-yellow-400",
-    "accent-blue-500",
-    "caret-white",
-    "shadow-black/20",
-    "drop-shadow-red-500",
-    "inset-ring-black",
-    "placeholder:text-gray-400",
-    "bg-neutral-100",
-  ])("fails on %s", (cls) => {
-    const { code } = runGate({ "features/x.tsx": tsx(cls) })
-    expect(code).toBe(1)
-  })
-
-  // The Tailwind 4.3 palettes the first pass missed.
-  it.each(["bg-mauve-500", "text-olive-700", "border-mist-300", "ring-taupe-400"])(
-    "fails on the added palette %s",
-    (cls) => {
-      const { code } = runGate({ "components/x.tsx": tsx(cls) })
-      expect(code).toBe(1)
-    },
-  )
-})
-
-describe("check-forbidden color gate: allowed", () => {
-  it("passes on transparent/current/inherit, tokens, section anchors, globals.css and test files", () => {
-    const { code, out } = runGate({
-      "features/ok.tsx": [
-        tsx("bg-transparent text-current fill-current stroke-current border-inherit text-inherit"),
-        tsx("bg-destructive-fill text-destructive-foreground text-link-text border-control-border bg-scrim"),
-        tsx("text-neutral bg-neutral/10 bg-card text-muted-foreground ring-ring ring-offset-background"),
-        `export const a = <a href="#personal">Personal</a>\n`,
-        `export const b = "#addresses"\n`,
-        `export const c = "#signature"\n`,
-      ].join(""),
-      "app/globals.css": ":root { --card: #ffffff; --x: #000; }\n",
-      "components/x.test.tsx": `${tsx("bg-red-500 text-white")}const c = "#256a8c"\n`,
-      "features/y.test.ts": `const c = "#fff"\n`,
+  it("allows the deny list and tests", () => {
+    const run = check({
+      "lib/server/proxy/deny-list.ts": DENY,
+      "lib/server/proxy/deny-list.test.ts": 'it("denies", () => isDenied("POST", "v2/user/switch-tenant"))\n',
     })
-    expect(out).not.toContain("FORBIDDEN")
-    expect(code).toBe(0)
-    expect(out).toContain("check-forbidden: clean.")
+    expect(run.stderr).toBe("")
+    expect(run.status).toBe(0)
   })
 
-  it("does not scan lib/ (outside the color scope)", () => {
-    const { code } = runGate({ "lib/shared/x.ts": `export const c = "#fff"\n` })
-    expect(code).toBe(0)
+  it.each(["switchTenant", "SWITCH_TENANT", "switch_tenant", "Switch-Tenant", "switchtenant"])("fails on the spelling %j (spec F7-2 review)", (name) => {
+    const run = check({ "lib/server/proxy/deny-list.ts": DENY, "lib/api/x.ts": `export const ${name.replace("-", "_")} = "${name}"\n` })
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain("lib/api/x.ts")
   })
 
-  it("passes on the current repo tree", () => {
-    const res = spawnSync("bash", [SCRIPT], { encoding: "utf8" })
-    expect(res.stdout + res.stderr).not.toContain("FORBIDDEN")
-    expect(res.status).toBe(0)
+  it.each(["lib/api/account.ts", "features/organizations/enter.ts", "app/handoff/portal/route.ts", "lib/server/handoff.ts"])("fails on %s", (path) => {
+    const run = check({ "lib/server/proxy/deny-list.ts": DENY, [path]: 'export const P = "v2/user/switch-tenant"\n' })
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain("switch-tenant outside lib/server/proxy/deny-list.ts")
+    expect(run.stderr).toContain(path)
+    expect(run.stderr).not.toContain("  lib/server/proxy/deny-list.ts")
   })
 })
 
-// Names are assembled at runtime so this file itself never spells a
-// `_DEMO`/`_PROD` name (the gate scans scripts/ too).
-const DEMO_NAME = ["ONEHEALTH_SECRET_KEY", "DEMO"].join("_")
-const PROD_NAME = ["APP_ID", "PROD"].join("_")
+// Names are assembled at runtime so this file never spells a `_DEMO`/`_PROD`
+// name itself (the gate scans scripts/ tests too).
+const demoKeyName = ["ONEHEALTH_SECRET_KEY", "DEMO"].join("_")
+const prodAppName = ["APP_ID", "PROD"].join("_")
+const demoAppName = ["APP_ID", "DEMO"].join("_")
 
-describe("check-forbidden: per-environment secret names (D1)", () => {
+/** Rule 3 (D1; spec R5-1 restored main's broad pattern): every `_DEMO`/`_PROD` name, `APP_ID_*` included. */
+describe("scripts/check-forbidden.sh: per-environment names", () => {
   it.each([
-    ["features/x.ts", `export const k = "${DEMO_NAME}"\n`],
-    ["lib/server/launch.ts", `const k = process.env.${PROD_NAME}\n`],
-    ["app/api/token/route.ts", `// ${DEMO_NAME}\n`],
-    ["proxy.ts", `const k = "${PROD_NAME}"\n`],
-    ["instrumentation.ts", `const k = "${DEMO_NAME}"\n`],
-    ["e2e/launch.spec.ts", `const k = "${DEMO_NAME}"\n`],
-    ["lib/server/token.test.ts", `const k = "${PROD_NAME}"\n`],
+    ["features/x.ts", `export const k = "${demoKeyName}"\n`],
+    ["lib/server/launch/launch.ts", `const k = env.${prodAppName}\n`],
+    ["lib/server/launch/launch.test.ts", `const k = TEST_ENV.${prodAppName}\n`],
+    ["app/api/token/route.ts", `// ${demoAppName}\n`],
+    ["proxy.ts", `const k = "${prodAppName}"\n`],
+    ["instrumentation.ts", `const k = "${demoKeyName}"\n`],
+    ["e2e/fixtures/core.ts", `const k = TEST_SERVER_ENV.${demoAppName}\n`],
+    ["e2e/launch.spec.ts", `const k = "${prodAppName}"`],
   ])("fails on a name in %s", (path, body) => {
-    const { code, out } = runGate({ [path]: body })
-    expect(code).toBe(1)
-    expect(out).toContain("FORBIDDEN [_DEMO/_PROD secret name]")
-    expect(out).toContain(path)
+    const run = check({ [path]: body })
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain("_DEMO/_PROD name outside the allowed files:")
+    expect(run.stderr).toContain(path)
   })
 
-  it("allows them in env.ts, its tests, .env.example and the CI/test fixtures", () => {
-    const line = `${DEMO_NAME}=x ${PROD_NAME}=y\n`
-    const { code, out } = runGate({
+  it("allows them in env.ts, its test, the env fixtures, .env.example, the Playwright config and CI", () => {
+    const line = `${demoKeyName}=x ${prodAppName}=y ${demoAppName}=z\n`
+    const run = check({
       "lib/server/env.ts": line,
       "lib/server/env.test.ts": line,
-      ".env.example": line,
-      ".github/workflows/ci.yml": line,
-      "playwright.config.ts": line,
-      "vitest.setup.ts": line,
-      "e2e/fixtures.ts": line,
       "test/env-fixture.ts": line,
+      ".env.example": line,
+      "playwright.config.ts": line,
+      "e2e/server-env.ts": line,
+      ".github/workflows/ci.yml": line,
     })
-    expect(out).not.toContain("FORBIDDEN")
-    expect(code).toBe(0)
-  })
-})
-
-describe("check-forbidden: removed symbols (D1, D4, D10, D13)", () => {
-  it.each([
-    ["APP_ENV", "const e = process.env.APP_ENV\n", "removed env/origin name"],
-    ["NEXT_PUBLIC_APP_ENV", "const e = process.env.NEXT_PUBLIC_APP_ENV\n", "removed env/origin name"],
-    ["API_ORIGIN", "import { API_ORIGIN } from './env'\n", "removed env/origin name"],
-    ["APP_ORIGIN", "const o = APP_ORIGIN\n", "removed env/origin name"],
-    ["PORTAL_URL", "// navigates to PORTAL_URL\n", "removed env/origin name"],
-    ["PORTAL_ORIGIN", "const o = PORTAL_ORIGIN\n", "removed env/origin name"],
-    ["PUBLIC_FILES_ORIGIN", "const o = PUBLIC_FILES_ORIGIN\n", "removed env/origin name"],
-    ["SameSite=None", 'const c = "x; SameSite=None; Secure"\n', "SameSite=None"],
-    ["Partitioned", 'const c = "x; Partitioned"\n', "Partitioned"],
-    ["window.top", "const framed = window.self !== window.top\n", "window.top"],
-  ])("fails on %s in features/x.ts", (_name, body, label) => {
-    const { code, out } = runGate({ "features/x.ts": body })
-    expect(code).toBe(1)
-    expect(out).toContain(`FORBIDDEN [${label}]`)
-    expect(out).toMatch(/features\/x\.ts:1:/)
+    expect(run.stderr).toBe("")
+    expect(run.status).toBe(0)
   })
 
-  it("fails on bg-black/50 in lib/ too", () => {
-    const { code, out } = runGate({ "lib/shared/x.ts": `export const c = "bg-black/50"\n` })
-    expect(code).toBe(1)
-    expect(out).toContain("FORBIDDEN [bg-black/50]")
-  })
-
-  it.each(["lib/server/env.ts", "lib/server/proxy.ts", "proxy.ts", "instrumentation.ts", "app/auth/page.tsx"])(
-    "scans %s",
-    (path) => {
-      const { code } = runGate({ [path]: "const o = APP_ORIGIN\n" })
-      expect(code).toBe(1)
-    },
-  )
-
-  it("skips test files and e2e/, and does not flag look-alikes", () => {
-    const { code, out } = runGate({
-      "features/x.test.tsx": "const e = APP_ENV; const t = window.top\n",
-      "e2e/headers.spec.ts": "const o = PORTAL_URL\n",
-      "features/ok.ts": "const portalUrl = env.portalUrl; const topWindow = window.topmost\n",
-    })
-    expect(out).not.toContain("FORBIDDEN")
-    expect(code).toBe(0)
+  it.each(["DEMO", "PROD", "IS_PRODUCTION", "SOME_PRODUCT", "ENV_DEMOGRAPHICS", "x_demo"])("ignores %j (no `_DEMO`/`_PROD` name)", (word) => {
+    const run = check({ "lib/x.ts": `export const value = "${word}"\n` })
+    expect(run.stderr).toBe("")
+    expect(run.status).toBe(0)
   })
 })

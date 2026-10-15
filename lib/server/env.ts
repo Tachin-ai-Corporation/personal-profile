@@ -1,155 +1,169 @@
 import "server-only"
 
+import { z } from "zod"
 import type { Environment } from "@/lib/shared/environments"
 
 /**
- * =============================================================================
- * Server environment — the single reader of server `process.env` (D1)
- * =============================================================================
- *
- * This module (and only this module) reads server-side `process.env`. The one
- * other exception is `lib/shared/app-env.ts#isLocalDev()`, which reads only
- * `process.env.NODE_ENV` (D6). ESLint enforces both (see `eslint.config.mjs`).
- *
- * Validation runs at module load. `instrumentation.ts` imports this module from
- * `register()` so a missing or invalid required variable fails the boot. Boot
- * errors name the offending variable but NEVER print its value.
- *
- * One deployment serves demo and prod (D1). The environment of a session is the
- * one whose key decrypted its launch payload (D2), so each secret exists once
- * per environment. No 1health origin comes from an env var: origins live in
- * `lib/shared/environments.ts` (D4).
- *
- * Secret keys are returned exactly as stored. Whitespace around a key is not a
- * boot error: the launch tries the trimmed variant and warns (Story 1.2).
- * =============================================================================
+ * The only reader of server `process.env` (lint-enforced; `lib/shared/app-env.ts`
+ * reads `NODE_ENV` only). Validated once, on first use; `instrumentation.ts`
+ * calls `assertServerEnv()` at boot so a misconfigured deployment fails
+ * immediately. Errors name the offending variable and never print its value.
+ * Surrounding whitespace in a secret key is not an error: the launch also
+ * tries the trimmed variant (Story 1.2). A blank key, or two keys that are
+ * equal after trimming (every payload would detect as prod, D2), fail the boot.
  */
 
-/** A boolean env flag is `true` only for the exact string "1"; everything else is `false`. */
-function bool(v: string | undefined): boolean {
-  return v === "1"
+/** AD-6: the default (patient) tenant. */
+export const DEFAULT_TENANT_ID = 1
+
+const required = (name: string): z.ZodString =>
+  z.string({ error: `${name} is required` }).min(1, { error: `${name} is required` })
+
+/** Required and not blank; an empty value reports "is required" once (abort), never also "blank". */
+const secretKey = (name: string): z.ZodString =>
+  z
+    .string({ error: `${name} is required` })
+    .min(1, { error: `${name} is required`, abort: true })
+    .refine((value) => value.trim() !== "", { error: `${name} must not be blank` })
+
+/** The launch credentials the e2e upstream mock requires to be dummy (`e2e-…`) values. */
+export const E2E_MOCK_CREDENTIALS = ["ONEHEALTH_SECRET_KEY_DEMO", "ONEHEALTH_SECRET_KEY_PROD", "APP_ID_DEMO", "APP_ID_PROD"] as const
+
+/** The prefix every launch credential must carry while `PP_E2E_MOCK=1`. */
+export const E2E_CREDENTIAL_PREFIX = "e2e-"
+
+const sessionSecret = (name: string): z.ZodString =>
+  z.string({ error: `${name} is required` }).min(32, { error: `${name} must be at least 32 characters` })
+
+/** `true` only for the exact string "1". */
+const flag = z
+  .string()
+  .optional()
+  .transform((value) => value === "1")
+
+const optionalString = z
+  .string()
+  .optional()
+  .transform((value) => (value === "" ? undefined : value))
+
+const envSchema = z
+  .object({
+    ONEHEALTH_SECRET_KEY_DEMO: secretKey("ONEHEALTH_SECRET_KEY_DEMO"),
+    ONEHEALTH_SECRET_KEY_PROD: secretKey("ONEHEALTH_SECRET_KEY_PROD"),
+    APP_ID_DEMO: required("APP_ID_DEMO"),
+    APP_ID_PROD: required("APP_ID_PROD"),
+    SESSION_SECRET: sessionSecret("SESSION_SECRET"),
+    SESSION_SECRET_PREVIOUS: optionalString.pipe(sessionSecret("SESSION_SECRET_PREVIOUS").optional()),
+    PLACES_ENABLED: flag,
+    GOOGLE_PLACES_KEY: optionalString,
+    PP_DISABLED: flag,
+    ACCOUNT_DISABLED: flag,
+    PP_E2E_FIXTURES: flag,
+    PP_E2E_MOCK: flag,
+    NODE_ENV: z.string().optional(),
+  })
+  .superRefine((env, ctx) => {
+    if (env.ONEHEALTH_SECRET_KEY_DEMO.trim() === env.ONEHEALTH_SECRET_KEY_PROD.trim()) {
+      // Both variables are named (one issue each, one message); never the values.
+      for (const name of ["ONEHEALTH_SECRET_KEY_DEMO", "ONEHEALTH_SECRET_KEY_PROD"]) {
+        ctx.addIssue({ code: "custom", path: [name], message: "ONEHEALTH_SECRET_KEY_DEMO and ONEHEALTH_SECRET_KEY_PROD must differ" })
+      }
+    }
+    if (env.PP_E2E_MOCK) {
+      // The mock fakes 1health: never boot it next to real credentials (names only, never values).
+      for (const name of E2E_MOCK_CREDENTIALS) {
+        if (!env[name].startsWith(E2E_CREDENTIAL_PREFIX)) {
+          ctx.addIssue({ code: "custom", path: [name], message: `${name} must be an e2e dummy value ("${E2E_CREDENTIAL_PREFIX}…") when PP_E2E_MOCK=1` })
+        }
+      }
+    }
+    if (env.PLACES_ENABLED && !env.GOOGLE_PLACES_KEY) {
+      ctx.addIssue({ code: "custom", path: ["GOOGLE_PLACES_KEY"], message: "GOOGLE_PLACES_KEY is required when PLACES_ENABLED=1" })
+    }
+  })
+
+export interface ServerEnv {
+  readonly ONEHEALTH_SECRET_KEY_DEMO: string
+  readonly ONEHEALTH_SECRET_KEY_PROD: string
+  readonly APP_ID_DEMO: string
+  readonly APP_ID_PROD: string
+  readonly SESSION_SECRET: string
+  readonly SESSION_SECRET_PREVIOUS: string | undefined
+  readonly PLACES_ENABLED: boolean
+  readonly GOOGLE_PLACES_KEY: string | undefined
+  readonly PP_DISABLED: boolean
+  readonly ACCOUNT_DISABLED: boolean
+  /** Serves the Playwright fixture pages under `/test-fixtures/**` (never set in a deployment). */
+  readonly PP_E2E_FIXTURES: boolean
+  /** Installs the server-side e2e upstream mock (`test/e2e-upstream-mock.ts`; Playwright only, never set in a deployment). */
+  readonly PP_E2E_MOCK: boolean
+  /** `NODE_ENV === "development"`. */
+  readonly IS_LOCAL_DEV: boolean
+  /** The External Application secret key of an environment, as stored. */
+  getSecretKey(environment: Environment): string
+  /** The External Application id of an environment. */
+  getAppId(environment: Environment): string
 }
 
-/** Read a required variable; throw naming it (never its value) when missing/empty. */
-function required(name: string): string {
-  const v = process.env[name]
-  if (!v) {
-    throw new Error(`[env] Missing required variable: ${name}`)
+export class ServerEnvError extends Error {
+  constructor(readonly variables: readonly string[], messages: readonly string[]) {
+    super(`Invalid server environment: ${[...new Set(messages)].join("; ")}`)
+    this.name = "ServerEnvError"
   }
-  return v
 }
 
-/** Read an optional variable; returns `undefined` when unset or empty. */
-function optional(name: string): string | undefined {
-  const v = process.env[name]
-  return v ? v : undefined
-}
+type EnvSource = Readonly<Record<string, string | undefined>>
 
-function resolveSessionSecret(): string {
-  const raw = required("SESSION_SECRET")
-  if (raw.length < 32) {
-    throw new Error(`[env] Invalid value for SESSION_SECRET (must be at least 32 characters)`)
+/** Pure parser, exported for the table test. */
+export function parseServerEnv(source: EnvSource): ServerEnv {
+  const result = envSchema.safeParse(source)
+  if (!result.success) {
+    throw new ServerEnvError(
+      result.error.issues.map((issue) => String(issue.path[0])),
+      result.error.issues.map((issue) => issue.message),
+    )
   }
-  return raw
-}
-
-function resolveGooglePlacesKey(placesEnabled: boolean): string | undefined {
-  const key = optional("GOOGLE_PLACES_KEY")
-  if (placesEnabled && !key) {
-    throw new Error(`[env] Missing required variable: GOOGLE_PLACES_KEY (required when PLACES_ENABLED=1)`)
+  const env = result.data
+  const secretKeys: Record<Environment, string> = { demo: env.ONEHEALTH_SECRET_KEY_DEMO, prod: env.ONEHEALTH_SECRET_KEY_PROD }
+  const appIds: Record<Environment, string> = { demo: env.APP_ID_DEMO, prod: env.APP_ID_PROD }
+  return {
+    ONEHEALTH_SECRET_KEY_DEMO: env.ONEHEALTH_SECRET_KEY_DEMO,
+    ONEHEALTH_SECRET_KEY_PROD: env.ONEHEALTH_SECRET_KEY_PROD,
+    APP_ID_DEMO: env.APP_ID_DEMO,
+    APP_ID_PROD: env.APP_ID_PROD,
+    SESSION_SECRET: env.SESSION_SECRET,
+    SESSION_SECRET_PREVIOUS: env.SESSION_SECRET_PREVIOUS,
+    PLACES_ENABLED: env.PLACES_ENABLED,
+    GOOGLE_PLACES_KEY: env.GOOGLE_PLACES_KEY,
+    PP_DISABLED: env.PP_DISABLED,
+    ACCOUNT_DISABLED: env.ACCOUNT_DISABLED,
+    PP_E2E_FIXTURES: env.PP_E2E_FIXTURES,
+    PP_E2E_MOCK: env.PP_E2E_MOCK,
+    IS_LOCAL_DEV: env.NODE_ENV === "development",
+    getSecretKey: (environment) => secretKeys[environment],
+    getAppId: (environment) => appIds[environment],
   }
-  return key
 }
 
-/**
- * Read a secret key: required, and not blank after `.trim()` (a blank key can
- * never form an AES key, so every launch would fail). Surrounding whitespace on
- * a non-blank key is kept as stored (the launch tries the trimmed variant).
- */
-function secretKey(name: string): string {
-  const raw = required(name)
-  if (raw.trim().length === 0) {
-    throw new Error(`[env] Invalid value for ${name} (must not be blank)`)
-  }
-  return raw
+/** The env var name holding an environment's secret key (for warnings; never the value). */
+export function secretKeyVariable(environment: Environment): string {
+  return environment === "demo" ? "ONEHEALTH_SECRET_KEY_DEMO" : "ONEHEALTH_SECRET_KEY_PROD"
 }
 
-// --- Resolve + validate at module load ---------------------------------------
+let cached: ServerEnv | undefined
 
-/** LPL decryption key + exchange-signature secret for the demo environment (secret). */
-export const ONEHEALTH_SECRET_KEY_DEMO: string = secretKey("ONEHEALTH_SECRET_KEY_DEMO")
-
-/** LPL decryption key + exchange-signature secret for the prod environment (secret). */
-export const ONEHEALTH_SECRET_KEY_PROD: string = secretKey("ONEHEALTH_SECRET_KEY_PROD")
-
-// Equal keys would detect every payload as prod (PROD is tried first, D2).
-if (ONEHEALTH_SECRET_KEY_DEMO.trim() === ONEHEALTH_SECRET_KEY_PROD.trim()) {
-  throw new Error(
-    `[env] Invalid value for ONEHEALTH_SECRET_KEY_DEMO / ONEHEALTH_SECRET_KEY_PROD (the two keys must differ)`,
-  )
+/** The validated server env (parsed once per process). */
+export function serverEnv(): ServerEnv {
+  cached ??= parseServerEnv(process.env)
+  return cached
 }
 
-/** The demo External Application id (`required.apiKey.name` must equal it). */
-export const APP_ID_DEMO: string = required("APP_ID_DEMO")
-
-/** The prod External Application id (`required.apiKey.name` must equal it). */
-export const APP_ID_PROD: string = required("APP_ID_PROD")
-
-/** iron-session sealing key (secret, ≥ 32 chars). */
-export const SESSION_SECRET: string = resolveSessionSecret()
-
-/** Previous sealing key accepted for unsealing during a rotation overlap (optional, AD-20). */
-export const SESSION_SECRET_PREVIOUS: string | undefined = optional("SESSION_SECRET_PREVIOUS")
-
-/** Whether Google Places address suggestions are enabled (AD-14). */
-export const PLACES_ENABLED: boolean = bool(optional("PLACES_ENABLED"))
-
-/** Google Places (New) server key (secret); required only when `PLACES_ENABLED` (AD-14). */
-export const GOOGLE_PLACES_KEY: string | undefined = resolveGooglePlacesKey(PLACES_ENABLED)
-
-/** Incident kill switch: launch, the proxy and the session routes answer 503 SERVICE_DISABLED (AD-20). */
-export const PP_DISABLED: boolean = bool(optional("PP_DISABLED"))
-
-/** Profile-module kill switch: proxy entries tagged `profile: true` answer 503 (D12, Story 1.3). */
-export const ACCOUNT_DISABLED: boolean = bool(optional("ACCOUNT_DISABLED"))
-
-/** `true` only under local `next dev` (`NODE_ENV === "development"`). */
-export const IS_LOCAL_DEV: boolean = process.env.NODE_ENV === "development"
-
-/** The required patient tenant (AD-6). */
-export const DEFAULT_TENANT_ID = 1 as const
-
-const SECRET_KEYS: Readonly<Record<Environment, string>> = {
-  demo: ONEHEALTH_SECRET_KEY_DEMO,
-  prod: ONEHEALTH_SECRET_KEY_PROD,
+/** Boot-time check, called from `instrumentation.ts`. Throws `ServerEnvError`. */
+export function assertServerEnv(): void {
+  serverEnv()
 }
 
-const APP_IDS: Readonly<Record<Environment, string>> = {
-  demo: APP_ID_DEMO,
-  prod: APP_ID_PROD,
-}
-
-/**
- * The env var NAME holding each environment's secret key, for warnings that
- * must name the variable without its value (Story 1.2). Names live here so no
- * other module spells a `_DEMO`/`_PROD` name (forbidden-pattern gate, D1).
- */
-const SECRET_KEY_VAR_NAMES: Readonly<Record<Environment, string>> = {
-  demo: "ONEHEALTH_SECRET_KEY_DEMO",
-  prod: "ONEHEALTH_SECRET_KEY_PROD",
-}
-
-/** The secret key of `env`, exactly as stored (never trimmed). */
-export function getSecretKey(env: Environment): string {
-  return SECRET_KEYS[env]
-}
-
-/** The External Application id of `env`. */
-export function getAppId(env: Environment): string {
-  return APP_IDS[env]
-}
-
-/** The NAME (never the value) of the variable holding `env`'s secret key. */
-export function getSecretKeyVarName(env: Environment): string {
-  return SECRET_KEY_VAR_NAMES[env]
+/** Test hook: forget the cached env so a test can swap `process.env`. */
+export function resetServerEnvCache(): void {
+  cached = undefined
 }

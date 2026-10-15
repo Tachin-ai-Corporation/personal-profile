@@ -1,39 +1,53 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  push:
+    # feat/** too (spec F7-1): each team's branch is verified on every push, before its PR.
+    branches: [main, "feat/**"]
+  # The merge queue (if enabled in the repo settings) verifies each PR merged on top of the others.
+  merge_group:
 
-# Dummy values only — never real 1health credentials (AD-20). These satisfy the
-# boot-time env validator so build and e2e can run.
-env:
-  ONEHEALTH_SECRET_KEY_DEMO: dummy-demo-secret
-  ONEHEALTH_SECRET_KEY_PROD: dummy-prod-secret
-  APP_ID_DEMO: dummy-app-demo
-  APP_ID_PROD: dummy-app-prod
-  SESSION_SECRET: dummy-session-secret-0123456789abcdef
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  ci:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    env:
+      # Dummy values scoped to this workflow: CI never needs real 1health credentials.
+      ONEHEALTH_SECRET_KEY_DEMO: ci-demo-secret-key
+      ONEHEALTH_SECRET_KEY_PROD: ci-prod-secret-key
+      APP_ID_DEMO: ci-app-demo
+      APP_ID_PROD: ci-app-prod
+      SESSION_SECRET: ci-session-secret-0123456789abcdefgh
     steps:
       - uses: actions/checkout@v4
 
-      - name: Enable corepack
+      # setup-node's `cache: pnpm` runs `pnpm store path`, so pnpm must be on PATH
+      # first (main's order): corepack of the runner's Node provides it.
+      - name: Enable corepack (pnpm from packageManager)
         run: corepack enable
 
-      - name: Set up Node 24
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 24.x
+          node-version: 24
           cache: pnpm
 
-      - name: Install dependencies
+      # Again for Node 24 itself, whose bin dir now comes first on PATH.
+      - name: Enable corepack for Node 24
+        run: corepack enable
+
+      - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Forbidden-pattern gate
+      # Includes scripts/check-tokens.sh (hex, palette classes, D13 token misuse).
+      - name: Forbidden patterns and design tokens
         run: bash scripts/check-forbidden.sh
 
       - name: Lint
@@ -42,14 +56,15 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Unit tests
-        run: pnpm test
+      - name: Unit tests (100% coverage on lib/server, lib/api, lib/shared)
+        run: pnpm vitest run --coverage
 
-      - name: Install Playwright browsers
+      # Built once: the e2e web server only starts this build when CI is set.
+      - name: Build
+        run: pnpm build
+
+      - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
 
       - name: End-to-end tests
         run: pnpm test:e2e
-
-      - name: Build
-        run: pnpm build

@@ -1,46 +1,49 @@
 "use client"
 
-import { SHELL_COPY } from "@/lib/shared/messages"
-import { SectionFrame } from "./section-frame"
-import { SectionNav } from "./section-nav"
-import { SECTION_COLUMNS, SECTIONS, SIGNATURE_ANCHOR } from "./sections"
+import { Fragment, type ReactNode } from "react"
+import { PROFILE_SECTION_IDS, PROFILE_SECTIONS, type ProfileSectionId } from "./anchors"
+import { ProfileSectionPlaceholder } from "./placeholders"
+import { SectionCountProvider } from "./section-counts"
+import { SectionFrameProvider, useLandmarkCheck } from "./section-frame"
+import { SectionNav, useSectionNavigation } from "./section-nav"
+
+export interface ContactsPanelProps {
+  /**
+   * The five Sections, by id, composed by the route (`app/page.tsx`). Each
+   * element renders its own `SectionLandmark id={id}` (the `<section id>`
+   * the Section menu, Jump to and deep links target) and passes
+   * `useSectionFrame(id).onReady` to its `StateFrame`. A missing entry shows
+   * that Section's loading placeholder.
+   */
+  readonly sections?: Partial<Record<ProfileSectionId, ReactNode>>
+}
 
 /**
- * The Contacts tab body (Story 1.8): the Section menu (≥ 768 px) or Jump to
- * (< 768 px) beside / above the five Sections, each in its loading placeholder
- * until Stories 1.9 and 1.11 give them content.
+ * The Contacts tab body (F3-3, port of main's Story 1.8B; slots since F6-1):
+ * the Section menu (≥ 768 px) or Jump to (< 768 px) beside / above the five
+ * Sections, always in `PROFILE_SECTIONS` order.
  */
-export function ContactsPanel() {
+export function ContactsPanel({ sections }: ContactsPanelProps = {}) {
   return (
-    <div className="md:grid md:grid-cols-[200px_minmax(0,1fr)]">
-      <SectionNav />
-      <div className="flex min-w-0 flex-col gap-8 px-4 py-4 md:p-6">
-        {SECTIONS.map((s) => (
-          <SectionFrame
-            key={s.id}
-            id={s.id}
-            title={s.label}
-            columns={SECTION_COLUMNS[s.id]}
-            state="loading"
-            anchors={s.id === "personal" ? <SignaturePlaceholder /> : undefined}
-          />
-        ))}
-      </div>
-    </div>
+    <SectionCountProvider>
+      <ContactsBody sections={sections} />
+    </SectionCountProvider>
   )
 }
 
-/** The `#signature` deep-link target inside Personal information. */
-function SignaturePlaceholder() {
+function ContactsBody({ sections }: ContactsPanelProps) {
+  const nav = useSectionNavigation()
+  useLandmarkCheck(PROFILE_SECTION_IDS, "ContactsPanel")
   return (
-    <div
-      id={SIGNATURE_ANCHOR}
-      role="group"
-      aria-label={SHELL_COPY.signature}
-      className="flex h-11 items-center gap-4 border-t px-3"
-    >
-      <span className="w-24 shrink-0 text-body-sm text-muted-foreground">{SHELL_COPY.signature}</span>
-      <span aria-hidden="true" className="h-3 min-w-0 flex-1 animate-pulse rounded-sm bg-muted" />
+    <div className="md:grid md:grid-cols-[200px_minmax(0,1fr)]">
+      <SectionNav state={nav} />
+      <div className="flex min-w-0 flex-col gap-8 px-4 py-4 md:p-6">
+        <SectionFrameProvider onReady={nav.frameReady}>
+          {PROFILE_SECTIONS.map((section) => (
+            <Fragment key={section.id}>{sections?.[section.id] ?? <ProfileSectionPlaceholder id={section.id} />}</Fragment>
+          ))}
+        </SectionFrameProvider>
+      </div>
     </div>
   )
 }

@@ -1,12 +1,17 @@
 /**
- * The shared app-env helper (D6).
- *
- * The ONE place outside `lib/server/env.ts` allowed to read `process.env`, and
- * only `process.env.NODE_ENV` (ESLint enforces both). It holds no environment
- * choice: demo vs prod is per session, never per build (D1, D2).
+ * The only `process.env` reads outside `lib/server/env.ts` (D6, lint exception):
+ * only `NODE_ENV`, inlined by Next at build time. True under `next dev` only;
+ * never in a Vercel build or under test.
  */
-
-/** `true` only under local `next dev` (`NODE_ENV === "development"`). */
 export function isLocalDev(): boolean {
   return process.env.NODE_ENV === "development"
+}
+
+/**
+ * True in a production build (`next build` / `next start`). Development-only
+ * checks (such as a duplicate Section id) run whenever this is false, so they
+ * also run under test.
+ */
+export function isProductionBuild(): boolean {
+  return process.env.NODE_ENV === "production"
 }

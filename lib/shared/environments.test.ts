@@ -1,33 +1,48 @@
 import { describe, expect, it } from "vitest"
-import { ENVIRONMENTS, environments, isEnvironment } from "./environments"
+import { environmentConfig, environmentFromReferrer, environmentOfPortalUrl, isEnvironment } from "./environments"
 
-describe("environments map (D4)", () => {
-  it("holds the demo origins", () => {
-    expect(environments.demo).toEqual({
+describe("environments", () => {
+  it("holds the D4 map values", () => {
+    expect(environmentConfig("demo")).toMatchObject({
       apiRoot: "https://1health.demo.1health.io",
       apiBase: "https://1health.demo.1health.io/api",
       portalUrl: "https://1health.demo.1health.io",
-      publicFilesOrigin: undefined,
+      publicFilesOrigin: "https://bocore-public-files-demo.s3.us-west-1.amazonaws.com",
     })
-  })
-
-  it("holds the prod origins", () => {
-    expect(environments.prod).toEqual({
+    expect(environmentConfig("prod")).toMatchObject({
       apiRoot: "https://1health.app.1health.io",
       apiBase: "https://1health.app.1health.io/api",
       portalUrl: "https://1health.app.1health.io",
-      publicFilesOrigin: undefined,
+      publicFilesOrigin: "https://bocore-public-files-prod.s3.us-west-1.amazonaws.com",
     })
   })
 
-  it("has exactly demo and prod, detected prod first", () => {
-    expect(Object.keys(environments).sort()).toEqual(["demo", "prod"])
-    expect(ENVIRONMENTS).toEqual(["prod", "demo"])
+  it("keeps every public-files origin a bare https origin (AD-24 compares with URL#origin)", () => {
+    for (const environment of ["demo", "prod"] as const) {
+      const origin = environmentConfig(environment).publicFilesOrigin ?? ""
+      expect(new URL(origin).origin).toBe(origin)
+      expect(origin.startsWith("https://")).toBe(true)
+    }
   })
 
-  it("isEnvironment accepts only demo and prod", () => {
+  it.each([
+    ["https://1health.demo.1health.io/apps", "demo"],
+    ["https://1health.app.1health.io/", "prod"],
+    ["https://example.com/", null],
+    ["not a url", null],
+  ])("detects %s as %s", (referrer, expected) => {
+    expect(environmentFromReferrer(referrer)).toBe(expected)
+  })
+
+  it("maps a portal URL back to its environment", () => {
+    expect(environmentOfPortalUrl("https://1health.demo.1health.io")).toBe("demo")
+    expect(environmentOfPortalUrl("https://1health.app.1health.io")).toBe("prod")
+    expect(environmentOfPortalUrl("https://portal.test")).toBeNull()
+  })
+
+  it("narrows environment values", () => {
     expect(isEnvironment("demo")).toBe(true)
     expect(isEnvironment("prod")).toBe(true)
-    for (const v of ["dev", "", "Prod", undefined, null, 1, {}]) expect(isEnvironment(v)).toBe(false)
+    expect(isEnvironment("dev")).toBe(false)
   })
 })

@@ -1,5 +1,5 @@
 /**
- * An in-memory `BroadcastChannel` for tests. Every instance is recorded so a
+ * An in-memory `BroadcastChannel` for tests. Every instance is recorded, so a
  * test can inspect what a tab posted (`posted`) and simulate a message from
  * another tab (`deliver`). As in browsers, a post never reaches its own sender.
  */
@@ -25,9 +25,16 @@ export class FakeBroadcastChannel {
     this.closed = true
   }
 
-  /** Simulate a message from another tab arriving on this channel. */
+  /** Simulates a message from another tab arriving on this channel. */
   deliver(data: unknown): void {
     this.onmessage?.({ data } as MessageEvent)
+  }
+
+  /** The one open channel with this name (fails the test otherwise). */
+  static open(name: string): FakeBroadcastChannel {
+    const open = FakeBroadcastChannel.instances.filter((channel) => channel.name === name && !channel.closed)
+    if (open.length !== 1) throw new Error(`expected one open "${name}" channel, found ${open.length}`)
+    return open[0]
   }
 
   static reset(): void {

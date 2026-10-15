@@ -4,139 +4,72 @@ A greenfield starter template for building front-end applications on top of the 
 
 ## What's Included
 
-- **Authentication** -- LPL-based SSO with environment selection (Demo/Prod) and automatic token refresh
-- **API Layer** -- `authFetch()` wrapper for all authenticated 1health API calls
-- **1health API Patterns** -- Generic, typed modules for the platform's core engines: runtime schema discovery, `/query`, custom data, workflows (campaigns, journeys, steps), and self-bootstrap provisioning (an app can install its own workflow template + campaign on any tenant) -- plus a data-driven step-form renderer. See `docs/api/`
-- **Session Context** -- `useSession()` provides cached user + tenant data to all components (fetched once on mount)
-- **Settings Page** -- Displays organization info, user account, and token management
+- **Backend-for-Frontend auth** -- the portal opens `/auth?lpl=…`; `/api/token` decrypts the launch payload, exchanges the code and seals the tokens into one `HttpOnly` cookie (`__Host-pp_s`). The browser never sees a token. See `docs/AUTH-ARCHITECTURE.md`
+- **Allowlisted 1health proxy** -- `/api/1h/<path>`: path normalization, deny list, per-entry query/body schemas, 415 content-type check, kill switches, no-store headers, PHI-free logs
+- **Client transport** -- `callApi()` (same-origin only, never throws) with client-coordinated token refresh, session events, SWR keys and `useMyself()`
+- **Security headers** -- per-request nonce CSP and the AD-21 header set on every response (`proxy.ts`)
 - **Design System** -- 1health design tokens (color, type, spacing, motion) with a brandable three-tier structure and light/dark themes
-- **Documentation** -- Architecture docs for auth, API patterns, debugging, and the design system
+- **Tests and CI** -- Vitest + Testing Library + MSW, Playwright (desktop and 360 px), forbidden-pattern check, GitHub Actions
 
 ## Project Structure
 
 ```
+proxy.ts               # AD-21 security headers + CSP nonce on every response
+instrumentation.ts     # validates the server env at boot
 app/
-  api/token/         # Server-side LPL decryption and token exchange
-  auth/              # Authentication page with environment selector
-  page.tsx           # Auth guard, redirects to auth or renders app
-  layout.tsx         # Root layout with providers
-
-components/
-  home-page-client.tsx  # Main client entry point (add pages here)
-  settings-page.tsx     # User account info + token management (current home page)
-  auth-exit-dialog.tsx  # Dialog for returning to 1health portal
-  workflow/             # Reusable workflow UI (dynamic-step-form.tsx)
-  ui/                   # shadcn/ui components
-
-contexts/
-  session-context.tsx     # SessionProvider / useSession() - cached user + tenant data
-  navigation-context.tsx  # Auth exit dialog state
-
+  auth/                # launch entry wrapper (renders features/shell/auth-screen.tsx)
+  api/token/           # launch: decrypt + exchange + seal the session cookie
+  api/1h/[...path]/    # the allowlisted 1health proxy
+  api/session/         # refresh + logout
+  page.tsx             # requires a session; embeds the portal URL
+  layout.tsx           # root layout, the one SWRConfig
+features/shell/        # auth screen + launch flow, PortalUrlProvider, SwrProvider, useMyself
 lib/
-  auth-client.ts     # Client-side auth: authFetch(), refreshToken(), cookies
-  api/               # 1health API layer (import from "@/lib/api")
-    client.ts        # callApi / ApiResponse envelope (single transport)
-    types.ts         # Shared wire & domain types
-    config.ts        # Endpoint paths + RECORD_TYPES / ATTRIBUTES (fill per app)
-    schema.ts        # Runtime type/attribute/relationship discovery (+ cache)
-    query.ts         # /api/v2/query + RSQL builders + response extractors
-    grid.ts          # Grid/list endpoints + fetch-all pagination
-    custom-data.ts   # Read/write instance customData
-    workflow-template.ts  # Campaign->template resolution + field-by-label
-    journey.ts       # Journeys (workflow instances): create/fetch/list/status
-    journey-step.ts  # Steps: fetch + the 3 submit recipes + metadata builder
-    attachments.ts   # Journey files: documents, upload, download, delete
-    comments.ts      # Journey comments
-    campaign.ts      # Campaign lifecycle: create/activate/share/list/find
-    workflow-provisioning.ts  # Self-bootstrap templates + campaigns (ensureWorkflow)
-    step-config.ts   # Edit step config: email notifications + webhooks
-    partnerships.ts  # List partner orgs (resolve share targets)
-    index.ts         # Barrel export
-    user.ts          # Current user info (fetchMyself, isSystemAdmin)
-    tenant.ts        # Tenant/org config (fetchTenantConfig)
-
-hooks/
-  use-session-expired.ts    # Session expiry detection
-
-docs/
-  DESIGN-SYSTEM.md       # Design tokens, rebranding, and UI guidelines
-  AUTH-ARCHITECTURE.md   # Authentication flow documentation
-  ACTION-PATTERNS.md     # API call patterns and examples
-  README-DEBUGGER.md     # API debug logging documentation
-  api/                   # 1health platform API guide (start at api/README.md)
-    README.md            # Index + mental model
-    DATA-MODEL.md        # Object types, instances, attributes, customData
-    SCHEMA-DISCOVERY.md  # Runtime type/attribute/relationship introspection
-    QUERY.md             # /api/v2/query + grid endpoints
-    CUSTOM-DATA.md       # Reading/writing customData
-    WORKFLOWS.md         # Campaigns, journeys, steps, submission recipes
-    PROVISIONING.md      # Self-bootstrap workflow templates + campaigns by name
-    DYNAMIC-STEPS.md     # Building step UIs generically
-    CONVENTIONS.md       # How to add a new API module
-    GOTCHAS.md           # Platform quirks to code around
+  server/              # server-only: env, session, launch, proxy, security, http, log
+  api/                 # client: callApi, session events, keys, fetcher, typed modules
+  shared/              # pure, isomorphic: environments, BFF contract
+components/ui/         # shadcn/ui components
+test/  e2e/            # Vitest setup (MSW) and fixtures; Playwright specs
+scripts/check-forbidden.sh  # CI forbidden-pattern gate
 ```
 
 ## Environment Variables
 
-One deployment serves both 1health environments (D1). See `.env.example` for
-dummy values; `lib/server/env.ts` validates them at boot.
+Copy `.env.example` to `.env.local`. Only `lib/server/env.ts` reads them, and
+boot fails (naming the variable, never its value) when one is invalid.
 
 | Variable | Description |
 |---|---|
-| `ONEHEALTH_SECRET_KEY_DEMO` | LPL decryption key + exchange-signature secret for demo (required) |
-| `ONEHEALTH_SECRET_KEY_PROD` | LPL decryption key + exchange-signature secret for production (required) |
-| `APP_ID_DEMO` | External Application id for demo (required) |
-| `APP_ID_PROD` | External Application id for production (required) |
-| `SESSION_SECRET` | iron-session sealing key, at least 32 characters (required) |
-| `SESSION_SECRET_PREVIOUS` | Previous sealing key, accepted for unsealing during a rotation (optional) |
-| `PLACES_ENABLED` / `GOOGLE_PLACES_KEY` | Google Places address suggestions (optional; the key is required when enabled) |
-| `PP_DISABLED` | Kill switch, on only for `"1"` |
-| `ACCOUNT_DISABLED` | Profile-module kill switch, on only for `"1"`; parsed only; enforced from the Story 1.3 rework (R2) |
+| `ONEHEALTH_SECRET_KEY_DEMO` / `_PROD` | External Application secret key per environment (LPL decryption + code signature) |
+| `APP_ID_DEMO` / `APP_ID_PROD` | External Application id the launch payload must name |
+| `SESSION_SECRET` | Seals the session cookie (at least 32 characters) |
+| `SESSION_SECRET_PREVIOUS` | Optional, accepted for unseal only during a rotation |
+| `PP_DISABLED`, `ACCOUNT_DISABLED` | Kill switches, on only for `"1"` |
 
-The environment of a session is the one whose key decrypts its launch payload.
-1health origins are fixed in `lib/shared/environments.ts`
-(`https://1health.demo.1health.io` for demo, `https://1health.app.1health.io` for
-production) and never come from an env var.
+Base URLs are hardcoded per environment (`lib/shared/environments.ts`):
+`https://1health.demo.1health.io` (demo) and `https://1health.app.1health.io` (prod).
+The launch detects the environment by the key that decrypts the payload, and
+the session remembers it.
 
-## Quick Start
+## Commands
 
-### 1. Add API Functions
-
-Most reads and writes are already covered by the generic 1health engines in
-`lib/api/` -- query the object graph, patch custom data, and drive workflows
-without writing endpoint code:
-
-```typescript
-import { runQuery, eq, appendCustomData, createJourney } from "@/lib/api"
-
-// Read an entity + its attributes via /api/v2/query
-const res = await runQuery({ key: "Person", attributes: ["id", "customData"], filter: eq("id", personId), limit: 1 })
-
-// Patch a top-level customData field (APPEND is a shallow merge; use mergeCustomData for nested)
-await appendCustomData(orgId, { lastSyncedAt: new Date().toISOString() })
-
-// Start a workflow instance
-const journey = await createJourney(campaignId)
+```bash
+pnpm dev          # https://localhost:3000 (next dev --experimental-https)
+pnpm lint         # eslint, including the layering rules
+pnpm typecheck    # tsc --noEmit
+pnpm test         # vitest run (add --coverage for the 100% gate)
+pnpm test:e2e     # playwright test (builds and starts the app with dummy env)
+pnpm build
+bash scripts/check-forbidden.sh
 ```
 
-For a new endpoint, add a module using the `callApi` helper (see
-`docs/api/CONVENTIONS.md`):
+## Adding an endpoint
 
-```typescript
-// lib/api/my-feature.ts
-import { callApi, type ApiResponse } from "@/lib/api/client"
-
-export async function fetchMyData(id: number): Promise<ApiResponse<MyData>> {
-  return callApi<MyData>("myFeature/fetchMyData", `/api/v2/my-endpoint/${id}`)
-}
-```
-
-**New to the platform? Read `docs/api/README.md` first** -- it explains the data
-model, the two query engines, custom data, and workflows.
-
-### 2. Build Your Pages
-
-Create components and wire them into `home-page-client.tsx`. The current single-page setup renders `SettingsPage` as the home page -- expand from there by adding routing logic (navigation context or Next.js routes).
+Add an allowlist entry to its area file in `lib/server/proxy/allowlist/`, then a
+module `lib/api/<resource>.ts` built on `callApi` that owns its paths (via
+`proxyPath()`), registers its SWR fetcher (`registerFetcher`) and is re-exported
+from `lib/api/index.ts`. Copy goes in its area file under `lib/shared/messages/`,
+upstream-message matching in `lib/api/errors/<area>.ts`. See `docs/api/CONVENTIONS.md`.
 
 ## Design System
 
@@ -156,10 +89,7 @@ referenced at the top of `app/globals.css`.
 
 ## Documentation
 
-- **`docs/api/`** -- **1health platform API guide** (start at `docs/api/README.md`): the
-  data model, runtime schema discovery, `/query` + grid engines, custom data,
-  workflows/journeys/steps, dynamic step UIs, module conventions, and platform gotchas
+- `docs/AUTH-ARCHITECTURE.md` -- launch, session, proxy, refresh and logout
+- `docs/api/CONVENTIONS.md` -- how to add an API module
+- `docs/api/` -- 1health platform reference (the template engines it describes were removed)
 - `docs/DESIGN-SYSTEM.md` -- Design tokens, rebranding, typography, motion, and component guidelines
-- `docs/AUTH-ARCHITECTURE.md` -- Authentication flow, environment selection, and token management
-- `docs/ACTION-PATTERNS.md` -- API call patterns, `authFetch()` usage, and SWR integration
-- `docs/README-DEBUGGER.md` -- API debug logging and console output

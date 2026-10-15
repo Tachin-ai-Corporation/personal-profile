@@ -1,5 +1,7 @@
 # Reading data: the query engines
 
+> **Reference only (spec 7.0a):** the template code this page describes (`lib/api/*` engines, `components/workflow/`) was removed from Personal Profile; its endpoints are not on the proxy allowlist. See [README.md](README.md).
+
 Two mechanisms. Pick the right one:
 
 | Use `/api/v2/query` when… | Use a grid endpoint when… |
@@ -8,7 +10,7 @@ Two mechanisms. Pick the right one:
 | You want to choose exactly which attributes/relationships | You want the pre-flattened rows the platform already assembles |
 | Ad-hoc / flexible reads | Paginated lists with simple column filters + sorting |
 
-Code: [`lib/api/query.ts`](../../lib/api/query.ts), [`lib/api/grid.ts`](../../lib/api/grid.ts).
+Code: removed in spec 7.0a; see git history before d35a162.
 
 ---
 
@@ -218,8 +220,7 @@ A grid view is almost always **pre-scoped by an id** — pass it as the first
 - Point lookup / entity + relationships / custom projection → **`/api/v2/query`**.
 - A known list view with column filters + sort + pagination → **grid**.
 - Complex reads the platform exposes only via GraphQL (rare) → `POST /api/graphql`
-  (a third path; never proxied — expose it as a named server operation under
-  `/api/pp/`, called through `callApi`).
+  (a third path; never proxied in this app — it needs a named server operation).
 
 See also [GOTCHAS.md](GOTCHAS.md) for query-specific traps (prefix drift,
 unreliable server-side filters on nested JSON, pagination param inconsistency).

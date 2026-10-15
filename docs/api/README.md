@@ -1,10 +1,20 @@
 # Building on the 1health platform — API guide
 
-**Start here if you're building features on this template.** These docs distill
-the reusable 1health API patterns (extracted from a full production app) into
-generic, copy-ready building blocks. Every concept below ships as typed code in
-[`lib/api/`](../../lib/api) — the docs explain the *why* and the *shape*; the
-code is the *how*.
+> **Personal Profile (spec 7.0a):** the template's generic engines (`query`,
+> `schema`, `grid`, `custom-data`, workflow, campaign, journey and provisioning
+> modules) were removed: none of those endpoints is on the proxy allowlist.
+> These docs stay as **platform reference only**. In this app the browser calls
+> 1health only through the BFF proxy with `callApi`; see
+> [CONVENTIONS.md](CONVENTIONS.md) and [../AUTH-ARCHITECTURE.md](../AUTH-ARCHITECTURE.md).
+
+These docs describe how the 1health platform API works: its object model, read
+engines, `customData`, workflows and quirks, distilled from a full production
+app. They explain the *why* and the *shape* of the platform. The code that
+implemented these engines in the original template is gone; function and
+component names in these pages (`runQueryAll`, `parseCustomData`,
+`DynamicStepForm`, …) refer to that removed code. For how *this* app calls the
+API, see [CONVENTIONS.md](CONVENTIONS.md) and
+[FOUNDATION.md](../FOUNDATION.md).
 
 > All examples use **placeholder** type names, attribute names, and field labels.
 > Your app supplies its own (from 1health's schema/config). Nothing here is
@@ -30,8 +40,9 @@ code is the *how*.
   per-journey); *where you edit config determines its scope* (e.g. notification
   settings live on the campaign template) — see
   [PROVISIONING.md § template layers](PROVISIONING.md#the-four-template-layers-where-you-edit-matters).
-- **Everything goes through `authFetch`** (Bearer token, auto-refresh) and
-  resolves the base URL **per call**. Use the [`callApi` helper](CONVENTIONS.md).
+- **In this app, everything goes through `callApi`** and the server-side proxy
+  (Bearer token and upstream origin are added server-side), and only for
+  allowlisted endpoints. See [CONVENTIONS.md](CONVENTIONS.md).
 
 ## The one distinction that trips everyone up
 
@@ -56,31 +67,13 @@ Never hardcode a step-field GUID. See [DATA-MODEL.md § Attributes](DATA-MODEL.m
 | [CUSTOM-DATA.md](CUSTOM-DATA.md) | Reading/writing `customData`, APPEND vs REPLACE, `appData` namespacing, delete-by-omission |
 | [WORKFLOWS.md](WORKFLOWS.md) | Campaign/template/journey/step model, lifecycle, the 3 step-submission recipes, attachments, comments |
 | [PROVISIONING.md](PROVISIONING.md) | The four template layers (global→tenant→campaign→journey) & where-to-edit scope · self-bootstrap: find/clone/publish + create/activate/share, by name |
-| [DYNAMIC-STEPS.md](DYNAMIC-STEPS.md) | Building step UIs generically with `DynamicStepForm` |
-| [CONVENTIONS.md](CONVENTIONS.md) | How to add a new API module; the `callApi` + `ApiResponse` pattern |
+| [DYNAMIC-STEPS.md](DYNAMIC-STEPS.md) | Building step UIs generically (the template's `DynamicStepForm`, removed) |
+| [CONVENTIONS.md](CONVENTIONS.md) | **This app:** how to add a new API module; the `callApi` + `ApiResponse` pattern |
 | [GOTCHAS.md](GOTCHAS.md) | The full list of platform quirks to code defensively around |
 
-## Code map
+## Where this app's API code lives
 
-```
-lib/api/
-  client.ts            callApi / ApiResponse / ok / err
-  types.ts             all shared wire & domain types
-  config.ts            endpoint path builders + RECORD_TYPES / ATTRIBUTES (fill per app)
-  schema.ts            runtime type/attribute/relationship discovery (+ cache)
-  query.ts             runQuery + RSQL builders + response extractors
-  grid.ts              runGridQuery + fetchAllGridPages
-  custom-data.ts       read/append/replace/delete customData
-  workflow-template.ts resolveTemplate + step-configuration + field-by-label
-  journey.ts           create/fetch/list/status/assign journeys
-  journey-step.ts      fetch steps + the 3 submit recipes + metadata builder
-  attachments.ts       journey documents, file upload/download/delete
-  comments.ts          list/post journey comments
-  campaign.ts          campaign lifecycle: create/activate/share/list/find
-  workflow-provisioning.ts  self-bootstrap: find/clone/publish + ensureWorkflow()
-  step-config.ts       edit step config: notifications + webhooks (subscriptions)
-  partnerships.ts      list partner orgs (resolve share targets)
-  index.ts             barrel — import everything from "@/lib/api"
-components/workflow/
-  dynamic-step-form.tsx  data-driven renderer for a step's custom fields
-```
+Not in these docs. The module catalog (`lib/api/`, the proxy allowlist under
+`lib/server/proxy/allowlist/`, named operations, message and error tables) is
+[FOUNDATION.md](../FOUNDATION.md) §3; the BFF (launch, session, proxy, kill
+switches) is [AUTH-ARCHITECTURE.md](../AUTH-ARCHITECTURE.md).

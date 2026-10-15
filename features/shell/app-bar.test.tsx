@@ -1,83 +1,165 @@
-import { cleanup, createEvent, fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import axe from "axe-core"
+import { http, HttpResponse } from "msw"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { SHELL_COPY } from "@/lib/shared/messages"
-import { axeViolations } from "../../test/axe"
+import { setTestUrl, testRouter } from "@/test/next-navigation"
+import { server } from "@/test/msw-server"
+import { TEST_PORTAL_URL, TestProviders } from "@/test/providers"
+import { FixtureParticipant } from "./__fixtures__/fixture-participant"
 import { AppBar } from "./app-bar"
+import { resetLeaveState } from "./leave"
+import { LeaveGuard } from "./leave-guard"
+import type { PageId } from "./nav-types"
+import { CurrentPageProvider } from "./navigate"
+import { SectionRegistryProvider } from "./section-registry"
 
-/**
- * The app bar (Story 1.8): wordmark + title, and "Return to 1health", which is
- * always rendered (never framed, D10), prevents the default navigation and calls
- * `returnToPortal()` (which runs the leave guard itself) exactly once.
- */
+vi.mock("next/navigation", async () => (await import("@/test/next-navigation")).nextNavigationMock)
 
-const { returnToPortal, requestLeave } = vi.hoisted(() => ({
-  returnToPortal: vi.fn<() => Promise<void>>(() => Promise.resolve()),
-  requestLeave: vi.fn<() => Promise<boolean>>(() => Promise.resolve(true)),
-}))
-vi.mock("./leave", () => ({ returnToPortal, requestLeave }))
+function setup(current: PageId = "profile", withDirtyFixture = false) {
+  return render(
+    <TestProviders>
+      <CurrentPageProvider value={current}>
+        <SectionRegistryProvider>
+          <AppBar current={current} />
+          {withDirtyFixture ? <FixtureParticipant id="phone" label="Phone" displayOrder={2} /> : null}
+          <LeaveGuard />
+        </SectionRegistryProvider>
+      </CurrentPageProvider>
+    </TestProviders>,
+  )
+}
 
-const PORTAL = "https://1health.demo.1health.io"
+const nav = () => screen.getByRole("navigation", { name: "Pages" })
+const item = (name: string) => screen.getByRole("link", { name })
 
 beforeEach(() => {
-  returnToPortal.mockClear()
-  requestLeave.mockClear()
+  resetLeaveState()
+  testRouter.push.mockClear()
+  setTestUrl("/?tab=contacts")
 })
-
-afterEach(() => {
-  cleanup()
-})
+afterEach(() => document.documentElement.classList.remove("dark"))
 
 describe("AppBar", () => {
-  it("is a banner with the wordmark and the title, which is not a heading", () => {
-    render(<AppBar portalUrl={PORTAL} />)
-    const banner = screen.getByRole("banner")
-    expect(banner).toHaveTextContent("1health")
-    expect(banner).toHaveTextContent(SHELL_COPY.appTitle)
-    expect(screen.queryByRole("heading")).toBeNull()
-    expect(screen.getByText("1health")).toHaveClass("text-primary", "font-bold")
+  it("shows a plain-text wordmark that never takes focus", () => {
+    setup()
+    const wordmark = screen.getByText("1health")
+    expect(wordmark.tagName).toBe("SPAN")
+    expect(wordmark.className).toContain("text-primary-text")
+    expect(wordmark.hasAttribute("tabindex")).toBe(false)
+    expect(wordmark.closest("a, button")).toBeNull()
   })
 
-  it("renders Return to 1health as a 44 px link to the portal with the focus ring", () => {
-    render(<AppBar portalUrl={PORTAL} />)
-    const link = screen.getByRole("link", { name: SHELL_COPY.returnToPortal })
-    expect(link).toHaveAttribute("href", PORTAL)
-    expect(link).toHaveClass("min-h-11", "text-link-text", "hover:underline", "focus-ring")
-    expect(link.querySelector("svg")).toHaveAttribute("aria-hidden", "true")
+  it("has the Pages nav with the current page marked", () => {
+    setup("account")
+    expect(nav().querySelectorAll("a")).toHaveLength(2)
+    expect(item("Account").getAttribute("aria-current")).toBe("page")
+    expect(item("Account").className).toContain("md:border-primary")
+    expect(item("Personal Profile").getAttribute("aria-current")).toBeNull()
+    expect(item("Personal Profile").getAttribute("href")).toBe("/")
   })
 
-  it("a click prevents the default navigation and calls returnToPortal once (not requestLeave first)", () => {
-    render(<AppBar portalUrl={PORTAL} />)
-    const link = screen.getByRole("link", { name: SHELL_COPY.returnToPortal })
-    const click = createEvent.click(link, { button: 0 })
-    fireEvent(link, click)
-    expect(click.defaultPrevented).toBe(true)
-    expect(returnToPortal).toHaveBeenCalledOnce()
-    expect(requestLeave).not.toHaveBeenCalled()
+  it("keeps 44 px targets", () => {
+    setup()
+    for (const link of screen.getAllByRole("link")) expect(link.className).toContain("min-h-11")
   })
 
-  it("a modified or non-primary click keeps the browser's behavior and does not call returnToPortal", () => {
-    render(<AppBar portalUrl={PORTAL} />)
-    const link = screen.getByRole("link", { name: SHELL_COPY.returnToPortal })
-    // Record whether the app prevented the default, then stop jsdom's (unimplemented) navigation.
-    const prevented: boolean[] = []
-    const record = (e: Event) => {
-      prevented.push(e.defaultPrevented)
-      e.preventDefault()
+  it("uses the shared focus-ring on every page-nav link and on Return to 1health", () => {
+    setup()
+    const links = screen.getAllByRole("link")
+    expect(links.map((link) => link.textContent)).toEqual(["Personal Profile", "Account", "Return to 1health"])
+    for (const link of links) expect(link.className).toContain("focus-ring")
+  })
+
+  it("orders focusable elements page nav → Return to 1health", () => {
+    setup()
+    const focusable = [...document.querySelectorAll<HTMLElement>("a[href], button")].map((el) => el.textContent)
+    expect(focusable).toEqual(["Personal Profile", "Account", "Return to 1health"])
+  })
+
+  it("does nothing for the current page's item", async () => {
+    setup("profile")
+    await act(async () => fireEvent.click(item("Personal Profile")))
+    expect(testRouter.push).not.toHaveBeenCalled()
+  })
+
+  it("switches page with router.push when clean", async () => {
+    setup("profile")
+    await act(async () => fireEvent.click(item("Account")))
+    expect(testRouter.push).toHaveBeenCalledWith("/account")
+  })
+
+  it("leaves modified clicks to the browser", () => {
+    setup("profile")
+    let preventedByApp: boolean | undefined
+    // Runs after React's handler; stops jsdom from attempting the real navigation.
+    const record = (event: Event) => {
+      preventedByApp = event.defaultPrevented
+      event.preventDefault()
     }
-    window.addEventListener("click", record)
-    try {
-      for (const init of [{ metaKey: true }, { ctrlKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }]) {
-        fireEvent(link, createEvent.click(link, { button: 0, ...init }))
-      }
-    } finally {
-      window.removeEventListener("click", record)
-    }
-    expect(prevented).toEqual([false, false, false, false, false])
-    expect(returnToPortal).not.toHaveBeenCalled()
+    document.addEventListener("click", record)
+    item("Account").dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true }))
+    document.removeEventListener("click", record)
+    expect(preventedByApp).toBe(false)
+    expect(testRouter.push).not.toHaveBeenCalled()
   })
 
-  it("axe-core reports zero violations", async () => {
-    render(<AppBar portalUrl={PORTAL} />)
-    expect(await axeViolations()).toEqual([])
+  it("runs the leave guard before a page switch when something is dirty", async () => {
+    setup("profile", true)
+    fireEvent.change(screen.getByLabelText("Phone"), { target: { value: "1" } })
+    await act(async () => fireEvent.click(item("Account")))
+    expect(screen.getByRole("alertdialog", { name: "You have unsaved changes" })).toBeTruthy()
+    expect(testRouter.push).not.toHaveBeenCalled()
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Discard" })))
+    await waitFor(() => expect(testRouter.push).toHaveBeenCalledWith("/account"))
+  })
+
+  it("Return to 1health logs out, then goes to the portal in the same tab", async () => {
+    const calls: string[] = []
+    server.use(
+      http.post("/api/session/logout", () => {
+        calls.push("logout")
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const assign = vi.fn((url: string) => void calls.push(`assign ${url}`))
+    vi.stubGlobal("location", { ...window.location, assign, pathname: "/", search: "?tab=contacts" })
+    setup()
+    const link = screen.getByRole("link", { name: "Return to 1health" })
+    expect(link.className).toContain("text-link-text")
+    expect(link.getAttribute("href")).toBe(TEST_PORTAL_URL)
+    expect(link.querySelector("svg[aria-hidden='true']")).not.toBeNull()
+    await act(async () => fireEvent.click(link))
+    await waitFor(() => expect(calls).toEqual(["logout", `assign ${TEST_PORTAL_URL}`]))
+  })
+
+  it("leaves a modified click on Return to 1health to the browser: no logout, no navigate", async () => {
+    let logouts = 0
+    server.use(
+      http.post("/api/session/logout", () => {
+        logouts += 1
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    setup()
+    let preventedByApp: boolean | undefined
+    const record = (event: Event) => {
+      preventedByApp = event.defaultPrevented
+      event.preventDefault()
+    }
+    document.addEventListener("click", record)
+    for (const modifier of ["ctrlKey", "metaKey", "shiftKey"] as const) {
+      screen.getByRole("link", { name: "Return to 1health" }).dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, [modifier]: true }))
+      expect(preventedByApp).toBe(false)
+    }
+    document.removeEventListener("click", record)
+    await act(async () => undefined)
+    expect(logouts).toBe(0)
+  })
+
+  it.each(["light", "dark"])("has no axe violations in %s mode", async (theme) => {
+    if (theme === "dark") document.documentElement.classList.add("dark")
+    setup()
+    const results = await axe.run(document.body, { rules: { "color-contrast": { enabled: false } } })
+    expect(results.violations).toEqual([])
   })
 })

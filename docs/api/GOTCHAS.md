@@ -1,8 +1,11 @@
 # Platform gotchas
 
-The non-obvious behaviors that will bite you. Code defensively around these —
-the helpers in `lib/api/` already handle most, but you'll hit the rest when you
-go beyond them.
+> **Reference only (spec 7.0a):** the template code this page describes (`lib/api/*` engines, `components/workflow/`) was removed from Personal Profile; its endpoints are not on the proxy allowlist. See [README.md](README.md).
+
+The non-obvious behaviors that will bite you. Code defensively around these.
+Helper names below (`getRelatedAttr`, `findAttr`, `parseCustomData`,
+`runQueryAll`, `fetchJourney`, `getDraftTemplateConfig`) belong to the removed
+template code; they show where the handling went, not code you can import.
 
 ## Identifiers & naming
 
@@ -111,15 +114,15 @@ go beyond them.
 
 ## Transport & environment
 
-- **Always go through `authFetch`** (Bearer + refresh) and resolve the base URL
-  per call. A raw `fetch` to a 1health endpoint will fail auth.
+- **Always go through `callApi`** and the `/api/1h` proxy. The browser holds no
+  token, so a raw `fetch` to a 1health endpoint fails (and is a lint error).
 - **API version prefix is not uniform** — mostly `v2`, grid/list is `v3`,
   GraphQL has none. Don't derive paths from a single version constant.
 - **API timestamps often have no timezone suffix.** Treat them as UTC (append
   `Z`) before parsing, or they'll misparse as local time.
 - **A third read path exists (`POST /api/graphql`)** with its own request/response
-  shape — don't conflate it with `/api/v2/query`. It is never proxied; GraphQL
-  reads are named server operations under `/api/pp/` (AD-2).
+  shape — don't conflate it with `/api/v2/query`. GraphQL is never proxied; it
+  needs a named server operation.
 
 ## Data hygiene
 

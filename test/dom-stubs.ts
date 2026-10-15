@@ -2,13 +2,36 @@ import { act } from "@testing-library/react"
 import { vi } from "vitest"
 
 /**
- * jsdom stubs for the profile shell tests (Story 1.8): `IntersectionObserver`
- * (driven by hand), `Element.scrollIntoView` (recorded), `matchMedia` (reduced
- * motion on or off), plus the pointer-capture and `ResizeObserver` APIs that
- * Radix Select needs. Call `installDomStubs()` in `beforeEach`; everything is
- * undone by `vi.unstubAllGlobals()` / `vi.restoreAllMocks()` and `uninstall()`.
+ * jsdom has no layout: Radix Popper (Tooltip, Select) needs `ResizeObserver`,
+ * and Select calls `scrollIntoView` and the pointer-capture methods. Call in a
+ * `beforeEach` (globals are unstubbed after every test).
  */
+export function stubLayoutApis(): void {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    },
+  )
+  const proto = Element.prototype as Element & {
+    scrollIntoView?: () => void
+    hasPointerCapture?: () => boolean
+    releasePointerCapture?: () => void
+  }
+  proto.scrollIntoView ??= () => {}
+  proto.hasPointerCapture ??= () => false
+  proto.releasePointerCapture ??= () => {}
+}
 
+/**
+ * Section navigation stubs (F3-3, ported from main's Story 1.8B): an
+ * `IntersectionObserver` driven by hand, a recording `Element.scrollIntoView`,
+ * and `matchMedia` with reduced motion on or off, plus the layout APIs Radix
+ * Select needs. Call `installDomStubs()` in `beforeEach` and `uninstall()` in
+ * `afterEach`.
+ */
 export class FakeIntersectionObserver {
   static instances: FakeIntersectionObserver[] = []
 
@@ -41,31 +64,23 @@ export class FakeIntersectionObserver {
   }
 }
 
-/** Report the given Section ids as (not) intersecting to every live observer. */
+/** Reports the given element ids as (not) intersecting to every live observer. */
 export function reportIntersections(states: Record<string, boolean>): void {
   act(() => {
     for (const io of FakeIntersectionObserver.instances) {
       if (io.disconnected) continue
-      const entries = Object.entries(states)
-        .map(([id, isIntersecting]) => {
-          const target = document.getElementById(id)
-          return target ? ({ target, isIntersecting } as unknown as IntersectionObserverEntry) : null
-        })
-        .filter((e): e is IntersectionObserverEntry => e !== null)
+      const entries = Object.entries(states).flatMap(([id, isIntersecting]) => {
+        const target = document.getElementById(id)
+        return target ? [{ target, isIntersecting } as unknown as IntersectionObserverEntry] : []
+      })
       io.callback(entries, io as unknown as IntersectionObserver)
     }
   })
 }
 
-class FakeResizeObserver {
-  observe(): void {}
-  unobserve(): void {}
-  disconnect(): void {}
-}
-
 export interface DomStubs {
   /** Every `scrollIntoView` call: the element and its options. */
-  scrolls: { el: Element; options: ScrollIntoViewOptions | boolean | undefined }[]
+  readonly scrolls: { el: Element; options: ScrollIntoViewOptions | boolean | undefined }[]
   setReducedMotion(on: boolean): void
   uninstall(): void
 }
@@ -76,7 +91,14 @@ export function installDomStubs(): DomStubs {
   const scrolls: DomStubs["scrolls"] = []
 
   vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver)
-  vi.stubGlobal("ResizeObserver", FakeResizeObserver)
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    },
+  )
   vi.stubGlobal(
     "matchMedia",
     vi.fn((query: string) => ({
@@ -111,9 +133,9 @@ export function installDomStubs(): DomStubs {
       reduced = on
     },
     uninstall() {
-      for (const [k, v] of Object.entries(saved)) {
-        if (v === undefined) delete proto[k]
-        else proto[k] = v
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete proto[key]
+        else proto[key] = value
       }
       vi.unstubAllGlobals()
     },

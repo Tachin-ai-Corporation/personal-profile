@@ -1,17 +1,17 @@
-"use client"
+import type { ReactNode } from "react"
+import { ProfileSectionPlaceholder } from "./placeholders"
 
-import { SHELL_COPY } from "@/lib/shared/messages"
-import { SectionFrame } from "./section-frame"
-import { SECTION_COLUMNS } from "./sections"
+export interface InsurancePanelProps {
+  /** The Insurance Section (Epic 5), composed by the route; it renders its own `SectionLandmark id="insurance"`. */
+  readonly section?: ReactNode
+}
 
 /**
- * The Insurance tab body (Story 1.8): one Section, `#insurance`, in its loading
- * placeholder at full main-column width. No Section menu or Jump to.
+ * The Insurance tab body (F3-3, port of main's Story 1.8B; slot since F6-1):
+ * one Section, `#insurance`, at full main-column width (inside the tab
+ * panel's own gutters). No Section menu or Jump to. Without a `section` it
+ * shows the loading placeholder.
  */
-export function InsurancePanel() {
-  return (
-    <div className="px-4 py-4 md:p-6">
-      <SectionFrame id="insurance" title={SHELL_COPY.insurance} columns={SECTION_COLUMNS.insurance} state="loading" />
-    </div>
-  )
+export function InsurancePanel({ section }: InsurancePanelProps = {}) {
+  return <>{section ?? <ProfileSectionPlaceholder id="insurance" />}</>
 }

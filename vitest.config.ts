@@ -1,32 +1,63 @@
 import { fileURLToPath } from "node:url"
-import react from "@vitejs/plugin-react"
 import { defineConfig } from "vitest/config"
 
-const rootDir = fileURLToPath(new URL(".", import.meta.url))
+const root = fileURLToPath(new URL(".", import.meta.url))
+
+/**
+ * Every `*.test.ts(x)` outside node_modules, e2e/ and build output belongs to
+ * exactly one project (spec R5-2; `vitest.config.test.ts` fails otherwise):
+ * `.ts` under the server side and tooling runs in node, `.tsx` and the
+ * browser-side folders in jsdom.
+ */
+export const SERVER_TESTS = ["lib/server/**/*.test.ts", "lib/shared/**/*.test.ts", "lib/*.test.ts", "app/**/*.test.ts", "scripts/**/*.test.ts", "test/**/*.test.ts", "*.test.ts"]
+export const CLIENT_TESTS = [
+  "lib/api/**/*.test.ts",
+  "lib/**/*.test.tsx",
+  "features/**/*.test.{ts,tsx}",
+  "components/**/*.test.{ts,tsx}",
+  "hooks/**/*.test.{ts,tsx}",
+  "contexts/**/*.test.{ts,tsx}",
+  "app/**/*.test.tsx",
+  "test/**/*.test.tsx",
+  "*.test.tsx",
+]
 
 export default defineConfig({
-  plugins: [react()],
   resolve: {
     alias: {
-      // Project path alias (mirrors tsconfig `@/*`).
-      "@": fileURLToPath(new URL("./", import.meta.url)),
-      // `server-only` is a build-time Next alias; stub it for tests.
-      "server-only": fileURLToPath(new URL("./test/stubs/server-only.ts", import.meta.url)),
+      "@/": root,
+      "server-only": `${root}test/stubs/server-only.ts`,
     },
   },
   test: {
-    globals: true,
-    // Component tests default to jsdom; pure server modules opt into node with a
-    // `// @vitest-environment node` docblock (e.g. lib/server/env.test.ts).
-    environment: "jsdom",
-    environmentOptions: {
-      // Fix the document origin so same-origin `/api/...` fetches resolve to a
-      // known URL that MSW handlers can match.
-      jsdom: { url: "http://localhost:3000" },
+    setupFiles: ["test/setup.ts"],
+    restoreMocks: true,
+    unstubEnvs: true,
+    unstubGlobals: true,
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "server",
+          environment: "node",
+          include: SERVER_TESTS,
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "client",
+          environment: "jsdom",
+          setupFiles: ["test/setup-dom.ts"],
+          include: CLIENT_TESTS,
+        },
+      },
+    ],
+    coverage: {
+      provider: "v8",
+      include: ["lib/server/**/*.ts", "lib/api/**/*.ts", "lib/shared/**/*.ts"],
+      exclude: ["**/*.test.ts"],
+      thresholds: { lines: 100, branches: 100, functions: 100, statements: 100 },
     },
-    setupFiles: ["./vitest.setup.ts"],
-    include: ["**/*.test.{ts,tsx}"],
-    exclude: ["node_modules/**", ".next/**", "e2e/**", "_bmad/**", "_bmad-output/**"],
-    root: rootDir,
   },
 })

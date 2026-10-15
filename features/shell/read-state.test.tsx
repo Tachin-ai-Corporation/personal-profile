@@ -1,0 +1,112 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { http, HttpResponse } from "msw"
+import axe from "axe-core"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { mapApiError, type ApiResponse, type MappedError } from "@/lib/api"
+import { server } from "@/test/msw-server"
+import { LoadError, NoAccess, ReadStateFor } from "."
+
+const LOAD_ERROR = "Something went wrong while loading profile information"
+const NO_ACCESS = "You don't have access to this in your current account"
+
+const fail = (fields: Omit<ApiResponse<unknown>, "success">): ApiResponse<unknown> => ({ success: false, ...fields })
+
+afterEach(() => document.documentElement.classList.remove("dark"))
+
+describe("LoadError", () => {
+  it("records Retry as user activity (one activity ping, Story 1.6)", async () => {
+    let pings = 0
+    server.use(
+      http.post("/api/session/ping", () => {
+        pings += 1
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    render(<LoadError onRetry={vi.fn()} />)
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+    await waitFor(() => expect(pings).toBe(1))
+  })
+
+  it("shows the sentence and a separate Retry button that calls onRetry", () => {
+    const onRetry = vi.fn()
+    render(<LoadError onRetry={onRetry} />)
+    const alert = screen.getByRole("alert")
+    expect(alert.textContent).toBe(LOAD_ERROR)
+    // Built on the shared InlineBanner (error variant), same copy and behaviour.
+    expect(alert.parentElement?.getAttribute("data-slot")).toBe("inline-banner load-error")
+    expect(alert.parentElement?.getAttribute("data-variant")).toBe("error")
+    expect(alert.parentElement?.className).toContain("text-error-strong")
+    const retry = screen.getByRole("button", { name: "Retry" })
+    expect(alert.contains(retry)).toBe(false)
+    expect(retry.className).toContain("h-11")
+    expect(retry.className).toContain("text-link-text")
+    fireEvent.click(retry)
+    expect(onRetry).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("LoadError: repeated failures", () => {
+  it("re-announces the same sentence when the attempt changes (the alert is a new node)", () => {
+    const { rerender } = render(<LoadError onRetry={vi.fn()} attempt={1} />)
+    const first = screen.getByRole("alert")
+    rerender(<LoadError onRetry={vi.fn()} attempt={1} />)
+    expect(screen.getByRole("alert")).toBe(first)
+    rerender(<LoadError onRetry={vi.fn()} attempt={2} />)
+    const second = screen.getByRole("alert")
+    expect(second).not.toBe(first)
+    expect(second.textContent).toBe(LOAD_ERROR)
+  })
+
+  it("ReadStateFor passes the attempt through", () => {
+    const { rerender } = render(<ReadStateFor error={{ kind: "network" }} onRetry={vi.fn()} attempt={1} />)
+    const first = screen.getByRole("alert")
+    rerender(<ReadStateFor error={{ kind: "network" }} onRetry={vi.fn()} attempt={2} />)
+    expect(screen.getByRole("alert")).not.toBe(first)
+  })
+})
+
+describe("NoAccess", () => {
+  it("shows one line and no action", () => {
+    const { container } = render(<NoAccess />)
+    expect(screen.getByRole("status").textContent).toBe(NO_ACCESS)
+    expect(container.querySelectorAll("button, a")).toHaveLength(0)
+  })
+})
+
+describe("ReadStateFor", () => {
+  it.each<[string, MappedError, string | null]>([
+    ["forbidden", { kind: "forbidden" }, NO_ACCESS],
+    ["generic", { kind: "generic" }, LOAD_ERROR],
+    ["generic with a platform message", { kind: "generic", message: "Raw platform text" }, LOAD_ERROR],
+    ["network", { kind: "network" }, LOAD_ERROR],
+    ["session", { kind: "session" }, null],
+    ["field", { kind: "field", field: "ssn", messageKey: "person.ssnTaken" }, LOAD_ERROR],
+    ["coded", { kind: "coded", code: "MFA_NOT_ENABLED" }, LOAD_ERROR],
+  ])("renders %s", (_label, error, text) => {
+    const { container } = render(<ReadStateFor error={error} onRetry={vi.fn()} />)
+    if (text === null) expect(container.innerHTML).toBe("")
+    else expect(container.textContent).toContain(text)
+    expect(container.textContent).not.toContain("Raw platform text")
+  })
+
+  it("never shows no access for a proxy NOT_ALLOWED, only for an upstream 403", () => {
+    const proxy = render(<ReadStateFor error={mapApiError("page", fail({ statusCode: 403, errorCode: "NOT_ALLOWED", source: "proxy" }))} onRetry={vi.fn()} />)
+    expect(proxy.container.textContent).toContain(LOAD_ERROR)
+    expect(proxy.container.textContent).not.toContain(NO_ACCESS)
+    proxy.unmount()
+    const upstream = render(<ReadStateFor error={mapApiError("page", fail({ statusCode: 403 }))} onRetry={vi.fn()} />)
+    expect(upstream.container.textContent).toContain(NO_ACCESS)
+  })
+
+  it.each(["light", "dark"])("has no axe violations in %s mode", async (theme) => {
+    if (theme === "dark") document.documentElement.classList.add("dark")
+    render(
+      <main>
+        <LoadError onRetry={vi.fn()} />
+        <NoAccess />
+      </main>,
+    )
+    const results = await axe.run(document.body, { rules: { "color-contrast": { enabled: false } } })
+    expect(results.violations).toEqual([])
+  })
+})

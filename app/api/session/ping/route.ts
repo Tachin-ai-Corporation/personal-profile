@@ -1,11 +1,15 @@
-import "server-only"
+import { guardRoute } from "@/lib/server/http/guard-route"
+import { methodNotAllowed } from "@/lib/server/http/responses"
+import { createPingHandler } from "@/lib/server/session/session-routes"
 
-import { handlePing } from "@/lib/server/ping"
-
-/**
- * Activity ping (AD-16, Story 1.6). All logic lives in `lib/server/ping.ts`;
- * rendered per request so nothing is cached (AD-18).
- */
 export const dynamic = "force-dynamic"
 
-export const POST = (request: Request): Promise<Response> => handlePing(request)
+export const POST = guardRoute("/api/session/ping", createPingHandler())
+
+/** Explicit 405s, so Next never auto-implements them. */
+export const GET = methodNotAllowed
+export const HEAD = methodNotAllowed
+export const OPTIONS = methodNotAllowed
+export const PUT = methodNotAllowed
+export const PATCH = methodNotAllowed
+export const DELETE = methodNotAllowed

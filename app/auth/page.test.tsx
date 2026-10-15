@@ -1,46 +1,26 @@
-// @vitest-environment node
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+import { AuthScreen } from "@/features/shell"
+import { rememberedEnvironment } from "@/lib/server/page-session"
+import AuthPage, { dynamic } from "./page"
 
 /**
- * `/auth` server wrapper (Story 1.2): force-dynamic, reads only the remembered
- * environment cookie, and renders the disabled screen directly under the kill
- * switch (no redirect).
+ * `/auth` server wrapper (Story 1.2, D9; ported from main, spec R5-1):
+ * force-dynamic, reads only the remembered `onehealth_environment` cookie and
+ * hands it to the client screen (display only, D2).
  */
 
-async function loadPage(config: { PP_DISABLED?: boolean; remembered?: "demo" | "prod" | null } = {}) {
-  vi.resetModules()
-  const readEnvironmentCookie = vi.fn().mockResolvedValue(config.remembered ?? null)
-  vi.doMock("@/lib/server/env", () => ({ PP_DISABLED: config.PP_DISABLED ?? false }))
-  vi.doMock("@/lib/server/environment-cookie", () => ({ readEnvironmentCookie }))
-  const mod = await import("./page")
-  return { mod, readEnvironmentCookie }
-}
-
-afterEach(() => {
-  vi.resetModules()
-  vi.clearAllMocks()
-})
+vi.mock("@/lib/server/page-session", () => ({ rememberedEnvironment: vi.fn() }))
 
 describe("/auth page", () => {
-  it("is force-dynamic", async () => {
-    const { mod } = await loadPage()
-    expect(mod.dynamic).toBe("force-dynamic")
+  it("is force-dynamic", () => {
+    expect(dynamic).toBe("force-dynamic")
   })
 
-  it("passes the remembered environment to the client screen", async () => {
-    const { AuthScreen } = await import("@/features/shell/auth-screen")
-    const { mod, readEnvironmentCookie } = await loadPage({ remembered: "demo" })
-    const element = (await mod.default()) as { type: unknown; props: Record<string, unknown> }
-    expect((element.type as { name?: string }).name).toBe(AuthScreen.name)
-    expect(element.props).toEqual({ rememberedEnvironment: "demo" })
-    expect(readEnvironmentCookie).toHaveBeenCalledOnce()
-  })
-
-  it("PP_DISABLED renders the disabled screen with the referrer allowed to win", async () => {
-    const { DisabledScreen } = await import("@/features/shell/disabled-screen")
-    const { mod } = await loadPage({ PP_DISABLED: true, remembered: "prod" })
-    const element = (await mod.default()) as { type: unknown; props: Record<string, unknown> }
-    expect((element.type as { name?: string }).name).toBe(DisabledScreen.name)
-    expect(element.props).toEqual({ environment: "prod", useReferrer: true })
+  it.each(["demo", "prod", null] as const)("passes the remembered environment (%s) to the client screen", async (remembered) => {
+    vi.mocked(rememberedEnvironment).mockResolvedValue(remembered)
+    const element = await AuthPage()
+    expect(element.type).toBe(AuthScreen)
+    expect(element.props).toEqual({ rememberedEnvironment: remembered })
+    expect(rememberedEnvironment).toHaveBeenCalledOnce()
   })
 })

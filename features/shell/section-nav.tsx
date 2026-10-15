@@ -1,201 +1,284 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react"
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent, type RefObject, type SyntheticEvent } from "react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { SHELL_COPY } from "@/lib/shared/messages"
+import { SHELL_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
-import { isSectionId, SECTIONS, sectionHeadingId, SIGNATURE_ANCHOR, type SectionId } from "./sections"
+import { isProfileSectionId, PROFILE_SECTION_IDS, PROFILE_SECTIONS, PROFILE_SUB_ANCHORS, sectionHeadingId, type ProfileSectionId } from "./anchors"
+import { isPlainClick } from "./page-nav"
+import { HAND_SCROLL_IGNORE_ATTR, onHandScroll } from "./hand-scroll"
+import { useSectionCounts } from "./section-counts"
+import { motionAwareScrollBehavior, useHashAnchors } from "./use-hash-anchors"
 
 /**
  * =============================================================================
- * Section navigation on the Contacts tab (Story 1.8, AD-7)
+ * Section navigation on the Contacts tab (F3-3, port of main's Story 1.8B)
  * =============================================================================
  *
- * - **Menu (≥ 768 px):** a sticky `<nav aria-label="Sections">` of five
- *   `href="#<id>"` links (mono number, label, blank count slot).
- * - **Jump to (< 768 px):** a full-width Select with the same five targets.
+ * - **Menu (≥ 768 px):** a sticky 200 px `<nav aria-label="Sections">` of five
+ *   `href="#<id>"` links: mono number, label, mono saved-entry count.
+ * - **Jump to (< 768 px):** a full-width Select with the same five targets;
+ *   choosing one (the current one included) moves focus to the Section's `h2`
+ *   when the listbox closes.
  * - **Activation** (click, Enter or Space; or a Jump to choice): scroll the
- *   Section into view (smooth, or instant under reduced motion), focus its `h2`
- *   without scrolling, and `history.replaceState` to `?tab=contacts#<id>`, so no
- *   history entry is added and the server page is not re-rendered.
- * - **Scroll-spy:** an IntersectionObserver over the five Sections marks exactly
- *   one item `aria-current="location"`: the top-most Section in the top 40 % of
- *   the viewport (the first when none is). A just-activated Section stays
- *   current until it first enters view (no flicker during the smooth scroll),
- *   then while it is in view, until the user scrolls by hand, so the last
- *   Section (which can't reach the top of a short page) still shows as current.
- * - **Deep links:** on mount and on `hashchange`, `#personal|phone|email|social|
- *   addresses` scrolls to that Section and `#signature` to the Signature row.
- *   Any other hash is ignored. This component only mounts on the Contacts tab,
- *   so a hash on Insurance or Medical does nothing.
+ *   Section into view (smooth, or instant under reduced motion), focus its
+ *   `h2` without scrolling, and `history.replaceState` the hash (other params
+ *   kept). It is not a navigation: it never asks the leave guard, so a dirty
+ *   Section stays dirty and no dialog opens.
+ * - **Scroll-spy:** an IntersectionObserver (`rootMargin "0px 0px -60% 0px"`)
+ *   marks exactly one item `aria-current="location"`: the top-most Section in
+ *   view, the first when none is, the last when the page is scrolled to its
+ *   end. An activated or deep-linked Section stays current until it first
+ *   enters view, then while it is in view, until the user scrolls by hand
+ *   (`onHandScroll`: wheel, touch, scroll keys outside the menu, Jump to and
+ *   editable fields, a scrollbar press).
+ * - **Deep links:** `useHashAnchors` (mount and `hashchange`, `#signature` →
+ *   the Signature row, unknown hashes ignored, one re-scroll when the target
+ *   frame becomes ready).
+ * - Modified or non-primary clicks keep the browser's own behavior.
  * =============================================================================
  */
 
-/** Keys that scroll the page; pressing one outside the menu ends the pin. */
-const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "])
-
-function scrollBehavior(): ScrollBehavior {
-  const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  return reduce ? "auto" : "smooth"
+export interface SectionNavState {
+  readonly activeId: ProfileSectionId
+  /** Scroll to the Section, focus its `h2`, replace the hash. */
+  activate(id: ProfileSectionId): void
+  /** Jump to: remember the choice until the listbox closes. */
+  choose(id: ProfileSectionId): void
+  /** Jump to: the listbox is being dismissed (Escape, outside press); forget any remembered choice. */
+  dismissListbox(): void
+  /** Jump to: the listbox closed; returns `true` when a choice was activated. */
+  closeListbox(): boolean
+  readonly navRef: RefObject<HTMLElement | null>
+  /** Pass to each Section frame's `onReady` (`StateFrame`), for the deep-link re-scroll. */
+  frameReady(frameId: string): void
 }
 
-/** Section menu + Jump to + scroll-spy + deep links for the Contacts tab. */
-export function SectionNav() {
-  const [activeId, setActiveId] = useState<SectionId>(SECTIONS[0].id)
-  const visible = useRef(new Set<SectionId>())
-  /**
-   * The last activated / deep-linked Section. It stays current until it first
-   * enters view (`reached`), so a smooth scroll past other Sections doesn't
-   * flicker; after that it is current while in view.
-   */
-  const pinned = useRef<{ id: SectionId; reached: boolean } | null>(null)
-  /** A Jump to choice waiting for the listbox to close (see onCloseAutoFocus). */
-  const pendingJump = useRef<SectionId | null>(null)
+/** Whether the page is scrollable and scrolled to its end (1 px of rounding allowed). */
+function isScrolledToEnd(): boolean {
+  const max = document.documentElement.scrollHeight - window.innerHeight
+  return max > 0 && window.scrollY >= max - 1
+}
+
+const LAST_SECTION_ID = PROFILE_SECTION_IDS[PROFILE_SECTION_IDS.length - 1]
+
+/** The Contacts tab's Section navigation state: scroll-spy, pin, activation and deep links. */
+export function useSectionNavigation(): SectionNavState {
+  const [activeId, setActiveId] = useState<ProfileSectionId>(PROFILE_SECTION_IDS[0])
+  const visible = useRef(new Set<ProfileSectionId>())
+  /** The last activated / deep-linked Section (see the file header). */
+  const pinned = useRef<{ id: ProfileSectionId; reached: boolean } | null>(null)
+  const pendingJump = useRef<ProfileSectionId | null>(null)
   const navRef = useRef<HTMLElement>(null)
 
+  const pin = useCallback((id: ProfileSectionId) => {
+    pinned.current = { id, reached: false }
+    setActiveId(id)
+  }, [])
+
   const recompute = useCallback(() => {
-    const pin = pinned.current
-    if (pin) {
-      if (visible.current.has(pin.id)) pin.reached = true
-      if (visible.current.has(pin.id) || !pin.reached) {
-        setActiveId(pin.id)
+    const current = pinned.current
+    if (current) {
+      if (visible.current.has(current.id)) current.reached = true
+      if (visible.current.has(current.id) || !current.reached) {
+        setActiveId(current.id)
         return
       }
     }
-    setActiveId(SECTIONS.find((s) => visible.current.has(s.id))?.id ?? SECTIONS[0].id)
+    // At the end of the page the last Section can never reach the top 40 %: make it current.
+    if (isScrolledToEnd()) {
+      setActiveId(LAST_SECTION_ID)
+      return
+    }
+    setActiveId(PROFILE_SECTION_IDS.find((id) => visible.current.has(id)) ?? PROFILE_SECTION_IDS[0])
   }, [])
 
-  const activate = useCallback((id: SectionId) => {
-    const section = document.getElementById(id)
-    if (!section) return
-    pinned.current = { id, reached: false }
-    setActiveId(id)
-    section.scrollIntoView({ behavior: scrollBehavior(), block: "start" })
-    document.getElementById(sectionHeadingId(id))?.focus({ preventScroll: true })
-    window.history.replaceState(null, "", `?tab=contacts#${id}`)
+  /** Bumped when a Section frame becomes ready: the scroll-spy looks its landmarks up again (F6-1 review M2). */
+  const [observeTick, setObserveTick] = useState(0)
+
+  const { frameReady: followReady, cancelPending } = useHashAnchors(PROFILE_SECTION_IDS, {
+    subAnchors: PROFILE_SUB_ANCHORS,
+    onFollow: (frame) => {
+      if (isProfileSectionId(frame)) pin(frame)
+    },
+  })
+
+  const frameReady = useCallback(
+    (frameId: string) => {
+      followReady(frameId)
+      setObserveTick((tick) => tick + 1)
+    },
+    [followReady],
+  )
+
+  const activate = useCallback(
+    (id: ProfileSectionId) => {
+      const section = document.getElementById(id)
+      if (!section) return
+      // The user chose a Section: an earlier deep link's re-scroll must not pull them back.
+      cancelPending()
+      pin(id)
+      section.scrollIntoView({ behavior: motionAwareScrollBehavior(), block: "start" })
+      document.getElementById(sectionHeadingId(id))?.focus({ preventScroll: true })
+      const { pathname, search } = window.location
+      // `null` state: Next's patched history keeps `useSearchParams` in sync. No navigate(): not a leave.
+      window.history.replaceState(null, "", `${pathname}${search}#${id}`)
+    },
+    [pin, cancelPending],
+  )
+
+  const observerRef = useRef<IntersectionObserver | null>(null)
+  /** The landmark element observed per Section id. */
+  const observed = useRef(new Map<ProfileSectionId, Element>())
+
+  /** Observes each Section landmark currently in the document (again, when its element changed). */
+  const observeLandmarks = useCallback(() => {
+    const observer = observerRef.current
+    if (!observer) return
+    for (const id of PROFILE_SECTION_IDS) {
+      const element = document.getElementById(id)
+      const previous = observed.current.get(id)
+      if (!element || element === previous) continue
+      if (previous) observer.unobserve(previous)
+      observer.observe(element)
+      observed.current.set(id, element)
+    }
   }, [])
 
   // Scroll-spy.
   useEffect(() => {
     if (typeof IntersectionObserver === "undefined") return
     const seen = visible.current
-    const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        const id = entry.target.id
-        if (!isSectionId(id)) continue
-        if (entry.isIntersecting) seen.add(id)
-        else seen.delete(id)
-      }
-      recompute()
-    }, { rootMargin: "0px 0px -60% 0px" })
-    for (const s of SECTIONS) {
-      const el = document.getElementById(s.id)
-      if (el) observer.observe(el)
-    }
+    const elements = observed.current
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const { id } = entry.target
+          if (!isProfileSectionId(id)) continue
+          if (entry.isIntersecting) seen.add(id)
+          else seen.delete(id)
+        }
+        recompute()
+      },
+      { rootMargin: "0px 0px -60% 0px" },
+    )
+    observerRef.current = observer
+    observeLandmarks()
     return () => {
       observer.disconnect()
+      observerRef.current = null
+      elements.clear()
       seen.clear()
     }
+  }, [recompute, observeLandmarks])
+
+  // A frame became ready: a landmark that was (wrongly) remounted is a new element; observe it instead.
+  useEffect(() => {
+    if (observeTick > 0) observeLandmarks()
+  }, [observeTick, observeLandmarks])
+
+  // Reaching (or leaving) the end of the page changes no intersection: recompute on scroll too.
+  useEffect(() => {
+    window.addEventListener("scroll", recompute, { passive: true })
+    return () => window.removeEventListener("scroll", recompute)
   }, [recompute])
 
   // A hand scroll ends the pin.
-  useEffect(() => {
-    const unpin = () => {
-      if (pinned.current === null) return
-      pinned.current = null
-      recompute()
-    }
-    const onKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (!SCROLL_KEYS.has(e.key)) return
-      if (e.target instanceof Node && navRef.current?.contains(e.target)) return
-      unpin()
-    }
-    window.addEventListener("wheel", unpin, { passive: true })
-    window.addEventListener("touchmove", unpin, { passive: true })
-    window.addEventListener("keydown", onKeyDown)
-    return () => {
-      window.removeEventListener("wheel", unpin)
-      window.removeEventListener("touchmove", unpin)
-      window.removeEventListener("keydown", onKeyDown)
-    }
-  }, [recompute])
+  useEffect(
+    () =>
+      onHandScroll(() => {
+        if (pinned.current === null) return
+        pinned.current = null
+        recompute()
+      }),
+    [recompute],
+  )
 
-  // Deep links: on mount (instant) and on hashchange.
-  useEffect(() => {
-    const follow = (behavior: ScrollBehavior) => {
-      let raw = window.location.hash.slice(1)
-      try {
-        raw = decodeURIComponent(raw)
-      } catch {
-        return
-      }
-      if (isSectionId(raw)) {
-        pinned.current = { id: raw, reached: false }
-        setActiveId(raw)
-        document.getElementById(raw)?.scrollIntoView({ behavior, block: "start" })
-      } else if (raw === SIGNATURE_ANCHOR) {
-        pinned.current = { id: "personal", reached: false }
-        setActiveId("personal")
-        document.getElementById(SIGNATURE_ANCHOR)?.scrollIntoView({ behavior, block: "start" })
-      }
-    }
-    follow("auto")
-    const onHashChange = () => follow(scrollBehavior())
-    window.addEventListener("hashchange", onHashChange)
-    return () => window.removeEventListener("hashchange", onHashChange)
-  }, [])
+  return {
+    activeId,
+    activate,
+    choose(id) {
+      pendingJump.current = id
+      setActiveId(id)
+    },
+    dismissListbox() {
+      pendingJump.current = null
+    },
+    closeListbox() {
+      const id = pendingJump.current
+      if (!id) return false
+      pendingJump.current = null
+      activate(id)
+      return true
+    },
+    navRef,
+    frameReady,
+  }
+}
 
-  const onMenuClick = (e: MouseEvent<HTMLAnchorElement>, id: SectionId) => {
-    // A modified or non-primary click keeps the browser's own behavior (new tab, ...).
-    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-    e.preventDefault()
+export interface SectionNavProps {
+  readonly state: SectionNavState
+}
+
+/** The Section menu (≥ 768 px) and Jump to (< 768 px) for the Contacts tab. */
+export function SectionNav({ state }: SectionNavProps) {
+  const counts = useSectionCounts()
+  const { activeId, activate, navRef } = state
+  const triggerId = useId()
+  const labelId = useId()
+
+  const onMenuClick = (event: MouseEvent<HTMLAnchorElement>, id: ProfileSectionId): void => {
+    if (!isPlainClick(event)) return
+    event.preventDefault()
     activate(id)
   }
-  const onMenuKeyDown = (e: KeyboardEvent<HTMLAnchorElement>, id: SectionId) => {
-    // Enter activates through the link's own click; Space does not, so handle it.
-    if (e.key !== " ") return
-    e.preventDefault()
+  const onMenuKeyDown = (event: KeyboardEvent<HTMLAnchorElement>, id: ProfileSectionId): void => {
+    // Enter activates through the link's own click; Space does not, so handle it (once: a held Space repeats).
+    if (event.key !== " ") return
+    event.preventDefault()
+    if (event.repeat) return
     activate(id)
+  }
+
+  /** A Jump to pick: Radix prevents the pointerup that only ends the opening press. */
+  const pick = (event: SyntheticEvent, id: ProfileSectionId): void => {
+    if (!event.defaultPrevented) state.choose(id)
   }
 
   return (
     <>
       <div className="hidden border-r md:block">
-        <nav ref={navRef} aria-label={SHELL_COPY.sectionsNav} className="sticky top-0 py-4">
+        <nav ref={navRef} {...{ [HAND_SCROLL_IGNORE_ATTR]: "" }} aria-label={SHELL_MESSAGES.sectionsNavLabel} className="sticky top-0 py-4">
           <ol>
-            {SECTIONS.map((s) => {
-              const current = s.id === activeId
+            {PROFILE_SECTIONS.map((section) => {
+              const current = section.id === activeId
+              const count = counts[section.id]
               return (
-                <li key={s.id}>
+                <li key={section.id}>
                   <a
-                    href={`#${s.id}`}
+                    href={`#${section.id}`}
                     aria-current={current ? "location" : undefined}
-                    onClick={(e) => onMenuClick(e, s.id)}
-                    onKeyDown={(e) => onMenuKeyDown(e, s.id)}
+                    onClick={(event) => onMenuClick(event, section.id)}
+                    onKeyDown={(event) => onMenuKeyDown(event, section.id)}
                     className={cn(
-                      "focus-ring relative grid min-h-11 grid-cols-[24px_1fr_auto] items-center pr-4 pl-5 text-body-sm text-foreground tabular-nums hover:bg-accent",
+                      "focus-ring text-foreground hover:bg-accent relative grid min-h-11 grid-cols-[24px_1fr_auto] items-center pr-4 pl-5 text-body-sm tabular-nums outline-none",
                       // The 3 px bar is a pseudo-element: focus-ring's glow would replace an inset box-shadow.
                       current &&
-                        "bg-accent font-semibold text-primary before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-primary dark:text-info-strong",
+                        "bg-accent text-primary-text before:bg-primary font-semibold before:absolute before:inset-y-0 before:left-0 before:w-[3px]",
                     )}
                   >
+                    <span aria-hidden="true" className={cn("text-muted-foreground font-mono text-caption", current && "text-primary-text")}>
+                      {section.number}
+                    </span>
+                    <span>{section.label}</span>
+                    {/* aria-hidden: the Section's own header carries its count (DESIGN.md Section header). */}
                     <span
                       aria-hidden="true"
-                      className={cn(
-                        "font-mono text-caption text-muted-foreground",
-                        current && "text-primary dark:text-info-strong",
-                      )}
-                    >
-                      {s.number}
-                    </span>
-                    <span>{s.label}</span>
-                    <span
                       data-slot="section-count"
-                      className={cn(
-                        "font-mono text-caption text-muted-foreground",
-                        current && "text-primary dark:text-info-strong",
-                      )}
-                    />
+                      className={cn("text-muted-foreground font-mono text-caption", current && "text-primary-text")}
+                    >
+                      {count ?? null}
+                    </span>
                   </a>
                 </li>
               )
@@ -205,41 +288,42 @@ export function SectionNav() {
       </div>
 
       <div className="flex items-center gap-3 border-b px-4 py-3 md:hidden">
-        <label id="jump-to-label" htmlFor="jump-to-trigger" className="text-body-sm whitespace-nowrap text-muted-foreground">
-          {SHELL_COPY.jumpTo}
+        <label id={labelId} htmlFor={triggerId} className="text-muted-foreground text-body-sm whitespace-nowrap">
+          {SHELL_MESSAGES.jumpTo}
         </label>
         <Select
           value={activeId}
           onValueChange={(value) => {
-            if (!isSectionId(value)) return
-            pendingJump.current = value
-            setActiveId(value)
+            if (isProfileSectionId(value)) state.choose(value)
           }}
         >
-          <SelectTrigger
-            id="jump-to-trigger"
-            aria-labelledby="jump-to-label"
-            className="min-w-0 flex-1 rounded-md border-control-border bg-card text-body data-[size=default]:h-11"
-          >
+          <SelectTrigger id={triggerId} aria-labelledby={labelId} {...{ [HAND_SCROLL_IGNORE_ATTR]: "" }} className="min-w-0 flex-1">
             <SelectValue />
           </SelectTrigger>
           <SelectContent
-            onCloseAutoFocus={(e) => {
-              // The listbox would return focus to the trigger; a choice moves it
-              // to the Section h2 instead.
-              const id = pendingJump.current
-              if (!id) return
-              pendingJump.current = null
-              e.preventDefault()
-              activate(id)
+            {...{ [HAND_SCROLL_IGNORE_ATTR]: "" }}
+            onEscapeKeyDown={state.dismissListbox}
+            onPointerDownOutside={state.dismissListbox}
+            onCloseAutoFocus={(event) => {
+              // The listbox would return focus to the trigger; a choice moves it to the Section h2 instead.
+              if (state.closeListbox()) event.preventDefault()
             }}
           >
-            {SECTIONS.map((s) => (
-              <SelectItem key={s.id} value={s.id} className="min-h-11 text-body">
-                <span aria-hidden="true" className="font-mono text-caption text-muted-foreground">
-                  {s.number}
+            {PROFILE_SECTIONS.map((section) => (
+              <SelectItem
+                key={section.id}
+                value={section.id}
+                // Radix skips onValueChange when the current Section is picked again: remember every pick here.
+                onClick={(event) => pick(event, section.id)}
+                onPointerUp={(event) => pick(event, section.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") pick(event, section.id)
+                }}
+              >
+                <span aria-hidden="true" className="text-muted-foreground font-mono text-caption">
+                  {section.number}
                 </span>
-                <span>{s.label}</span>
+                <span>{section.label}</span>
               </SelectItem>
             ))}
           </SelectContent>

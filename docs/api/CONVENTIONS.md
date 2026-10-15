@@ -1,98 +1,79 @@
 # API module conventions
 
-How to add a new `lib/api/*.ts` module so it behaves like the rest. The pattern
-is deliberately boring — consistency is the point.
+How to add a new `lib/api/*.ts` module so it behaves like the rest. The full
+module catalog and worked recipes are in [FOUNDATION.md](../FOUNDATION.md)
+(§3.2, §4.3, §4.5, §4.7); server work the proxy can't express is a named
+operation (§4.6, [AUTH-ARCHITECTURE.md](../AUTH-ARCHITECTURE.md#named-operations)).
 
 ## The building blocks
 
-- [`authFetch`](../../lib/auth-client.ts) — the transport. Injects the Bearer
-  token, auto-refreshes on 401 and retries once, throws `SessionExpiredError`
-  when refresh fails, and skips the JSON `Content-Type` for `FormData`. **Never
-  call `fetch` directly** for 1health endpoints.
-- [`callApi`](../../lib/api/client.ts) — wraps `authFetch` + base-URL resolution
-  + defensive body parsing + error logging into one call, returning
-  `ApiResponse<T>`.
-- `ApiResponse<T>` = `{ success; data?; error?; statusCode? }` — the standard
-  return envelope.
+- [`callApi(context, path, init)`](../../lib/api/client.ts) — the only browser
+  transport. Same-origin `/api/...` paths only; it coordinates token refresh,
+  publishes `session-expired`, logs through the dev-only `logApiCall`, and
+  **never throws**.
+  `fetch(` anywhere else in client code is a lint error.
+- [`ApiResponse<T>`](../../lib/api/types.ts) = `{ success, data?, error?, statusCode?,
+  errorCode?, source?, upstreamCode?, platformMessage?, details?, retryable?, userMessage? }`.
+  - BFF errors (body `{ errorCode, source: "proxy" }`) set `source: "proxy"`
+    and `errorCode` (a string; absent if this client doesn't know the code).
+    `/api/token` failures also carry `userMessage` (user-safe copy, D9) and,
+    when not worth retrying, `retryable: false`.
+  - Upstream errors (body `{ message, code }`) set `upstreamCode` (the backend
+    integer), `platformMessage` and `error` (the platform message) and
+    `details`.
+  - A network failure sets `errorCode: "NETWORK_ERROR"` and no `statusCode`.
+    `FORBIDDEN` and the derived codes are named only by `lib/api/errors`.
+- [`proxyPath(path)`](../../lib/api/config.ts) — builds a same-origin proxy
+  path (`/api/1h/<path relative to the upstream /api>`). Each module owns its
+  own path builders (e.g. `myselfPath()`, `contactPointsPath(type)`). Owner ids
+  are the literal `me`.
+- [`keys`](../../lib/api/keys.ts) — every SWR key, shaped `["pp", resource, ...params]`
+  (every planned key is already declared), plus `mutateMyself()` and
+  `mutateContactPoints(...types)`.
+- [`registerFetcher(resource, loader)`](../../lib/api/fetcher.ts) — each module
+  registers the SWR loader of its own key family; `swrFetcher` dispatches on it.
+- [`mapApiError(sectionId, response)`](../../lib/api/errors/index.ts) — the one
+  error mapping (`sectionId` is an `ErrorScope`: a section id or `"page"`,
+  `"authenticator"`, `"provider"`, `"organizations"`); upstream message text is
+  matched only in `lib/api/errors/<area>.ts`.
 
-## The skeleton
+## Adding an endpoint
 
-```ts
-/**
- * <Entity> API
- *
- * URL Patterns:
- *   GET  /api/v2/<entity>/{id}   - fetch one
- *   POST /api/v2/<entity>        - create
- */
-import { callApi, type ApiResponse } from "./client"
-import { endpoints } from "./config"
+1. In the same change, add an allowlist entry to its area file in
+   `lib/server/proxy/allowlist/<area>.ts` (`{ method, template, query?,
+   fixedQuery?, body?, upload? + maxBytes, asImage?, profile? }`) and rows in
+   that area's test.
+   Every planned area file exists and is aggregated once by `allowlist/index.ts`.
+2. In the module `lib/api/<resource>.ts`, add the path builder with
+   `proxyPath(...)`.
+3. Write the module function on `callApi("<module>/<fn>", xPath(), init)`
+   with a `"<module>/<fn>"` context string, and map the raw wire shape to a
+   clean domain type (no `as` casts; one bad optional field degrades to
+   `null`, not a failed read). See `lib/api/myself.ts`.
+4. For reads, use the key already declared in `keys.ts` and call
+   `registerFetcher("<resource>", loader)` in the module.
+5. Every planned module (`personal`, `profile-picture`, `contacts`,
+   `addresses`, `places`, `insurance`, `type-keys`, `account`, `mfa`, `npi`,
+   `organizations`, `practice-support`) already exists and, like every other
+   module except `client`, `fetcher` and `log-api-call`, is re-exported from
+   `lib/api/index.ts` with `export *` (specs F6-3, F7-2): add code to your
+   module, test it in your module's own `<module>.test.ts`, and never edit
+   `index.ts` or `planned-modules.test.ts`. Import from `"@/lib/api"`
+   everywhere. The `fetchers` object is frozen: read a new key with
+   `useSWR(keys.x())` (the root fetcher dispatches to your registered
+   loader). A helper shared by modules but not public is a `*.internal.ts`
+   module (e.g. `user-edit-path.internal.ts`), never re-exported; export
+   names must be unique across modules and generic ones carry the area's
+   prefix (`addressesListPath`, not `listPath`; `planned-modules.test.ts`,
+   FOUNDATION.md §1 T6).
+6. Copy goes in `lib/shared/messages/<area>.ts`; upstream messages your
+   feature must recognise go in `lib/api/errors/<area>.ts` (anchored `^…$`).
+7. Test it with Vitest + MSW at the `/api` boundary (`test/msw-server.ts`).
 
-// Public domain type (clean, camelCase, only what the app uses).
-export interface EntityInfo {
-  id: number
-  name: string
-}
+## Rules
 
-// Fetch one — map the raw wire shape to the domain type inline.
-export async function fetchEntity(id: number): Promise<ApiResponse<EntityInfo>> {
-  const res = await callApi<Record<string, unknown>>("entity/fetchEntity", `/api/v2/entity/${id}`)
-  if (!res.success || !res.data) return res as ApiResponse<EntityInfo>
-  const raw = res.data
-  return { success: true, data: { id: raw.id as number, name: (raw.name as string) ?? "" } }
-}
-
-// Create — return the envelope so callers can show errors.
-export async function createEntity(input: { name: string }): Promise<ApiResponse<EntityInfo>> {
-  return callApi<EntityInfo>("entity/createEntity", "/api/v2/entity", {
-    method: "POST",
-    body: JSON.stringify(input),
-  })
-}
-```
-
-Then re-export from the [barrel](../../lib/api/index.ts):
-
-```ts
-// lib/api/index.ts
-export { fetchEntity, createEntity, type EntityInfo } from "./entity"
-```
-
-## Rules of the house
-
-1. **Go through `callApi` only.** It is the single browser transport (AD-19):
-   same-origin `/api/...` paths, the `X-PP-Session` binding and session events.
-   Bare `fetch` is lint-banned in client code.
-2. **Centralize paths.** Add endpoint builders to
-   [`config.ts`](../../lib/api/config.ts) rather than scattering path strings.
-   Remember the version prefix isn't uniform (v2 vs v3 vs graphql).
-3. **Two type layers when the wire differs from the app.** Export a clean domain
-   type; keep the raw shape local and map inline (strip sentinels like `"n/a"`,
-   rename fields, build composites).
-4. **Return `ApiResponse<T>`** for anything a user sees the result of. Reserve
-   `T | null` for trivial internal reads where "failed" == "not found".
-5. **Name by verb intent:** `fetch`/`get` (read), `search` (filtered read),
-   `create`, `update`, `upsert`, `is*` (derived boolean).
-6. **Log with a `"<module>/<fn>"` context** (the first arg to `callApi`/`err`) so
-   failures are greppable to their origin.
-7. **Diff-based updates.** For update/upsert, send only changed fields + `id`
-   (optionally diff against a passed-in snapshot) unless the endpoint requires a
-   full-replacement PUT.
-8. **FormData for multipart.** Build a `FormData` and pass it as `body`;
-   `authFetch` handles the content-type/boundary. Don't set `Content-Type`
-   yourself.
-
-## Auth & environment (already wired in this template)
-
-This template already ships:
-- cookie-based tokens + `getOneHealthBaseUrl()` (base URL captured at `/auth`),
-- `authFetch` with 401→refresh→retry, `SessionExpiredError`, refresh concurrency
-  guard, and FormData handling,
-- server-side token exchange (`/api/token`) and refresh (`/api/token/refresh`).
-
-You normally don't touch these — just build API modules on top. If you're
-integrating a different 1health launch/SSO handshake, the token-exchange route
-is the only piece that changes; the cookie contract it writes stays the same.
-
-See also [AUTH-ARCHITECTURE.md](../AUTH-ARCHITECTURE.md) and
-[ACTION-PATTERNS.md](../ACTION-PATTERNS.md).
+- Never build an absolute URL or read the environment in client code: the
+  server decides the upstream origin from the session.
+- Don't parse error bodies yourself; `callApi` does it once.
+- Don't publish session events; `callApi` does.
+- Non-GET calls are replayed only after a proxy `TOKEN_EXPIRED`.

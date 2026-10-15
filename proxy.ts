@@ -1,174 +1,157 @@
-import "server-only"
 import { NextResponse, type NextRequest } from "next/server"
-import { NO_STORE_HEADERS } from "@/lib/server/cache-headers"
+import { isLocalDev } from "@/lib/shared/app-env"
+import { generateNonce, securityHeaders } from "@/lib/server/security/headers"
+import { DISABLED_FROM_AUTH, DISABLED_FROM_HEADER, DISABLED_ROUTE } from "@/lib/server/disabled-screen"
+import { serverEnv } from "@/lib/server/env"
+import { NO_STORE_HEADERS } from "@/lib/server/http/cache-headers"
+import { jsonError } from "@/lib/server/http/responses"
+import { isSwitchedOff, killSwitchFor, normalizePath } from "@/lib/server/kill-switch"
+import { canRenewLastSeen } from "@/lib/server/session/refresh"
 import {
-  SESSION_COOKIE_NAME,
-  clearSessionCookie,
+  clearSessionSetCookie,
   isSessionAged,
-  sealSession,
+  readCookie,
+  renewLastSeen,
+  SESSION_COOKIE,
   unsealSession,
-} from "@/lib/server/session"
+} from "@/lib/server/session/session"
 
 /**
- * =============================================================================
- * proxy.ts — the Next 16 request interceptor (replaces `middleware.ts`)
- * =============================================================================
+ * Next 16 request interceptor. Sets the AD-21 headers, with a fresh CSP nonce,
+ * on every response (pages, 404s, `/api/**` and static assets).
  *
- * Runs on the Node.js runtime (Next 16 forbids a route-segment runtime config
- * here and always runs the proxy on Node). It sets the AD-21 security headers on
- * EVERY response — app routes, 404s, static assets and `/api/**` alike — with a
- * fresh per-request CSP nonce, and forwards that nonce to the App Router via the
- * `x-nonce` request header so Next's own scripts carry it.
+ * Kill switches first (AD-20, Stories 1.16 and 7.2; `lib/server/kill-switch.ts`):
+ * a switched-off API path answers 503 `SERVICE_DISABLED`; a switched-off page
+ * (navigation, RSC or prefetch) is rewritten to `/disabled`, a route handler
+ * that answers the disabled screen with status 503. Both are no-store.
  *
- * The app is never framed (D10): every response sends `frame-ancestors 'none'`,
- * `X-Frame-Options: DENY` and COOP `same-origin`. `lpl` is never handled here:
- * the portal launches `/auth?lpl=…` and `/auth` posts it to `/api/token` (D1).
+ * It does not redirect requests without a session: pages call
+ * `requirePageSession()` themselves (spec 7.0a design note).
  *
- * It records a top-level navigation to `/` as user activity (AD-16, Story 1.6):
- * a `GET /` with `Sec-Fetch-Mode: navigate` and a session cookie re-seals
- * `lastSeen = now` (aged, unsealable or environment-less → clear the cookie +
- * 307 to `/auth`). This lives here because a server component cannot set
- * cookies. Prefetch and RSC requests are not activity.
- * =============================================================================
+ * Story 1.6 (AD-16): a top-level navigation to `/` or `/account` that carries
+ * the session cookie is user activity. A valid session is re-sealed with
+ * `lastSeen = now` (set on the response and forwarded to the page, so it
+ * renders the new value); an unsealable or aged one is cleared with a 307 to
+ * `/auth`. Within 55 s of token expiry nothing is re-sealed (race guard).
+ * This lives here because a server component cannot set cookies.
+ * Prefetch and RSC requests are not activity.
  */
 
-/** Generate a fresh, ≥128-bit, base64 nonce for each request (Node Web Crypto). */
-function generateNonce(): string {
-  const bytes = new Uint8Array(16) // 128 bits
-  crypto.getRandomValues(bytes)
-  let binary = ""
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary)
-}
+const ACTIVITY_PAGES = new Set(["/", "/account"])
 
-/** Build the per-request CSP string with the nonce (AD-21). */
-function buildCsp(nonce: string): string {
-  return [
-    "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' blob: data:",
-    "connect-src 'self'",
-    "font-src 'self'",
-    "object-src 'none'",
-    "base-uri 'none'",
-    "form-action 'self'",
-    "frame-ancestors 'none'",
-    "upgrade-insecure-requests",
-  ].join("; ")
-}
-
-/** Apply the full AD-21 header set to a response. */
-function applySecurityHeaders(res: NextResponse, nonce: string): NextResponse {
-  res.headers.set("Content-Security-Policy", buildCsp(nonce))
-  res.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
-  res.headers.set("X-Content-Type-Options", "nosniff")
-  res.headers.set("Referrer-Policy", "no-referrer")
-  res.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-  res.headers.set("Cross-Origin-Opener-Policy", "same-origin")
-  // Never framed (D10): the legacy header backs up `frame-ancestors 'none'`.
-  res.headers.set("X-Frame-Options", "DENY")
-  return res
-}
+/** `/account/` is the same page as `/account`. */
+const pagePath = (pathname: string): string => (pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname)
 
 /**
- * Launch and session surfaces that must never be cached (AD-18). The
- * `/api/token` route handler also sets these on its own responses; the page
- * surfaces (`/`, `/auth`) can only get them here. Static assets stay cacheable.
+ * AD-18 (Stories 7.2, 7.3; F6-1): the pages and the hand-off route are never
+ * cached. Their responses (pages, RSC payloads, the no-session redirect to
+ * `/auth`, hand-off 303/405) carry `NO_STORE_HEADERS`.
  */
-const NO_STORE_PATHS = new Set(["/", "/auth", "/api/token"])
-
-/** Apply the no-store trio (AD-18). */
-function applyNoStore(res: NextResponse): void {
-  for (const [name, value] of Object.entries(NO_STORE_HEADERS)) {
-    res.headers.set(name, value)
-  }
+export function isNoStorePath(pathname: string): boolean {
+  const path = pagePath(normalizePath(pathname))
+  return ACTIVITY_PAGES.has(path) || path === "/handoff" || path.startsWith("/handoff/")
 }
 
-/** A top-level browser navigation to `/` (not a prefetch, not an RSC fetch). */
-function isHomeNavigation(request: NextRequest): boolean {
-  if (request.method !== "GET" || request.nextUrl.pathname !== "/") return false
+/** A top-level browser navigation to an activity page (not a prefetch, not an RSC fetch). */
+function isPageNavigation(request: NextRequest): boolean {
+  if (request.method !== "GET" || !ACTIVITY_PAGES.has(pagePath(request.nextUrl.pathname))) return false
   if (request.headers.get("sec-fetch-mode") !== "navigate") return false
   if (request.headers.has("rsc") || request.headers.has("next-router-prefetch")) return false
   const purpose = request.headers.get("sec-purpose") ?? request.headers.get("purpose") ?? ""
   return !/prefetch/i.test(purpose)
 }
 
-/**
- * The raw request `cookie` header with only the `__Host-pp_s=…` segment's value
- * replaced; every other byte (other cookies, their encoding, separators) is kept.
- */
-function rewriteCookieHeader(request: NextRequest, sealedValue: string): string {
-  const raw = request.headers.get("cookie") ?? ""
-  const pattern = new RegExp(`(^|;\\s*)${SESSION_COOKIE_NAME}=[^;]*`)
-  return raw.replace(pattern, (_match, prefix: string) => `${prefix}${SESSION_COOKIE_NAME}=${sealedValue}`)
-}
+type NavigationActivity =
+  /** Not activity, or inside the race-guard window (pass through untouched). */
+  | { readonly kind: "none" }
+  | { readonly kind: "expired" }
+  | { readonly kind: "renewed"; readonly setCookie: string; readonly seal: string }
 
-type HomeActivity =
-  | { kind: "none" }
-  | { kind: "expired" }
-  | { kind: "renewed"; setCookie: string; sealedValue: string }
-
-/** Evaluate the `/` navigate activity rule (Story 1.6). */
-async function homeActivity(request: NextRequest): Promise<HomeActivity> {
-  if (!isHomeNavigation(request)) return { kind: "none" }
-  const raw = request.cookies.get(SESSION_COOKIE_NAME)?.value
+async function navigationActivity(request: NextRequest): Promise<NavigationActivity> {
+  if (!isPageNavigation(request)) return { kind: "none" }
+  const raw = readCookie(request.headers.get("cookie"), SESSION_COOKIE)
   if (!raw) return { kind: "none" }
-  const now = Date.now()
-  const session = await unsealSession(raw)
-  if (!session || isSessionAged(session, now)) return { kind: "expired" }
-  const setCookie = await sealSession({ ...session, lastSeen: now })
-  const sealedValue = setCookie.slice(SESSION_COOKIE_NAME.length + 1, setCookie.indexOf(";"))
-  return { kind: "renewed", setCookie, sealedValue }
+  try {
+    const now = Date.now()
+    const session = await unsealSession(raw)
+    if (!session || isSessionAged(session, now)) return { kind: "expired" }
+    // Race guard (as the BFF proxy): near token expiry a refresh in another tab
+    // could rotate the tokens, and this re-seal would write the old ones back.
+    if (!canRenewLastSeen(session, now)) return { kind: "none" }
+    const setCookie = await renewLastSeen(session, now)
+    return { kind: "renewed", setCookie, seal: setCookie.slice(SESSION_COOKIE.length + 1, setCookie.indexOf(";")) }
+  } catch {
+    // Misconfigured secrets: leave the request alone, the page's requirePageSession() decides.
+    return { kind: "none" }
+  }
 }
 
-export async function proxy(request: NextRequest): Promise<NextResponse> {
-  const nonce = generateNonce()
-  const csp = buildCsp(nonce)
+/** The raw `Cookie` header with only the session segment's value replaced; every other byte is kept. */
+function rewriteCookieHeader(raw: string, seal: string): string {
+  return raw.replace(new RegExp(`(^|;\\s*)${SESSION_COOKIE}=[^;]*`), (_match, prefix: string) => `${prefix}${SESSION_COOKIE}=${seal}`)
+}
 
-  // Story 1.6: a top-level navigation to `/` is user activity.
-  const activity = await homeActivity(request)
-  if (activity.kind === "expired") {
-    // No valid session: clear the stale cookie and send the user to `/auth` (no query).
-    const target = request.nextUrl.clone()
-    target.pathname = "/auth"
-    target.search = ""
-    target.hash = ""
-    const redirect = NextResponse.redirect(target, 307)
-    redirect.headers.append("Set-Cookie", clearSessionCookie())
-    applySecurityHeaders(redirect, nonce)
-    applyNoStore(redirect)
-    return redirect
+/** Whether the path's kill switch is on. A misconfigured env never switches anything off here (routes fail on their own). */
+function switchedOff(pathname: string): boolean {
+  const killSwitch = killSwitchFor(pathname)
+  if (killSwitch === null) return false
+  try {
+    return isSwitchedOff(killSwitch, serverEnv())
+  } catch {
+    return false
   }
+}
 
-  // Forward the nonce to the App Router. Next derives the nonce it stamps on its
-  // own scripts from the request's `content-security-policy` header, so that must
-  // be set; `x-nonce` is also forwarded for app code that needs the raw value.
-  const requestHeaders = new Headers(request.headers)
-  requestHeaders.set("x-nonce", nonce)
-  requestHeaders.set("content-security-policy", csp)
-  // Forward the renewed cookie so the page renders the new `lastSeen`.
-  if (activity.kind === "renewed") {
-    requestHeaders.set("cookie", rewriteCookieHeader(request, activity.sealedValue))
-  }
-
-  const response = NextResponse.next({
-    request: { headers: requestHeaders },
-  })
-
-  applySecurityHeaders(response, nonce)
-  if (activity.kind === "renewed") response.headers.append("Set-Cookie", activity.setCookie)
-
-  // AD-18: no-store on the launch surfaces and the guarded home page. Page
-  // responses cannot set their own headers; route handlers set theirs too.
-  if (NO_STORE_PATHS.has(request.nextUrl.pathname)) {
-    applyNoStore(response)
-  }
-
+function withHeaders<R extends Response>(response: R, ...sets: Readonly<Record<string, string>>[]): R {
+  for (const set of sets) for (const [name, value] of Object.entries(set)) response.headers.set(name, value)
   return response
 }
 
-/** Match every path, including 404s and static assets, so headers are universal (AD-21). */
+/** The 503 of a switched-off path: JSON for `/api/**`, else a rewrite to the disabled screen. */
+function disabledResponse(request: NextRequest, requestHeaders: Headers, headers: Readonly<Record<string, string>>): Response {
+  // The same normalized path the matcher used: `//api/x` or `/%61pi/x` is still an API path.
+  const pathname = normalizePath(request.nextUrl.pathname)
+  if (pathname.startsWith("/api/")) {
+    return withHeaders(jsonError(503, "SERVICE_DISABLED"), headers)
+  }
+  if (pathname === "/auth") requestHeaders.set(DISABLED_FROM_HEADER, DISABLED_FROM_AUTH)
+  const response = NextResponse.rewrite(new URL(DISABLED_ROUTE, request.url), { request: { headers: requestHeaders } })
+  return withHeaders(response, headers, NO_STORE_HEADERS)
+}
+
+export async function proxy(request: NextRequest): Promise<Response> {
+  const nonce = generateNonce()
+  const headers = securityHeaders(nonce, isLocalDev())
+
+  // Next reads the nonce from the request CSP header and stamps its own scripts.
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.delete(DISABLED_FROM_HEADER)
+  requestHeaders.set("x-nonce", nonce)
+  requestHeaders.set("Content-Security-Policy", headers["Content-Security-Policy"])
+
+  if (switchedOff(request.nextUrl.pathname)) return disabledResponse(request, requestHeaders, headers)
+
+  const activity = await navigationActivity(request)
+
+  if (activity.kind === "expired") {
+    const response = new NextResponse(null, { status: 307, headers: { Location: new URL("/auth", request.url).toString() } })
+    response.headers.append("Set-Cookie", clearSessionSetCookie())
+    for (const [name, value] of Object.entries(headers)) response.headers.set(name, value)
+    for (const [name, value] of Object.entries(NO_STORE_HEADERS)) response.headers.set(name, value)
+    return response
+  }
+
+  if (activity.kind === "renewed") {
+    requestHeaders.set("cookie", rewriteCookieHeader(request.headers.get("cookie") ?? "", activity.seal))
+  }
+
+  const response = NextResponse.next({ request: { headers: requestHeaders } })
+  for (const [name, value] of Object.entries(headers)) response.headers.set(name, value)
+  if (isNoStorePath(request.nextUrl.pathname)) withHeaders(response, NO_STORE_HEADERS)
+  if (activity.kind === "renewed") response.headers.append("Set-Cookie", activity.setCookie)
+  return response
+}
+
 export const config = {
-  matcher: ["/:path*"],
+  matcher: "/:path*",
 }

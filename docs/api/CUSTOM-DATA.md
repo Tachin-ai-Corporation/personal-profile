@@ -1,10 +1,12 @@
 # Custom data
 
+> **Reference only (spec 7.0a):** the template code this page describes (`lib/api/*` engines, `components/workflow/`) was removed from Personal Profile; its endpoints are not on the proxy allowlist. See [README.md](README.md).
+
 Every extensible instance (journey, organization, person, contact point, …)
 carries one schemaless JSON field: `customData`. It's the platform's built-in
 extension point — store app-specific fields there without schema changes.
 
-Code: [`lib/api/custom-data.ts`](../../lib/api/custom-data.ts).
+Code: removed in spec 7.0a; see git history before d35a162.
 
 ## Reading
 

@@ -1,10 +1,12 @@
 # Building step UIs (dynamically)
 
+> **Reference only (spec 7.0a):** the template code this page describes (`lib/api/*` engines, `components/workflow/`) was removed from Personal Profile; its endpoints are not on the proxy allowlist. See [README.md](README.md).
+
 A workflow step's fields are **data, not code** — they come from the step's
 configuration at runtime (labels, types, options, per-env GUIDs). So you render
 them generically instead of hand-coding a form per step.
 
-Component: [`components/workflow/dynamic-step-form.tsx`](../../components/workflow/dynamic-step-form.tsx).
+Component: removed in spec 7.0a; see git history before d35a162.
 
 ## The generic renderer
 
@@ -85,6 +87,6 @@ See [WORKFLOWS.md § After submitting](WORKFLOWS.md#after-submitting).
 Assignment, due dates, status changes, tags, comments, and attachments are
 **journey-level** concerns, independent of step-body rendering. Build them as
 separate components parameterized by `journeyId` (see the journey-level helpers
-in [`journey.ts`](../../lib/api/journey.ts) and
-[`attachments.ts`](../../lib/api/attachments.ts) /
-[`comments.ts`](../../lib/api/comments.ts)).
+in `journey.ts` and
+`attachments.ts` /
+`comments.ts`).

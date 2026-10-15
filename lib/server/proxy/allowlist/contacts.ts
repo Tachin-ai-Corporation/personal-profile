@@ -1,0 +1,18 @@
+import "server-only"
+
+import type { AllowlistEntry } from "../types"
+
+/**
+ * Contact Point reads shared by the header, Contacts (Epic 3) and `/account`
+ * (Epic 7). One or more `type` params; `Social Media` is the backend
+ * `ContactPointType` literal (spec F1, validated against agents.md).
+ */
+export const entries: readonly AllowlistEntry[] = [
+  {
+    method: "GET",
+    template: "v2/user/contact-point/list",
+    query: { type: { pattern: /^(Email|Mobile|Landline|Social Media)$/, repeatable: true } },
+  },
+  /** Contact Label values (Story 3.1), read by the shared `type-key` loader (spec F6-3). */
+  { method: "GET", template: "v2/type/key/ContactPoint" },
+]

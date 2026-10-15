@@ -1,11 +1,11 @@
 # Workflows: campaigns, journeys, and steps
 
+> **Reference only (spec 7.0a):** the template code this page describes (`lib/api/*` engines, `components/workflow/`) was removed from Personal Profile; its endpoints are not on the proxy allowlist. See [README.md](README.md).
+
 Workflows are how 1health models multi-step processes. This is the richest part
 of the platform — and where most app logic lives.
 
-Code: [`journey.ts`](../../lib/api/journey.ts),
-[`journey-step.ts`](../../lib/api/journey-step.ts),
-[`workflow-template.ts`](../../lib/api/workflow-template.ts).
+Code: removed in spec 7.0a; see git history before d35a162.
 
 ## The hierarchy
 
@@ -69,7 +69,7 @@ const info = await fetchStepInfo(journeyId, stepId)
 const fields = getDynamicFields(info.data?.configuration)
 ```
 
-Each field is a [`DynamicField`](../../lib/api/types.ts): `{ label, type,
+Each field is a `DynamicField`: `{ label, type,
 fieldIdentifier, value?, options?, requiredToSave?, requiredToComplete?, … }`.
 **Resolve fields by `label`; never hardcode `fieldIdentifier`** — see
 [DATA-MODEL.md § Attributes](DATA-MODEL.md#attributes-two-meanings).
