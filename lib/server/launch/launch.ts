@@ -39,10 +39,10 @@ export function parseLaunchPayload(plaintext: string): LaunchPayload | null {
 }
 
 /** What the launch reads from the server env. */
-export type LaunchCredentials = Pick<ServerEnv, "getSecretKey" | "getAppId">
+export type LaunchCredentials = Pick<ServerEnv, "getSecretKey" | "getAppId" | "configuredEnvironments">
 
-/** Launch order (D2): prod before demo. */
-const DETECTION_ORDER: readonly Environment[] = ["prod", "demo"]
+/** Launch order (D2, D18): prod, then demo, then dev (only when configured). */
+export const DETECTION_ORDER: readonly Environment[] = ["prod", "demo", "dev"]
 
 export interface KeyVariant {
   readonly environment: Environment
@@ -50,10 +50,11 @@ export interface KeyVariant {
   readonly trimmed: boolean
 }
 
-/** Each environment's key as stored, then trimmed when that differs. Blank keys are unusable. */
+/** Each configured environment's key as stored, then trimmed when that differs. Blank keys are unusable. */
 export function keyVariants(credentials: LaunchCredentials): KeyVariant[] {
   const variants: KeyVariant[] = []
   for (const environment of DETECTION_ORDER) {
+    if (!credentials.configuredEnvironments.includes(environment)) continue
     const raw = credentials.getSecretKey(environment)
     const trimmed = raw.trim()
     if (trimmed === "") continue

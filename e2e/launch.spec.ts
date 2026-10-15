@@ -14,6 +14,7 @@ import { ANN, freshCode, launch, makeLpl, mockProfileDefaults, test } from "./fi
 
 const DEMO_PORTAL = environmentConfig("demo").portalUrl
 const PROD_PORTAL = environmentConfig("prod").portalUrl
+const DEV_PORTAL = environmentConfig("dev").portalUrl
 const SESSION_COOKIE = "__Host-pp_s"
 const LAND = /\/\?tab=contacts$/
 
@@ -103,6 +104,24 @@ test("a prod launch seals prod: the prod portal link and the remembered environm
   await launch(page, "prod")
   expect((await cookieNamed(page, "onehealth_environment"))?.value).toBe("prod")
   await expect(page.getByRole("link", { name: "Return to 1health" })).toHaveAttribute("href", PROD_PORTAL)
+})
+
+test("a dev launch seals dev (D18): the dev portal link, the remembered environment, and the Dev chooser option", async ({ page }) => {
+  const tokenResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/token")
+  await page.goto(`/auth?lpl=${encodeURIComponent(makeLpl(freshCode(), "dev"))}`)
+  expect(await (await tokenResponse).json()).toEqual({ ok: true, environment: "dev" })
+  await expect(page).toHaveURL(LAND, { timeout: 15_000 })
+  await expect(page.getByRole("heading", { level: 1, name: `${ANN.firstName} ${ANN.lastName}` })).toBeVisible()
+  expect((await cookieNamed(page, "onehealth_environment"))?.value).toBe("dev")
+  await expect(page.getByRole("link", { name: "Return to 1health" })).toHaveAttribute("href", DEV_PORTAL)
+
+  // Back on /auth the remembered dev shows its manual card; the chooser offers Dev (configured in e2e).
+  await page.goto("/auth")
+  await expect(page.getByText("Connected to Dev environment. No launch payload detected.")).toBeVisible()
+  await expect(page.getByRole("link", { name: "Go to 1health (Dev)" })).toHaveAttribute("href", DEV_PORTAL)
+  await page.getByRole("button", { name: "Switch Environment" }).click()
+  await expect(page.getByText("Choose Environment")).toBeVisible()
+  await expect(page.getByRole("button", { name: "Dev" })).toBeVisible()
 })
 
 test("an unencoded lpl whose '+' arrives as a space still launches", async ({ page }) => {

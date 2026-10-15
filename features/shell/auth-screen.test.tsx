@@ -19,6 +19,11 @@ function setReferrer(value: string): void {
 
 const noSleep = { sleep: async () => undefined }
 
+/** The configured environments (server wrapper): dev off, the default deployment. */
+const BASE_ENVS = ["demo", "prod"] as const
+/** Dev configured too (D18). */
+const ALL_ENVS = ["demo", "prod", "dev"] as const
+
 beforeEach(() => {
   setUrl("/auth")
   setReferrer("")
@@ -28,7 +33,7 @@ afterEach(() => vi.useRealTimers())
 
 describe("AuthScreen without lpl", () => {
   it("shows Choose Environment when no environment is known; a choice opens manual entry (display only)", async () => {
-    render(<AuthScreen rememberedEnvironment={null} />)
+    render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment={null} />)
     expect(await screen.findByText(M.chooseTitle)).toBeTruthy()
     expect(screen.getByText(M.chooseDescription)).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "Demo" }))
@@ -37,14 +42,37 @@ describe("AuthScreen without lpl", () => {
     expect(screen.getByRole("link", { name: M.goTo1health("Demo") }).getAttribute("href")).toBe(environmentConfig("demo").portalUrl)
   })
 
+  it("offers only the configured environments: Dev only when dev is configured (D18)", async () => {
+    const view = render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment={null} />)
+    expect(await screen.findByText(M.chooseTitle)).toBeTruthy()
+    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["Demo", "Production"])
+    view.unmount()
+    render(<AuthScreen environments={ALL_ENVS} rememberedEnvironment={null} />)
+    expect(await screen.findByText(M.chooseTitle)).toBeTruthy()
+    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["Demo", "Production", "Dev"])
+    fireEvent.click(screen.getByRole("button", { name: "Dev" }))
+    expect(screen.getByText(M.manualDescription("Dev"))).toBeTruthy()
+    expect(screen.getByRole("link", { name: M.goTo1health("Dev") }).getAttribute("href")).toBe(environmentConfig("dev").portalUrl)
+  })
+
+  it("a dev referrer shows 'Connected to Dev' when dev is configured, else the chooser", async () => {
+    setReferrer("https://dev.1hdev.io/apps")
+    const view = render(<AuthScreen environments={ALL_ENVS} rememberedEnvironment="prod" />)
+    expect(await screen.findByText(M.manualDescription("Dev"))).toBeTruthy()
+    expect(screen.getByRole("link", { name: M.goTo1health("Dev") }).getAttribute("href")).toBe("https://dev.1hdev.io")
+    view.unmount()
+    render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment={null} />)
+    expect(await screen.findByText(M.chooseTitle)).toBeTruthy()
+  })
+
   it("uses the referrer before the remembered environment", async () => {
     setReferrer("https://1health.demo.1health.io/apps")
-    render(<AuthScreen rememberedEnvironment="prod" />)
+    render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment="prod" />)
     expect(await screen.findByText(M.manualDescription("Demo"))).toBeTruthy()
   })
 
   it("shows the manual-entry card for a remembered environment, Submit disabled while empty", async () => {
-    render(<AuthScreen rememberedEnvironment="prod" />)
+    render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment="prod" />)
     expect(await screen.findByText(M.manualDescription("Production"))).toBeTruthy()
     expect(screen.getByLabelText(M.lplLabel).getAttribute("placeholder")).toBe(M.lplPlaceholder)
     const submit = screen.getByRole("button", { name: M.submit })
@@ -65,7 +93,7 @@ describe("AuthScreen without lpl", () => {
       }),
     )
     const navigate = vi.fn()
-    render(<AuthScreen rememberedEnvironment="prod" navigate={navigate} />)
+    render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment="prod" navigate={navigate} />)
     fireEvent.change(await screen.findByLabelText(M.lplLabel), { target: { value: "  ab cd \n" } })
     fireEvent.click(screen.getByRole("button", { name: M.submit }))
     expect(await screen.findByText(M.successTitle)).toBeTruthy()
@@ -77,7 +105,7 @@ describe("AuthScreen without lpl", () => {
 
   it("ignores a submit of only whitespace", async () => {
     const attempt = vi.fn()
-    render(<AuthScreen rememberedEnvironment="demo" flowDeps={{ attempt }} />)
+    render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment="demo" flowDeps={{ attempt }} />)
     const input = await screen.findByLabelText(M.lplLabel)
     fireEvent.change(input, { target: { value: " " } })
     const form = input.closest("form")
@@ -99,7 +127,7 @@ describe("AuthScreen with lpl", () => {
     })
     const navigate = vi.fn()
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
-    render(<AuthScreen rememberedEnvironment={null} flowDeps={{ ...noSleep, attempt }} navigate={navigate} />)
+    render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment={null} flowDeps={{ ...noSleep, attempt }} navigate={navigate} />)
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0)
     })
@@ -124,7 +152,7 @@ describe("AuthScreen with lpl", () => {
     window.sessionStorage.setItem(LOGIN_INTENT_KEY, "/account?tab=provider")
     const navigate = vi.fn()
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
-    render(<AuthScreen rememberedEnvironment={null} flowDeps={{ attempt: async () => ({ kind: "ok", environment: "prod" }) }} navigate={navigate} />)
+    render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment={null} flowDeps={{ attempt: async () => ({ kind: "ok", environment: "prod" }) }} navigate={navigate} />)
     await act(async () => {
       await vi.advanceTimersByTimeAsync(SUCCESS_REDIRECT_DELAY_MS)
     })
@@ -136,7 +164,7 @@ describe("AuthScreen with lpl", () => {
     setUrl("/auth?lpl=abc")
     const resolvers: ((value: LaunchAttempt) => void)[] = []
     const attempt = () => new Promise<LaunchAttempt>((resolve) => resolvers.push(resolve))
-    render(<AuthScreen rememberedEnvironment="prod" flowDeps={{ ...noSleep, attempt }} />)
+    render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment="prod" flowDeps={{ ...noSleep, attempt }} />)
     expect(await screen.findByText(M.authenticatingTitle)).toBeTruthy()
     expect(screen.getByText(M.connectingTo("Production"))).toBeTruthy()
     await act(async () => resolvers[0]({ kind: "network" }))
@@ -151,7 +179,7 @@ describe("AuthScreen with lpl", () => {
         HttpResponse.json({ ok: false, errorCode: "WRONG_TENANT", source: "proxy", message: "Tenant copy", retryable: false }, { status: 403 }),
       ),
     )
-    render(<AuthScreen rememberedEnvironment="demo" />)
+    render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment="demo" />)
     expect(await screen.findByText(M.failedTitle)).toBeTruthy()
     expect(screen.getByText("Tenant copy")).toBeTruthy()
     expect(screen.queryByText(/WRONG_TENANT/)).toBeNull()
@@ -163,7 +191,7 @@ describe("AuthScreen with lpl", () => {
   it("Enter LPL Manually opens the manual-entry card from the error screen", async () => {
     setUrl("/auth?lpl=abc")
     const attempt = async (): Promise<LaunchAttempt> => ({ kind: "failed", retryable: false })
-    render(<AuthScreen rememberedEnvironment={null} flowDeps={{ attempt }} />)
+    render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment={null} flowDeps={{ attempt }} />)
     expect(await screen.findByText(M.failedFallback)).toBeTruthy()
     expect(screen.getByRole("link", { name: M.goTo1health("Production") })).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: M.enterManually }))
@@ -175,7 +203,7 @@ describe("AuthScreen with lpl", () => {
     const navigate = vi.fn()
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     const view = render(
-      <AuthScreen rememberedEnvironment={null} flowDeps={{ attempt: async () => ({ kind: "ok", environment: "prod" }) }} navigate={navigate} />,
+      <AuthScreen environments={BASE_ENVS} rememberedEnvironment={null} flowDeps={{ attempt: async () => ({ kind: "ok", environment: "prod" }) }} navigate={navigate} />,
     )
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0)
@@ -192,7 +220,7 @@ describe("AuthScreen with lpl", () => {
     setUrl("/auth?lpl=abc")
     const cookieGet = vi.spyOn(document, "cookie", "get")
     server.use(http.post("/api/token", () => HttpResponse.json({ ok: true, environment: "prod" })))
-    render(<AuthScreen rememberedEnvironment="prod" navigate={vi.fn()} />)
+    render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment="prod" navigate={vi.fn()} />)
     expect(await screen.findByText(M.successTitle)).toBeTruthy()
     expect(cookieGet).not.toHaveBeenCalled()
   })
@@ -202,7 +230,7 @@ describe("AuthScreen with lpl", () => {
     const assign = vi.fn()
     vi.stubGlobal("location", { ...window.location, assign, href: window.location.href })
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
-    render(<AuthScreen rememberedEnvironment={null} flowDeps={{ attempt: async () => ({ kind: "ok", environment: "prod" }) }} />)
+    render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment={null} flowDeps={{ attempt: async () => ({ kind: "ok", environment: "prod" }) }} />)
     await act(async () => {
       await vi.advanceTimersByTimeAsync(SUCCESS_REDIRECT_DELAY_MS)
     })
@@ -230,12 +258,12 @@ describe("AuthScreen: blank lpl values and accessibility", () => {
   ])("%s is treated like no lpl: no POST, the card shows, lpl is stripped (other params kept)", async (url, search) => {
     const posts = countTokenPosts()
     setUrl(url)
-    const view = render(<AuthScreen rememberedEnvironment="demo" />)
+    const view = render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment="demo" />)
     expect(await screen.findByText(M.manualTitle)).toBeTruthy()
     expect(window.location.search).toBe(search)
     view.unmount()
     setUrl(url)
-    render(<AuthScreen rememberedEnvironment={null} />)
+    render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment={null} />)
     expect(await screen.findByText(M.chooseTitle)).toBeTruthy()
     expect(window.location.search).toBe(search)
     await act(async () => undefined)
@@ -246,7 +274,7 @@ describe("AuthScreen: blank lpl values and accessibility", () => {
     const cookieGet = vi.spyOn(document, "cookie", "get")
     server.use(http.post("/api/token", () => HttpResponse.json({ ok: false, errorCode: "LAUNCH_INVALID", source: "proxy", message: "Nope", retryable: false }, { status: 400 })))
     // No lpl → the manual card; then a manual submit → the error screen.
-    render(<AuthScreen rememberedEnvironment="demo" />)
+    render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment="demo" />)
     fireEvent.change(await screen.findByLabelText(M.lplLabel), { target: { value: "abc" } })
     fireEvent.click(screen.getByRole("button", { name: M.submit }))
     expect(await screen.findByText(M.failedTitle)).toBeTruthy()
@@ -258,17 +286,17 @@ describe("AuthScreen: blank lpl values and accessibility", () => {
 
   it("axe-core reports zero violations on the error state", async () => {
     setUrl("/auth?lpl=abc")
-    render(<AuthScreen rememberedEnvironment="prod" flowDeps={{ attempt: async () => ({ kind: "failed", message: "Nope", retryable: false }) }} />)
+    render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment="prod" flowDeps={{ attempt: async () => ({ kind: "failed", message: "Nope", retryable: false }) }} />)
     expect(await screen.findByText(M.failedTitle)).toBeTruthy()
     expect(await axeViolations()).toEqual([])
   })
 
   it("axe-core reports zero violations on the manual card and the chooser", async () => {
-    const view = render(<AuthScreen rememberedEnvironment="demo" />)
+    const view = render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment="demo" />)
     expect(await screen.findByText(M.manualTitle)).toBeTruthy()
     expect(await axeViolations()).toEqual([])
     view.unmount()
-    render(<AuthScreen rememberedEnvironment={null} />)
+    render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment={null} />)
     expect(await screen.findByText(M.chooseTitle)).toBeTruthy()
     expect(await axeViolations()).toEqual([])
   })

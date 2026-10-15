@@ -68,6 +68,10 @@
 
 ## Foundation (shared or cross-team)
 
+- source_spec: none (D18 optional dev environment, 2026-10-15)
+  summary: Confirm the dev `publicFilesOrigin`. Dev ships with `null` (every dev org logo 404s → initials). The only candidate is `https://bocore-public-files-develop.s3.us-west-1.amazonaws.com`, seen in 2022 backend mock data for the old dev host; check it against a live `tenantLogo.publicUrl` on `https://dev.1hdev.io` before relying on dev logos (Story 10.2).
+  evidence: lib/shared/environments.ts (`dev` config); 1h-ng-bo-core-be `OrderTestResultMockFactory.java` and history of the test-product report template (`bocore-public-files-develop`); no `bocore-public-files-dev` anywhere in config or history.
+
 - source_spec: `_bmad-output/implementation-artifacts/spec-f6-3-data-server-tests.md` (review, 2026-10-14)
   summary: The fixture-page gate test decides whether a page needs a session by a `requirePageSession()` substring in its source, so a page that calls it indirectly (or mentions it in a comment) is checked wrongly.
   evidence: app/test-fixtures.test.ts; replace with an explicit per-page export (e.g. `export const needsSession = true`) or a mock-call count without the source check.

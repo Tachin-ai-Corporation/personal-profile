@@ -3,6 +3,7 @@ import "server-only"
 import { cookies } from "next/headers"
 import type { PageIdleTiming } from "@/lib/shared/bff-contract"
 import { environmentConfig, type Environment } from "@/lib/shared/environments"
+import { serverEnv } from "@/lib/server/env"
 import { ENVIRONMENT_COOKIE, parseEnvironmentCookie } from "@/lib/server/session/environment-cookie"
 import { ABSOLUTE_TIMEOUT_MS, IDLE_TIMEOUT_MS, requireSession } from "@/lib/server/session/session"
 
@@ -31,8 +32,13 @@ export async function requirePageSession(now: number = Date.now()): Promise<Page
   }
 }
 
-/** `/auth` wrapper: the remembered environment, display only (D2). */
+/** `/auth` wrapper: the remembered environment, display only (D2); only a configured one (D18). */
 export async function rememberedEnvironment(): Promise<Environment | null> {
   const store = await cookies()
-  return parseEnvironmentCookie(store.get(ENVIRONMENT_COOKIE)?.value)
+  return parseEnvironmentCookie(store.get(ENVIRONMENT_COOKIE)?.value, serverEnv().configuredEnvironments)
+}
+
+/** `/auth` wrapper: the environments this deployment can launch, for the Choose Environment card (D18). Names only, no secret. */
+export function configuredEnvironments(): readonly Environment[] {
+  return serverEnv().configuredEnvironments
 }

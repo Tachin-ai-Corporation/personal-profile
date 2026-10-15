@@ -6,7 +6,7 @@ import { revokeAllDevices } from "@/lib/server/session/revoke"
 import { E2E_MOCK_ENV, stubServerEnv, testEnv } from "./env-fixture"
 import { installUpstreamMock, MOCK_MYSELF, uninstallUpstreamMock } from "./e2e-upstream-mock"
 import { server } from "./msw-server"
-import { DEMO, PROD } from "./upstream-fixture"
+import { DEMO, DEV, PROD } from "./upstream-fixture"
 
 /** The fetch in place before each test (MSW's interceptor, installed in beforeAll). */
 let realFetch: typeof fetch
@@ -40,6 +40,15 @@ describe("e2e upstream mock (spec R5-1)", () => {
     expect(globalThis.fetch).toBe(realFetch)
   })
 
+  it("re-checks a set dev pair too (D18), and accepts an unset one", () => {
+    const [, , , , devKey, devApp] = E2E_MOCK_CREDENTIALS
+    const env = { ...testEnv({ ...E2E_MOCK_ENV, PP_E2E_MOCK: "0", [devApp]: "real-app-dev" })(), PP_E2E_MOCK: true }
+    expect(() => installUpstreamMock(env)).toThrow(`The e2e upstream mock needs e2e dummy credentials: ${devApp}`)
+    expect(globalThis.fetch).toBe(realFetch)
+    const withoutDev = { ...testEnv({ ...E2E_MOCK_ENV, PP_E2E_MOCK: "0", [devKey]: "", [devApp]: "" })(), PP_E2E_MOCK: true }
+    expect(() => installUpstreamMock(withoutDev)).not.toThrow()
+  })
+
   it("installs once and uninstalls back to the real fetch", () => {
     install()
     const patched = globalThis.fetch
@@ -52,7 +61,7 @@ describe("e2e upstream mock (spec R5-1)", () => {
     expect(globalThis.fetch).toBe(realFetch)
   })
 
-  it.each([DEMO, PROD])("exchanges a code once on $label: distinct tenant-1 tokens, then the recorded 'already redeemed' 400", async ({ apiRoot }) => {
+  it.each([DEMO, PROD, DEV])("exchanges a code once on $label: distinct tenant-1 tokens, then the recorded 'already redeemed' 400", async ({ apiRoot }) => {
     install()
     const first = await exchangeCode(apiRoot, "code-a", "key")
     const second = await exchangeCode(apiRoot, "code-b", "key")
@@ -83,6 +92,7 @@ describe("e2e upstream mock (spec R5-1)", () => {
   it.each([
     ["GET", DEMO.apiRoot, "/api/v2/user/contact-point/list?type=Email"],
     ["POST", PROD.apiRoot, "/auth/oauth2/token"],
+    ["GET", DEV.apiRoot, "/api/v2/user/contact-point/list?type=Email"],
   ])("fails closed on any other 1health call (%s %s%s): 599 E2E_UNMOCKED, logged", async (method, apiRoot, path) => {
     install()
     const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)

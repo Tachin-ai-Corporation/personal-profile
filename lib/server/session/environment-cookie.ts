@@ -1,6 +1,6 @@
 import "server-only"
 
-import { isEnvironment, type Environment } from "@/lib/shared/environments"
+import { ENVIRONMENTS, isEnvironment, type Environment } from "@/lib/shared/environments"
 
 /**
  * The remembered environment (D4): non-secret `onehealth_environment`, set by a
@@ -15,9 +15,13 @@ export function environmentSetCookie(environment: Environment): string {
   return `${ENVIRONMENT_COOKIE}=${environment}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${THIRTY_DAYS_SECONDS}`
 }
 
-/** The cookie value when it names a known environment, else `null`. */
-export function parseEnvironmentCookie(value: string | undefined): Environment | null {
-  return isEnvironment(value) ? value : null
+/**
+ * The cookie value when it names a known environment this deployment has
+ * configured (`configured`, default every one), else `null`: a remembered
+ * `dev` is ignored while dev is off (D18).
+ */
+export function parseEnvironmentCookie(value: string | undefined, configured: readonly Environment[] = ENVIRONMENTS): Environment | null {
+  return isEnvironment(value) && configured.includes(value) ? value : null
 }
 
 export function resolveEnvironment(sessionEnvironment: Environment | null, cookieValue: string | undefined): Environment {

@@ -28,14 +28,20 @@ type View =
 export interface AuthScreenProps {
   /** The `onehealth_environment` cookie, read by the server wrapper (the client never reads cookies). */
   readonly rememberedEnvironment: Environment | null
+  /**
+   * The environments this deployment can launch (server wrapper, `ENVIRONMENTS`
+   * order; names only, D18): the Choose Environment options and the referrers
+   * recognised. Dev appears only when configured.
+   */
+  readonly environments: readonly Environment[]
   /** Test seams. */
   readonly flowDeps?: LaunchFlowDeps
   readonly navigate?: (target: string) => void
 }
 
 /** Display-only environment (D2): referrer first, then the remembered cookie. Never sent with a request. */
-function displayEnvironment(remembered: Environment | null): Environment | null {
-  return (typeof document !== "undefined" && document.referrer ? environmentFromReferrer(document.referrer) : null) ?? remembered
+function displayEnvironment(remembered: Environment | null, configured: readonly Environment[]): Environment | null {
+  return (typeof document !== "undefined" && document.referrer ? environmentFromReferrer(document.referrer, configured) : null) ?? remembered
 }
 
 /** Removes `lpl` from the address bar before any request (Story 1.2), returning its value. */
@@ -70,7 +76,7 @@ function Screen({ children }: { children: React.ReactNode }) {
 }
 
 /** The `/auth` launch screen (Story 1.2, D9, as patient-vault `app/auth/page.tsx`). */
-export function AuthScreen({ rememberedEnvironment, flowDeps, navigate }: AuthScreenProps) {
+export function AuthScreen({ rememberedEnvironment, environments, flowDeps, navigate }: AuthScreenProps) {
   const [environment, setEnvironment] = useState<Environment | null>(null)
   const [view, setView] = useState<View>({ name: "idle" })
   const [manualLpl, setManualLpl] = useState("")
@@ -94,7 +100,7 @@ export function AuthScreen({ rememberedEnvironment, flowDeps, navigate }: AuthSc
   }
 
   const onMount = useEffectEvent(() => {
-    const detected = displayEnvironment(rememberedEnvironment)
+    const detected = displayEnvironment(rememberedEnvironment, environments)
     setEnvironment(detected)
     const lpl = takeLplFromUrl()
     if (lpl) void launch(lpl)
@@ -197,7 +203,7 @@ export function AuthScreen({ rememberedEnvironment, flowDeps, navigate }: AuthSc
             <CardDescription>{M.chooseDescription}</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            {(["demo", "prod"] as const).map((choice) => (
+            {environments.map((choice) => (
               <Button
                 key={choice}
                 variant="outline"

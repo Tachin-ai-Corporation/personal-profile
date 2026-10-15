@@ -1,4 +1,4 @@
-import { E2E_CREDENTIAL_PREFIX, E2E_MOCK_CREDENTIALS, serverEnv, type ServerEnv } from "@/lib/server/env"
+import { nonE2eCredentials, serverEnv, type ServerEnv } from "@/lib/server/env"
 import { ENVIRONMENTS, environmentConfig } from "@/lib/shared/environments"
 
 /**
@@ -8,8 +8,8 @@ import { ENVIRONMENTS, environmentConfig } from "@/lib/shared/environments"
  * revoke all call 1health SERVER-side, where Playwright's browser routes can't
  * reach. With `PP_E2E_MOCK=1` (read only through `lib/server/env.ts`; set only
  * by `e2e/server-env.ts`, never in a deployment) `instrumentation.ts` installs
- * this patch over the server's global `fetch`. It answers, on the two 1health
- * roots only:
+ * this patch over the server's global `fetch`. It answers, on the 1health
+ * roots only (every `ENVIRONMENTS` root, dev included, D18):
  *
  * - the one-time-code exchange: single-use codes (a second exchange of a code
  *   answers the platform's recorded 400 "…has already been redeemed." body);
@@ -74,7 +74,7 @@ let restore: (() => void) | undefined
 export function installUpstreamMock(env: ServerEnv = serverEnv()): void {
   if (!env.PP_E2E_MOCK) throw new Error("The e2e upstream mock needs PP_E2E_MOCK=1")
   // Re-checked here (the boot already fails): never fake 1health next to real credentials.
-  const real = E2E_MOCK_CREDENTIALS.filter((name) => !env[name].startsWith(E2E_CREDENTIAL_PREFIX))
+  const real = nonE2eCredentials(env)
   if (real.length > 0) throw new Error(`The e2e upstream mock needs e2e dummy credentials: ${real.join(", ")}`)
   if (restore) return
 

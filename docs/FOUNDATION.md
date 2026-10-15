@@ -138,12 +138,12 @@ Next.js server (same origin)
    /api/session/{refresh,ping,logout}
    /disabled          503 disabled screen (rewritten to by proxy.ts)
    ▼
-1health (demo | prod, chosen per request from the session's environment)
+1health (demo | prod | optional dev, chosen per request from the session's environment)
 ```
 
 - **Launch** (kept from the 1health App Starter): the portal opens `/auth?lpl=…`.
   - The screen strips `lpl` from the URL and POSTs `{ lpl }` to `/api/token`, up to 5 attempts 1.5 s apart.
-  - The server picks the environment by the key that decrypts (`_PROD` first, then `_DEMO`). It checks the app id, exchanges the code once, checks the tenant and the `myself` id, then seals the session.
+  - The server picks the environment by the key that decrypts (`_PROD` first, then `_DEMO`, then `_DEV` when the optional dev pair is set, D18). It checks the app id, exchanges the code once, checks the tenant and the `myself` id, then seals the session.
   - Details: [AUTH-ARCHITECTURE.md](AUTH-ARCHITECTURE.md).
 - **Session:** one `HttpOnly; Secure; SameSite=Lax` cookie, `__Host-pp_s` (iron-session), plus a display-only `onehealth_environment` cookie. No token ever reaches the browser.
   - Idle limit is 15 min and the absolute limit is 8 h.
@@ -168,8 +168,8 @@ Paths are relative to the repo root. "Stories" lists the main consumers (A = Tea
 
 | Module | Path | What it gives (key API) | Use it for (stories) | Do not |
 |---|---|---|---|---|
-| Server env | `lib/server/env.ts` | `serverEnv()` (`PP_DISABLED`, `ACCOUNT_DISABLED`, `PLACES_ENABLED`, `GOOGLE_PLACES_KEY`, `PP_E2E_FIXTURES`, `IS_LOCAL_DEV`, `getSecretKey(env)`, `getAppId(env)`), `assertServerEnv()` (boot, via `instrumentation.ts`), `DEFAULT_TENANT_ID`, `secretKeyVariable()` | all server code | read `process.env` anywhere else |
-| Environment map | `lib/shared/environments.ts` | `environmentConfig(env)` → `{ apiRoot, apiBase, portalUrl, publicFilesOrigin, label }`, `isEnvironment`, `environmentOfPortalUrl`, `environmentFromReferrer`, `ENVIRONMENTS` | 1.16, 7.2, 10.2 | hard-code a 1health origin (`check-forbidden.sh` fails) |
+| Server env | `lib/server/env.ts` | `serverEnv()` (`PP_DISABLED`, `ACCOUNT_DISABLED`, `PLACES_ENABLED`, `GOOGLE_PLACES_KEY`, `PP_E2E_FIXTURES`, `IS_LOCAL_DEV`, `configuredEnvironments` (demo, prod, plus dev when its pair is set, D18), `getSecretKey(env)`, `getAppId(env)`), `assertServerEnv()` (boot, via `instrumentation.ts`), `DEFAULT_TENANT_ID`, `secretKeyVariable()` | all server code | read `process.env` anywhere else |
+| Environment map | `lib/shared/environments.ts` | `ENVIRONMENTS` (`demo`, `prod`, `dev`; dev `https://dev.1hdev.io`, optional, D18), `environmentConfig(env)` → `{ apiRoot, apiBase, portalUrl, publicFilesOrigin, label }`, `isEnvironment`, `environmentOfPortalUrl`, `environmentFromReferrer(referrer, configured?)` | 1.16, 7.2, 10.2 | hard-code a 1health or 1hdev.io origin (`check-forbidden.sh` fails); assume every environment is configured (use `configuredEnvironments`) |
 | Security headers | `lib/server/security/headers.ts`, `proxy.ts` | `securityHeaders(nonce)`, `buildCsp`, `generateNonce`, `STATIC_SECURITY_HEADERS`; `proxy.ts` sets them on every response | all | add per-route header code |
 | Root interceptor | `proxy.ts` | kill switch first (`killSwitchFor`), AD-21 headers, top-level navigation to `/` or `/account`: aged/unsealable session → 307 `/auth`, valid → re-seal `lastSeen`; `NO_STORE_HEADERS` on every `/`, `/account`, `/handoff/**` response (`isNoStorePath`, F6-1; Next 16 replaces `Vary` on rendered pages and uses its own no-store value on a 404) | 1.6, 1.16, 7.2 | add a `middleware.ts` |
 | HTTP helpers | `lib/server/http/responses.ts`, `cache-headers.ts`, `content-type.ts`, `guard-route.ts` | `jsonError(status, code)`, `jsonOk`, `jsonResponse`, `noContent`, `seeOther(url)`, `methodNotAllowed()`, `SERVICE_DISABLED_RETRY_AFTER`; `withNoStore`, `NO_STORE_HEADERS`; `isJsonRequest` (415 check); `guardRoute(route, handler)` (500 wrapper) | every route | hand-build error bodies; use `NextResponse.redirect` (banned) |
@@ -570,5 +570,5 @@ The foundation status comes from `sprint-status.yaml` and the dated *Foundation 
 
 ### Team B
 
-- **`publicFilesOrigin` is unconfirmed.** It has to be checked on demo and prod before Story 10.2. A mismatch only falls back to initials.
+- **`publicFilesOrigin` is unconfirmed.** It has to be checked on demo and prod before Story 10.2. A mismatch only falls back to initials. Dev (D18) has `null`, so every dev org logo shows initials until its origin is confirmed (candidate in `deferred-work.md`, Foundation).
 - **Org logo cost:** up to about 70 upstream calls per 12-card page (Story 10.2 caching).

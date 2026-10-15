@@ -21,11 +21,22 @@ are still unconfirmed against a live `tenantLogo.publicUrl` on demo and prod
 makes the logo route answer 404 and the card show initials. The server picks
 the environment per request from the session; a request never carries one.
 
+A third environment, `dev` (D18), is optional: `apiRoot`
+`https://dev.1hdev.io` (IdP, refresh and logout under `<apiRoot>/auth/...` as
+on demo; REST under `<apiRoot>/api`), portal = the root, label "Dev", referrer
+host `dev.1hdev.io`, and `publicFilesOrigin` `null` (unconfirmed, so every dev
+org logo is 404 → initials). It is on only when both `ONEHEALTH_SECRET_KEY_DEV`
+and `APP_ID_DEV` are set; exactly one set fails the boot naming the missing
+one. Every configured secret key must differ from the others (after trim).
+`lib/server/env.ts` exposes the result as `configuredEnvironments`.
+
 ## Launch (`/auth`)
 
 1. The portal opens `/auth?lpl=<encrypted launch payload>`.
 2. `app/auth/page.tsx` (server, `force-dynamic`) reads only the
-   `onehealth_environment` cookie and renders `features/shell/auth-screen.tsx`.
+   `onehealth_environment` cookie (ignored when it names an unconfigured dev)
+   and the configured environment names, and renders
+   `features/shell/auth-screen.tsx`.
 3. The screen removes `lpl` from the address bar (`history.replaceState`),
    then runs the launch flow (`features/shell/launch-flow.ts`): up to 5
    attempts of `POST /api/token { lpl }`, 1.5 s apart; a body with
@@ -33,7 +44,8 @@ the environment per request from the session; a request never carries one.
 4. `/api/token` (`lib/server/launch/token-handler.ts` → `launch.ts`):
    - answers 503 `SERVICE_DISABLED` when `PP_DISABLED=1`;
    - requires `Content-Type: application/json` (else 415) and reads only `lpl`;
-   - decrypts it with `ONEHEALTH_SECRET_KEY_PROD`, then `_DEMO`, each as
+   - decrypts it with `ONEHEALTH_SECRET_KEY_PROD`, then `_DEMO`, then `_DEV`
+     (only when dev is configured), each as
      stored and then trimmed (a trimmed-only match logs a warning naming the
      variable); the key that decrypts decides `environment` (D2); no key
      configured at all is 503 `LAUNCH_CONFIG`;
@@ -62,7 +74,9 @@ the tokens) and `SERVICE_DISABLED` carry `retryable: false`; exchange and
 "…has already been redeemed." → `LAUNCH_USED`, "…has expired." →
 `LAUNCH_EXPIRED`, anything else → `LAUNCH_INVALID`. An unexpected throw fails
 closed: 502 `LAUNCH_INVALID`, retryable, cookie cleared. Without `lpl` the screen shows manual entry (environment known
-from the referrer or the cookie, display only) or "Choose Environment".
+from the referrer or the cookie, display only; only configured environments
+count) or "Choose Environment", which lists only the configured environments
+(Dev only with the dev pair set).
 
 ## The session
 
@@ -273,7 +287,8 @@ rewritten page would render 200 in Next 16 and the screen must answer 503.
 It serves static HTML (no script; inline light/dark token values kept equal
 to `app/globals.css` by a test) with a "Go to 1health" link to the portal of
 the session's environment, else the `onehealth_environment` cookie, else the
-referrer when the page was `/auth`, else prod. With no switch on, `/disabled`
+referrer when the page was `/auth`, else prod (a dev cookie or referrer counts
+only while dev is configured). With no switch on, `/disabled`
 is 404. Every kill-switch 503 is no-store with `Retry-After: 300`. Route
 handlers keep their own check as a second layer (the proxy's `PP_DISABLED`
 and `profile`-entry checks, each named op's `killSwitch`).

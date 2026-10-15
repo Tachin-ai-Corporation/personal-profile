@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { E2E_MOCK_ENV, TEST_ENV } from "@/test/env-fixture"
-import { assertServerEnv, DEFAULT_TENANT_ID, parseServerEnv, resetServerEnvCache, secretKeyVariable, serverEnv, ServerEnvError } from "./env"
+import { E2E_MOCK_ENV, TEST_DEV_ENV, TEST_ENV } from "@/test/env-fixture"
+import { assertServerEnv, DEFAULT_TENANT_ID, nonE2eCredentials, parseServerEnv, resetServerEnvCache, secretKeyVariable, serverEnv, ServerEnvError } from "./env"
 
 const valid = { ...TEST_ENV }
 
@@ -33,6 +33,12 @@ describe("parseServerEnv", () => {
     expect(env.GOOGLE_PLACES_KEY).toBeUndefined()
     expect(env.IS_LOCAL_DEV).toBe(false)
     expect(DEFAULT_TENANT_ID).toBe(1)
+    // Dev is off without its pair (D18).
+    expect(env.configuredEnvironments).toEqual(["demo", "prod"])
+    expect(env.ONEHEALTH_SECRET_KEY_DEV).toBeUndefined()
+    expect(env.APP_ID_DEV).toBeUndefined()
+    expect(env.getSecretKey("dev")).toBe("")
+    expect(env.getAppId("dev")).toBe("")
   })
 
   it.each([
@@ -56,6 +62,62 @@ describe("parseServerEnv", () => {
   it("names each environment's secret key variable", () => {
     expect(secretKeyVariable("demo")).toBe("ONEHEALTH_SECRET_KEY_DEMO")
     expect(secretKeyVariable("prod")).toBe("ONEHEALTH_SECRET_KEY_PROD")
+    expect(secretKeyVariable("dev")).toBe("ONEHEALTH_SECRET_KEY_DEV")
+  })
+
+  describe("the optional dev pair (D18)", () => {
+    it("both set → dev is configured, last in ENVIRONMENTS order", () => {
+      const env = parseServerEnv({ ...valid, ...TEST_DEV_ENV })
+      expect(env.configuredEnvironments).toEqual(["demo", "prod", "dev"])
+      expect(env.getSecretKey("dev")).toBe(TEST_DEV_ENV.ONEHEALTH_SECRET_KEY_DEV)
+      expect(env.getAppId("dev")).toBe(TEST_DEV_ENV.APP_ID_DEV)
+      expect(env.ONEHEALTH_SECRET_KEY_DEV).toBe(TEST_DEV_ENV.ONEHEALTH_SECRET_KEY_DEV)
+      expect(env.APP_ID_DEV).toBe(TEST_DEV_ENV.APP_ID_DEV)
+    })
+
+    it.each([
+      ["unset", {}],
+      ["empty", { ONEHEALTH_SECRET_KEY_DEV: "", APP_ID_DEV: "" }],
+    ])("both %s → dev is off", (_label, override) => {
+      expect(parseServerEnv({ ...valid, ...override }).configuredEnvironments).toEqual(["demo", "prod"])
+    })
+
+    it.each([
+      ["APP_ID_DEV", "ONEHEALTH_SECRET_KEY_DEV", { ONEHEALTH_SECRET_KEY_DEV: TEST_DEV_ENV.ONEHEALTH_SECRET_KEY_DEV }],
+      ["APP_ID_DEV", "ONEHEALTH_SECRET_KEY_DEV", { ONEHEALTH_SECRET_KEY_DEV: TEST_DEV_ENV.ONEHEALTH_SECRET_KEY_DEV, APP_ID_DEV: "" }],
+      ["ONEHEALTH_SECRET_KEY_DEV", "APP_ID_DEV", { APP_ID_DEV: TEST_DEV_ENV.APP_ID_DEV }],
+    ])("exactly one set → the boot fails naming the missing %s, never a value", (missing, present, override) => {
+      const error = failure({ ...valid, ...override })
+      expect(error.variables).toEqual([missing])
+      expect(error.message).toBe(`Invalid server environment: ${missing} is required when ${present} is set`)
+      for (const value of Object.values(override)) if (value) expect(error.message).not.toContain(value)
+    })
+
+    it("a whitespace-only dev key fails as blank", () => {
+      const error = failure({ ...valid, ONEHEALTH_SECRET_KEY_DEV: "  \n", APP_ID_DEV: "app" })
+      expect(error.variables).toEqual(["ONEHEALTH_SECRET_KEY_DEV"])
+      expect(error.message).toBe("Invalid server environment: ONEHEALTH_SECRET_KEY_DEV must not be blank")
+    })
+
+    it.each([
+      ["demo", "ONEHEALTH_SECRET_KEY_DEMO"],
+      ["prod", "ONEHEALTH_SECRET_KEY_PROD"],
+    ] as const)("the dev key must differ from the %s key after trim, naming both and never the value", (_label, other) => {
+      const error = failure({ ...valid, ...TEST_DEV_ENV, [other]: "shared-secret-key ", ONEHEALTH_SECRET_KEY_DEV: " shared-secret-key" })
+      expect(error.variables).toEqual([other, "ONEHEALTH_SECRET_KEY_DEV"])
+      expect(error.message).toBe(`Invalid server environment: ${other} and ONEHEALTH_SECRET_KEY_DEV must differ`)
+      expect(error.message).not.toContain("shared-secret-key")
+    })
+
+    it("three equal keys report every pair", () => {
+      const same = "same-secret-key-value"
+      const error = failure({ ...valid, ...TEST_DEV_ENV, ONEHEALTH_SECRET_KEY_DEMO: same, ONEHEALTH_SECRET_KEY_PROD: same, ONEHEALTH_SECRET_KEY_DEV: same })
+      expect(error.message).toBe(
+        "Invalid server environment: ONEHEALTH_SECRET_KEY_DEMO and ONEHEALTH_SECRET_KEY_PROD must differ; ONEHEALTH_SECRET_KEY_DEMO and ONEHEALTH_SECRET_KEY_DEV must differ; ONEHEALTH_SECRET_KEY_PROD and ONEHEALTH_SECRET_KEY_DEV must differ",
+      )
+      expect(new Set(error.variables)).toEqual(new Set(["ONEHEALTH_SECRET_KEY_DEMO", "ONEHEALTH_SECRET_KEY_PROD", "ONEHEALTH_SECRET_KEY_DEV"]))
+      expect(error.message).not.toContain(same)
+    })
   })
 
   it("an empty secret key reports one message and one variable (no duplicate blank issue)", () => {
@@ -64,11 +126,19 @@ describe("parseServerEnv", () => {
     expect(error.message).toBe("Invalid server environment: ONEHEALTH_SECRET_KEY_DEMO is required")
   })
 
-  it("accepts PP_E2E_MOCK=1 with e2e dummy credentials", () => {
-    expect(parseServerEnv({ ...valid, ...E2E_MOCK_ENV }).PP_E2E_MOCK).toBe(true)
+  it("accepts PP_E2E_MOCK=1 with e2e dummy credentials, dev included or not set", () => {
+    expect(parseServerEnv({ ...valid, ...E2E_MOCK_ENV }).configuredEnvironments).toEqual(["demo", "prod", "dev"])
+    const withoutDev = parseServerEnv({ ...valid, ...E2E_MOCK_ENV, ONEHEALTH_SECRET_KEY_DEV: undefined, APP_ID_DEV: undefined })
+    expect(withoutDev.PP_E2E_MOCK).toBe(true)
+    expect(withoutDev.configuredEnvironments).toEqual(["demo", "prod"])
   })
 
-  it.each(["ONEHEALTH_SECRET_KEY_DEMO", "ONEHEALTH_SECRET_KEY_PROD", "APP_ID_DEMO", "APP_ID_PROD"] as const)(
+  it("nonE2eCredentials names the set credentials that are not e2e dummies, skipping an unset dev pair", () => {
+    expect(nonE2eCredentials(parseServerEnv(valid))).toEqual(["ONEHEALTH_SECRET_KEY_DEMO", "ONEHEALTH_SECRET_KEY_PROD", "APP_ID_DEMO", "APP_ID_PROD"])
+    expect(nonE2eCredentials({ ...E2E_MOCK_ENV, APP_ID_DEV: "real" })).toEqual(["APP_ID_DEV"])
+  })
+
+  it.each(["ONEHEALTH_SECRET_KEY_DEMO", "ONEHEALTH_SECRET_KEY_PROD", "APP_ID_DEMO", "APP_ID_PROD", "ONEHEALTH_SECRET_KEY_DEV", "APP_ID_DEV"] as const)(
     "PP_E2E_MOCK=1 with a non-e2e %s fails the boot, naming it and never the value",
     (name) => {
       const error = failure({ ...valid, ...E2E_MOCK_ENV, [name]: "real-looking-value" })

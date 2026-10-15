@@ -52,6 +52,29 @@ describe("scripts/check-forbidden.sh: 1health URLs", () => {
     expect(run.status).toBe(1)
   })
 
+  it.each([
+    ["https://dev.1hdev.io", "lib/server/launch/exchange.ts"],
+    ["https://dev.1hdev.io/api/v2/user/myself", "features/x.tsx"],
+    ["//dev.1hdev.io/auth", "app/x/route.ts"],
+    ["HTTPS://DEV.1HDEV.IO", "lib/api/x.ts"],
+    ["https://1Health.app.1HEALTH.io", "lib/api/y.ts"],
+    ["//1health.demo.1health.io", "proxy.ts"],
+  ])("fails on %j outside environments.ts (D18: the dev host 1hdev.io too)", (url, path) => {
+    const run = check({ [path]: `export const U = "${url}"\n` })
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain("hard-coded 1health/1hdev origin outside lib/shared/environments.ts:")
+    expect(run.stderr).toContain(path)
+  })
+
+  it("allows the dev host in environments.ts and in tests", () => {
+    const run = check({
+      "lib/shared/environments.ts": 'export const D = "https://dev.1hdev.io"\n',
+      "lib/shared/environments.test.ts": 'expect(x).toBe("https://dev.1hdev.io")\n',
+    })
+    expect(run.stderr).toBe("")
+    expect(run.status).toBe(0)
+  })
+
   it("fails on the CHECKOUT_URL line copied into another file", () => {
     const run = check({ "lib/shared/elsewhere.ts": CHECKOUT, "lib/shared/profile-constants.ts": CHECKOUT })
     expect(run.status).toBe(1)
@@ -88,13 +111,16 @@ describe("scripts/check-forbidden.sh: switch-tenant", () => {
   })
 })
 
-// Names are assembled at runtime so this file never spells a `_DEMO`/`_PROD`
+// Names are assembled at runtime so this file never spells a `_DEMO`/`_PROD`/`_DEV`
 // name itself (the gate scans scripts/ tests too).
 const demoKeyName = ["ONEHEALTH_SECRET_KEY", "DEMO"].join("_")
 const prodAppName = ["APP_ID", "PROD"].join("_")
 const demoAppName = ["APP_ID", "DEMO"].join("_")
+const devKeyName = ["ONEHEALTH_SECRET_KEY", "DEV"].join("_")
+const devAppName = ["APP_ID", "DEV"].join("_")
+const MESSAGE = "_DEMO/_PROD/_DEV name outside the allowed files:"
 
-/** Rule 3 (D1; spec R5-1 restored main's broad pattern): every `_DEMO`/`_PROD` name, `APP_ID_*` included. */
+/** Rule 3 (D1, D18; spec R5-1 restored main's broad pattern): every `_DEMO`/`_PROD`/`_DEV` name, `APP_ID_*` included. */
 describe("scripts/check-forbidden.sh: per-environment names", () => {
   it.each([
     ["features/x.ts", `export const k = "${demoKeyName}"\n`],
@@ -105,15 +131,19 @@ describe("scripts/check-forbidden.sh: per-environment names", () => {
     ["instrumentation.ts", `const k = "${demoKeyName}"\n`],
     ["e2e/fixtures/core.ts", `const k = TEST_SERVER_ENV.${demoAppName}\n`],
     ["e2e/launch.spec.ts", `const k = "${prodAppName}"`],
+    ["lib/server/launch/launch.ts", `const k = env.${devKeyName}\n`],
+    ["app/auth/page.tsx", `// ${devAppName}\n`],
+    ["e2e/launch.spec.ts", `const k = "${devAppName}"`],
+    ["test/e2e-upstream-mock.ts", `const k = "${devKeyName}"\n`],
   ])("fails on a name in %s", (path, body) => {
     const run = check({ [path]: body })
     expect(run.status).toBe(1)
-    expect(run.stderr).toContain("_DEMO/_PROD name outside the allowed files:")
+    expect(run.stderr).toContain(MESSAGE)
     expect(run.stderr).toContain(path)
   })
 
   it("allows them in env.ts, its test, the env fixtures, .env.example, the Playwright config and CI", () => {
-    const line = `${demoKeyName}=x ${prodAppName}=y ${demoAppName}=z\n`
+    const line = `${demoKeyName}=x ${prodAppName}=y ${demoAppName}=z ${devKeyName}=v ${devAppName}=w\n`
     const run = check({
       "lib/server/env.ts": line,
       "lib/server/env.test.ts": line,
@@ -127,7 +157,7 @@ describe("scripts/check-forbidden.sh: per-environment names", () => {
     expect(run.status).toBe(0)
   })
 
-  it.each(["DEMO", "PROD", "IS_PRODUCTION", "SOME_PRODUCT", "ENV_DEMOGRAPHICS", "x_demo"])("ignores %j (no `_DEMO`/`_PROD` name)", (word) => {
+  it.each(["DEMO", "PROD", "DEV", "IS_PRODUCTION", "SOME_PRODUCT", "ENV_DEMOGRAPHICS", "x_demo", "MY_DEVICE", "IS_DEVELOPMENT", "x_dev"])("ignores %j (no `_DEMO`/`_PROD`/`_DEV` name)", (word) => {
     const run = check({ "lib/x.ts": `export const value = "${word}"\n` })
     expect(run.stderr).toBe("")
     expect(run.status).toBe(0)
