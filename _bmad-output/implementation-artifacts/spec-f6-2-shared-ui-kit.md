@@ -2,7 +2,7 @@
 title: 'F6-2 Shared UI kit: dialogs, menus, rows, chips, phone input'
 type: 'feature'
 created: '2026-10-14'
-status: 'in-progress'
+status: 'in-review'
 baseline_commit: '8547231'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -78,14 +78,14 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] Deps + `dropdown-menu`, `checkbox`, `switch` (+tests).
-- [ ] Dialog sizes/full-screen/dismissible/initial focus, `Sheet`, `ConfirmDialog busyLabel` (+tests).
-- [ ] Button `outline-destructive`, `Chip`/`OverflowChip`, `EmptyState`, `LiveStatus`/`useAnnounce` (+tests).
-- [ ] `globals.css` token and utilities (+test), DESIGN-SYSTEM.md chip note.
-- [ ] Combobox `inputRef` (+test).
-- [ ] `RowActions`, `RowRemoval`, `SectionTable`, `useCountdown` (+tests, exports).
-- [ ] `phone.ts` helpers (100 %) and `PhoneInput` (+tests).
-- [ ] Fixture page, gate test, `e2e/ui-kit.spec.ts`; FOUNDATION.md catalog rows.
+- [x] Deps + `dropdown-menu`, `checkbox`, `switch` (+tests).
+- [x] Dialog sizes/full-screen/dismissible/initial focus, `Sheet`, `ConfirmDialog busyLabel` (+tests).
+- [x] Button `outline-destructive`, `Chip`/`OverflowChip`, `EmptyState`, `LiveStatus`/`useAnnounce` (+tests).
+- [x] `globals.css` token and utilities (+test), DESIGN-SYSTEM.md chip note.
+- [x] Combobox `inputRef` (+test).
+- [x] `RowActions`, `RowRemoval`, `SectionTable`, `useCountdown` (+tests, exports).
+- [x] `phone.ts` helpers (100 %) and `PhoneInput` (+tests).
+- [x] Fixture page, gate test, `e2e/ui-kit.spec.ts`; FOUNDATION.md catalog rows.
 
 **Acceptance Criteria:**
 - Given the fixture page at desktop and 360 px, when a keyboard and a touch user open the dialogs, the sheet and the row menu, toggle the checkbox and switch, and use the phone input, then behaviour matches the matrix, every target is at least 44 px, nothing scrolls sideways and axe reports no violations in light and dark.
@@ -100,6 +100,27 @@ context:
 - `PP_E2E_PORT=3210 corepack pnpm test:e2e && corepack pnpm build && bash scripts/check-forbidden.sh` -- expected: green
 
 ## Implementation Notes
+
+Implemented 2026-10-14 on `8547231` (worktree branch; nothing pushed).
+
+- **Deps** (exact, July 2026 generation, all > 2 weeks old, matching the pinned popover 1.1.23 / select 2.3.7): `@radix-ui/react-dropdown-menu@2.1.24`, `@radix-ui/react-checkbox@1.3.11`, `@radix-ui/react-switch@1.3.7`. The only new transitive is `@radix-ui/react-menu@2.1.24`. No canvas or other test dependency.
+- **Dialog** (`components/ui/dialog.tsx`; `DialogContent` had no consumer, so it was reshaped): `size` `default` 440 px / `lg` 640 px, popover surface, `rounded-lg`, `shadow-lg`, scrim, a flex column whose `DialogBody` scrolls while `DialogHeader`/`DialogFooter` stay put; `fullScreenOnMobile` fills the viewport below 768 px (footer gets a top hairline there); `ModalCloseButton` (44 px, `SECTION_MESSAGES.close`, `closeLabel` override). `useModalHandlers` (shared with the Sheet): `dismissible={false}` blocks Escape, scrim and close (close stays focusable, `aria-disabled`; content `aria-busy`), `initialFocus` ref, and **focus returns to the element focused when it opened** (Radix only returns to a `DialogTrigger`; found in e2e). A caller's own handler runs first and may `preventDefault()`.
+- **Sheet** (`components/ui/sheet.tsx`): right, 480 px from 768 px, `h-dvh`, `bg-card`, `shadow-lg`, slide-in (none under reduced motion); full screen below 768 px. `SheetHeader` shows Back (ChevronLeft, "Back") below 768 px and Close above, picked by CSS (`md:hidden`/`max-md:hidden`: two controls of one action, not duplicated content). Close/Back/Escape/scrim call the root's `onOpenChange(false)`, so Story 5.2 runs `requestLeave` there.
+- **ConfirmDialog** `busyLabel` (default "Saving…"). **Button** `outline-destructive` (`bg-card border-border text-error-strong hover:bg-muted`).
+- **DropdownMenu / Checkbox / Switch**: row-menu styling, 44 px items; checkbox 20 px box and switch 44 × 24 track inside 44 px targets; `control-border` boundary, primary when on, error border on `aria-invalid`.
+- **Chip** `label | primary | deleted | overflow` (square `rounded-sm`, 22 px, 12/600) and `OverflowChip` (44 px button, `aria-label` = the hidden list, ref-forwarding Tooltip trigger, "+{count}" from the catalog). `docs/DESIGN-SYSTEM.md` now says: `Badge` keeps the pill outside tables; chips in table cells are `Chip` (Ledger delta).
+- **EmptyState** `row` (a `<tr>` with one `colSpan` cell, muted copy · `LinkTextButton`) and `card` (dashed, optional title/children, primary `Button`); an action with `disabledReason` renders `DisabledAction`. `EmptyStateLine` is the line alone (used by the mobile Section table).
+- **LiveStatus / `useAnnounce({ clearAfterMs? })`**: identical text gets a trailing no-break space so it is read again; `clear()` and optional auto-clear. No existing announcer refactored (none was trivial).
+- **Tokens/utilities**: `--qr-surface` #ffffff in `:root` and `.dark` + `bg-qr-surface` (listed in the upstream-report block); `@utility mono-value` (font-mono 14/20 500), `cell-strong` (14/20 500), `section-title` (16/24 600), `kv-value-empty` (14/20 400 muted), `control-max-wide` (max-width 720 px), via `@apply` on the existing scale. `globals.test.ts` checks the token in both themes and each utility body; e2e checks computed styles.
+- **Combobox `inputRef`** prop (merged with the internal ref; a generic component can't use `forwardRef` without losing `<T>`).
+- **Row kit** (`features/shell`, exported from `index.ts`): `RowActions` (inline actions inside a `md:opacity-0` container that shows on `group/row` hover/focus-within and its own focus-within, `max-md:hidden`; kebab named "More actions for {name}"; the menu drops actions without a handler, `destructive` → `error-strong`; an aria-disabled action is a `DisabledAction` inline and, in the menu, a focusable `aria-disabled` item whose reason is a muted second line referenced by `aria-describedby` and whose select is a no-op that keeps the menu open — a tooltip can't live inside a menu). `RowRemoval` (Remove ghost button / `DisabledAction` with reason / "Restore" link-text button; forwards its ref to whichever is shown, for "Remove from the read-view menu focuses Restore"), `RowEditStatus`, `RowEditState`, `ROW_EDIT_STATE_CLASSES` (removed: muted and line-through on every cell but the actions cell; the status text is `inline-block` so the strike doesn't reach "Removed on save"). A new row's Remove deletes it outright: that is the Section's `onRemove`.
+- **SectionTable**: desktop `<table aria-labelledby>` with `th scope=col` (`column-header` type on `muted`), a visually hidden "Actions" header, `group/row` rows, 44 px read rows, hairlines, accent hover/focus-within (read view only), top-aligned edit cells, empty row spanning every column; below 768 px a `<ul aria-labelledby>` of stacked cards (line 1 / line 2 per column `mobileLine`, `"none"` hides a column, each value prefixed by its sr-only column name, actions right with `layout="card"` so `RowActions` can drop inline actions). Picked by `useMediaQuery`.
+- **PhoneInput**: `Select` country segment (flag + "+code", `aria-label` "Country code", every libphonenumber region sorted by `Intl.DisplayNames`, default `us`) joined to a `type=tel` input with the FormField wiring; letters dropped; a change past the country's maximum length is ignored (1health-fe clamps too); formatted on blur; a value starting with `+` that parses to a region switches the country; changing the country re-formats the digits for it; `readOnly` makes the picker aria-disabled. `lib/shared/phone.ts` (100 % covered): `phoneRegions`, `regionFlag`, `dialCodeOf`, `isPhoneRegion`, `phoneDigits`, `isPhoneTooLong`, `formatPhoneInput`, `parseInternationalPhone`, `phoneInputFrom`, `phoneIssue` (+1 regions exactly 10 digits as in 1health-fe, else `isValidPhoneNumber`), `toE164`, `EMPTY_PHONE_INPUT`. Copy mapping of `phoneIssue` stays in the Section schema (`CONTACT_MESSAGES.phoneTenDigits`, `SECTION_MESSAGES.phoneInvalid`).
+- **useCountdown**: deadline-based (re-reads `Date.now()` every 250 ms), whole seconds rounded up, `onDone` once, `stop()` without `onDone`, restart replaces the deadline.
+- **Copy** added to `lib/shared/messages/section.ts` (none were in `COMMON_MESSAGES`; `Restore` is imported from there): `close` "Close" (DRAFT), `back` "Back" (DRAFT), `remove` "Remove" (verbatim), `removedOnSave` "Removed on save" (verbatim), `newNotSaved` "New · not saved" (verbatim), `moreActionsFor` "More actions for {name}" (DRAFT), `actionsColumn` "Actions" (DRAFT), `overflowCount` "+{count}" (DRAFT), `countryCode` "Country code" (DRAFT), `phoneInvalid` "Enter a valid phone number" (DRAFT). Spec F6-3 may move the generic words to `common.ts`.
+- **Fixture/e2e**: one page `app/test-fixtures/ui-kit/page.tsx` → `features/shell/__fixtures__/ui-kit-fixture.tsx` (one section per primitive rather than one page each, matching the single `e2e/ui-kit.spec.ts`), gate rows in `app/test-fixtures.test.ts`. `e2e/ui-kit.spec.ts`: axe light/dark (closed, dialog, sheet, row menu, busy confirm, country list), 44 px targets, 16 px input text, no horizontal scroll, computed text roles/qr-surface/720 px, dialog focus/busy/440 px or full-screen with pinned footer, sheet 480 px or full-screen with Back and sticky header/footer, busy label, kebab menu and disabled item, touch tap, desktop hover fade, edit-view removal, phone clamp/format/paste/country pick, countdown + polite status.
+- **Decisions / limits**: the long country list's scroll viewport trips axe `scrollable-region-focusable` (Radix moves focus to options; the e2e disables that one rule for that one scan). Radix Select typeahead matched only the last key in the 245-item list under Playwright, so the e2e uses first-letter typeahead + arrows; multi-letter typeahead by country name is not asserted (deferred: consider the Combobox with `staticOptions` for the picker if PM review asks for type-to-search). No existing component was refactored onto the new kit.
+- **Verification** (2026-10-14): `corepack pnpm install` up to date; `pnpm lint`, `pnpm typecheck` clean; `pnpm vitest run --coverage` 121 files / 2586 tests green, thresholds met; `PP_E2E_PORT=3210 pnpm test:e2e` 230 passed, 2 skipped (desktop-only cases on 360 px), `e2e/ui-kit.spec.ts --repeat-each=3` 75 passed, 3 skipped; `pnpm build` OK (`/test-fixtures/ui-kit` dynamic); `bash scripts/check-forbidden.sh` OK (tokens OK).
 
 ## Spec Change Log
 

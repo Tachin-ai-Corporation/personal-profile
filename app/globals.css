@@ -101,6 +101,7 @@
   --control-border: var(--status-neutral); /* #7a8696, input/select boundary (3.7:1) */
   --tooltip: var(--graphite);
   --tooltip-foreground: #ffffff;
+  --qr-surface: #ffffff; /* the QR code sits on white in both themes so scanners read it */
 
   /* Data-viz — healthcare palette ordered to avoid "rainbow" dashboards */
   --chart-1: var(--trust-blue);
@@ -163,6 +164,7 @@
   --control-border: var(--mist); /* #aeb8c4 */
   --tooltip: var(--cloud);
   --tooltip-foreground: var(--graphite);
+  --qr-surface: #ffffff; /* stays white: scanners need dark-on-white */
 }
 
 @theme inline {
@@ -209,6 +211,7 @@
   --color-control-border: var(--control-border);
   --color-tooltip: var(--tooltip);
   --color-tooltip-foreground: var(--tooltip-foreground);
+  --color-qr-surface: var(--qr-surface);
 
   /* Brand hues exposed directly (e.g. bg-brand-primary, text-brand-secondary) */
   --color-brand-primary: var(--brand-primary);
@@ -288,6 +291,29 @@
     outline-offset: 2px;
     box-shadow: var(--glow);
   }
+}
+
+/* Ledger typography roles and widths (DESIGN.md typography / spacing; F6-2).
+   Use these instead of re-spelling the size/weight pairs in components. */
+@utility mono-value {
+  /* {typography.mono-value}: masked/revealed SSN, OTP input, password mask. */
+  @apply font-mono text-body-sm font-medium;
+}
+@utility cell-strong {
+  /* {typography.cell-strong}: key/value values, status text, button labels. */
+  @apply text-body-sm font-medium;
+}
+@utility section-title {
+  /* {typography.section-title}: Section h2, flat register (16 / 24, 600). */
+  @apply text-body font-semibold;
+}
+@utility kv-value-empty {
+  /* {components.kv-value-empty}: "Not provided" and other empty values. */
+  @apply text-body-sm font-normal text-muted-foreground;
+}
+@utility control-max-wide {
+  /* {spacing.control-max-wide}: wide controls such as the NPI comboboxes. */
+  max-width: 720px;
 }
 
 /* Toast viewport bottom offset (F3-1): 0 by default; the mobile Save all pill
@@ -463,4 +489,5 @@
      - scrim            dialog and drawer overlay: graphite 45 % light, black
                         60 % dark; replaces the template's black 50 % overlay.
      - tooltip          tooltip surface graphite / white; dark cloud / graphite.
+     - qr-surface       white behind the authenticator QR code in both themes.
    ============================================================================ */

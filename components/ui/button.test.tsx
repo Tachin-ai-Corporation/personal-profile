@@ -199,4 +199,15 @@ describe("Button", () => {
     )
     expect(await axeViolations()).toEqual([])
   })
+
+  it("outline-destructive: card fill, hairline border, error-strong text, muted hover (F6-2)", async () => {
+    render(
+      <Button type="button" variant="outline-destructive" size="touch">
+        Disable
+      </Button>,
+    )
+    const button = screen.getByRole("button", { name: "Disable" })
+    for (const token of ["bg-card", "border-border", "text-error-strong", "hover:bg-muted", "h-11"]) expect(button.className).toContain(token)
+    expect(await axeViolations()).toEqual([])
+  })
 })

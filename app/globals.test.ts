@@ -35,6 +35,7 @@ describe("D13 + Ledger tokens (DESIGN.md colors)", () => {
     ["--control-border", "#7a8696", "#aeb8c4"],
     ["--tooltip", "#202833", "#e6ebf0"],
     ["--tooltip-foreground", "#ffffff", "#202833"],
+    ["--qr-surface", "#ffffff", "#ffffff"],
   ])("%s is %s in light and %s in dark, with a utility", (token, lightValue, darkValue) => {
     expect(resolve(light.get(token) ?? "", light)).toBe(lightValue)
     expect(resolve(dark.get(token) ?? "", dark)).toBe(darkValue)
@@ -48,8 +49,27 @@ describe("D13 + Ledger tokens (DESIGN.md colors)", () => {
 
   it("lists the deviations and additions to report upstream", () => {
     const report = CSS.slice(CSS.indexOf("REPORT UPSTREAM"))
-    for (const token of ["link-text", "destructive-fill", "control-border", "primary-text", "scrim", "tooltip"]) {
+    for (const token of ["link-text", "destructive-fill", "control-border", "primary-text", "scrim", "tooltip", "qr-surface"]) {
       expect(report).toContain(token)
     }
+  })
+})
+
+describe("Ledger typography and width utilities (F6-2)", () => {
+  /** The body of `@utility <name> { … }`, comments removed. */
+  function utility(name: string): string {
+    const start = CSS.indexOf(`@utility ${name} {`)
+    expect(start, name).toBeGreaterThanOrEqual(0)
+    return CSS.slice(CSS.indexOf("{", start) + 1, CSS.indexOf("\n}", start)).replace(/\/\*[\s\S]*?\*\//g, "").trim()
+  }
+
+  it.each([
+    ["mono-value", "@apply font-mono text-body-sm font-medium;"],
+    ["cell-strong", "@apply text-body-sm font-medium;"],
+    ["section-title", "@apply text-body font-semibold;"],
+    ["kv-value-empty", "@apply text-body-sm font-normal text-muted-foreground;"],
+    ["control-max-wide", "max-width: 720px;"],
+  ])("%s is defined as DESIGN.md says", (name, body) => {
+    expect(utility(name)).toBe(body)
   })
 })

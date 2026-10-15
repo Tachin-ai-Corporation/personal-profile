@@ -168,6 +168,12 @@ export { ContactsPanel, type ContactsPanelProps } from "./contacts-panel"
 export { InsurancePanel, type InsurancePanelProps } from "./insurance-panel"
 export { PageFrame, type PageFrameProps } from "./page-frame"
 export { DESKTOP_QUERY, useMediaQuery } from "./use-media-query"
+
+// Section row kit and countdown (F6-2).
+export { RowActions, type RowAction, type RowActionsProps } from "./row-actions"
+export { ROW_EDIT_STATE_CLASSES, RowEditStatus, RowRemoval, type RowEditState, type RowRemovalProps } from "./row-removal"
+export { SectionTable, type MobileLine, type SectionTableColumn, type SectionTableLayout, type SectionTableProps } from "./section-table"
+export { useCountdown, type Countdown, type UseCountdownOptions } from "./use-countdown"
 export {
   PARTIAL_TOAST_MS,
   SUCCESS_TOAST_MS,

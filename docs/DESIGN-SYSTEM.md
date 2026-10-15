@@ -302,11 +302,11 @@ Whitespace is intentional — prefer breathing room over density.
 
 | Utility | Value | Applied to |
 |---|---|---|
-| `rounded-sm` | 6px | Small inline elements |
+| `rounded-sm` | 6px | Small inline elements; **Ledger chips in table cells** (`<Chip>`) |
 | `rounded-md` | 10px | **Buttons, inputs** |
 | `rounded-lg` | 16px | **Cards, dialogs** |
 | `rounded-xl` | 24px | Large feature panels |
-| `rounded-full` | pill | **Status chips / badges** |
+| `rounded-full` | pill | **Status badges** (`<Badge>`) outside tables |
 | icon mask | 22% | App icons (`--radius: 22%` in the spec) |
 
 ---
@@ -392,6 +392,14 @@ Always pair with a `<Label>`.
 **Badges / status chips** — pill-shaped. Solid `default`/`secondary` for
 emphasis; soft `success`/`warning`/`info` for status.
 
+**Chips in tables (Ledger delta, F6-2)** — the Personal Profile renders every
+Section as a ruled table, so chips inside cells are square: `<Chip>`
+(`components/ui/chip.tsx`) is `rounded-sm`, 22 px, 12 px / 600. Variants:
+`label` (muted, e.g. "Work"), `primary` (the only filled chip), `deleted`, and
+the bordered "+N" `overflow` chip (`<OverflowChip>` when it is focusable: a
+44 px button named by the list it hides). `<Badge>` keeps the design system's
+pill for status outside tables; row statuses use `StatusBadge` (icon + word).
+
 **Dialogs** — `rounded-lg`, `shadow-lg`, `ease-premium` entrance, dimmed
 `bg-scrim` overlay. One decision per dialog.
 
@@ -469,7 +477,7 @@ Text ............... text-foreground · text-muted-foreground
 Type ............... text-h1 … text-caption
 Primary action ..... bg-primary text-primary-foreground   (<Button>)
 Status ............. <Badge variant="success|warning|info"> or bg-*/12 text-*-strong
-Radius ............. buttons/inputs rounded-md · cards rounded-lg · chips rounded-full
+Radius ............. buttons/inputs rounded-md · cards rounded-lg · badges rounded-full · table chips rounded-sm
 Elevation .......... cards shadow-sm · dialogs shadow-lg · focus shadow-glow
 Motion ............. entrances ease-premium · interactions ease-standard
 Dark mode .......... add `dark` class to <html>

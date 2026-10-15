@@ -140,6 +140,12 @@ describe("ConfirmDialog", () => {
     expect(document.activeElement).toBe(confirm)
   })
 
+  it("shows and announces a custom busyLabel (F6-2)", () => {
+    setup({ variant: "destructive", busy: true, busyLabel: "Turning off…" })
+    expect(screen.getByRole("button", { name: "Turning off…" }).getAttribute("aria-busy")).toBe("true")
+    expect(screen.getByRole("status").textContent).toBe("Turning off…")
+  })
+
   it("announces nothing busy while idle", () => {
     setup()
     expect(screen.getByRole("status").textContent).toBe("")

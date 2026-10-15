@@ -43,6 +43,17 @@ export interface ComboboxProps<T> extends UseComboboxOptions<T>, Pick<FormFieldP
   /** Default rendering shows the typed text inside each label in weight 600 (address suggestions). */
   readonly highlightMatch?: boolean
   readonly onBlur?: () => void
+  /**
+   * A ref to the text input (F6-2), e.g. `useSectionForm`'s `field(name).ref`,
+   * so the form can focus the field (first invalid field, mapped errors).
+   */
+  readonly inputRef?: React.Ref<HTMLInputElement>
+}
+
+/** Sets a callback or object ref. */
+function assignRef<T>(ref: React.Ref<T> | undefined, value: T | null): void {
+  if (typeof ref === "function") ref(value)
+  else if (ref) (ref as React.RefObject<T | null>).current = value
 }
 
 /** The label with every case-insensitive occurrence of `query` in weight 600. */
@@ -111,6 +122,7 @@ export function Combobox<T>(props: ComboboxProps<T>): React.JSX.Element {
     renderOption,
     highlightMatch = false,
     onBlur,
+    inputRef: externalInputRef,
   } = props
   // A disabled input searches nothing either (pending work is cancelled, the popup closes).
   const combobox = useCombobox({ ...props, searchDisabled: props.searchDisabled === true || disabled })
@@ -120,6 +132,13 @@ export function Combobox<T>(props: ComboboxProps<T>): React.JSX.Element {
   const optionId = (index: number): string => `${listboxId}-option-${index}`
   const wrapperRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
+  const setInputRef = React.useCallback(
+    (element: HTMLInputElement | null) => {
+      inputRef.current = element
+      assignRef(externalInputRef, element)
+    },
+    [externalInputRef],
+  )
   const contentRef = React.useRef<HTMLDivElement>(null)
   const scrollerRef = React.useRef<HTMLDivElement>(null)
   const retryRef = React.useRef<HTMLButtonElement>(null)
@@ -201,7 +220,7 @@ export function Combobox<T>(props: ComboboxProps<T>): React.JSX.Element {
               ) : null}
               <input
                 {...control}
-                ref={inputRef}
+                ref={setInputRef}
                 type="text"
                 role="combobox"
                 name={name}

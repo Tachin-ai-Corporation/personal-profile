@@ -27,6 +27,8 @@ export interface ConfirmDialogProps {
   readonly extraAction?: ConfirmDialogExtraAction
   /** While true the confirm button shows a spinner and nothing closes the dialog. */
   readonly busy?: boolean
+  /** The busy confirm's label (e.g. "Turning off…"); defaults to "Saving…". */
+  readonly busyLabel?: string
   /** Defaults to "Cancel"; the leave guard passes "Keep editing". */
   readonly cancelLabel?: string
   /** `false` leaves the confirm button out (the leave guard when a participant can't save). Defaults to `true`. */
@@ -53,6 +55,7 @@ export function ConfirmDialog({
   onCancel,
   extraAction,
   busy = false,
+  busyLabel = SECTION_MESSAGES.saving,
   cancelLabel = COMMON_MESSAGES.cancel,
   showConfirm = true,
   onCloseFocus,
@@ -140,7 +143,7 @@ export function ConfirmDialog({
                 variant={variant === "destructive" ? "destructive" : "default"}
                 size="touch"
                 busy={busy}
-                busyLabel={SECTION_MESSAGES.saving}
+                busyLabel={busyLabel}
                 onClick={onConfirm}
               >
                 {confirmLabel}

@@ -12,6 +12,8 @@ const variantStyles = {
     "bg-destructive-fill text-destructive-foreground shadow-xs hover:bg-destructive-fill/90",
   outline:
     "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
+  // DESIGN.md button-outline-destructive: only for an action that leads to a destructive confirm ("Disable").
+  "outline-destructive": "border border-border bg-card text-error-strong shadow-xs hover:bg-muted",
   secondary: "bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80",
   ghost: "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
   // Text links read the link-text token (D13), never text-info-strong.

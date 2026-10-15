@@ -964,3 +964,20 @@ describe("Combobox: Tab bridge scope", () => {
     expect(document.activeElement).toBe(retry)
   })
 })
+
+describe("Combobox: inputRef (F6-2)", () => {
+  it("hands the text input to an object ref and a callback ref, and clears them on unmount", () => {
+    const objectRef = React.createRef<HTMLInputElement>()
+    const { input } = renderNpi({ inputRef: objectRef })
+    expect(objectRef.current).toBe(input)
+    cleanup()
+    expect(objectRef.current).toBeNull()
+
+    const callback = vi.fn<(element: HTMLInputElement | null) => void>()
+    const second = renderNpi({ inputRef: callback })
+    expect(callback).toHaveBeenLastCalledWith(second.input)
+    // The form focuses the field through the ref.
+    callback.mock.lastCall?.[0]?.focus()
+    expect(document.activeElement).toBe(second.input)
+  })
+})
