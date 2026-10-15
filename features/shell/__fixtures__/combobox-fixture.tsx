@@ -39,11 +39,20 @@ const GENDERS = ["Asked but not answered", "Female", "Male", "Other"]
 
 const wait = (ms: number, signal: AbortSignal): Promise<void> =>
   new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms)
-    signal.addEventListener("abort", () => {
+    const aborted = () => new DOMException("Aborted", "AbortError")
+    if (signal.aborted) {
+      reject(aborted())
+      return
+    }
+    const onAbort = () => {
       clearTimeout(timer)
-      reject(new DOMException("Aborted", "AbortError"))
-    })
+      reject(aborted())
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort)
+      resolve()
+    }, ms)
+    signal.addEventListener("abort", onAbort, { once: true })
   })
 
 export function ComboboxFixture() {

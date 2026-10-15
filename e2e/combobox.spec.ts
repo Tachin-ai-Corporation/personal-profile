@@ -126,8 +126,23 @@ test.describe("NPI variant", () => {
     const input = npi(page)
     await input.focus()
     await expect(log(page)).toHaveText("|0")
+    // Timed in the page: the last keystroke and the moment the request is logged.
+    await page.evaluate(() => {
+      const timing = { lastKey: 0, request: 0 }
+      ;(window as unknown as { __timing: typeof timing }).__timing = timing
+      document.addEventListener("keydown", () => (timing.lastKey = performance.now()), true)
+      const logEl = document.querySelector("[data-testid='npi-log']") as HTMLElement
+      new MutationObserver(() => {
+        if (!timing.request && logEl.textContent?.includes("Lee|0")) timing.request = performance.now()
+      }).observe(logEl, { childList: true, subtree: true, characterData: true })
+    })
     await page.keyboard.type("Lee", { delay: 50 })
+    await page.waitForTimeout(400)
+    await expect(log(page)).toHaveText("|0")
     await expect(log(page)).toHaveText("|0 Lee|0")
+    const { lastKey, request } = await page.evaluate(() => (window as unknown as { __timing: { lastKey: number; request: number } }).__timing)
+    expect(request - lastKey).toBeGreaterThanOrEqual(550)
+    expect(request - lastKey).toBeLessThan(1000)
     await expect(enabledOptions(npiList(page))).toHaveCount(5)
     await page.waitForTimeout(800)
     await expect(log(page)).toHaveText("|0 Lee|0")

@@ -5,7 +5,12 @@ import { Loader2 } from "lucide-react"
 
 import { CONTROL_MESSAGES, STATE_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
+import { tabbables } from "./focus"
+import { LinkTextButton } from "./link-text-button"
 import { Popover, PopoverContent, PopoverTrigger } from "./popover"
+
+/** Re-exported: callers import the trigger button with the popover. */
+export { LinkTextButton }
 
 /** Hover-open waits this long, so passing the pointer over doesn't flash it (EXPERIENCE.md Info popover). */
 export const INFO_POPOVER_HOVER_DELAY_MS = 150
@@ -41,36 +46,6 @@ export type InfoPopoverProps = InfoPopoverBaseProps &
   ({ readonly title: React.ReactNode; readonly label?: string } | { readonly title?: undefined; readonly label: string })
 
 type OpenReason = "hover" | "focus" | "click"
-
-const TABBABLE = [
-  "a[href]",
-  "button:not([disabled])",
-  'input:not([disabled]):not([type="hidden"])',
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  "summary",
-  "iframe",
-  "audio[controls]",
-  "video[controls]",
-  '[contenteditable]:not([contenteditable="false"])',
-  "[tabindex]",
-].join(", ")
-
-/** Rendered and visible: has boxes (not `display: none`) and isn't `visibility: hidden`. */
-const isShown = (el: HTMLElement): boolean => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== "hidden"
-
-/** In the tab order: no negative `tabindex` (read from the attribute, as some DOMs report -1 for `summary` or editing hosts). */
-const inTabOrder = (el: HTMLElement): boolean => {
-  const explicit = el.getAttribute("tabindex")
-  return explicit === null || Number(explicit) >= 0
-}
-
-/** Keyboard-reachable elements under `root`, in document order (Radix's focus guards and hidden elements excluded). */
-export function tabbables(root: ParentNode): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(TABBABLE)).filter(
-    (el) => inTabOrder(el) && !el.hasAttribute("data-radix-focus-guard") && !el.closest("[hidden], [inert]") && isShown(el),
-  )
-}
 
 const isMouse = (event: React.PointerEvent): boolean => event.pointerType === "mouse"
 
@@ -339,25 +314,3 @@ export function InfoPopover({
     </Popover>
   )
 }
-
-/**
- * A `link-text` styled button (e.g. the Practice name trigger, "Try again."):
- * 44 px tall target, underline on hover, the shared `focus-ring`.
- */
-export const LinkTextButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement>>(function LinkTextButton(
-  { className, type = "button", ...props },
-  ref,
-) {
-  return (
-    <button
-      ref={ref}
-      type={type}
-      data-slot="link-text-button"
-      className={cn(
-        "text-link-text inline-flex min-h-11 items-center rounded-md text-left font-medium underline-offset-4 outline-none hover:underline focus-ring",
-        className,
-      )}
-      {...props}
-    />
-  )
-})

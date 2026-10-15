@@ -4,8 +4,14 @@ import * as React from "react"
 
 import { COMBOBOX_MESSAGES, formatMessage } from "@/lib/shared/messages"
 
-/** One page of results, or a failed load (shown as the error row, or nothing when `quiet`). */
-export type ComboboxLoadResult<T> = { readonly items: readonly T[]; readonly hasMore: boolean } | { readonly error: true }
+/**
+ * One page of results, or a failed load (shown as the error row, or nothing
+ * when `quiet`). `exactMatch: false` says no item on any page matches the
+ * query exactly, so `Add "{name}"` may show before every page is loaded.
+ */
+export type ComboboxLoadResult<T> =
+  | { readonly items: readonly T[]; readonly hasMore: boolean; readonly exactMatch?: boolean }
+  | { readonly error: true }
 
 /**
  * Loads one page for a (trimmed) query. `signal` aborts when a newer search
@@ -41,7 +47,7 @@ export interface UseComboboxOptions<T> {
   readonly pageSize?: number
   /** Keep at most this many results and never page (address suggestions: 5). */
   readonly maxResults?: number
-  /** Focusing the field (without a selection) opens the listbox and loads the first page at once. */
+  /** Focusing an empty field opens the listbox and loads the first page at once. */
   readonly openOnFocus?: boolean
   /** `select-only`: leaving the field without a pick clears the text. `free-text`: typed text is kept. */
   readonly mode: ComboboxMode
@@ -65,6 +71,13 @@ export interface UseComboboxOptions<T> {
   readonly defaultText?: string
   /** Every change of the text: typing, a pick, clear, or the select-only reset on leave. */
   readonly onTextChange?: (text: string) => void
+  /**
+   * Controlled pick (e.g. the saved NPI or insurer of an edit form); uncontrolled
+   * (from `defaultSelection`) when `undefined`. A pick holds only while the text
+   * equals its label. Without `text`/`defaultText` the text starts as its label.
+   */
+  readonly selection?: ComboboxSelection<T> | null
+  readonly defaultSelection?: ComboboxSelection<T> | null
   /** A pick, or `null` when typing after a pick drops it. */
   readonly onSelect?: (selection: ComboboxSelection<T> | null) => void
   /** The clear (×) button emptied the field. */
@@ -77,6 +90,7 @@ interface Results<T> {
   /** The last page loaded (-1 while the first is loading). */
   readonly page: number
   readonly hasMore: boolean
+  readonly exactMatch: boolean | undefined
 }
 
 type Status = { readonly kind: "idle" } | { readonly kind: "loading"; readonly page: number } | { readonly kind: "error"; readonly query: string; readonly page: number }
@@ -105,7 +119,7 @@ export interface UseComboboxResult<T> {
   readonly onInputFocus: () => void
   readonly openList: () => boolean
   readonly close: () => void
-  /** Focus left the field (Tab, click elsewhere): closes, and select-only drops an unpicked query. */
+  /** Focus left the field (Tab, click elsewhere): closes, and select-only drops a query the user typed without picking. */
   readonly leave: () => void
   readonly select: (entry: ComboboxEntry<T>) => void
   readonly clear: () => void
@@ -145,9 +159,17 @@ export function useCombobox<T>(options: UseComboboxOptions<T>): UseComboboxResul
     onClear,
   } = options
 
-  const [ownText, setOwnText] = React.useState(options.defaultText ?? "")
+  const labelOf = (picked: ComboboxSelection<T>): string => (picked.type === "option" ? getLabel(picked.item) : picked.text)
+
+  const [ownText, setOwnText] = React.useState(() => options.defaultText ?? (options.defaultSelection ? labelOf(options.defaultSelection) : ""))
   const text = options.text ?? ownText
-  const [selection, setSelection] = React.useState<ComboboxSelection<T> | null>(null)
+  const [ownSelection, setOwnSelection] = React.useState<ComboboxSelection<T> | null>(options.defaultSelection ?? null)
+  const rawSelection = options.selection !== undefined ? options.selection : ownSelection
+  // A pick holds only while the input shows its label: a parent that resets the text (Discard) drops it.
+  const selection = rawSelection && labelOf(rawSelection) === text ? rawSelection : null
+  /** The text the user last typed; a text set any other way (pick, clear, parent) isn't "typed". */
+  const [typedText, setTypedText] = React.useState<string | null>(null)
+  const typed = typedText !== null && typedText === text
   const [open, setOpen] = React.useState(false)
   const [results, setResultsState] = React.useState<Results<T> | null>(null)
   const [status, setStatus] = React.useState<Status>(IDLE)
@@ -176,16 +198,48 @@ export function useCombobox<T>(options: UseComboboxOptions<T>): UseComboboxResul
     requestRef.current += 1
   }, [])
 
+  // Unmount: no debounce fires and the in-flight request is aborted.
   React.useEffect(() => cancel, [cancel])
+
+  // Suggestions turned off (or the input disabled): nothing shown (reset while rendering) and
+  // nothing pending (the debounce and the in-flight request are cancelled after the render).
+  const [wasSearchDisabled, setWasSearchDisabled] = React.useState(searchDisabled)
+  if (wasSearchDisabled !== searchDisabled) {
+    setWasSearchDisabled(searchDisabled)
+    if (searchDisabled) {
+      setResultsState(null)
+      setStatus(IDLE)
+      setOpen(false)
+      setActiveIndex(-1)
+      setAnnouncement("")
+    }
+  }
+  React.useEffect(() => {
+    if (!searchDisabled) return
+    cancel()
+    resultsRef.current = null
+  }, [searchDisabled, cancel])
 
   const setText = (next: string): void => {
     if (options.text === undefined) setOwnText(next)
     onTextChange?.(next)
   }
 
-  const announceCount = (count: number): void => {
-    if (count === 0 && emptyMessage) setAnnouncement(emptyMessage)
-    else setAnnouncement(count === 1 ? COMBOBOX_MESSAGES.resultCountOne : formatMessage(COMBOBOX_MESSAGES.resultCount, { N: count }))
+  const setSelection = (next: ComboboxSelection<T> | null): void => {
+    if (options.selection === undefined) setOwnSelection(next)
+  }
+
+  /** Sets the polite status; the same text twice in a row gets a trailing no-break space so it is announced again. */
+  const announce = (message: string): void => {
+    setAnnouncement((previous) => (message !== "" && previous === message ? `${message} ` : message))
+  }
+
+  /** Announces a result count, or nothing when no listbox will show for it. */
+  const announceCount = (count: number, query: string, addPossible: boolean): void => {
+    if (count > 0) announce(count === 1 ? COMBOBOX_MESSAGES.resultCountOne : formatMessage(COMBOBOX_MESSAGES.resultCount, { N: count }))
+    else if (emptyMessage) announce(emptyMessage)
+    else if (allowAdd && query !== "" && addPossible) announce(formatMessage(COMBOBOX_MESSAGES.resultCount, { N: 0 }))
+    else announce("")
   }
 
   const fetchPage = async (query: string, page: number): Promise<void> => {
@@ -197,10 +251,10 @@ export function useCombobox<T>(options: UseComboboxOptions<T>): UseComboboxResul
     const request = requestRef.current
     setStatus({ kind: "loading", page })
     if (page === 0) {
-      setResults({ query, items: [], page: -1, hasMore: false })
+      setResults({ query, items: [], page: -1, hasMore: false, exactMatch: undefined })
       setActiveIndex(-1)
     }
-    if (!quiet) setAnnouncement(COMBOBOX_MESSAGES.searching)
+    if (!quiet) announce(COMBOBOX_MESSAGES.searching)
 
     let result: ComboboxLoadResult<T>
     try {
@@ -216,34 +270,50 @@ export function useCombobox<T>(options: UseComboboxOptions<T>): UseComboboxResul
       if (quiet) {
         setStatus(IDLE)
         setResults(null)
+        announce("")
         return
       }
       setStatus({ kind: "error", query, page })
-      setAnnouncement(COMBOBOX_MESSAGES.loadError)
+      announce(COMBOBOX_MESSAGES.loadError)
       return
     }
 
     const previous = page === 0 ? [] : (resultsRef.current?.items ?? [])
-    let items = [...previous, ...result.items]
-    let hasMore = result.hasMore && (pageSize === undefined || result.items.length >= pageSize)
+    const seen = new Set(previous.map(getKey))
+    const fresh = result.items.filter((item) => {
+      const key = getKey(item)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    let items = [...previous, ...fresh]
+    // An empty (or all-duplicate) page or a short page ends the list, whatever `hasMore` says.
+    let hasMore = result.hasMore && fresh.length > 0 && (pageSize === undefined || result.items.length >= pageSize)
     if (maxResults !== undefined) {
       items = items.slice(0, maxResults)
       hasMore = false
     }
-    setResults({ query, items, page, hasMore })
+    setResults({ query, items, page, hasMore, exactMatch: result.exactMatch })
     setStatus(IDLE)
-    announceCount(items.length)
+    announceCount(items.length, query, !hasMore || result.exactMatch === false)
   }
 
   const trimmedQuery = text.trim()
   const canSearch = load !== undefined && !searchDisabled
+
+  /** Static options for a query: all while it equals one of them, else those containing it. */
+  const staticItemsFor = (query: string): readonly T[] => {
+    if (!staticOptions) return []
+    const lower = query.toLowerCase()
+    return staticOptions.some((item) => getLabel(item).toLowerCase() === lower) ? staticOptions : staticOptions.filter((item) => includesText(getLabel(item), query))
+  }
 
   /** Opens the listbox; loads the first page at once when nothing is loaded for the current query (returns true then). */
   const openList = (): boolean => {
     if (searchDisabled) return false
     setOpen(true)
     if (!canSearch || status.kind === "loading" || trimmedQuery.length < minChars) return false
-    if (resultsRef.current?.query === trimmedQuery && status.kind !== "error") return false
+    if (resultsRef.current?.query === trimmedQuery) return false
     clearTimeout(timerRef.current)
     void fetchPage(trimmedQuery, 0)
     return true
@@ -252,6 +322,7 @@ export function useCombobox<T>(options: UseComboboxOptions<T>): UseComboboxResul
   const close = (): void => {
     setOpen(false)
     setActiveIndex(-1)
+    announce("")
     if (status.kind === "loading") {
       cancel()
       setStatus(IDLE)
@@ -259,11 +330,18 @@ export function useCombobox<T>(options: UseComboboxOptions<T>): UseComboboxResul
       setResults(null)
     } else {
       clearTimeout(timerRef.current)
+      if (status.kind === "error") {
+        // The error clears; a failed first page reloads on the next open, a later page keeps
+        // the loaded options and is requested again when the last option is reached.
+        setStatus(IDLE)
+        if (status.page === 0) setResults(null)
+      }
     }
   }
 
   const onInputChange = (value: string): void => {
     setText(value)
+    setTypedText(value)
     if (selection) {
       setSelection(null)
       onSelect?.(null)
@@ -271,10 +349,13 @@ export function useCombobox<T>(options: UseComboboxOptions<T>): UseComboboxResul
     setActiveIndex(-1)
     if (searchDisabled) return
     setOpen(true)
-    if (!canSearch) return
+    const query = value.trim()
+    if (!canSearch) {
+      if (load === undefined && staticOptions) announceCount(staticItemsFor(query).length, query, true)
+      return
+    }
     cancel()
     if (status.kind !== "idle") setStatus(IDLE)
-    const query = value.trim()
     if (query.length < minChars) {
       setResults(null)
       return
@@ -284,16 +365,12 @@ export function useCombobox<T>(options: UseComboboxOptions<T>): UseComboboxResul
 
   // The selectable rows: results (or filtered static options) plus the Add option.
   const entries: ComboboxEntry<T>[] = []
-  const items: readonly T[] = canSearch
-    ? (results?.items ?? [])
-    : load === undefined && staticOptions && !searchDisabled
-      ? staticOptions.some((item) => getLabel(item).toLowerCase() === trimmedQuery.toLowerCase())
-        ? staticOptions
-        : staticOptions.filter((item) => includesText(getLabel(item), trimmedQuery))
-      : []
+  const items: readonly T[] = canSearch ? (results?.items ?? []) : load === undefined && !searchDisabled ? staticItemsFor(trimmedQuery) : []
   for (const item of items) entries.push({ kind: "option", key: getKey(item), label: getLabel(item), item })
   const resultsSettled = canSearch ? status.kind === "idle" && results?.query === trimmedQuery : true
-  if (allowAdd && trimmedQuery !== "" && resultsSettled) {
+  // While more pages exist an exact match may be on one not loaded yet, unless the loader says there is none.
+  const addPossible = canSearch ? results !== null && (!results.hasMore || results.exactMatch === false) : true
+  if (allowAdd && trimmedQuery !== "" && resultsSettled && addPossible) {
     const lower = trimmedQuery.toLowerCase()
     if (!entries.some((entry) => entry.label.toLowerCase() === lower)) {
       entries.push({ kind: "add", key: `add:${lower}`, label: allowAdd(trimmedQuery), text: trimmedQuery })
@@ -309,7 +386,8 @@ export function useCombobox<T>(options: UseComboboxOptions<T>): UseComboboxResul
   }
 
   const expanded = open && !searchDisabled && (entries.length > 0 || statusRow !== null)
-  const canLoadMore = canSearch && status.kind === "idle" && results !== null && results.hasMore
+  // Only the current query's list pages: during a debounce the loaded list belongs to an older query.
+  const canLoadMore = canSearch && status.kind === "idle" && results !== null && results.hasMore && results.query === trimmedQuery
 
   const loadMore = (): void => {
     if (canLoadMore && results) void fetchPage(results.query, results.page + 1)
@@ -330,9 +408,11 @@ export function useCombobox<T>(options: UseComboboxOptions<T>): UseComboboxResul
     cancel()
     setStatus(IDLE)
     setSelection(picked)
-    setText(entry.kind === "option" ? entry.label : entry.text)
+    setTypedText(null)
+    setText(labelOf(picked))
     setOpen(false)
     setActiveIndex(-1)
+    announce("")
     onSelect?.(picked)
   }
 
@@ -341,24 +421,27 @@ export function useCombobox<T>(options: UseComboboxOptions<T>): UseComboboxResul
     setStatus(IDLE)
     setResults(null)
     setSelection(null)
+    setTypedText(null)
     setText("")
     setOpen(false)
     setActiveIndex(-1)
-    setAnnouncement(COMBOBOX_MESSAGES.cleared)
+    announce(COMBOBOX_MESSAGES.cleared)
     onClear?.()
   }
 
   const leave = (): void => {
     close()
-    if (mode === "select-only" && selection === null && text !== "") {
+    // Only a query the user typed without picking is dropped; a saved or picked value stays.
+    if (mode === "select-only" && selection === null && typed && text !== "") {
       setText("")
+      setTypedText(null)
       setResults(null)
     }
   }
 
   const onInputFocus = (): void => {
-    // Focus coming back from the popup (e.g. "Try again.") leaves an open list as it is.
-    if (openOnFocus && selection === null && !expanded) openList()
+    // Only an empty field opens on focus; focus coming back from the popup (e.g. "Try again.") leaves an open list as it is.
+    if (openOnFocus && text === "" && !expanded) openList()
   }
 
   const onInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): boolean => {

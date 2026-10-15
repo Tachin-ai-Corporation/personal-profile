@@ -1,7 +1,7 @@
-import { act, fireEvent, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import * as React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { COMBOBOX_MESSAGES } from "@/lib/shared/messages"
+import { COMBOBOX_MESSAGES, formatMessage } from "@/lib/shared/messages"
 import { axeViolations } from "@/test/axe"
 import { FakeIntersectionObserver, reportIntersections, stubLayoutApis } from "@/test/dom-stubs"
 import { Combobox, ComboboxOptionText, HighlightMatch, type ComboboxLoadResult, type ComboboxProps, type ComboboxSelection } from "./combobox"
@@ -91,6 +91,10 @@ const key = (input: HTMLElement, name: string, init: Partial<KeyboardEventInit> 
 
 beforeEach(() => {
   stubLayoutApis()
+  // jsdom has no layout: give every element a box unless it (or an ancestor) is display: none.
+  vi.spyOn(HTMLElement.prototype, "getClientRects").mockImplementation(function (this: HTMLElement) {
+    return (this.closest("[style*='display: none']") ? [] : [{}]) as unknown as DOMRectList
+  })
   vi.useFakeTimers()
 })
 
@@ -128,8 +132,8 @@ describe("Combobox: ARIA 1.2", () => {
 
     key(input, "ArrowDown")
     expect(input.getAttribute("aria-activedescendant")).toBe(options[0].id)
-    expect(options[0].getAttribute("aria-selected")).toBe("true")
-    expect(options[1].getAttribute("aria-selected")).toBe("false")
+    // aria-selected marks the current pick, not the active option (none picked yet).
+    expect(options.slice(0, 3).map((option) => option.getAttribute("aria-selected"))).toEqual(["false", "false", "false"])
 
     // The popup is a plain container (not a dialog) on row-menu tokens.
     const popup = document.querySelector("[data-slot='combobox-popup']")
@@ -198,8 +202,7 @@ describe("Combobox: async search", () => {
     await flush()
     expect(screen.queryByText("No more results")).toBeNull()
     const last = screen.getAllByRole("option").at(-1) as HTMLElement
-    last.id = "last-option"
-    reportIntersections({ "last-option": true })
+    reportIntersections({ [last.id]: true })
     expect(calls[1]).toMatchObject({ query: "", page: 1 })
     expect(row("loading")?.textContent).toBe("Searching…")
     // The loaded options stay while the next page loads.
@@ -322,8 +325,9 @@ describe("Combobox: keyboard and selection", () => {
 
   it("Home/End move the caret while no option is active; Enter with none active selects nothing", async () => {
     const { input, onSelect } = await openWith(npis(2))
-    const home = fireEvent.keyDown(input, { key: "Home" })
-    expect(home).toBe(true)
+    expect(fireEvent.keyDown(input, { key: "Home" })).toBe(true)
+    expect(fireEvent.keyDown(input, { key: "End" })).toBe(true)
+    expect(input.getAttribute("aria-activedescendant")).toBeNull()
     key(input, "Enter")
     expect(onSelect).not.toHaveBeenCalled()
     // Enter on a closed list is left alone.
@@ -364,11 +368,25 @@ describe("Combobox: keyboard and selection", () => {
   })
 
   it("select-only: leaving with an unpicked query clears it; a pick is kept", async () => {
-    const { input } = renderNpi({ openOnFocus: false })
+    const onTextChange = vi.fn()
+    const { input, calls } = renderNpi({ openOnFocus: false, onTextChange })
+    const after = screen.getByRole("button", { name: "After" })
     input.focus()
     fireEvent.change(input, { target: { value: "lee" } })
-    fireEvent.blur(input, { relatedTarget: screen.getByRole("button", { name: "After" }) })
+    fireEvent.blur(input, { relatedTarget: after })
     expect((input as HTMLInputElement).value).toBe("")
+    expect(onTextChange).toHaveBeenLastCalledWith("")
+
+    fireEvent.change(input, { target: { value: "lee" } })
+    await advance(600)
+    calls[0].resolve({ items: npis(2), hasMore: false })
+    await flush()
+    key(input, "ArrowDown")
+    key(input, "Enter")
+    onTextChange.mockClear()
+    fireEvent.blur(input, { relatedTarget: after })
+    expect((input as HTMLInputElement).value).toBe("1000000000, Person 0, Austin, TX")
+    expect(onTextChange).not.toHaveBeenCalled()
   })
 
   it("the picked option shows a check and focus re-entry does not reopen a picked field", async () => {
@@ -383,7 +401,15 @@ describe("Combobox: keyboard and selection", () => {
     key(input, "ArrowDown")
     calls[1].resolve({ items: npis(2), hasMore: false })
     await flush()
-    expect(screen.getAllByRole("option")[0].querySelector("svg")).not.toBeNull()
+    const [picked, other] = screen.getAllByRole("option")
+    expect(picked.querySelector("svg")).not.toBeNull()
+    // The pick is exposed to assistive tech, separately from the active option.
+    expect(picked.getAttribute("aria-selected")).toBe("true")
+    expect(other.getAttribute("aria-selected")).toBe("false")
+    key(input, "ArrowDown")
+    key(input, "ArrowDown")
+    expect(input.getAttribute("aria-activedescendant")).toBe(other.id)
+    expect(picked.getAttribute("aria-selected")).toBe("true")
   })
 
   it("× clears text and selection, keeps focus, announces Cleared", async () => {
@@ -459,7 +485,7 @@ describe("Combobox: variants", () => {
         minChars={2}
         pageSize={20}
         mode="select-only"
-        allowAdd={(name) => `Add “${name}”`}
+        allowAdd={(name) => formatMessage(COMBOBOX_MESSAGES.addOption, { name })}
         onSelect={onSelect}
       />,
     )
@@ -610,8 +636,331 @@ describe("HighlightMatch", () => {
     expect(container.textContent).toBe("Main St and main road")
   })
 
+  it("renders plain text when lowercasing changes the length", () => {
+    const { container } = render(<HighlightMatch text="İstanbul Ave" query="ist" />)
+    expect(container.innerHTML).toBe("İstanbul Ave")
+  })
+
   it("renders plain text for an empty query", () => {
     const { container } = render(<HighlightMatch text="Main" query="" />)
     expect(container.innerHTML).toBe("Main")
+  })
+})
+
+describe("Combobox: saved values and state sync", () => {
+  const saved: ComboboxSelection<Npi> = { type: "option", item: npis(1, 7)[0] }
+
+  it("a seeded pick shows its label, isn't searched on focus and survives focus + Tab", () => {
+    const { input, load } = renderNpi({ defaultSelection: saved })
+    expect((input as HTMLInputElement).value).toBe("1000000007, Person 7, Austin, TX")
+    input.focus()
+    fireEvent.focus(input)
+    expect(load).not.toHaveBeenCalled()
+    fireEvent.blur(input, { relatedTarget: screen.getByRole("button", { name: "After" }) })
+    expect((input as HTMLInputElement).value).toBe("1000000007, Person 7, Austin, TX")
+  })
+
+  it("saved text without a pick (select-only) is not dropped on leave; only typed text is", () => {
+    const { input } = renderNpi({ defaultText: "Saved Insurer" })
+    const after = screen.getByRole("button", { name: "After" })
+    fireEvent.focus(input)
+    fireEvent.blur(input, { relatedTarget: after })
+    expect((input as HTMLInputElement).value).toBe("Saved Insurer")
+  })
+
+  it("a controlled pick is marked, and a parent text reset (Discard) drops it", async () => {
+    function Controlled() {
+      const [text, setText] = React.useState(npiLabel(saved.type === "option" ? saved.item : npis(1)[0]))
+      return (
+        <>
+          <Combobox<Npi>
+            label="NPI"
+            load={async () => ({ items: npis(10), hasMore: false })}
+            getKey={(item) => item.npi}
+            getLabel={npiLabel}
+            mode="select-only"
+            selection={saved}
+            text={text}
+            onTextChange={setText}
+          />
+          <button type="button" onClick={() => setText("")}>
+            Discard
+          </button>
+        </>
+      )
+    }
+    render(<Controlled />)
+    const input = screen.getByRole("combobox", { name: "NPI" })
+    key(input, "ArrowDown")
+    await flush()
+    expect(screen.getByRole("option", { name: "1000000007, Person 7, Austin, TX" }).getAttribute("aria-selected")).toBe("true")
+    key(input, "Escape")
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }))
+    expect((input as HTMLInputElement).value).toBe("")
+    key(input, "ArrowDown")
+    await flush()
+    expect(screen.getAllByRole("option").every((option) => option.getAttribute("aria-selected") === "false")).toBe(true)
+  })
+
+  it("a blur because the window lost focus keeps a typed select-only query", () => {
+    const { input } = renderNpi({ openOnFocus: false })
+    input.focus()
+    fireEvent.change(input, { target: { value: "lee" } })
+    vi.spyOn(document, "hasFocus").mockReturnValue(false)
+    fireEvent.blur(input, { relatedTarget: null })
+    expect((input as HTMLInputElement).value).toBe("lee")
+    vi.spyOn(document, "hasFocus").mockReturnValue(true)
+    // A press on plain page content (no new focus target, the window still focused) is a real leave.
+    fireEvent.blur(input, { relatedTarget: null })
+    expect((input as HTMLInputElement).value).toBe("")
+  })
+})
+
+describe("Combobox: async edge cases", () => {
+  it("doesn't page during a new query's debounce (the loaded list is the old query's)", async () => {
+    const { input, calls } = renderNpi()
+    fireEvent.focus(input)
+    calls[0].resolve({ items: npis(10), hasMore: true })
+    await flush()
+    key(input, "ArrowDown")
+    fireEvent.change(input, { target: { value: "lee" } })
+    key(input, "ArrowDown")
+    key(input, "End")
+    expect(calls).toHaveLength(1)
+    await advance(600)
+    expect(calls[1]).toMatchObject({ query: "lee", page: 0 })
+  })
+
+  it("an empty page with hasMore ends the list (no request loop)", async () => {
+    const { input, calls } = renderNpi({ pageSize: undefined })
+    fireEvent.focus(input)
+    calls[0].resolve({ items: npis(3), hasMore: true })
+    await flush()
+    key(input, "ArrowDown")
+    key(input, "End")
+    calls[1].resolve({ items: [], hasMore: true })
+    await flush()
+    expect(screen.getByRole("option", { name: "No more results" })).toBeTruthy()
+    key(input, "End")
+    expect(calls).toHaveLength(2)
+  })
+
+  it("dedupes items across pages by key; an all-duplicate page ends the list", async () => {
+    const { input, calls } = renderNpi({ pageSize: 3 })
+    fireEvent.focus(input)
+    calls[0].resolve({ items: npis(3), hasMore: true })
+    await flush()
+    key(input, "ArrowDown")
+    key(input, "End")
+    calls[1].resolve({ items: npis(3, 2), hasMore: true })
+    await flush()
+    expect(screen.getAllByRole("option", { name: /Person/ })).toHaveLength(5)
+    key(input, "End")
+    calls[2].resolve({ items: npis(3, 2), hasMore: true })
+    await flush()
+    expect(screen.getAllByRole("option", { name: /Person/ })).toHaveLength(5)
+    expect(screen.getByRole("option", { name: "No more results" })).toBeTruthy()
+  })
+
+  it("turning search off cancels the debounce and the request and closes the list", async () => {
+    const { load, calls } = manualLoader()
+    function Toggle({ off }: { off: boolean }) {
+      return <Combobox<Npi> label="NPI" load={load} getKey={(i) => i.npi} getLabel={npiLabel} mode="free-text" searchDisabled={off} />
+    }
+    const { rerender } = render(<Toggle off={false} />)
+    const input = screen.getByRole("combobox", { name: "NPI" })
+    fireEvent.change(input, { target: { value: "ab" } })
+    await advance(300)
+    fireEvent.change(input, { target: { value: "abc" } })
+    rerender(<Toggle off />)
+    await advance(1000)
+    expect(calls).toHaveLength(1)
+    expect(calls[0].signal.aborted).toBe(true)
+    rerender(<Toggle off={false} />)
+    expect(input.getAttribute("aria-expanded")).toBe("false")
+    calls[0].resolve({ items: npis(2), hasMore: false })
+    await flush()
+    expect(screen.queryByRole("option")).toBeNull()
+  })
+
+  it("disabling the input cancels pending work too", async () => {
+    const { load, calls } = manualLoader()
+    function Field({ disabled }: { disabled: boolean }) {
+      return <Combobox<Npi> label="NPI" load={load} getKey={(i) => i.npi} getLabel={npiLabel} mode="free-text" disabled={disabled} />
+    }
+    const { rerender } = render(<Field disabled={false} />)
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "abc" } })
+    rerender(<Field disabled />)
+    await advance(1000)
+    expect(calls).toHaveLength(0)
+  })
+
+  it("unmount cancels the debounce: the loader is never called", async () => {
+    const { input, load } = renderNpi({ openOnFocus: false })
+    fireEvent.change(input, { target: { value: "lee" } })
+    cleanup()
+    await advance(1000)
+    expect(load).not.toHaveBeenCalled()
+  })
+
+  it("unmount aborts the in-flight request", () => {
+    const { input, calls } = renderNpi()
+    fireEvent.focus(input)
+    cleanup()
+    expect(calls[0].signal.aborted).toBe(true)
+  })
+
+  it("clear and select abort the in-flight request", async () => {
+    const { input, calls } = renderNpi()
+    fireEvent.focus(input)
+    calls[0].resolve({ items: npis(10), hasMore: true })
+    await flush()
+    key(input, "ArrowDown")
+    key(input, "End")
+    // Page 1 is in flight; picking aborts it.
+    key(input, "Enter")
+    expect(calls[1].signal.aborted).toBe(true)
+
+    fireEvent.change(input, { target: { value: "lee" } })
+    await advance(600)
+    fireEvent.click(screen.getByRole("button", { name: /^Clear/ }))
+    expect(calls[2].signal.aborted).toBe(true)
+  })
+
+  it("after a failed later page, closing and reopening keeps the loaded pages and re-requests that page", async () => {
+    const { input, calls } = renderNpi()
+    fireEvent.focus(input)
+    calls[0].resolve({ items: npis(10), hasMore: true })
+    await flush()
+    key(input, "ArrowDown")
+    key(input, "End")
+    calls[1].resolve({ error: true })
+    await flush()
+    key(input, "Escape")
+    key(input, "ArrowDown")
+    expect(calls).toHaveLength(2)
+    expect(screen.getAllByRole("option")).toHaveLength(10)
+    expect(row("error")).toBeNull()
+    key(input, "End")
+    expect(calls[2]).toMatchObject({ query: "", page: 1 })
+  })
+
+  it("a failed first page reloads page 0 on the next open", async () => {
+    const { input, calls } = renderNpi()
+    fireEvent.focus(input)
+    calls[0].resolve({ error: true })
+    await flush()
+    key(input, "Escape")
+    key(input, "ArrowDown")
+    expect(calls[1]).toMatchObject({ query: "", page: 0 })
+  })
+
+  it("Add is held back while more pages exist, unless the loader says there's no exact match", async () => {
+    const { input, calls } = renderNpi({ openOnFocus: false, allowAdd: (name) => formatMessage(COMBOBOX_MESSAGES.addOption, { name }), emptyMessage: undefined })
+    fireEvent.change(input, { target: { value: "Person" } })
+    await advance(600)
+    calls[0].resolve({ items: npis(10), hasMore: true })
+    await flush()
+    expect(screen.queryByRole("option", { name: "Add “Person”" })).toBeNull()
+    fireEvent.change(input, { target: { value: "Persona" } })
+    await advance(600)
+    calls[1].resolve({ items: npis(10), hasMore: true, exactMatch: false })
+    await flush()
+    expect(screen.getByRole("option", { name: "Add “Persona”" })).toBeTruthy()
+  })
+})
+
+describe("Combobox: announcements", () => {
+  it("repeats an identical announcement and clears it on close", async () => {
+    // quiet: no "Searching…" in between, so two equal counts follow each other.
+    const { input, calls } = renderNpi({ openOnFocus: false, quiet: true })
+    fireEvent.change(input, { target: { value: "ab" } })
+    await advance(600)
+    calls[0].resolve({ items: npis(2), hasMore: false })
+    await flush()
+    expect(status()).toBe("2 results")
+    fireEvent.change(input, { target: { value: "abc" } })
+    await advance(600)
+    calls[1].resolve({ items: npis(2), hasMore: false })
+    await flush()
+    // Same words, different text node content: announced again.
+    expect(status()).toBe("2 results ")
+    key(input, "Escape")
+    expect(status()).toBe("")
+  })
+
+  it("quiet: no Searching…, a silent failure clears a stale count, zero results without a listbox say nothing", async () => {
+    const { load, calls } = manualLoader()
+    render(<Combobox<Npi> label="Address line 1" load={load} getKey={(i) => i.npi} getLabel={npiLabel} mode="free-text" quiet debounceMs={250} />)
+    const input = screen.getByRole("combobox")
+    fireEvent.change(input, { target: { value: "12 Main" } })
+    await advance(250)
+    expect(status()).toBe("")
+    calls[0].resolve({ items: npis(2), hasMore: false })
+    await flush()
+    expect(status()).toBe("2 results")
+    fireEvent.change(input, { target: { value: "12 Mainx" } })
+    await advance(250)
+    calls[1].resolve({ error: true })
+    await flush()
+    expect(status()).toBe("")
+    fireEvent.change(input, { target: { value: "12 Mainy" } })
+    await advance(250)
+    calls[2].resolve({ items: [], hasMore: false })
+    await flush()
+    expect(input.getAttribute("aria-expanded")).toBe("false")
+    expect(status()).toBe("")
+  })
+
+  it("static options announce the filtered count", () => {
+    render(<Combobox<string> label="Gender identity" staticOptions={["Female", "Male", "Other"]} getKey={(i) => i} getLabel={(i) => i} mode="free-text" />)
+    const input = screen.getByRole("combobox")
+    fireEvent.change(input, { target: { value: "ma" } })
+    expect(status()).toBe("2 results")
+    fireEvent.change(input, { target: { value: "oth" } })
+    expect(status()).toBe("1 result")
+    fireEvent.change(input, { target: { value: "zz" } })
+    expect(status()).toBe("")
+  })
+})
+
+describe("Combobox: Tab bridge scope", () => {
+  async function renderInDialog(after: React.ReactNode) {
+    const { load, calls } = manualLoader()
+    render(
+      <>
+        <div role="dialog" aria-label="Edit insurance">
+          <Combobox<Npi> label="NPI" load={load} getKey={(i) => i.npi} getLabel={npiLabel} mode="select-only" openOnFocus />
+          {after}
+        </div>
+        <button type="button">Outside</button>
+      </>,
+    )
+    const input = screen.getByRole("combobox", { name: "NPI" })
+    input.focus()
+    calls[0].resolve({ error: true })
+    await flush()
+    key(input, "Tab")
+    return screen.getByRole("button", { name: "Try again." })
+  }
+
+  it("skips hidden elements and stays inside the dialog", async () => {
+    const retry = await renderInDialog(
+      <>
+        <button type="button" style={{ display: "none" }}>
+          Hidden
+        </button>
+        <button type="button">Inside</button>
+      </>,
+    )
+    key(retry, "Tab")
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Inside" }))
+  })
+
+  it("never jumps out of the dialog when nothing follows in it", async () => {
+    const retry = await renderInDialog(null)
+    // The bridge finds nothing and leaves the key alone; the popup's own focus scope keeps it on the button.
+    fireEvent.keyDown(retry, { key: "Tab" })
+    expect(document.activeElement).toBe(retry)
   })
 })

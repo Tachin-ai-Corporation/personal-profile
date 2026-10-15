@@ -4,7 +4,8 @@ import * as React from "react"
 import { AlertCircle, Check, Loader2, Search, X } from "lucide-react"
 
 import { FormField, type FormFieldProps } from "@/components/ui/form-field"
-import { LinkTextButton, tabbables } from "@/components/ui/info-popover"
+import { tabbables } from "@/components/ui/focus"
+import { LinkTextButton } from "@/components/ui/link-text-button"
 import { INPUT_STYLES } from "@/components/ui/input"
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
 import { COMBOBOX_MESSAGES, CONTROL_MESSAGES, formatMessage } from "@/lib/shared/messages"
@@ -46,9 +47,10 @@ export interface ComboboxProps<T> extends UseComboboxOptions<T>, Pick<FormFieldP
 
 /** The label with every case-insensitive occurrence of `query` in weight 600. */
 export function HighlightMatch({ text, query }: { readonly text: string; readonly query: string }): React.JSX.Element {
-  if (query === "") return <>{text}</>
   const lower = text.toLowerCase()
   const needle = query.toLowerCase()
+  // Lowercasing that changes the length (e.g. "İ") would shift the slices: show plain text.
+  if (query === "" || lower.length !== text.length || needle.length !== query.length) return <>{text}</>
   const parts: React.ReactNode[] = []
   let from = 0
   let at = lower.indexOf(needle)
@@ -110,7 +112,8 @@ export function Combobox<T>(props: ComboboxProps<T>): React.JSX.Element {
     highlightMatch = false,
     onBlur,
   } = props
-  const combobox = useCombobox(props)
+  // A disabled input searches nothing either (pending work is cancelled, the popup closes).
+  const combobox = useCombobox({ ...props, searchDisabled: props.searchDisabled === true || disabled })
   const { entries, statusRow, activeIndex, expanded, selection } = combobox
 
   const listboxId = `${React.useId()}-listbox`
@@ -156,6 +159,8 @@ export function Combobox<T>(props: ComboboxProps<T>): React.JSX.Element {
   const handleFocusOut = (event: React.FocusEvent): void => {
     const next = event.relatedTarget
     if (next instanceof Node && (wrapperRef.current?.contains(next) || contentRef.current?.contains(next))) return
+    // The window or tab lost focus (no new target): not a real move, so nothing is dropped.
+    if (next === null && (!document.hasFocus() || document.visibilityState === "hidden")) return
     combobox.leave()
     onBlur?.()
   }
@@ -164,7 +169,9 @@ export function Combobox<T>(props: ComboboxProps<T>): React.JSX.Element {
   const focusAfterField = (): boolean => {
     const wrapper = wrapperRef.current
     const content = contentRef.current
-    const next = tabbables(document.body).find(
+    // Inside a modal, stay in it (its focus trap would otherwise pull focus back).
+    const scope = wrapper?.closest<HTMLElement>("[role='dialog'], [role='alertdialog'], dialog") ?? document.body
+    const next = tabbables(scope).find(
       (el) =>
         !content?.contains(el) &&
         !wrapper?.contains(el) &&
@@ -290,7 +297,8 @@ export function Combobox<T>(props: ComboboxProps<T>): React.JSX.Element {
                       ref={isLast ? lastOptionRef : undefined}
                       id={optionId(index)}
                       role="option"
-                      aria-selected={active}
+                      // The current pick (not the active option, which aria-activedescendant names).
+                      aria-selected={picked}
                       aria-label={entry.label}
                       data-active={active ? "true" : undefined}
                       data-slot="combobox-option"
