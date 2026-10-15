@@ -1,6 +1,7 @@
 "use client"
 
 import { UserRound } from "lucide-react"
+import { FallbackImage } from "@/components/ui/fallback-image"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DESKTOP_QUERY, useCurrentPage, useMediaQuery, useMyself } from "@/features/shell"
 import { initials } from "@/lib/shared/initials"
@@ -8,6 +9,7 @@ import { HEADER_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 import { formatPhoneDisplay } from "@/lib/shared/phone"
 import { displayName } from "./names"
 import { usePrimaryContacts } from "./use-primary-contacts"
+import { useProfilePictureSrc } from "./use-profile-picture"
 
 /** 40 px avatar: initials (primary-text, 600) on a card circle with a border; a user icon without a name. */
 function Avatar({ text }: { readonly text: string }) {
@@ -21,6 +23,26 @@ function Avatar({ text }: { readonly text: string }) {
   )
 }
 
+/**
+ * The avatar with the Profile Picture (Story 1.9): the initials avatar shows
+ * while the id or the image loads, without a picture, and when either fails.
+ * The image is decorative (`alt=""`): the name is the page's `h1`, and the
+ * fallback is `aria-hidden` too, so the swap never changes what is announced.
+ * `src` comes from `useProfilePictureSrc()`, called by the header so the id
+ * loads alongside `myself` rather than after it.
+ */
+function PictureAvatar({ src, text }: { readonly src: string | null; readonly text: string }) {
+  return (
+    <FallbackImage
+      src={src}
+      alt=""
+      fallbackWhileLoading
+      fallback={<Avatar text={text} />}
+      className="size-10 shrink-0 rounded-full border border-border bg-card object-cover"
+    />
+  )
+}
+
 function ContactItem({ label, value }: { readonly label: string; readonly value: string | null }) {
   return (
     <div className="flex flex-col items-end">
@@ -31,8 +53,8 @@ function ContactItem({ label, value }: { readonly label: string; readonly value:
 }
 
 /**
- * The shared profile header (Story 1.9, initials only until Story 1.10):
- * avatar + `{firstName} {lastName}` as the page's single `h1`. At 768 px and
+ * The shared profile header (Story 1.9): the avatar (Profile Picture, else
+ * initials) + `{firstName} {lastName}` as the page's single `h1`. At 768 px and
  * above it also shows the primary phone and email; below, nothing is fetched.
  */
 export function ProfileHeader() {
@@ -41,6 +63,7 @@ export function ProfileHeader() {
   const pageName = useCurrentPage() === "account" ? SHELL_MESSAGES.pageAccount : SHELL_MESSAGES.pageProfile
   const isDesktop = useMediaQuery(DESKTOP_QUERY)
   const { phone, email } = usePrimaryContacts(isDesktop)
+  const pictureSrc = useProfilePictureSrc()
 
   const name = myself ? displayName(myself) : ""
 
@@ -56,7 +79,7 @@ export function ProfileHeader() {
         </>
       ) : (
         <>
-          <Avatar text={myself ? initials(myself.firstName, myself.lastName) : ""} />
+          <PictureAvatar src={pictureSrc} text={myself ? initials(myself.firstName, myself.lastName) : ""} />
           <h1 className="min-w-0 truncate text-h4 text-foreground">{name || <span className="sr-only">{pageName}</span>}</h1>
         </>
       )}
