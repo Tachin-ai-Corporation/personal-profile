@@ -1,10 +1,17 @@
 /**
- * The e2e helpers, one file per area (spec F6-3). Specs import from
- * `./fixtures`; a story adds helpers to its own area file, never here.
+ * The e2e helpers, one file per area (specs F6-3, F7-1). Specs import from
+ * `./fixtures`; a story adds helpers to its own area file, never here. One
+ * `export *` line per file in this folder: `test/e2e-fixture-exports.test.ts`
+ * fails on a missing line or on a name exported by two files.
+ * Foundation: core. Team A: defaults-profile, header, personal, contacts,
+ * addresses, insurance. Team B: defaults-account, account, mfa, npi, orgs.
  */
 export * from "./core"
+export * from "./defaults-profile"
+export * from "./defaults-account"
+export * from "./header"
+export * from "./personal"
 export * from "./contacts"
-export * from "./defaults"
 export * from "./addresses"
 export * from "./insurance"
 export * from "./account"

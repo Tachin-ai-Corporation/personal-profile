@@ -1,31 +1,36 @@
 import { act, render, screen } from "@testing-library/react"
 import axe from "axe-core"
-import { http, HttpResponse } from "msw"
+import { http } from "msw"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { AccountSettingsSection } from "@/features/account"
 import { AddressesSection } from "@/features/addresses"
 import { EmailSection, PhoneSection, SocialSection } from "@/features/contacts"
 import { ProfileHeader } from "@/features/header"
 import { InsuranceSection } from "@/features/insurance"
-import { AuthenticatorSection } from "@/features/mfa"
-import { OrganizationsTab } from "@/features/organizations"
 import { PersonalSection } from "@/features/personal"
-import { ProviderTab } from "@/features/provider"
-import { AccountPersonalPanel, AccountTabs, ContactsPanel, InsurancePanel, PageFrame, ProfileTabs, SAVE_ORDER } from "@/features/shell"
-import { axeViolations } from "@/test/axe"
+import { SaveAllBar } from "@/features/save-all"
+import { ContactsPanel, InsurancePanel, PageFrame, PROFILE_SECTION_IDS, ProfileTabs, SAVE_ORDER, SIGNATURE_ANCHOR } from "@/features/shell"
 import { stubLayoutApis } from "@/test/dom-stubs"
 import { stubViewport } from "@/test/media"
 import { server } from "@/test/msw-server"
+import { myselfWire } from "@/test/myself-fixture"
 import { setTestUrl } from "@/test/next-navigation"
+import { profileReadHandlers } from "@/test/page-handlers"
 import { TestProviders, testIdle } from "@/test/providers"
+
+/**
+ * Team A: the `/` composition of `app/page.tsx` (spec F7-1; the server part,
+ * `requirePageSession`, is covered by e2e). Asserts shell-level behaviour
+ * only (landmarks, slots, one `myself` request, tab order, axe), so a story
+ * that replaces a feature stub keeps this test green. The `/account`
+ * composition is Team B's `app/account.test.tsx`.
+ */
 
 vi.mock("next/navigation", async () => (await import("@/test/next-navigation")).nextNavigationMock)
 
-/** The `/` composition from app/page.tsx (the server part, requirePageSession, is covered by e2e). */
-function renderHome() {
+function renderProfilePage() {
   return render(
     <TestProviders>
-      <PageFrame page="profile" header={<ProfileHeader />} idle={testIdle()} saveOrder={SAVE_ORDER}>
+      <PageFrame page="profile" header={<ProfileHeader />} idle={testIdle()} saveOrder={SAVE_ORDER} saveAllSlot={<SaveAllBar />}>
         <ProfileTabs
           contacts={
             <ContactsPanel
@@ -49,30 +54,27 @@ beforeEach(() => {
   setTestUrl("/")
   stubViewport(1280)
   stubLayoutApis()
-  server.use(
-    http.get("/api/1h/v2/user/myself", () => HttpResponse.json({ id: 1, personId: 2, firstName: "Ann", lastName: "Lee" })),
-    http.get("/api/1h/v2/user/contact-point/list", () => HttpResponse.json([])),
-  )
+  server.use(...profileReadHandlers())
 })
 afterEach(() => document.documentElement.classList.remove("dark"))
 
-describe("/ page frame", () => {
+describe("/ page composition (Team A)", () => {
   it("the header and the frame share ONE myself request through the root SWR provider", async () => {
     let calls = 0
     server.use(
       http.get("/api/1h/v2/user/myself", () => {
         calls += 1
-        return HttpResponse.json({ id: 1, personId: 2, firstName: "Ann", lastName: "Lee" })
+        return Response.json(myselfWire())
       }),
     )
-    renderHome()
+    renderProfilePage()
     await screen.findByRole("heading", { level: 1, name: "Ann Lee" })
     await act(async () => undefined)
     expect(calls).toBe(1)
   })
 
   it("tab order: page nav → Return → header → tabs → Section menu; the wordmark is never focusable", async () => {
-    renderHome()
+    renderProfilePage()
     await screen.findByRole("heading", { level: 1, name: "Ann Lee" })
     const focusable = [...document.querySelectorAll<HTMLElement>("a[href], button, [tabindex]:not([tabindex='-1'])")].filter(
       (el) => !el.closest("[hidden]"),
@@ -89,49 +91,27 @@ describe("/ page frame", () => {
     expect(window.location.search).toBe("?tab=contacts")
   })
 
-  it("the feature stubs fill every slot with the shell's placeholders: the page looks as before (F6-1)", async () => {
-    renderHome()
+  it("every slot is filled: one h1, the Contacts landmarks in Section order with the Signature anchor, Account not current", async () => {
+    renderProfilePage()
     await screen.findByRole("heading", { level: 1, name: "Ann Lee" })
-    expect([...document.querySelectorAll("section")].map((s) => s.id)).toEqual(["personal", "phone", "email", "social", "addresses"])
-    expect(document.querySelectorAll('[data-slot="state-frame"][data-state="loading"]')).toHaveLength(5)
-    expect(document.getElementById("signature")).toBeTruthy()
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1)
+    expect([...document.querySelectorAll("main section[id]")].map((s) => s.id)).toEqual([...PROFILE_SECTION_IDS])
+    expect(document.getElementById(SIGNATURE_ANCHOR)).toBeTruthy()
+    expect(screen.getByRole("link", { name: "Personal Profile" }).getAttribute("aria-current")).toBe("page")
+    expect(screen.getByRole("tab", { name: "Contacts" }).getAttribute("aria-selected")).toBe("true")
   })
 
-  it("the /account composition Story 7.1 wires (stubs in AccountTabs / AccountPersonalPanel) renders both landmarks", async () => {
-    setTestUrl("/account?tab=personal")
-    render(
-      <TestProviders>
-        <PageFrame page="account" header={<ProfileHeader />} idle={testIdle()}>
-          <AccountTabs
-            personal={<AccountPersonalPanel account={<AccountSettingsSection />} authenticator={<AuthenticatorSection />} />}
-            provider={<ProviderTab />}
-            organizations={<OrganizationsTab />}
-          />
-        </PageFrame>
-      </TestProviders>,
-    )
+  it("?tab=insurance: the Insurance slot is the selected panel", async () => {
+    setTestUrl("/?tab=insurance")
+    renderProfilePage()
     await screen.findByRole("heading", { level: 1, name: "Ann Lee" })
-    expect([...document.querySelectorAll("section")].map((s) => s.id)).toEqual(["account", "authenticator"])
-    expect(screen.getByRole("link", { name: "Account" }).getAttribute("aria-current")).toBe("page")
-    expect(await axeViolations()).toEqual([])
-  })
-
-  it.each(["/account?tab=provider", "/account?tab=organizations"])("%s: the stub tab renders its placeholder", async (url) => {
-    setTestUrl(url)
-    render(
-      <TestProviders>
-        <PageFrame page="account" header={<ProfileHeader />} idle={testIdle()}>
-          <AccountTabs provider={<ProviderTab />} organizations={<OrganizationsTab />} />
-        </PageFrame>
-      </TestProviders>,
-    )
-    await screen.findByRole("heading", { level: 1, name: "Ann Lee" })
-    expect(document.querySelector('[data-slot="state-frame"]')?.getAttribute("data-level")).toBe("tab")
+    expect(screen.getByRole("tab", { name: "Insurance" }).getAttribute("aria-selected")).toBe("true")
+    expect(screen.getByRole("region", { name: "Insurance" })).toBeTruthy()
   })
 
   it.each(["light", "dark"])("has no axe violations in %s mode", async (theme) => {
     if (theme === "dark") document.documentElement.classList.add("dark")
-    renderHome()
+    renderProfilePage()
     await screen.findByRole("heading", { level: 1, name: "Ann Lee" })
     await act(async () => undefined)
     const results = await axe.run(document.body, { rules: { "color-contrast": { enabled: false } } })

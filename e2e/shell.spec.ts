@@ -1,7 +1,13 @@
 import AxeBuilder from "@axe-core/playwright"
-import { expect, test, type Page } from "@playwright/test"
+import { expect, type Page } from "@playwright/test"
 import { sealedSessionCookie } from "./session-cookie"
-import { mockContacts, mockExit, mockMyself, PORTAL_URL, setTheme, signIn } from "./fixtures"
+import { mockContacts, mockExit, mockMyself, mockProfileDefaults, PORTAL_URL, setTheme, signIn, test } from "./fixtures"
+
+/**
+ * The shell on `/` (foundation-owned). Every test runs under the fail-fast
+ * `test` and starts from `mockProfileDefaults` (spec F7-1), so a read Team A
+ * adds to `/` is answered by its default here without editing this file.
+ */
 
 const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]
 const FIXTURE = "/test-fixtures/leave-guard"
@@ -39,8 +45,7 @@ test.beforeEach(async ({ page }) => {
 
 test.describe("/ page frame (Stories 1.8, 1.9)", () => {
   test("app bar, header, tabs; ?tab normalized; tab order page nav → Return → tabs → Section menu; wordmark never focused", async ({ page, isMobile }) => {
-    await mockMyself(page)
-    await mockContacts(page)
+    await mockProfileDefaults(page)
     await page.goto("/")
     await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
     await expect(page).toHaveURL(/\/\?tab=contacts$/)
@@ -59,7 +64,7 @@ test.describe("/ page frame (Stories 1.8, 1.9)", () => {
 
   for (const tab of TABS) {
     test(`?tab=${tab}: axe clean in light and dark, no horizontal scroll, 44 px targets`, async ({ page }) => {
-      await mockMyself(page)
+      await mockProfileDefaults(page)
       await mockContacts(page, { Email: [{ id: 1, value: "ann@example.com", label: "Primary" }] })
       await page.goto(`/?tab=${tab}`)
       await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
@@ -80,8 +85,7 @@ test.describe("/ page frame (Stories 1.8, 1.9)", () => {
   }
 
   test("tabs: arrows, Home/End move focus; Enter activates by replace; bogus tab normalized; refresh keeps the tab", async ({ page }) => {
-    await mockMyself(page)
-    await mockContacts(page)
+    await mockProfileDefaults(page)
     await page.goto("/?tab=bogus")
     await expect(page).toHaveURL(/\/\?tab=contacts$/)
     const historyLength = await page.evaluate(() => history.length)
@@ -106,8 +110,7 @@ test.describe("/ page frame (Stories 1.8, 1.9)", () => {
   })
 
   test("a repeated ?tab= opens Contacts and is normalized to one value by replace (F6-1, Story 7.1 rule)", async ({ page }) => {
-    await mockMyself(page)
-    await mockContacts(page)
+    await mockProfileDefaults(page)
     await page.goto("/?tab=insurance&tab=medical#email")
     await expect(page).toHaveURL(/\/\?tab=contacts#email$/)
     await expect(page.getByRole("tab", { name: "Contacts" })).toHaveAttribute("aria-selected", "true")
@@ -117,7 +120,7 @@ test.describe("/ page frame (Stories 1.8, 1.9)", () => {
   })
 
   test("header: primary phone and email at 768 px and above; none fetched below; a failed type is omitted", async ({ page, isMobile }) => {
-    await mockMyself(page)
+    await mockProfileDefaults(page)
     const seen = await mockContacts(page, {
       Mobile: { status: 502, body: { errorCode: "UPSTREAM_ERROR", source: "proxy" } },
       Landline: [{ id: 2, value: "+12125550100", label: "Primary" }],
@@ -140,8 +143,8 @@ test.describe("/ page frame (Stories 1.8, 1.9)", () => {
   })
 
   test("page switch (clean): Account → router.push to /account, myself not refetched", async ({ page }) => {
+    await mockProfileDefaults(page)
     const myselfCalls = await mockMyself(page)
-    await mockContacts(page)
     await page.goto("/")
     await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
     await page.getByRole("link", { name: "Account" }).click()
@@ -151,8 +154,7 @@ test.describe("/ page frame (Stories 1.8, 1.9)", () => {
   })
 
   test("Return to 1health: logout, then the portal in the same tab", async ({ page }) => {
-    await mockMyself(page)
-    await mockContacts(page)
+    await mockProfileDefaults(page)
     const logouts = await mockExit(page)
     await page.goto("/")
     await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
@@ -164,8 +166,8 @@ test.describe("/ page frame (Stories 1.8, 1.9)", () => {
 
 test.describe("session expired (Story 1.7)", () => {
   test("a proxy 401 opens the dialog with focus on Return; intent saved; Escape does nothing; Return goes to the portal without logout", async ({ page }) => {
+    await mockProfileDefaults(page)
     await mockMyself(page, { status: 401, body: { errorCode: "SESSION_EXPIRED", source: "proxy" } })
-    await mockContacts(page)
     const logouts = await mockExit(page)
     // Reduced motion from the start: the dialog opens without its fade/zoom, so axe never measures mid-animation.
     await page.emulateMedia({ reducedMotion: "reduce" })
@@ -188,8 +190,7 @@ test.describe("session expired (Story 1.7)", () => {
     ["/account?tab=provider", /\/\?tab=contacts$/],
   ] as const) {
     test(`a relaunch with the saved intent ${saved} lands on ${landing}`, async ({ page }) => {
-      await mockMyself(page)
-      await mockContacts(page)
+      await mockProfileDefaults(page)
       await page.route("**/api/token", async (route) => {
         const cookie = await sealedSessionCookie()
         await route.fulfill({
@@ -210,8 +211,7 @@ test.describe("session expired (Story 1.7)", () => {
 
 test.describe("Section navigation (F3-3, port of Story 1.8B)", () => {
   async function open(page: Page, url: string): Promise<void> {
-    await mockMyself(page)
-    await mockContacts(page)
+    await mockProfileDefaults(page)
     await page.goto(url)
     await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
   }
@@ -291,8 +291,7 @@ test.describe("Section navigation (F3-3, port of Story 1.8B)", () => {
 
 test.describe("leave guard (Story 1.13, fixture page)", () => {
   async function openDirty(page: Page) {
-    await mockMyself(page)
-    await mockContacts(page)
+    await mockProfileDefaults(page)
     await page.goto(FIXTURE)
     await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
     await page.getByLabel("Fixture phone").fill("415")
@@ -324,8 +323,7 @@ test.describe("leave guard (Story 1.13, fixture page)", () => {
   })
 
   test("a dirty guard-only participant that can't save: no Save button", async ({ page }) => {
-    await mockMyself(page)
-    await mockContacts(page)
+    await mockProfileDefaults(page)
     await page.goto(FIXTURE)
     await page.getByLabel("Fixture insurance").fill("x")
     await page.getByRole("tab", { name: "Insurance" }).click()
@@ -343,8 +341,7 @@ test.describe("leave guard (Story 1.13, fixture page)", () => {
   })
 
   test("beforeunload fires only while something is dirty", async ({ page }) => {
-    await mockMyself(page)
-    await mockContacts(page)
+    await mockProfileDefaults(page)
     await page.goto(FIXTURE)
     await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
     const dialogs: string[] = []
@@ -386,8 +383,7 @@ test.describe("idle warning (Story 1.6)", () => {
   /** Installs the context's clock (shared by its pages), then opens `/`. */
   async function openProfile(page: Page): Promise<void> {
     await page.clock.install()
-    await mockMyself(page)
-    await mockContacts(page)
+    await mockProfileDefaults(page)
     await page.goto("/")
     await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
   }
@@ -424,8 +420,7 @@ test.describe("idle warning (Story 1.6)", () => {
     // One clock for the whole context: both tabs move together.
     await openProfile(page)
     const other = await context.newPage()
-    await mockMyself(other)
-    await mockContacts(other)
+    await mockProfileDefaults(other)
     await other.goto("/")
     await expect(other.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
 

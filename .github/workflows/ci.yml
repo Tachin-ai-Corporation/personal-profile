@@ -3,7 +3,10 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    # feat/** too (spec F7-1): each team's branch is verified on every push, before its PR.
+    branches: [main, "feat/**"]
+  # The merge queue (if enabled in the repo settings) verifies each PR merged on top of the others.
+  merge_group:
 
 permissions:
   contents: read

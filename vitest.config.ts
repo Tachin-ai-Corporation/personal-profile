@@ -21,7 +21,7 @@ export default defineConfig({
         test: {
           name: "server",
           environment: "node",
-          include: ["lib/server/**/*.test.ts", "lib/shared/**/*.test.ts", "lib/*.test.ts", "app/api/**/*.test.ts", "app/disabled/*.test.ts", "app/*.test.ts", "scripts/**/*.test.ts", "*.test.ts"],
+          include: ["lib/server/**/*.test.ts", "lib/shared/**/*.test.ts", "lib/*.test.ts", "app/api/**/*.test.ts", "app/disabled/*.test.ts", "app/*.test.ts", "scripts/**/*.test.ts", "test/**/*.test.ts", "*.test.ts"],
         },
       },
       {
@@ -30,7 +30,7 @@ export default defineConfig({
           name: "client",
           environment: "jsdom",
           setupFiles: ["test/setup-dom.ts"],
-          include: ["lib/api/**/*.test.ts", "features/**/*.test.{ts,tsx}", "components/**/*.test.tsx", "app/**/*.test.tsx"],
+          include: ["lib/api/**/*.test.ts", "features/**/*.test.{ts,tsx}", "components/**/*.test.tsx", "app/**/*.test.tsx", "test/**/*.test.tsx"],
         },
       },
     ],

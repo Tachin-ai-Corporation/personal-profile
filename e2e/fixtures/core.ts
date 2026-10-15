@@ -1,19 +1,32 @@
 import { expect, test as base, type Page, type Request, type Route } from "@playwright/test"
 import { environmentConfig } from "../../lib/shared/environments"
 import { sealedSessionCookie } from "../session-cookie"
+import { mockContacts } from "./contacts"
 
 /**
  * Shared e2e helpers (spec F6-3 split `e2e/fixtures.ts` per area): sign-in,
- * the generic proxy mock, `myself`, exit and theme. Area helpers live in
- * `contacts.ts`, `addresses.ts`, `insurance.ts`, `account.ts`, `mfa.ts`,
- * `npi.ts` and `orgs.ts`; everything is re-exported by `./index.ts`, so specs
- * import from `./fixtures`. A story adds its mocks to its own area file.
+ * the generic proxy mock, `myself`, exit, theme, the shell defaults and the
+ * mocks of endpoints both teams call (spec F7-1: `mockUserEdit`,
+ * `mockFileDownload`, `mockProfilePicturePreview`). Area helpers live in their
+ * area files (`header.ts`, `personal.ts`, `contacts.ts`, `addresses.ts`,
+ * `insurance.ts` for Team A; `account.ts`, `mfa.ts`, `npi.ts`, `orgs.ts` for
+ * Team B) and each page's defaults in `defaults-profile.ts` (A) /
+ * `defaults-account.ts` (B); everything is re-exported by `./index.ts`, so
+ * specs import from `./fixtures`. A story adds its mocks to its own area
+ * file; a name that could clash carries its area prefix (`mockAddressSave`,
+ * not `mockSave`), and `test/e2e-fixture-exports.test.ts` fails on a clash.
  */
 
 /** The sealed session's environment is demo, so this is the embedded portal URL. */
 export const PORTAL_URL = environmentConfig("demo").portalUrl
 
-export const ANN = { id: 42, personId: 4242, firstName: "Ann", lastName: "Lee", username: "ann.lee" }
+/**
+ * The default `myself` (`mockMyself`, every page's defaults). FROZEN (spec
+ * F7-1): both teams' specs assert on it ("Ann Lee", draft keys with id 42),
+ * so never change or extend it. A spec that needs other values overrides per
+ * test: `mockMyself(page, { body: { ...ANN, phoneNumber: "4155550199" } })`.
+ */
+export const ANN = Object.freeze({ id: 42, personId: 4242, firstName: "Ann", lastName: "Lee", username: "ann.lee" } as const)
 
 const SIGN_IN_PATH = "/e2e-sign-in"
 
@@ -90,6 +103,81 @@ export async function mockExit(page: Page): Promise<() => number> {
 /** `GET /api/pp/profile-picture-id` (Story 1.9; the header on both pages); default no picture. Not a proxy call. */
 export async function mockProfilePictureId(page: Page, answer: ProxyAnswer = {}): Promise<void> {
   await page.route("**/api/pp/profile-picture-id", (route) => json(route, answer.status ?? 200, answer.body ?? { fileId: null }))
+}
+
+/**
+ * The reads of the shell and the shared header, on both pages (spec F7-1):
+ * `myself` (`ANN`), every Contact Point type (`[]`) and the picture id (no
+ * picture). Foundation-owned; each page's defaults (`mockProfileDefaults`,
+ * `mockAccountDefaults`) start with it, so a header read added here reaches
+ * both teams at once.
+ */
+export async function mockShellDefaults(page: Page): Promise<void> {
+  await mockMyself(page)
+  await mockContacts(page)
+  await mockProfilePictureId(page)
+}
+
+/** A 1×1 PNG: the default image answer of `mockFileDownload`. */
+export const PNG_1X1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64")
+
+/** An image answer: `body` bytes (default `PNG_1X1`) as `contentType` (default `image/png`) with `status` (default 200). */
+export interface FileAnswer {
+  readonly status?: number
+  readonly body?: Buffer
+  readonly contentType?: string
+}
+
+/**
+ * `GET v2/file/{fileId}/download` (the proxy's `asImage` entry: Signature,
+ * Profile Picture, insurance cards, org logos). `fileId` defaults to any id.
+ * Shared by both teams. Returns the requests it answered, in order.
+ */
+export async function mockFileDownload(page: Page, fileId: number | "*" = "*", answer: FileAnswer = {}): Promise<() => Request[]> {
+  const seen: Request[] = []
+  await page.route(`**/api/1h/v2/file/${fileId}/download`, (route) => {
+    seen.push(route.request())
+    return route.fulfill({ status: answer.status ?? 200, contentType: answer.contentType ?? "image/png", body: answer.body ?? PNG_1X1 })
+  })
+  return () => [...seen]
+}
+
+/** The file id `mockProfilePicturePreview` answers with by default. */
+export const PROFILE_PICTURE_FILE_ID = 9001
+
+/**
+ * The header's Profile Picture (shown on both pages): the picture id
+ * (`/api/pp/profile-picture-id` → `{ fileId }`) and that file's image
+ * (`mockFileDownload`). Story 1.10 (Team A) keeps this in step with how the
+ * header loads the picture; Team B's specs call it, or Team A's
+ * `mockHeaderPicture`, to show one on `/account`. Returns the image requests.
+ */
+export async function mockProfilePicturePreview(page: Page, fileId: number = PROFILE_PICTURE_FILE_ID, image: FileAnswer = {}): Promise<() => Request[]> {
+  await mockProfilePictureId(page, { body: { fileId } })
+  return mockFileDownload(page, fileId, image)
+}
+
+/** One `PUT v2/user/edit` the page sent: its JSON body. */
+export type UserEditBody = Record<string, unknown>
+
+/**
+ * `PUT v2/user/edit`, shared by Personal information (Team A, Epic 2) and
+ * Personal account settings (Team B, Stories 7.5/7.6). Default answer: 200
+ * with `ANN` merged with the sent body (the updated user). Other methods on
+ * the path fall through to earlier mocks (or the fail-fast guard). Returns
+ * the bodies sent, in order.
+ */
+export async function mockUserEdit(page: Page, answer: ProxyResponder = {}): Promise<() => UserEditBody[]> {
+  const bodies: UserEditBody[] = []
+  await page.route("**/api/1h/v2/user/edit", (route) => {
+    const request = route.request()
+    if (request.method() !== "PUT") return route.fallback()
+    const body = (request.postDataJSON() ?? {}) as UserEditBody
+    bodies.push(body)
+    const { status = 200, body: reply = { ...ANN, ...body } } = typeof answer === "function" ? answer(request) : answer
+    return status === 204 ? route.fulfill({ status }) : json(route, status, reply)
+  })
+  return () => [...bodies]
 }
 
 /**

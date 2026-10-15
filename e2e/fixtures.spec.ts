@@ -1,5 +1,20 @@
 import { expect, test as base } from "@playwright/test"
-import { failOnUnmockedProxy, mockAccountDefaults, mockProfileDefaults, mockProxy, signIn, test } from "./fixtures"
+import {
+  ANN,
+  expectHeaderTabOrder,
+  failOnUnmockedProxy,
+  mockAccountDefaults,
+  mockFileDownload,
+  mockHeaderPicture,
+  mockProfileDefaults,
+  mockProfilePicturePreview,
+  mockProxy,
+  mockUserEdit,
+  PNG_1X1,
+  PROFILE_PICTURE_FILE_ID,
+  signIn,
+  test,
+} from "./fixtures"
 
 /** The shared e2e scaffolding itself (spec F6-3): defaults, `mockProxy` and the fail-fast catch-all. */
 
@@ -43,4 +58,50 @@ base("the catch-all answers 599 and names each unmocked /api/1h, /api/pp and /ap
     "POST /api/places/autocomplete",
     "GET /api/pp/profile-picture-id",
   ])
+})
+
+/* Spec F7-1: the frozen default user, the shared mocks and the header helpers. */
+
+test("ANN is frozen with its documented values (override per test, never edit)", () => {
+  expect(Object.isFrozen(ANN)).toBe(true)
+  expect(ANN).toEqual({ id: 42, personId: 4242, firstName: "Ann", lastName: "Lee", username: "ann.lee" })
+})
+
+test("mockUserEdit records PUT bodies and answers ANN merged with the body; other methods fall through", async ({ page }) => {
+  await signIn(page)
+  await mockProxy(page, "v2/user/edit", { status: 405, body: { errorCode: "METHOD" } })
+  const edits = await mockUserEdit(page)
+  await page.goto("/auth")
+  const answers = await page.evaluate(async () => {
+    const put = await fetch("/api/1h/v2/user/edit", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ firstName: "Bo" }) })
+    const post = await fetch("/api/1h/v2/user/edit", { method: "POST", body: "{}" })
+    return { put: [put.status, await put.json()], post: post.status }
+  })
+  expect(answers).toEqual({ put: [200, { ...ANN, firstName: "Bo" }], post: 405 })
+  expect(edits()).toEqual([{ firstName: "Bo" }])
+})
+
+test("mockProfilePicturePreview answers the picture id and a PNG for that file; mockFileDownload any answer per id", async ({ page }) => {
+  await signIn(page)
+  const images = await mockProfilePicturePreview(page)
+  const other = await mockFileDownload(page, 7, { status: 404, contentType: "application/json", body: Buffer.from("{}") })
+  await page.goto("/auth")
+  const answers = await page.evaluate(async (fileId) => {
+    const id = await fetch("/api/pp/profile-picture-id").then((res) => res.json())
+    const image = await fetch(`/api/1h/v2/file/${fileId}/download`)
+    const missing = await fetch("/api/1h/v2/file/7/download")
+    return { id, type: image.headers.get("content-type"), bytes: (await image.arrayBuffer()).byteLength, missing: missing.status }
+  }, PROFILE_PICTURE_FILE_ID)
+  expect(answers).toEqual({ id: { fileId: PROFILE_PICTURE_FILE_ID }, type: "image/png", bytes: PNG_1X1.length, missing: 404 })
+  expect(images()).toHaveLength(1)
+  expect(other()).toHaveLength(1)
+})
+
+test("expectHeaderTabOrder on /: app bar → header → the selected tab (with a header picture)", async ({ page }) => {
+  await signIn(page)
+  await mockProfileDefaults(page)
+  await mockHeaderPicture(page)
+  await page.goto("/?tab=insurance")
+  await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
+  expect(await expectHeaderTabOrder(page)).toEqual(["a:Personal Profile", "a:Account", "a:Return to 1health", "tab:Insurance"])
 })

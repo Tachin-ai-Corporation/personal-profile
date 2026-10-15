@@ -2,7 +2,7 @@
 title: 'F7-1 Cross-team test isolation'
 type: 'chore'
 created: '2026-10-14'
-status: 'draft'
+status: 'in-review'
 baseline_commit: '7ee4ca4'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -65,13 +65,13 @@ Ownership: A owns `features/{personal,contacts,addresses,insurance,header,save-a
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] Split the page test; `test/page-handlers.ts`.
-- [ ] `renderInPage` + tests.
-- [ ] e2e fixtures split, shared mocks, frozen `ANN`, exports test.
-- [ ] `shell.spec.ts` on the fail-fast `test`.
-- [ ] B-owned contract tests and pre-created allowlist area tests.
-- [ ] CI triggers.
-- [ ] FOUNDATION rules.
+- [x] Split the page test; `test/page-handlers.ts`.
+- [x] `renderInPage` + tests.
+- [x] e2e fixtures split, shared mocks, frozen `ANN`, exports test.
+- [x] `shell.spec.ts` on the fail-fast `test`.
+- [x] B-owned contract tests and pre-created allowlist area tests.
+- [x] CI triggers.
+- [x] FOUNDATION rules.
 
 **Acceptance Criteria:**
 - Given a Team A story replacing a Section stub, when it runs the page tests, then no Team B test changes are needed (and vice versa).
@@ -87,6 +87,20 @@ Ownership: A owns `features/{personal,contacts,addresses,insurance,header,save-a
 - `corepack pnpm build && bash scripts/check-forbidden.sh` -- expected: green
 
 ## Implementation Notes
+
+Implemented 2026-10-14 (worktree reset from `b005536` to the stated baseline `7ee4ca4` first; nothing of this spec was there).
+
+- **Page tests:** `app/home.test.tsx` → `app/page.test.tsx` (git mv; Team A): the exact `app/page.tsx` tree incl. `saveAllSlot={<SaveAllBar />}` (the old test left it out); one `myself` request, tab order, one h1 + `main section[id]` equal to `PROFILE_SECTION_IDS` + the `SIGNATURE_ANCHOR` (both shell contracts: the Section menu and deep links need them), `?tab=insurance` selects the Insurance region, axe light/dark. The "5 loading frames" assertion is gone. `app/account.test.tsx` (Team B): `PageFrame page="account"` → `AccountTabs` with all four Team B entry points; no tab → `?tab=personal`, Account `aria-current`, one `myself` request, both `ACCOUNT_ANCHORS` landmarks + axe, tab order, provider/organizations → the selected tab's `aria-controls` panel is shown and non-empty (no placeholder `data-level`).
+- **`test/page-handlers.ts`:** `shellReadHandlers` (foundation: `myselfHandlers` + `profile-picture-id` → `{ fileId: null }`), `profileReadHandlers` (A: + `type/key/:type`, `person/location/list`, `public/countries`, `health/patient/insurance`), `accountReadHandlers` (B: + `user/npi` 404, `/api/pp/practice-support` 404 `NO_PRACTICE`, `user/organization/portal` empty page; same placeholders as the e2e defaults), `pageReadHandlers(page)`. Each team's function is fenced by a comment saying who edits it.
+- **`renderInPage`:** in `test/providers.tsx` (next to `TestProviders`). MSW `server.use(a, b)` puts `a` first (first match wins), so the page defaults and the test's `handlers` are two `use` calls, `handlers` last (they win); a `server.use` made before `renderInPage` is shadowed — documented. The registry is handed out by a tiny `CaptureRegistry` through `useLayoutEffect` (the React Compiler lint forbids writing an outer variable during render). Drafts: `DraftsProvider environment="demo"` (`TEST_DRAFT_ENVIRONMENT`) and the `myself` override's numeric `id`, else 42. `test/providers.test.tsx` covers both pages, the overrides, `handlers` winning, `url`, each page's defaults, and a draft written to `pp:draft:v1:demo:42:account`. `vitest.config.ts` now collects `test/**/*.test.ts` (node) and `test/**/*.test.tsx` (jsdom); coverage scope unchanged.
+- **e2e fixtures:** `defaults.ts` removed → `defaults-profile.ts` (A) / `defaults-account.ts` (B), both starting with `mockShellDefaults` (core: `mockMyself`, `mockContacts`, `mockProfilePictureId`). `core.ts` imports `mockContacts` from `contacts.ts`, which imports `json` from `core.ts`: a function-only cycle, safe at runtime (used only inside function bodies; e2e green). Core also has `mockUserEdit(page, answer | responder)` (PUT only, other methods `route.fallback()`; default 200 `{ ...ANN, ...body }`; returns the bodies), `mockFileDownload(page, fileId = "*", { status, body, contentType })` (default `PNG_1X1`), `mockProfilePicturePreview(page, fileId = PROFILE_PICTURE_FILE_ID)` (picture id + that file's image; the header does not load a picture yet — Story 1.10 keeps it in step). `header.ts` (A): `mockHeaderPicture`, `APP_BAR_TAB_STOPS`, `HEADER_TAB_STOPS` (empty until Story 1.10), `expectHeaderTabOrder(page)` (Tab from page load: app bar → header stops → the selected tab; never the wordmark; returns the stops). `personal.ts` (A): documented, empty. `ANN` is `Object.freeze`d with a "never edit, override per test" doc; `e2e/fixtures.spec.ts` asserts it is frozen with its values and covers the new mocks and `expectHeaderTabOrder` on `/?tab=insurance`. `test/myself-fixture.test.ts` freezes the unit defaults (`myselfWire()`, `contactPointWire()`).
+- **Clash test:** `test/e2e-fixture-exports.test.ts` (node): `index.ts` must be exactly one `export * from "./x"` per file in `e2e/fixtures/`; a TypeScript program over the area files lists every exported name (types included) with its resolved symbol and fails on a name bound to two different symbols, naming the files; it also asserts `index.ts` has no semantic diagnostics (TS2308). Probed: an extra `mockContacts` in `personal.ts` and an unlisted `zz.ts` both fail. Placed in `test/`, not `e2e/`, because Playwright's default `testMatch` would pick up an `e2e/**/*.test.ts`. Note: `tsc --noEmit` also reports TS2308 for such a clash (verified in a scratch project), so the F6-3 note "TypeScript does not report clashes" holds only for an explicit export shadowing an `export *`.
+- **shell.spec.ts:** `test` from `./fixtures`; every test starts with `mockProfileDefaults` (the second tab too), overrides after it (`mockContacts(...)`, `mockMyself(401)`, `const myselfCalls = await mockMyself(page)`); assertions unchanged.
+- **Contracts (Team B):** `lib/server/proxy/allowlist/user-edit.account.test.ts` matches `PUT v2/user/edit` through the shipped `ALLOWLIST` (so moving the entry between area files doesn't break it), checks no `profile` tag (ACCOUNT_DISABLED must not switch the shared PUT off), POST is 405, and the 7.5/7.6 accept/reject rows (names, `birthDate` `YYYY-MM-DD`, `preferredLanguage`, `email`, `phoneNumber` only with `phoneNumberRegion`; `locale`/`timeZone`/`username`/`password` rejected; names forwarded trimmed). `lib/api/contact-points.contract.test.ts`: `ContactPoint` and `ContactPointType` frozen with `expectTypeOf` (enforced by `pnpm typecheck`), `CONTACT_POINT_TYPES`, `PRIMARY_LABEL`, `isContactPointType`, `keys.contactPoints`, `contactPointsPath`, `toContactPoints`, `findPrimary`, `primaryPhoneRegion`, `loadContactPoints` over MSW. Pre-created `allowlist/{account,mfa,npi,orgs,addresses}.test.ts`: the area's entry list (`[]` now, updated with each entry) and the tag rule (B areas: every entry `profile: true`; addresses: none tagged).
+- **CI:** `push: branches: [main, "feat/**"]` and `merge_group:`; jobs unchanged. The merge queue itself is a repository setting (not changed).
+- **Docs:** FOUNDATION §1 rule 11 (test ownership, page-test scope, fail-fast + page defaults, complete defaults per team, frozen fixtures, shared mocks, clash test, consumer contracts, one fixture page + spec per new control, CI triggers); catalog row F7-1; §3.6 Test providers, E2E helpers and CI rows.
+- **Not touched:** `lib/api/index.ts`, `lib/shared/messages/*`, `lib/api/errors/*`, `features/shell/*`, `components/ui/*`, ESLint config, `scripts/*`, other `_bmad-output` files.
+- **Verification (2026-10-14):** `corepack pnpm install` OK; `pnpm lint`, `pnpm typecheck` clean; `pnpm vitest run --coverage` 142 files / 2934 tests green, 100 % statements/branches/functions/lines; `PP_E2E_PORT=3230 pnpm test:e2e` 268 passed, 2 skipped (the existing desktop-only tests on 360 px: `inputs.spec.ts` InfoPopover placement, `ui-kit.spec.ts` row hover actions); `pnpm build` OK; `bash scripts/check-forbidden.sh` OK.
 
 ## Spec Change Log
 
