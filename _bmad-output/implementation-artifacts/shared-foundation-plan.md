@@ -123,7 +123,7 @@ F3 is delivered as three specs: F3-1 UI primitives and toasts → (F3-2 section 
 - Planning fix: Story 7.6 tests and EXPERIENCE.md amended to Mobile-only primary phone (consistent with the validated backend rule).
 
 ## Foundation catalog (required at the end, human 2026-10-14)
-**Status (2026-10-14): in progress** — F1–F5 are done; `docs/FOUNDATION.md`, `shared-foundation-catalog.md` and the `CLAUDE.md`/`AGENTS.md` entry points are being written. `epics.md` (top of the Epic List) and every `epic-N-context.md` already point to them.
+**Status (2026-10-14): done** — F1–F5 are done; the catalog is `docs/FOUNDATION.md` (BMAD pointer `_bmad-output/planning-artifacts/shared-foundation-catalog.md`), with entry points in `CLAUDE.md` and `AGENTS.md`. `epics.md` (top of the Epic List) and every `epic-N-context.md` point to it.
 When F1–F5 are done, publish one discoverable catalog of everything the foundation provides so no agent or team rebuilds it or ignores it:
 - `docs/FOUNDATION.md` — the canonical catalog: every module/component/hook/route with path, exported API, when to use it, which stories consume it, and "do not rebuild" rules (area files to edit, lint-enforced ownership, copy catalog, tokens).
 - BMAD: `_bmad-output/planning-artifacts/shared-foundation-catalog.md` (same content or a pointer) referenced from `epics.md` (top of the Epic List) and from every `epic-N-context.md`.
