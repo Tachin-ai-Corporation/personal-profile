@@ -48,6 +48,11 @@ the environment per request from the session; a request never carries one.
 5. On success the screen shows "Success!" and after 1.2 s calls
    `location.assign(consumeLoginIntent("/"))` (`lib/shared/login-intent.ts`).
 
+Test only: with `PP_E2E_MOCK=1` (Playwright's `e2e/server-env.ts`; boot fails
+unless the launch credentials are `e2e-` dummies) `instrumentation.ts` installs
+`test/e2e-upstream-mock.ts` over the server's `fetch`, answering the exchange,
+`myself` and the logout revoke so e2e runs the real launch without 1health.
+
 Failures answer `{ ok: false, errorCode, source: "proxy", message, retryable? }`
 with a user-safe `message` from `lib/shared/messages/launch.ts` and clear any previous
 session. Decode, app-id and tenant failures, a missing `lpl`, a 415,
@@ -70,10 +75,15 @@ from the referrer or the cookie, display only) or "Choose Environment".
 - A session is aged (treated as absent) after 15 min without activity
   (`IDLE_TIMEOUT_MS`, from `lastSeen`) or 8 h after launch
   (`ABSOLUTE_TIMEOUT_MS`, from `iat`). See [Idle logoff](#idle-logoff).
-- Pages call `requirePageSession()` (`lib/server/page-session.ts`): no session
-  redirects to `/auth`; otherwise it returns `{ portalUrl, idle }`. The page
-  passes `portalUrl` to `PortalUrlProvider`, which registers it with
-  `callApi`'s module, and `idle` (four numbers) to the idle warning.
+- The app has two pages, both `force-dynamic` server components: `/`
+  (`app/page.tsx`, Personal Profile) and `/account` (`app/account/page.tsx`,
+  Account, Story 7.1). Each calls `requirePageSession()`
+  (`lib/server/page-session.ts`): no session redirects to `/auth`; otherwise it
+  returns `{ portalUrl, idle }`. The page passes `portalUrl` to
+  `PortalUrlProvider`, which registers it with `callApi`'s module, and `idle`
+  (four numbers) to the idle warning. Neither page reads `lpl`: only `/auth`
+  launches, so `/account?lpl=…` renders with a session and redirects to a bare
+  `/auth` without one.
 - There is no CSRF check and no session binding (D5): cross-site write
   protection relies on `SameSite=Lax`. JSON routes still require
   `application/json` (415).
@@ -247,7 +257,8 @@ route added later under these paths inherits them
 (`lib/server/kill-switch.ts`, AD-20, Stories 1.16 and 7.2). Paths are matched
 by segment prefix after decoding and collapsing slashes:
 
-- `"account"` — `/account`, `/handoff`, `/api/pp/mfa`, `/api/pp/org-logo`,
+- `"account"` — `/account` (the Account page), `/handoff` (reserved for the
+  Story 7.3 hand-off route, not built yet), `/api/pp/mfa`, `/api/pp/org-logo`,
   `/api/pp/practice-support`: off with `ACCOUNT_DISABLED=1` or `PP_DISABLED=1`.
 - `"pp"` — `/` (exact), `/auth`, `/api/1h`, `/api/pp`, `/api/places`,
   `/api/session/refresh`, `/api/session/ping`: off with `PP_DISABLED=1`.
@@ -276,6 +287,8 @@ static assets), with a fresh CSP nonce per request
 data:`, `frame-ancestors 'none'`; `'unsafe-eval'` only under `next dev`),
 `X-Frame-Options: DENY`, HSTS, `nosniff`, `Referrer-Policy: no-referrer`,
 `Permissions-Policy` and `Cross-Origin-Opener-Policy: same-origin`. Every page
-renders dynamically so Next stamps that nonce on its scripts. Route handlers
+renders dynamically so Next stamps that nonce on its scripts. The page
+responses for `/`, `/account` and `/handoff/**` also get `NO_STORE_HEADERS`
+(`isNoStorePath` in `proxy.ts`, `lib/server/http/cache-headers.ts`). Route handlers
 are wrapped in `guardRoute` (named ops catch inside `createNamedOp`): an
 unhandled error is a PHI-free 500 `INTERNAL_ERROR`.

@@ -25,7 +25,7 @@ Package manager is **pnpm 12**, run through corepack. Use `corepack pnpm …` if
 
 ```bash
 pnpm install
-pnpm dev        # https://localhost:3000 (next dev --experimental-https; also the "dev" config in .claude/launch.json)
+pnpm dev        # https://localhost:3000 (next dev --experimental-https; falls back to http when mkcert can't install its CA; also the "dev" config in .claude/launch.json)
 pnpm build
 pnpm lint       # eslint . (flat config in eslint.config.mjs, eslint-config-next + layering rules)
 pnpm typecheck  # tsc --noEmit
@@ -33,13 +33,19 @@ pnpm test       # vitest run; `pnpm vitest run --coverage` enforces 100% on lib/
 pnpm test:e2e   # playwright test (desktop + 360 px); builds and starts the app on :3100 (PP_E2E_PORT overrides; kill-switch servers on the next two ports) with dummy env
 pnpm check:forbidden  # bash scripts/check-forbidden.sh, the CI forbidden-pattern gate (runs check-tokens.sh)
 pnpm check:tokens     # bash scripts/check-tokens.sh, design-token gate only
+
+pnpm vitest run app/account.test.tsx         # one unit test file (add -t "<name>" for one test)
+pnpm vitest run --project server             # Vitest projects: "server" (node, lib/server + routes) and "client" (jsdom)
+pnpm test:e2e e2e/account-page.spec.ts --project=desktop   # one e2e spec; Playwright projects: "desktop", "mobile-360"
 ```
+
+- **Local preview without real credentials:** start `pnpm dev` with the e2e dummy env from `e2e/server-env.ts` (`ONEHEALTH_SECRET_KEY_*`/`APP_ID_*` starting with `e2e-`, a 32+ char `SESSION_SECRET`) plus `PP_E2E_MOCK=1`. The server then answers 1health's token exchange, `myself` and logout in-process (`test/e2e-upstream-mock.ts`) and blocks every other 1health call; boot fails if the mock is on with non-`e2e-` credentials. Sign in by opening `/auth?lpl=<payload>` built like `makeLpl()` in `e2e/fixtures/core.ts` (one-time code; open it directly, since pasting into Chrome's address bar can prerender and consume it).
 
 - Stack: Next.js 16 (App Router), React 19, Tailwind v4, zod 4, Node 24.
 - TypeScript is pinned to 6.x, because typescript-eslint doesn't support TS 7 yet.
 - Tests: Vitest (`*.test.ts(x)` colocated; `lib/server` in node, client code in jsdom), Testing Library, MSW at the `/api` boundary (`test/msw-server.ts`, unhandled requests error), Playwright in `e2e/`. CI: `.github/workflows/ci.yml`.
 - `typescript.ignoreBuildErrors` is gone: `pnpm build` type-checks.
-- Env vars (see `.env.example`; `.env*` is gitignored): `ONEHEALTH_SECRET_KEY_DEMO`, `ONEHEALTH_SECRET_KEY_PROD`, `APP_ID_DEMO`, `APP_ID_PROD`, `SESSION_SECRET` (≥ 32 chars), optional `SESSION_SECRET_PREVIOUS`, `PP_DISABLED`, `ACCOUNT_DISABLED`, `PP_E2E_FIXTURES` (test only: serves `/test-fixtures/**`), `PLACES_ENABLED` (on only for `"1"`; `GOOGLE_PLACES_KEY` required with Places). Only `lib/server/env.ts` reads `process.env` (lint-enforced); it validates at boot via `instrumentation.ts`. Base URLs are hardcoded per environment in `lib/shared/environments.ts` (`https://1health.demo.1health.io`, `https://1health.app.1health.io`) and chosen per request from the session's `environment`.
+- Env vars (see `.env.example`; `.env*` is gitignored): `ONEHEALTH_SECRET_KEY_DEMO`, `ONEHEALTH_SECRET_KEY_PROD`, `APP_ID_DEMO`, `APP_ID_PROD`, `SESSION_SECRET` (≥ 32 chars), optional `SESSION_SECRET_PREVIOUS`, `PP_DISABLED`, `ACCOUNT_DISABLED`, `PP_E2E_FIXTURES` (test only: serves `/test-fixtures/**`), `PP_E2E_MOCK` (test only: in-process 1health mock, `e2e-` credentials only), `PLACES_ENABLED` (on only for `"1"`; `GOOGLE_PLACES_KEY` required with Places). Only `lib/server/env.ts` reads `process.env` (lint-enforced); it validates at boot via `instrumentation.ts`. Base URLs are hardcoded per environment in `lib/shared/environments.ts` (`https://1health.demo.1health.io`, `https://1health.app.1health.io`) and chosen per request from the session's `environment`.
 
 ## Architecture
 
@@ -52,6 +58,10 @@ Read `docs/AUTH-ARCHITECTURE.md` and the architecture spine (`_bmad-output/plann
 - `features/<id>/` — Section features; may import `lib/api`, `lib/shared`, `components/ui` and `features/shell` only. `features/shell` is the shell.
 - `components/ui/` — shadcn/ui on the 1health tokens (`components.json`).
 
+### Pages and composition
+- Two pages: `/` (Personal Profile, Team A, Epics 1–6) and `/account` (Account, Team B, Epics 7–10). Each is a server component (`app/page.tsx`, `app/account/page.tsx`) that calls `requirePageSession()` and composes `PageFrame` with the prop-driven tab presets (`ProfileTabs` / `AccountTabs`, panels and Section slots) from `features/shell`.
+- Features fill their slots from `features/<id>/index.ts` entry points (stubs until their story lands); the shell never imports a feature and features never import each other, so composition happens only in `app/**`. `?tab=` is normalized by replace; Section deep links (`#id`) focus the Section `h2`.
+
 ### Auth flow
 - The portal opens `/auth?lpl=…`. `app/auth/page.tsx` (server wrapper, reads only the `onehealth_environment` cookie) renders `features/shell/auth-screen.tsx`, which strips `lpl` from the URL and POSTs `{ lpl }` to `/api/token` (up to 5 attempts, 1.5 s apart, `retryable: false` stops). The environment is detected server-side by the key that decrypts (`_PROD` then `_DEMO`); referrer/cookie only pick display labels and links.
 - `app/api/token/route.ts` → `lib/server/launch/{token-handler,launch}.ts`: decrypt, app-id check, one code exchange, tenant check (403 `WRONG_TENANT`), `myself` id check, then seals the session into `__Host-pp_s`, sets `onehealth_environment` and answers `{ ok: true, environment }`. Errors carry a user-safe `message` and maybe `retryable: false`. No token ever reaches the browser or a response body.
@@ -61,7 +71,7 @@ Read `docs/AUTH-ARCHITECTURE.md` and the architecture spine (`_bmad-output/plann
 ### Proxy and API layer (always import from `"@/lib/api"`)
 - All 1health traffic goes through `/api/1h/<path relative to upstream /api>`. Adding an endpoint = adding an entry to its area file `lib/server/proxy/allowlist/<area>.ts` (with that area's tests) in the same change. Owner ids are the literal `me`.
 - File deletes go only through the named op `DELETE /api/pp/file/{fileId}` (server-side ownership check); `DELETE v2/file/**` is denied in the proxy.
-- Each `lib/api/<resource>.ts` owns its paths (`proxyPath()`) and registers its SWR loader (`registerFetcher`); `lib/api/myself.ts` is the `Myself` domain module. Errors: `mapApiError(sectionId, response)`; upstream message text is matched only in `lib/api/errors/<area>.ts`. Copy: `lib/shared/messages/<area>.ts`.
+- Each `lib/api/<resource>.ts` owns its paths (`proxyPath()`) and registers its SWR loader (`registerFetcher`); `lib/api/myself.ts` is the `Myself` domain module. Errors: `mapApiError(scope, response)`; upstream message text is matched only in `lib/api/errors/<area>.ts`. Copy: `lib/shared/messages/<area>.ts`.
 - `callApi(context, path, init)` never throws and returns `ApiResponse<T> = { success, data?, error?, statusCode?, errorCode?, source?, upstreamCode?, platformMessage?, details?, retryable?, userMessage? }`. BFF errors are `{ errorCode, source: "proxy" }`; upstream errors pass through as `{ message, code }`.
 - SWR keys come only from `lib/api/keys.ts` (`["pp", ...]`; inline array/string/template keys are lint errors); one root `SWRConfig` (`features/shell/swr-provider.tsx`, `shouldRetryOnError: false`). `useMyself()` reads `["pp","myself"]` and is the one key that auto-retries: 5xx and network errors, with backoff, never a 4xx; its error (and the Retry UI) shows only once the retries are exhausted (human decision 2026-10-14).
 - Session signal: `lib/api/session-events.ts` (`session-expired` only), published once by `callApi`.
@@ -78,7 +88,7 @@ Read `docs/AUTH-ARCHITECTURE.md` and the architecture spine (`_bmad-output/plann
 - shadcn/ui components live in `components/ui/` (`components.json`).
 
 ## Project & related context
-This app rebuilds the **Personal Profile / Profile** screens of `1health-fe` with a new Tailwind UI. It is tracked in Jira as **NG-9019** (1hio.atlassian.net), and its sub-tasks NG-9020 to NG-9027 cover the tabs and each card.
+This app rebuilds the **Personal Profile** and **Account** screens of `1health-fe` with a new Tailwind UI. It is tracked in Jira as **NG-9019** (1hio.atlassian.net); each story's Jira key is on its heading in `_bmad-output/planning-artifacts/epics.md` (e.g. Story 7.1 → NG-9030).
 
 Use these sibling repos in `../` as the source of truth:
 - `1health-fe`: the current profile UI, including fields, option lists, and API calls
@@ -91,4 +101,4 @@ The live agents.md docs have one root per environment. Use the one for the targe
 - also `…/public/dev/api/manifest.md` and `…/public/dev/llms.txt`
 
 ## Repo tooling
-`_bmad/` and `.claude/skills/bmad-*` hold the BMAD planning and agent framework. Its outputs go to `_bmad-output/`. None of it is part of the app build.
+`_bmad/` and `.claude/skills/bmad-*` hold the BMAD planning and agent framework. Its outputs go to `_bmad-output/`: planning in `planning-artifacts/` (`epics.md` with decisions D1–D17 and per-story *Foundation* notes), and in `implementation-artifacts/` the per-story specs (`spec-*.md`), `sprint-status.yaml` (feature branches don't edit its header or `last_updated`) and `deferred-work.md` (Team A / Team B / Foundation sections). None of it is part of the app build.
