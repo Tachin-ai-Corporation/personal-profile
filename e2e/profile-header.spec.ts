@@ -51,7 +51,7 @@ test.beforeEach(async ({ page }) => {
 
 test.describe("header Profile Picture (Story 1.9)", () => {
   for (const [path, mockDefaults] of PAGES) {
-    test(`shows the picture on ${path}: one id request, a decorative 40 px circle, no new Tab stop`, async ({ page }) => {
+    test(`shows the picture on ${path}: one id request, a decorative 40 px circle, the page's header Tab stops`, async ({ page }) => {
       await mockDefaults(page)
       const previews = await mockHeaderPicture(page)
       const idRequests = countPictureIdRequests(page)

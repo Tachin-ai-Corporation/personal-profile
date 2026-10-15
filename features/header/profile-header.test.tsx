@@ -116,7 +116,7 @@ describe("ProfileHeader", () => {
     myself({ id: 1, firstName: "", lastName: null, username: "ann.lee" })
     const { container } = setup()
     expect(await screen.findByRole("heading", { level: 1, name: "ann.lee" })).toBeTruthy()
-    expect(container.querySelector("span[aria-hidden='true'] svg")).not.toBeNull()
+    expect(container.querySelector("span[aria-hidden='true']:not([data-slot]) > svg")).not.toBeNull()
   })
 
   it.each<[PageId, string]>([
@@ -309,12 +309,12 @@ describe("ProfileHeader", () => {
       })
       const { container } = setup()
       await screen.findByRole("heading", { level: 1, name: "ann.lee" })
-      expect(container.querySelector("span[aria-hidden='true'] svg")).not.toBeNull()
+      expect(container.querySelector("span[aria-hidden='true']:not([data-slot]) > svg")).not.toBeNull()
       expect(avatarImage(container)).toBeNull()
       release()
       await waitFor(() => expect(avatarImage(container)?.getAttribute("src")).toBe(`${PREVIEW}?v=9001`))
       fireEvent.error(avatarImage(container) as HTMLImageElement)
-      expect(container.querySelector("span[aria-hidden='true'] svg")).not.toBeNull()
+      expect(container.querySelector("span[aria-hidden='true']:not([data-slot]) > svg")).not.toBeNull()
     })
 
     it("falls back to the initials when the image fails, with no error text", async () => {

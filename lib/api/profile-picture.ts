@@ -20,7 +20,7 @@ import { BFF_PATHS, type ProfilePictureIdBody } from "@/lib/shared/bff-contract"
 import { callApi } from "./client"
 import { proxyPath } from "./config"
 import { registerFetcher, unwrap } from "./fetcher"
-import { isFileId } from "./files"
+import { fileDeletePath, isFileId } from "./files"
 import type { ApiResponse } from "./types"
 
 /** `GET /api/pp/profile-picture-id` → `{ fileId: number | null }` (`ProfilePictureIdBody`). */
@@ -31,6 +31,52 @@ export function profilePictureIdPath(): string {
 /** The multipart upload (one `file` part; `isPublic=true` is forced by the proxy). */
 export function profilePictureUploadPath(): string {
   return proxyPath("v2/health/type/Person/me/relation/PersonHasProfilePictureFile/file/upload")
+}
+
+/** The longest upload file name the client builds (the proxy sanitizes it again). */
+const PROFILE_PICTURE_NAME_MAX = 100
+
+/**
+ * The upload's `file` part name (Story 1.10, F2: no `?fileName=` query; the
+ * proxy re-sanitizes it): the chosen file's base name without its extension,
+ * every character outside `A-Z a-z 0-9 . _ -` as `_`, no leading `.` or `_`,
+ * then `.jpg` (the picture is always re-encoded to JPEG, D-C). `picture.jpg`
+ * when nothing usable is left.
+ */
+export function profilePictureUploadName(originalName: string): string {
+  const base = originalName.slice(Math.max(originalName.lastIndexOf("/"), originalName.lastIndexOf("\\")) + 1)
+  const stem = base
+    .replace(/\.[^.]*$/, "")
+    .replace(/[^A-Za-z0-9._-]/g, "_")
+    .replace(/^[._]+/, "")
+    .slice(0, PROFILE_PICTURE_NAME_MAX - ".jpg".length)
+  return `${stem || "picture"}.jpg`
+}
+
+/**
+ * `POST` the re-encoded picture (Story 1.10) as `multipart/form-data` with
+ * exactly one part, `file`, named `profilePictureUploadName(originalName)`.
+ * `callApi` sets no JSON `Content-Type` for a `FormData` body, so the browser
+ * adds the multipart boundary. The body isn't used (the caller reads the new
+ * id back), so a 2xx whose body isn't JSON is still a success.
+ */
+export async function uploadProfilePicture(blob: Blob, originalName: string): Promise<ApiResponse<unknown>> {
+  const body = new FormData()
+  body.append("file", blob, profilePictureUploadName(originalName))
+  const res = await callApi<unknown>("profile-picture/uploadProfilePicture", profilePictureUploadPath(), { method: "POST", body })
+  const ok2xx = res.statusCode !== undefined && res.statusCode >= 200 && res.statusCode < 300
+  return !res.success && ok2xx ? { success: true, statusCode: res.statusCode } : res
+}
+
+/**
+ * Deletes the replaced picture (Story 1.10): `DELETE /api/pp/file/{fileId}`,
+ * the ownership-checked named op (`fileDeletePath`, F7-2). Best effort: the
+ * caller ignores the outcome. A non-id sends nothing.
+ */
+export async function deleteProfilePictureFile(fileId: number): Promise<ApiResponse<unknown>> {
+  const path = fileDeletePath(fileId)
+  if (path === null) return { success: false, error: "profile-picture/deleteProfilePictureFile: not a file id" }
+  return callApi<unknown>("profile-picture/deleteProfilePictureFile", path, { method: "DELETE" })
 }
 
 /**
