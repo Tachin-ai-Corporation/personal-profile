@@ -2,9 +2,10 @@
 title: 'F5-2 Async Combobox (ARIA 1.2) with NPI, address, insurer and gender-identity variants'
 type: 'feature'
 created: '2026-10-14'
-status: 'in-review'
+status: 'done'
+baseline_commit: '69b99d4'
 route: 'dispatch'
-review_loop_iteration: 0
+review_loop_iteration: 1
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/shared-foundation-plan.md'
   - '{project-root}/_bmad-output/planning-artifacts/epics.md'
@@ -100,3 +101,11 @@ Implemented 2026-10-14.
 ## Spec Change Log
 
 ## Review Triage Log
+
+Three parallel reviewers (Blind Hunter, Edge Case Hunter, Verification Gap) on `1b4e8be` vs its F5-1 base.
+
+- **Patched (round 1, "fix: F5-2 review findings"):** `selection`/`defaultSelection` seeding and pick invalidation on external text reset; select-only leave clears only user-typed text; `openOnFocus` only when empty; window blur ignored; paging only for the current query; empty/short/all-duplicate page ends the list; dedupe by `getKey`; `searchDisabled`/`disabled` cancel and close; unmount/clear/select abort (tested); error cleared on close, failed later page retried in place; `Add "{name}"` waits for all pages unless `exactMatch: false`; re-announce identical status, quiet mode never says "Searching…", no "0 results" without a listbox, static filtering announces; `aria-selected` marks the current pick; highlight bails out on length-changing case folding; Tab from "Try again." skips hidden elements and stays in a dialog; `tabbables` → `components/ui/focus.ts`, `LinkTextButton` → `components/ui/link-text-button.tsx`; test and fixture fixes; e2e debounce measured in page (550–1000 ms).
+- **Deferred:** none.
+- **Rejected:** none.
+- **Integration:** cherry-picked onto `feat/NG-9019-epic-7` after F4 and F5-1; the `info-popover.tsx` conflict was resolved by keeping F5-1's fixes and F5-2's move (the helper in `focus.ts` is F5-1's verbatim).
+- **Re-verified 2026-10-14 on the branch:** lint, typecheck, `vitest run --coverage` (115 files, 2465 tests), `test:e2e` (205 passed, 1 skipped desktop-only), build and `check-forbidden.sh` green.
