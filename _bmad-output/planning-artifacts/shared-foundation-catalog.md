@@ -20,6 +20,9 @@ inputDocuments:
   - _bmad-output/implementation-artifacts/spec-f4-drafts.md
   - _bmad-output/implementation-artifacts/spec-f5-1-select-date-input-popover.md
   - _bmad-output/implementation-artifacts/spec-f5-2-async-combobox.md
+  - _bmad-output/implementation-artifacts/spec-f6-1-page-composition.md
+  - _bmad-output/implementation-artifacts/spec-f6-2-shared-ui-kit.md
+  - _bmad-output/implementation-artifacts/spec-f6-3-data-server-tests.md
 ---
 
 # Shared foundation catalog
@@ -58,5 +61,8 @@ inputDocuments:
 | F4 Drafts | `bd7aae8` | `localStorage` drafts keyed `pp:draft:v1:<environment>:<userId>:<sectionId>`: 500 ms debounce, sync flush on session expiry, `pagehide` and hidden, denylist, `baseHash`, a restore banner and conflict compare, 24 h purge, and portal-exit purge. Sections opt in through `useSectionForm` `draftFields`/`describeDraftDiff`/`dataStatus` and `SectionContainer sectionId`. |
 | F5-1 Select, date input, popover | `a411145`, `18ccd2c` | `Select` with `ariaDisabled`, `helper`, `loading`, `placeholder` and `unlistedValue`; masked `DateInput` + `Calendar` (react-day-picker) with `birthDateBounds`; `Popover`; `InfoPopover` with loading, error and forbidden slots; `LinkTextButton`. |
 | F5-2 Async combobox | `57d665a`, `687199e` | ARIA 1.2 `Combobox`/`useCombobox`: debounce, abort, stale discard, paging, retry, select-only or free-text, `Add "{name}"`, static options. The NPI, address, insurer and gender-identity variants are props. |
+| F6-3 Data stubs, proxy rules, test scaffolding | `5269754`, `1e4c567` | A stub `lib/api/<resource>.ts` for every planned module (one `export *` line each; `fetchers` frozen; `*.internal.ts` helpers such as `userEditPath`), the shared `type-key` loader with its three allowlist entries, `keys.countries`, proxy `required` query params, the `is-registered` 403 row and the NPI-taken `field` rules, `isNotProvided`/`joinProvided`, `PLACES_COUNTRIES` in `bff-contract.ts`, `profile-constants.ts`, shared `COMMON_MESSAGES` words, per-area e2e fixtures with defaults and a fail-fast guard, `test/myself-fixture.ts`, auto-discovered fixture pages, and tracking files split per team. |
+| F6-1 Page composition | `3b7d32a`, `96e39ed` | Prop-driven `PageTabs` with page configs and `PAGE_TAB_PARAM`, the `ProfileTabs`/`AccountTabs`/`ContactsPanel`/`InsurancePanel`/`AccountPersonalPanel` presets with placeholders, the `useSectionFrame` ready signal, feature stubs in `features/<id>/` composed only in `app/**`, `useClaimMyselfError`, `startEdit({ focus })`, `revealField`, `confirmBeforeSave`, the `CANCELLED` outcome, `SAVE_ORDER`, the `SaveAllBar` stub slot, `handoffHref`, page no-store in `proxy.ts`, and the `tiles`/`cards`/wide `bars` skeletons. |
+| F6-2 Shared UI kit | `68647a0`, `964ddfb` | DropdownMenu, Checkbox, Switch (`ariaDisabled`), Dialog sizes/full-screen/`dismissible`/`initialFocus`, Sheet, `ConfirmDialog busyLabel`, `outline-destructive` Button, `Chip`/`OverflowChip`, `EmptyState`, `LiveStatus`/`useAnnounce`, `Combobox inputRef`, the row kit (`RowActions`, `RowRemoval`, `SectionTable`), `PhoneInput` + `lib/shared/phone.ts` helpers, `useCountdown`, and the `qr-surface` token and typography utilities. |
 
-Review triage logs: commits `cfdf4ad` (F5-1) and `d40a9fc` (F5-2); for the others, see each spec's Review Triage Log. Stories 1.1–1.8 and 1.15 are covered entirely by the foundation (see `sprint-status.yaml`).
+Review triage logs: commits `cfdf4ad` (F5-1) and `d40a9fc` (F5-2); for the others, see each spec's Review Triage Log. Stories 1.1–1.8, 1.11 and 1.15 are covered entirely by the foundation (see `sprint-status.yaml`).
