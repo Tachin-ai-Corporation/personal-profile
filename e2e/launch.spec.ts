@@ -30,18 +30,23 @@ async function cookieNamed(page: Page, name: string) {
   return (await page.context().cookies()).find((cookie) => cookie.name === name)
 }
 
-/** Records CSP violations and page errors from the first script on. */
-async function watchPageHealth(page: Page): Promise<{ errors: string[]; violations: () => Promise<string[]> }> {
+/**
+ * Records CSP violations and page errors of every document the page loads
+ * (`/auth`, the hand-off, `/`, reloads), into this test's arrays: an exposed
+ * binding survives navigations, a `window` store would not.
+ */
+async function watchPageHealth(page: Page): Promise<{ errors: string[]; violations: string[] }> {
   const errors: string[] = []
+  const violations: string[] = []
   page.on("pageerror", (error) => errors.push(String(error)))
+  await page.exposeFunction("__reportCspViolation", (entry: string) => violations.push(entry))
   await page.addInitScript(() => {
-    const store = window as unknown as { __cspViolations: string[] }
-    store.__cspViolations = []
+    const report = (window as unknown as { __reportCspViolation: (entry: string) => void }).__reportCspViolation
     document.addEventListener("securitypolicyviolation", (event) => {
-      store.__cspViolations.push(`${event.violatedDirective} (${event.blockedURI})`)
+      report(`${location.pathname}: ${event.violatedDirective} (${event.blockedURI}) ${event.sourceFile}:${event.lineNumber}`)
     })
   })
-  return { errors, violations: () => page.evaluate(() => (window as unknown as { __cspViolations: string[] }).__cspViolations) }
+  return { errors, violations }
 }
 
 function expectNoStore(response: APIResponse): void {
@@ -75,17 +80,22 @@ test("a demo launch lands on / signed in: real cookies, no lpl in the URL or his
   expect((await cookieNamed(page, "onehealth_environment"))?.value).toBe("demo")
   expect(await cookieNamed(page, SESSION_COOKIE)).toMatchObject({ httpOnly: true, secure: true, sameSite: "Lax", path: "/", expires: -1 })
   expect(posts()).toBe(1)
+  // Before any reload: /auth, the launch and the hand-off to / ran without a CSP violation or a page error.
+  expect(await page.evaluate(() => typeof (window as unknown as { __reportCspViolation?: unknown }).__reportCspViolation), "the reporter is wired").toBe("function")
+  expect(health.violations).toEqual([])
+  expect(health.errors).toEqual([])
 
   await page.reload()
   await expect(page.getByRole("heading", { level: 1, name: `${ANN.firstName} ${ANN.lastName}` })).toBeVisible()
   expect(posts(), "a reload performs no second exchange").toBe(1)
-  expect(await health.violations()).toEqual([])
+  expect(health.violations).toEqual([])
 
   // History: the previous entry is the stripped /auth, which does not re-launch.
   await page.goBack()
   await expect(page).toHaveURL(/\/auth$/)
   await expect(page.getByText("Connected to Demo environment. No launch payload detected.")).toBeVisible()
   expect(posts()).toBe(1)
+  expect(health.violations).toEqual([])
   expect(health.errors).toEqual([])
 })
 

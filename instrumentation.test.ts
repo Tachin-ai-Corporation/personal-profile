@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { resetServerEnvCache, ServerEnvError } from "@/lib/server/env"
-import { stubServerEnv } from "@/test/env-fixture"
+import { E2E_MOCK_CREDENTIALS, resetServerEnvCache, ServerEnvError } from "@/lib/server/env"
+import { E2E_MOCK_ENV, stubServerEnv } from "@/test/env-fixture"
 import { uninstallUpstreamMock } from "@/test/e2e-upstream-mock"
 import { register } from "./instrumentation"
 
@@ -29,9 +29,17 @@ describe("instrumentation register()", () => {
   })
 
   it("installs the e2e upstream mock only with PP_E2E_MOCK=1", async () => {
-    stubServerEnv({ PP_E2E_MOCK: "1" })
+    stubServerEnv(E2E_MOCK_ENV)
     await register()
     expect(globalThis.fetch).not.toBe(realFetch)
+  })
+
+  it("fails the boot (never patching fetch) when PP_E2E_MOCK=1 meets a real-looking credential", async () => {
+    // The name comes from env.ts, so this file never spells a `_DEMO`/`_PROD` name (check-forbidden).
+    const name = E2E_MOCK_CREDENTIALS[3]
+    stubServerEnv({ ...E2E_MOCK_ENV, [name]: "real-app-prod" })
+    await expect(register()).rejects.toThrow(`${name} must be an e2e dummy value`)
+    expect(globalThis.fetch).toBe(realFetch)
   })
 
   it("fails the boot when a required variable is missing", async () => {

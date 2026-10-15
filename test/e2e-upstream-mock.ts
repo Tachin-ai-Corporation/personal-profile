@@ -1,4 +1,4 @@
-import { serverEnv } from "@/lib/server/env"
+import { E2E_CREDENTIAL_PREFIX, E2E_MOCK_CREDENTIALS, serverEnv, type ServerEnv } from "@/lib/server/env"
 import { ENVIRONMENTS, environmentConfig } from "@/lib/shared/environments"
 
 /**
@@ -68,11 +68,14 @@ function securityCodeOf(init: RequestInit | undefined): string {
 let restore: (() => void) | undefined
 
 /**
- * Patches `globalThis.fetch` (once). Throws unless `PP_E2E_MOCK=1`, so a
- * deployment can never run it by accident.
+ * Patches `globalThis.fetch` (once). Throws unless `PP_E2E_MOCK=1` and every
+ * launch credential is an `e2e-` dummy, so a deployment can never run it.
  */
-export function installUpstreamMock(): void {
-  if (!serverEnv().PP_E2E_MOCK) throw new Error("The e2e upstream mock needs PP_E2E_MOCK=1")
+export function installUpstreamMock(env: ServerEnv = serverEnv()): void {
+  if (!env.PP_E2E_MOCK) throw new Error("The e2e upstream mock needs PP_E2E_MOCK=1")
+  // Re-checked here (the boot already fails): never fake 1health next to real credentials.
+  const real = E2E_MOCK_CREDENTIALS.filter((name) => !env[name].startsWith(E2E_CREDENTIAL_PREFIX))
+  if (real.length > 0) throw new Error(`The e2e upstream mock needs e2e dummy credentials: ${real.join(", ")}`)
   if (restore) return
 
   const realFetch = globalThis.fetch

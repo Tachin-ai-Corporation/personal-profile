@@ -111,7 +111,16 @@ context:
 - 2026-10-14 -- Implementation: the e2e upstream mock fails closed instead of delegating "anything else" to the real `fetch` for the two 1health roots (599 `E2E_UNMOCKED`, logged to stderr); other hosts still pass through. This enforces "no e2e ever reaches real 1health" at the server too. No e2e run logged an unmocked call.
 - 2026-10-14 -- Implementation: added `instrumentation-client.ts` (`z.config({ jitless: true })`); the new runtime CSP assertion on signed-in `/` found zod 4's `new Function("")` probe reported as a `script-src (eval)` violation.
 
+- 2026-10-14 -- Review: deferred to `deferred-work.md` (Foundation): throws after the exchange/seal answer 502 but do not revoke the issued tokens (the matrix row "launch or seal throws" reads as covering a revoke; it does not, only the over-budget seal revokes); mock root matching by origin; status-0 breadth of `isOpaqueRedirect`; uncapped refresh 400 body read; per-bearer mock revoke (intentional for parallel runs); local `reuseExistingServer`; structural selectors in the 360 px shell test.
+
 ## Implementation Notes
+
+- **Review fixes (2026-10-14).**
+  1. Mock boot guard: with `PP_E2E_MOCK=1`, `parseServerEnv` fails when any of `ONEHEALTH_SECRET_KEY_DEMO/_PROD`, `APP_ID_DEMO/_PROD` lacks the `e2e-` prefix (one issue per variable, name only); `installUpstreamMock(env = serverEnv())` re-checks and throws naming the variables. `E2E_MOCK_ENV` in `test/env-fixture.ts`; tests in `env.test.ts`, `instrumentation.test.ts`, `e2e-upstream-mock.test.ts`.
+  2. `expires_in`: one helper, `lib/server/session/expires-in.ts` (`parseExpiresIn`, `expiresInSchema`; `EXPIRY_SKEW_MS` moved there and re-exported by `refresh.ts`), used by the refresh `tokenResponseSchema` and the exchange `tokenSchema`: a finite number or a plain decimal string in (30, 86 400] s, else 300 s; tokens never dropped (an exchange with a bad `expires_in` now launches instead of failing 502). Rows: `"1e13"`, `1e308`, `10`, `30`, `"0x10"`, `86401` → 300 s; `"3600"`, `" 3600 "`, `31`, `86400`, `"86400"` honoured; the exchange table in `launch.test.ts`.
+  3. `/api/token`: the whole handler body (env read, PP_DISABLED, content type, `readLpl`, launch, seal) runs inside the fail-closed try → any throw is 502 `LAUNCH_INVALID`, retryable, cookie cleared (D15). Rows: throwing env getter, throwing body getter.
+  4. `secretKey()`: `min(1, { abort: true })`, so an empty key reports only "is required" (one message, one variable). Row added.
+  5. `e2e/launch.spec.ts`: CSP violations are reported through an exposed binding (survives navigations, records the path), asserted before the reload (covering `/auth`, the launch and the hand-off), after the reload and after Back; page errors likewise; the reporter's wiring is asserted.
 
 - **Mock (task 1).** `test/e2e-upstream-mock.ts` patches `fetch` from `instrumentation.ts` only when `serverEnv().PP_E2E_MOCK` (exact `"1"`); `installUpstreamMock()` itself throws without the flag; `uninstallUpstreamMock()` is the test hook. Single-use codes (replay → the backend's "has already been redeemed." 400), a distinct tenant-1 access token per exchange, `myself` = frozen `ANN` (42/4242 Ann Lee), revoke records the Bearer and a revoked token's `myself` answers 401 (how the logout e2e proves the revoke: a replayed old cookie then gets 401 `TOKEN_EXPIRED` through the real proxy). Unit tests: `test/e2e-upstream-mock.test.ts`, `instrumentation.test.ts` (flag `"0"`/`"true"`/`""` leave `fetch` untouched).
 - **E2E fixtures.** `makeLpl`/`freshCode`/`launch` live in `e2e/fixtures/core.ts`; the keys and app ids come from `E2E_LAUNCH` in `e2e/server-env.ts`, so no `_DEMO`/`_PROD` name leaves the allowed files. `e2e/launch.spec.ts` (fail-fast `test` + `mockProfileDefaults` for every case): demo end to end (exact `Set-Cookie` strings of both cookies, cookie attributes, no `lpl`, reload = no second POST, CSP violations and page errors, back → stripped `/auth` "Connected to Demo…"), prod, raw `+`, replayed code (5 POSTs → error → cookie gone → `/` redirects), manual entry (padded paste), the real proxy `myself` via `page.request`, real logout (`Max-Age=0`, no-store, revoke proven).
@@ -123,3 +132,20 @@ context:
 - **Test gaps (task 7).** `dynamic` rows in the token/refresh/logout/1h route tests; `app/auth/page.test.tsx`; non-string `lpl`, JSON array and `null` rows; padded key that decrypts as stored → no warning; flagged 5xx re-seal row; unsealable-cookie rows for refresh and logout.
 - **E2E gaps (task 8).** `shell.spec.ts`: 44 px widths on the per-tab targets and a 360 px test (16 px left/right padding on app bar, tabs, Sections, Jump to; avatar at x = 16; Jump to 44 × 44). `headers.spec.ts`: fail-fast `test` + `mockProfileDefaults` for the signed-in cases, `/auth` no-store, runtime CSP/pageerror on signed-in `/`, `POST /api/token` 400/415 with AD-21 + no-store + cleared cookie, Pragma/nosniff/AD-21 on the proxy error. `auth.spec.ts`: fail-fast `test`, `mockProfileDefaults` instead of a lone `myself` mock, Choose Environment → Production.
 - **Gates (2026-10-14/15).** install, lint, typecheck, `vitest run --coverage` (3194 tests, no missing coverage), `PP_E2E_PORT=3250 test:e2e` twice (297 passed, 3 skipped, both runs; no unmocked 1health call logged), build, `check-forbidden.sh`: all green.
+
+## Review Triage Log
+
+| # | Finding | Decision | Where |
+|---|---|---|---|
+| 1 | The mock could boot next to real launch credentials | Fixed: boot guard on the four credentials + install-time re-check | `lib/server/env.ts`, `test/e2e-upstream-mock.ts` |
+| 2 | `expires_in` unbounded (`"1e13"`, `1e308`, below the skew, hex) and the exchange still dropped tokens on a bad value | Fixed: shared `parseExpiresIn` in (skew, 1 day], 300 s fallback | `lib/server/session/expires-in.ts` |
+| 3 | `/api/token` throws before the launch (env, content type, body read) reached `guardRoute`'s 500 without clearing the cookie | Fixed: whole body in the fail-closed try | `lib/server/launch/token-handler.ts` |
+| 4 | Empty secret key reported twice ("required" + "blank") | Fixed: `abort: true` | `lib/server/env.ts` |
+| 5 | CSP/pageerror asserted only after the reload | Fixed: binding-based recording, asserted before and after | `e2e/launch.spec.ts` |
+| 6 | Throws after exchange/seal don't revoke issued tokens; matrix wording | Deferred (change log + deferred-work) | — |
+| 7 | Mock root matching by prefix, not origin | Deferred | — |
+| 8 | `isOpaqueRedirect` treats every status 0 as a redirect | Deferred | — |
+| 9 | Refresh 400 body read without a byte cap | Deferred | — |
+| 10 | Mock revoke is per Bearer, not all devices | Deferred (intentional for parallel runs) | — |
+| 11 | `reuseExistingServer` locally | Deferred | — |
+| 12 | Structural selectors in the 360 px shell test | Deferred | — |

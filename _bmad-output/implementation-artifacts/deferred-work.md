@@ -244,3 +244,13 @@
 - `fetchWithTimeout` now caps body streaming at 25 s, which would cut future large `asImage` downloads; switch to an idle timeout when the first `asImage` entry ships.
 - Proxy deny check runs on client segments before owner-id substitution; re-run it on upstream segments when the first `{userId}`/`{personId}` entry is added.
 - A relaunch over an existing session drops the previous tokens without revoking them; add a best-effort `revokeAllDevices` for the replaced session.
+
+### Deferred from: code review of spec-r5-1-main-parity-server-e2e (2026-10-14)
+
+- `/api/token` fail-closed path: a throw after the exchange (e.g. in the seal or `environmentSetCookie`) answers 502 but does not revoke the just-issued tokens (the over-budget seal path does). Revoke best effort there too, and align the R5-1 matrix wording for seal throws.
+- `test/e2e-upstream-mock.ts` matches a 1health root by string prefix (`<root>/`); match by parsed origin instead.
+- `isOpaqueRedirect()` treats any status 0 as an opaque redirect; narrow it to `type === "opaqueredirect"` if another status-0 shape ever appears.
+- Refresh: a 400 body is read with `response.json()` without a byte cap; read it through the capped reader.
+- The e2e mock revokes per Bearer token (intentional: parallel e2e runs share one server); revisit only if a test needs all-devices semantics.
+- `playwright.config.ts` `reuseExistingServer` is on locally, so a stale server (other env, e.g. without `PP_E2E_MOCK`) can be reused; consider a port/env check.
+- The 360 px shell test reads gutters through structural selectors (`body header > :first-child`, `#personal` parent, the combobox parent); give those containers test-stable hooks.

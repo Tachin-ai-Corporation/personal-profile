@@ -91,6 +91,24 @@ describe("launch", () => {
   })
 
   it.each([
+    ["3600", NOW + 3_600_000],
+    ["1e13", NOW + 300_000],
+    [1e308, NOW + 300_000],
+    [10, NOW + 300_000],
+    ["0x10", NOW + 300_000],
+    [undefined, NOW + 300_000],
+  ])("expires_in %j from the exchange → a session (unusable values fall back to 300 s, tokens kept)", async (expiresIn, expected) => {
+    server.use(
+      http.post(exchangeUrl(DEMO.apiRoot), () => HttpResponse.json({ ...tokenResponse(), expires_in: expiresIn })),
+      http.get(myselfUrl(DEMO.apiRoot), () => HttpResponse.json({ id: 42, personId: 4242 })),
+    )
+    const result = await launch(demoLpl(), credentials(), NOW)
+    if (result.kind !== "ok") throw new Error("expected a session")
+    expect(result.session.accessExpiresAt).toBe(expected)
+    expect(sessionPayloadSchema.safeParse(result.session).success).toBe(true)
+  })
+
+  it.each([
     [3599.5, NOW + 3_599_500],
     [3599.0005, NOW + 3_599_000],
   ])("keeps whole milliseconds for expires_in %s, so the sealed session still validates", async (expiresIn, expected) => {

@@ -1,9 +1,9 @@
 import { http, HttpResponse } from "msw"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { resetServerEnvCache } from "@/lib/server/env"
+import { E2E_MOCK_CREDENTIALS, resetServerEnvCache } from "@/lib/server/env"
 import { exchangeCode, fetchMyselfIds, readTenantId } from "@/lib/server/launch/exchange"
 import { revokeAllDevices } from "@/lib/server/session/revoke"
-import { stubServerEnv } from "./env-fixture"
+import { E2E_MOCK_ENV, stubServerEnv, testEnv } from "./env-fixture"
 import { installUpstreamMock, MOCK_MYSELF, uninstallUpstreamMock } from "./e2e-upstream-mock"
 import { server } from "./msw-server"
 import { DEMO, PROD } from "./upstream-fixture"
@@ -21,7 +21,7 @@ afterEach(() => {
 })
 
 function install(): void {
-  stubServerEnv({ PP_E2E_MOCK: "1" })
+  stubServerEnv(E2E_MOCK_ENV)
   installUpstreamMock()
 }
 
@@ -29,6 +29,14 @@ describe("e2e upstream mock (spec R5-1)", () => {
   it("refuses to install without PP_E2E_MOCK=1, leaving fetch untouched", () => {
     stubServerEnv()
     expect(() => installUpstreamMock()).toThrow("PP_E2E_MOCK=1")
+    expect(globalThis.fetch).toBe(realFetch)
+  })
+
+  it("re-checks the credentials itself: a non-e2e key or app id refuses to install, naming the variables only", () => {
+    // Names come from env.ts, so this file never spells a `_DEMO`/`_PROD` name (check-forbidden).
+    const [demoKey, prodKey, demoApp, prodApp] = E2E_MOCK_CREDENTIALS
+    const env = { ...testEnv({ [demoApp]: "e2e-app-demo" })(), PP_E2E_MOCK: true }
+    expect(() => installUpstreamMock(env)).toThrow(`The e2e upstream mock needs e2e dummy credentials: ${demoKey}, ${prodKey}, ${prodApp}`)
     expect(globalThis.fetch).toBe(realFetch)
   })
 

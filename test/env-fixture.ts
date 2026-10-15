@@ -25,3 +25,12 @@ export function testEnv(overrides: Record<string, string> = {}): () => ServerEnv
   const env = parseServerEnv({ ...TEST_ENV, ...overrides })
   return () => env
 }
+
+/** The e2e upstream mock's env (`PP_E2E_MOCK=1`): every launch credential is an `e2e-` dummy, as the boot requires. */
+export const E2E_MOCK_ENV = {
+  ONEHEALTH_SECRET_KEY_DEMO: "e2e-demo-secret-key",
+  ONEHEALTH_SECRET_KEY_PROD: "e2e-prod-secret-key",
+  APP_ID_DEMO: "e2e-app-demo",
+  APP_ID_PROD: "e2e-app-prod",
+  PP_E2E_MOCK: "1",
+} as const

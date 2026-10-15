@@ -19,8 +19,18 @@ export const DEFAULT_TENANT_ID = 1
 const required = (name: string): z.ZodString =>
   z.string({ error: `${name} is required` }).min(1, { error: `${name} is required` })
 
+/** Required and not blank; an empty value reports "is required" once (abort), never also "blank". */
 const secretKey = (name: string): z.ZodString =>
-  required(name).refine((value) => value.trim() !== "", { error: `${name} must not be blank` })
+  z
+    .string({ error: `${name} is required` })
+    .min(1, { error: `${name} is required`, abort: true })
+    .refine((value) => value.trim() !== "", { error: `${name} must not be blank` })
+
+/** The launch credentials the e2e upstream mock requires to be dummy (`e2e-…`) values. */
+export const E2E_MOCK_CREDENTIALS = ["ONEHEALTH_SECRET_KEY_DEMO", "ONEHEALTH_SECRET_KEY_PROD", "APP_ID_DEMO", "APP_ID_PROD"] as const
+
+/** The prefix every launch credential must carry while `PP_E2E_MOCK=1`. */
+export const E2E_CREDENTIAL_PREFIX = "e2e-"
 
 const sessionSecret = (name: string): z.ZodString =>
   z.string({ error: `${name} is required` }).min(32, { error: `${name} must be at least 32 characters` })
@@ -57,6 +67,14 @@ const envSchema = z
       // Both variables are named (one issue each, one message); never the values.
       for (const name of ["ONEHEALTH_SECRET_KEY_DEMO", "ONEHEALTH_SECRET_KEY_PROD"]) {
         ctx.addIssue({ code: "custom", path: [name], message: "ONEHEALTH_SECRET_KEY_DEMO and ONEHEALTH_SECRET_KEY_PROD must differ" })
+      }
+    }
+    if (env.PP_E2E_MOCK) {
+      // The mock fakes 1health: never boot it next to real credentials (names only, never values).
+      for (const name of E2E_MOCK_CREDENTIALS) {
+        if (!env[name].startsWith(E2E_CREDENTIAL_PREFIX)) {
+          ctx.addIssue({ code: "custom", path: [name], message: `${name} must be an e2e dummy value ("${E2E_CREDENTIAL_PREFIX}…") when PP_E2E_MOCK=1` })
+        }
       }
     }
     if (env.PLACES_ENABLED && !env.GOOGLE_PLACES_KEY) {

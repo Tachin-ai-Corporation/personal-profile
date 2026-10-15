@@ -3,10 +3,10 @@ import "server-only"
 import { z } from "zod"
 import { environmentConfig } from "@/lib/shared/environments"
 import { discardBody, fetchWithTimeout, UPSTREAM_TIMEOUT_MS } from "@/lib/server/http/fetch-with-timeout"
+import { EXPIRY_SKEW_MS, expiresInSchema } from "./expires-in"
 import type { SessionPayload } from "./types"
 
-/** AD-2/AD-16: an access token this close to expiry counts as expired. */
-export const EXPIRY_SKEW_MS = 30_000
+export { EXPIRY_SKEW_MS, FALLBACK_EXPIRES_IN_S } from "./expires-in"
 
 export function isAccessTokenFresh(session: SessionPayload, now: number): boolean {
   return session.accessExpiresAt - now > EXPIRY_SKEW_MS
@@ -23,15 +23,6 @@ export const ACTIVITY_RESEAL_MIN_MS = EXPIRY_SKEW_MS + UPSTREAM_TIMEOUT_MS
 export function canRenewLastSeen(session: SessionPayload, now: number): boolean {
   return session.accessExpiresAt - now > ACTIVITY_RESEAL_MIN_MS
 }
-
-/** Lifetime used when the IdP omits `expires_in` or sends an unusable one (0, negative, non-numeric). */
-export const FALLBACK_EXPIRES_IN_S = 300
-
-/** `expires_in` as positive finite seconds (a numeric string counts), else the 300 s fallback. */
-const expiresInSchema = z.unknown().optional().transform((value): number => {
-  const seconds = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN
-  return Number.isFinite(seconds) && seconds > 0 ? seconds : FALLBACK_EXPIRES_IN_S
-})
 
 /**
  * A usable access token is never dropped for a bad `expires_in` (fallback),

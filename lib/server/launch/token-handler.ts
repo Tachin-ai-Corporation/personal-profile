@@ -87,15 +87,15 @@ export function createTokenHandler(deps: TokenHandlerDeps = {}): (request: Reque
     const fail = (status: number, errorCode: BffErrorCode, retryable: boolean, environment?: Environment): Response =>
       finish(launchFailure(status, errorCode, retryable), errorCode, environment)
 
-    const env = getEnv()
-    if (env.PP_DISABLED) return fail(503, "SERVICE_DISABLED", false)
-    if (!isJsonRequest(request)) return fail(415, "UNSUPPORTED_MEDIA", false)
+    const handle = async (): Promise<Response> => {
+      const env = getEnv()
+      if (env.PP_DISABLED) return fail(503, "SERVICE_DISABLED", false)
+      if (!isJsonRequest(request)) return fail(415, "UNSUPPORTED_MEDIA", false)
 
-    const lpl = await readLpl(request)
-    if (lpl === null) return fail(400, "LAUNCH_INVALID", false)
+      const lpl = await readLpl(request)
+      if (lpl === null) return fail(400, "LAUNCH_INVALID", false)
 
-    const launchAndSeal = async (payload: string): Promise<Response> => {
-      const result = await runLaunch(payload, env, now(), requestId)
+      const result = await runLaunch(lpl, env, now(), requestId)
       if (result.kind === "failed") return fail(result.status, result.errorCode, result.retryable, result.environment)
 
       const { environment } = result.session
@@ -116,10 +116,10 @@ export function createTokenHandler(deps: TokenHandlerDeps = {}): (request: Reque
     }
 
     try {
-      return await launchAndSeal(lpl)
+      return await handle()
     } catch (error) {
-      // Fail closed (spec R5-1): an unexpected throw never leaves a session
-      // behind; it is retryable like any upstream hiccup and logged by name only.
+      // Fail closed (spec R5-1, D15): any throw (env read, body read, launch,
+      // seal) never leaves a session behind; retryable, logged by name only.
       logError({ requestId, routeTemplate: ROUTE, status: 502, errorName: error instanceof Error ? error.name : "UnknownError" })
       return fail(502, "LAUNCH_INVALID", true)
     }

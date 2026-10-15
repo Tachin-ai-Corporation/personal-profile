@@ -2,6 +2,7 @@ import "server-only"
 
 import { z } from "zod"
 import { fetchWithTimeout } from "@/lib/server/http/fetch-with-timeout"
+import { expiresInSchema } from "@/lib/server/session/expires-in"
 import { signCode } from "./lpl-crypto"
 
 /** Upstream calls made by a launch: the one-time code exchange and the `myself` id check. */
@@ -9,7 +10,7 @@ import { signCode } from "./lpl-crypto"
 const tokenSchema = z.object({
   access_token: z.string().min(1),
   refresh_token: z.string().min(1),
-  expires_in: z.number().positive(),
+  expires_in: expiresInSchema,
 })
 
 export interface ExchangedTokens {

@@ -77,6 +77,18 @@ describe("refreshSession", () => {
     vi.useRealTimers()
   })
 
+  it.each([
+    ["3600", 3_600_000],
+    [" 3600 ", 3_600_000],
+    [31, 31_000],
+    [86_400, 86_400_000],
+    ["86400", 86_400_000],
+  ])("honours expires_in %j inside (skew, 1 day]", async (value, ms) => {
+    server.use(http.post(IDP, () => HttpResponse.json({ access_token: "a", expires_in: value })))
+    const result = await refreshSession(makeSession(), NOW)
+    expect(result.kind === "refreshed" && result.session.accessExpiresAt).toBe(NOW + ms)
+  })
+
   it("honours a numeric-string expires_in", async () => {
     server.use(http.post(IDP, () => HttpResponse.json({ access_token: "a", expires_in: "3600" })))
     const result = await refreshSession(makeSession(), NOW)
@@ -90,6 +102,12 @@ describe("refreshSession", () => {
     ["non-numeric string", { expires_in: "soon" }],
     ["blank string", { expires_in: "  " }],
     ["Infinity string", { expires_in: "Infinity" }],
+    ["exponent string 1e13", { expires_in: "1e13" }],
+    ["huge number 1e308", { expires_in: 1e308 }],
+    ["within the 30 s skew (10)", { expires_in: 10 }],
+    ["exactly the skew (30)", { expires_in: 30 }],
+    ["hex string 0x10", { expires_in: "0x10" }],
+    ["over a day (86401)", { expires_in: 86_401 }],
     ["null", { expires_in: null }],
   ])("expires_in %s → the 300 s fallback; the new tokens are kept", async (_label, extra) => {
     server.use(http.post(IDP, () => HttpResponse.json({ access_token: "new-access", refresh_token: "rotated", ...extra })))

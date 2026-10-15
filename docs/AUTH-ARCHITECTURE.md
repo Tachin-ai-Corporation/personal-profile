@@ -190,7 +190,8 @@ the IdP when the token is still fresh, clears the cookie on an IdP rejection
 (only a 401 or a 400 `invalid_grant`: 401 `SESSION_EXPIRED`) and keeps it
 otherwise (403, any other 400, 5xx, 3xx, timeout, unreadable answer: 503
 `REFRESH_UNAVAILABLE`; human decision 2026-10-14, spec R5-1). `expires_in` may
-be a number or a numeric string; a missing or unusable one means 300 s.
+be a number or a decimal string in (30 s, 1 day]; anything else means 300 s
+(`lib/server/session/expires-in.ts`, shared with the launch exchange).
 
 `session-expired` is published once per page on `lib/api/session-events.ts`
 (by `callApi` and by the idle warning); the shell's session dialog

@@ -200,6 +200,38 @@ describe("POST /api/token", () => {
     for (const line of lines) expect(line).not.toContain("secret-detail")
   })
 
+  it.each([
+    [
+      "the env read",
+      createTokenHandler({
+        env: () => {
+          throw new RangeError("env")
+        },
+      }),
+      () => post({ lpl: validLpl() }),
+    ],
+    [
+      "the body read",
+      createTokenHandler(),
+      () => {
+        const request = post({ lpl: validLpl() })
+        Object.defineProperty(request, "body", {
+          get: () => {
+            throw new RangeError("body")
+          },
+        })
+        return request
+      },
+    ],
+  ])("fails closed when %s throws: 502 LAUNCH_INVALID, retryable, cookie cleared", async (_label, handler, build) => {
+    const calls = trackAllRequests()
+    const response = await handler(build())
+    expect(response.status).toBe(502)
+    expect(await response.json()).toEqual({ ok: false, errorCode: "LAUNCH_INVALID", source: "proxy", message: LAUNCH_ERROR_MESSAGES.expired })
+    expect(response.headers.getSetCookie()).toEqual([`${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`])
+    expect(calls()).toBe(0)
+  })
+
   it("maps every error code to user-safe copy", () => {
     expect(launchErrorMessage("LAUNCH_CONFIG")).toBe(LAUNCH_ERROR_MESSAGES.unavailable)
     expect(launchErrorMessage("LAUNCH_USED")).toBe(LAUNCH_ERROR_MESSAGES.expired)

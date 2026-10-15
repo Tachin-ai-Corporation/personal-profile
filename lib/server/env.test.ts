@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { TEST_ENV } from "@/test/env-fixture"
+import { E2E_MOCK_ENV, TEST_ENV } from "@/test/env-fixture"
 import { assertServerEnv, DEFAULT_TENANT_ID, parseServerEnv, resetServerEnvCache, secretKeyVariable, serverEnv, ServerEnvError } from "./env"
 
 const valid = { ...TEST_ENV }
@@ -58,6 +58,26 @@ describe("parseServerEnv", () => {
     expect(secretKeyVariable("prod")).toBe("ONEHEALTH_SECRET_KEY_PROD")
   })
 
+  it("an empty secret key reports one message and one variable (no duplicate blank issue)", () => {
+    const error = failure({ ...valid, ONEHEALTH_SECRET_KEY_DEMO: "" })
+    expect(error.variables).toEqual(["ONEHEALTH_SECRET_KEY_DEMO"])
+    expect(error.message).toBe("Invalid server environment: ONEHEALTH_SECRET_KEY_DEMO is required")
+  })
+
+  it("accepts PP_E2E_MOCK=1 with e2e dummy credentials", () => {
+    expect(parseServerEnv({ ...valid, ...E2E_MOCK_ENV }).PP_E2E_MOCK).toBe(true)
+  })
+
+  it.each(["ONEHEALTH_SECRET_KEY_DEMO", "ONEHEALTH_SECRET_KEY_PROD", "APP_ID_DEMO", "APP_ID_PROD"] as const)(
+    "PP_E2E_MOCK=1 with a non-e2e %s fails the boot, naming it and never the value",
+    (name) => {
+      const error = failure({ ...valid, ...E2E_MOCK_ENV, [name]: "real-looking-value" })
+      expect(error.variables).toEqual([name])
+      expect(error.message).toBe(`Invalid server environment: ${name} must be an e2e dummy value ("e2e-…") when PP_E2E_MOCK=1`)
+      expect(error.message).not.toContain("real-looking-value")
+    },
+  )
+
   it("does not fail on whitespace around a secret key", () => {
     expect(parseServerEnv({ ...valid, ONEHEALTH_SECRET_KEY_PROD: "  padded-key \n" }).getSecretKey("prod")).toBe("  padded-key \n")
   })
@@ -93,7 +113,7 @@ describe("parseServerEnv", () => {
     ["0", false],
     [undefined, false],
   ])("PP_DISABLED/ACCOUNT_DISABLED/PP_E2E_FIXTURES/PP_E2E_MOCK=%s → %s (only the exact string \"1\")", (value, expected) => {
-    const env = parseServerEnv({ ...valid, PP_DISABLED: value, ACCOUNT_DISABLED: value, PP_E2E_FIXTURES: value, PP_E2E_MOCK: value })
+    const env = parseServerEnv({ ...valid, ...E2E_MOCK_ENV, PP_DISABLED: value, ACCOUNT_DISABLED: value, PP_E2E_FIXTURES: value, PP_E2E_MOCK: value })
     expect(env.PP_DISABLED).toBe(expected)
     expect(env.ACCOUNT_DISABLED).toBe(expected)
     expect(env.PP_E2E_FIXTURES).toBe(expected)
