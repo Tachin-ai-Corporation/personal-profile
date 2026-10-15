@@ -125,7 +125,7 @@ test("expectHeaderTabOrder on /: app bar → header → the selected tab (with a
   await mockHeaderPicture(page)
   await page.goto("/?tab=insurance")
   await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
-  expect(await expectHeaderTabOrder(page)).toEqual(["a:Personal Profile", "a:Account", "a:Return to 1health", "tab:Insurance"])
+  expect(await expectHeaderTabOrder(page)).toEqual(["a:Personal Profile", "a:Account", "a:Return to 1health", ...HEADER_TAB_STOPS.profile, "tab:Insurance"])
 })
 
 test("the Save all fixture page (spec NG-9027, for Story 1.14): the / frame, its participants registered, axe clean", async ({ page }) => {

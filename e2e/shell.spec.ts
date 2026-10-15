@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, type Page } from "@playwright/test"
 import { sealedSessionCookie } from "./session-cookie"
-import { ANN, mockContacts, mockExit, mockMyself, mockProfileDefaults, PORTAL_URL, setTheme, signIn, test } from "./fixtures"
+import { ANN, HEADER_TAB_STOPS, mockContacts, mockExit, mockMyself, mockProfileDefaults, PORTAL_URL, setTheme, signIn, test } from "./fixtures"
 
 /**
  * The shell on `/` (foundation-owned). Every test runs under the fail-fast
@@ -51,14 +51,16 @@ test.describe("/ page frame (Stories 1.8, 1.9)", () => {
     await expect(page).toHaveURL(/\/\?tab=contacts$/)
     await expect(page.getByRole("link", { name: "Personal Profile" })).toHaveAttribute("aria-current", "page")
 
+    // The header's own stops (the avatar button, Story 1.10) come from Team A's HEADER_TAB_STOPS.
+    const head = ["a:Personal Profile", "a:Account", "a:Return to 1health", ...HEADER_TAB_STOPS.profile, "tab:Contacts"]
     const order: string[] = []
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i <= head.length; i++) {
       await page.keyboard.press("Tab")
       order.push(await focused(page))
     }
-    expect(order.slice(0, 4)).toEqual(["a:Personal Profile", "a:Account", "a:Return to 1health", "tab:Contacts"])
+    expect(order.slice(0, head.length)).toEqual(head)
     // Contacts takes its panel out of the Tab order: its Section menu (or Jump to) follows the tab (F3-3).
-    expect(order[4]).toBe(isMobile ? "combobox:01Personal information" : "a:01Personal information")
+    expect(order[head.length]).toBe(isMobile ? "combobox:01Personal information" : "a:01Personal information")
     expect(order.some((entry) => entry.endsWith(":1health"))).toBe(false)
   })
 
