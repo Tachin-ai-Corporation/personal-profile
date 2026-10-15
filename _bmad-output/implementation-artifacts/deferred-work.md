@@ -40,6 +40,12 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-f6-3-data-server-tests.md` (review, 2026-10-14)
   summary: Two sources of truth for Person options: the `GET v2/type/key/Person` VALUE_LIST values (what the Section offers) vs the fixed `RACES` / `ETHNICITIES` / `BIOLOGICAL_GENDERS` enums the proxy's `PUT v2/user/edit` schema accepts. A value the platform adds to the type would show in the picker and then fail with 400 `BAD_BODY`.
   evidence: lib/api/type-keys.ts#valueListOptions, lib/server/proxy/allowlist/personal.ts; Story 2.1/2.2 decide which list wins (intersect in the UI, or widen the schema).
+- source_spec: `_bmad-output/implementation-artifacts/spec-f6-2-shared-ui-kit.md` (review, 2026-10-14)
+  summary: Phone input country picker has no type-to-search: Radix Select typeahead in the 245-item list only matched the last key under Playwright (first letter + arrows work). No AC requires search; revisit if PM asks (e.g. the F5-2 Combobox with `staticOptions` as the picker).
+  evidence: components/ui/phone-input.tsx; e2e/ui-kit.spec.ts "country picker" case (first-letter typeahead + arrows); spec F6-2 Implementation Notes.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f6-2-shared-ui-kit.md` (review, 2026-10-14)
+  summary: The phone input re-renders all 245 country `SelectItem`s on every keystroke; memoize the item list per locale if a phone-heavy Section (3.2 with many rows, 5.2) shows input lag.
+  evidence: components/ui/phone-input.tsx maps `phoneRegions(locale)` (the data is cached, the elements are not).
 
 ## Team B (`/account`, Epics 7-10)
 
@@ -221,6 +227,12 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-f5-1-select-date-input-popover.md`
   summary: With a Radix Select listbox open, axe `aria-hidden-focus` flags the page: Radix Select (the F3-1 port, `@radix-ui/react-select` 2.3.7) hides the rest of the page with `aria-hidden` while trapping focus, without `aria-modal`. Library behaviour; the e2e scans only the listbox in that state.
   evidence: `e2e/inputs.spec.ts` (comment at the open-listbox axe scan); F5-1 Review Triage Log "Deferred". Revisit on a Radix Select upgrade, or patch the content with `aria-modal="true"` if axe still flags it; feature e2e that scan with an open Select (2.2, 4.2, 5.2, 7.5, 7.6) scan only the listbox too.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f6-2-shared-ui-kit.md` (review, 2026-10-14)
+  summary: Full-screen dialog (8.2 QR) and Sheet (5.2 mobile page) pin their footer to the layout viewport; with the on-screen keyboard open the footer may sit under it on iOS. Decide `interactive-widget=resizes-content` in the viewport meta or a visual-viewport offset.
+  evidence: components/ui/dialog.tsx (`fullScreenOnMobile`, `h-dvh`), components/ui/sheet.tsx; e2e checks the pinned footer without a keyboard only.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f6-2-shared-ui-kit.md` (review, 2026-10-14)
+  summary: `useAnnounce` re-announces identical text by toggling a trailing no-break space (the F5-2 combobox rule); verify with VoiceOver and NVDA that the repeat is read.
+  evidence: components/ui/live-status.tsx; unit test asserts the DOM change only.
 
 ### Deferred from: code review of spec-7-0a-bff-foundation-and-tooling (2026-10-14)
 

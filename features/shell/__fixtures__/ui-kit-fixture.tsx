@@ -54,6 +54,7 @@ export function UiKitFixture() {
   const [editing, setEditing] = useState(false)
   const [states, setStates] = useState<Record<number, RowEditState>>({})
   const [log, setLog] = useState("")
+  const [primaryConfirm, setPrimaryConfirm] = useState(false)
   const codeRef = useRef<HTMLInputElement>(null)
   const timers = useRef<ReturnType<typeof setTimeout>[]>([])
   useEffect(() => () => timers.current.forEach(clearTimeout), [])
@@ -287,7 +288,7 @@ export function UiKitFixture() {
                       label: "Make primary",
                       inline: true,
                       disabledReason: row.label === "Primary" ? "Already primary" : undefined,
-                      onSelect: () => setLog(`primary ${row.id}`),
+                      onSelect: () => setPrimaryConfirm(true),
                     },
                     { id: "remove", label: "Remove", destructive: true, onSelect: () => setLog(`remove ${row.id}`) },
                   ]}
@@ -299,6 +300,39 @@ export function UiKitFixture() {
         <p data-testid="row-log" className="text-body-sm">
           {log}
         </p>
+      </section>
+
+      <ConfirmDialog
+        open={primaryConfirm}
+        title="This changes how you sign in"
+        body="+1 (415) 555-0100 becomes your primary phone and sign-in number."
+        confirmLabel="Make primary"
+        variant="standard"
+        onCancel={() => setPrimaryConfirm(false)}
+        onConfirm={() => {
+          setPrimaryConfirm(false)
+          setLog("primary 2")
+        }}
+      />
+
+      <section aria-labelledby="links-heading" className="flex flex-col gap-2">
+        <h2 id="links-heading" className="section-title">
+          Links
+        </h2>
+        <SectionContainer editing={false}>
+          <SectionTable<FixturePhone>
+            rows={[{ id: 9, number: "https://www.example.com/a/very/long/profile/link/that/has/no/spaces/at/all/and/keeps/going/onward", label: "Personal" }]}
+            columns={[
+              { key: "link", header: "Link", cell: (row) => row.number, width: "w-[70%]" },
+              { key: "label", header: "Label", cell: (row) => <Chip>{row.label}</Chip> },
+            ]}
+            getRowKey={(row) => String(row.id)}
+            labelledBy="links-heading"
+            actions={(row, layout) => (
+              <RowActions name="the long link" showInline={layout === "table"} actions={[{ id: "remove", label: "Remove", destructive: true, onSelect: () => setLog(`remove ${row.id}`) }]} />
+            )}
+          />
+        </SectionContainer>
       </section>
 
       <section aria-labelledby="social-heading" className="flex flex-col gap-2">

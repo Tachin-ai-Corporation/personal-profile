@@ -6,7 +6,7 @@ import { MoreVertical } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DisabledAction } from "@/components/ui/disabled-action"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { formatMessage, SECTION_MESSAGES } from "@/lib/shared/messages"
+import { COMMON_MESSAGES, formatMessage } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
 
 /** One row action (catalog copy). The kebab menu lists every action; `inline` ones also show in the row on desktop. */
@@ -34,6 +34,12 @@ export interface RowActionsProps {
   readonly className?: string
 }
 
+/** Sets a callback or object ref. */
+function assignRef<T>(ref: React.Ref<T> | undefined, value: T | null): void {
+  if (typeof ref === "function") ref(value)
+  else if (ref) (ref as React.RefObject<T | null>).current = value
+}
+
 /** An action with a handler: the menu never shows an item that does nothing by accident (UX-DR26). */
 const hasHandler = (action: RowAction): boolean => typeof action.onSelect === "function"
 
@@ -47,18 +53,34 @@ const hasHandler = (action: RowAction): boolean => typeof action.onSelect === "f
  * `error-strong`. An aria-disabled action stays focusable in both places
  * and does nothing: inline it is a `DisabledAction` (tooltip), in the menu
  * its reason is a muted second line (a tooltip can't live inside a menu).
+ * A menu item runs only after the menu has closed and focus is back on the
+ * kebab, so a dialog or sheet it opens returns focus to the kebab. On touch
+ * screens from 768 px (no hover) the inline actions are always visible, never
+ * invisible but tappable. No usable action → nothing is rendered.
  */
-export function RowActions({ actions, name, showInline = true, kebabRef, className }: RowActionsProps): React.JSX.Element {
+export function RowActions({ actions, name, showInline = true, kebabRef, className }: RowActionsProps): React.JSX.Element | null {
   const usable = actions.filter(hasHandler)
   const inline = showInline ? usable.filter((action) => action.inline) : []
   const reasonBase = React.useId()
+  const ownKebabRef = React.useRef<HTMLButtonElement | null>(null)
+  const pendingRef = React.useRef<RowAction | null>(null)
+  const setKebabRef = React.useCallback(
+    (element: HTMLButtonElement | null) => {
+      ownKebabRef.current = element
+      assignRef(kebabRef, element)
+    },
+    [kebabRef],
+  )
+
+  if (usable.length === 0) return null
 
   return (
     <div data-slot="row-actions" className={cn("flex items-center justify-end gap-1", className)}>
       {inline.length > 0 ? (
         <div
           data-slot="row-actions-inline"
-          className="flex items-center gap-1 transition-opacity duration-150 ease-standard motion-reduce:transition-none max-md:hidden md:opacity-0 md:group-hover/row:opacity-100 md:group-focus-within/row:opacity-100 md:focus-within:opacity-100"
+          // Hidden until row hover/focus only with a fine pointer; touch (coarse) keeps them visible.
+          className="flex items-center gap-1 transition-opacity duration-150 ease-standard motion-reduce:transition-none max-md:hidden md:pointer-fine:opacity-0 md:pointer-fine:group-hover/row:opacity-100 md:pointer-fine:group-focus-within/row:opacity-100 md:pointer-fine:focus-within:opacity-100"
         >
           {inline.map((action) =>
             action.disabledReason ? (
@@ -76,18 +98,27 @@ export function RowActions({ actions, name, showInline = true, kebabRef, classNa
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
           <Button
-            ref={kebabRef}
+            ref={setKebabRef}
             type="button"
             variant="ghost"
             size="touch"
             data-slot="row-actions-kebab"
-            aria-label={formatMessage(SECTION_MESSAGES.moreActionsFor, { name })}
+            aria-label={formatMessage(COMMON_MESSAGES.moreActionsFor, { name })}
             className="text-secondary-foreground hover:bg-muted w-11 px-0"
           >
             <MoreVertical aria-hidden="true" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent>
+        <DropdownMenuContent
+          onCloseAutoFocus={(event) => {
+            // Focus the kebab first, then run the picked action: what it opens returns focus here.
+            event.preventDefault()
+            ownKebabRef.current?.focus()
+            const picked = pendingRef.current
+            pendingRef.current = null
+            picked?.onSelect()
+          }}
+        >
           {usable.map((action, index) => {
             const reasonId = `${reasonBase}-${index}`
             return (
@@ -102,7 +133,7 @@ export function RowActions({ actions, name, showInline = true, kebabRef, classNa
                     event.preventDefault()
                     return
                   }
-                  action.onSelect()
+                  pendingRef.current = action
                 }}
               >
                 <span className="flex flex-col">

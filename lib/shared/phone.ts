@@ -20,6 +20,7 @@ import {
   parsePhoneNumberFromString,
   validatePhoneNumberLength,
   type CountryCode,
+  type PhoneNumber,
 } from "libphonenumber-js"
 
 /** The platform's default region (`PhoneUtil.getDefaultPhoneRegionIfEmpty`). */
@@ -102,16 +103,34 @@ export function phoneDigits(text: string): string {
   return text.replace(/\D/g, "")
 }
 
-/** Whether `text` has more digits than the region allows (typing past it is ignored, as in 1health-fe). */
+/** Whether `text` has more digits than the region allows. */
 export function isPhoneTooLong(text: string, region: string | null | undefined): boolean {
   const digits = phoneDigits(text)
   return digits !== "" && validatePhoneNumberLength(digits, countryOrDefault(region)) === "TOO_LONG"
 }
 
-/** The national number formatted for the region (`(415) 555-2125`); the trimmed text when it has no digits. */
+/**
+ * `text` cut to the region's maximum length: trailing digits are dropped
+ * until it fits (1health-fe `clampNationalDigits`), so a too-long paste keeps
+ * its start. Text that fits is returned unchanged.
+ */
+export function clampPhoneInput(text: string, region: string | null | undefined): string {
+  if (!isPhoneTooLong(text, region)) return text
+  let digits = phoneDigits(text)
+  while (isPhoneTooLong(digits, region)) digits = digits.slice(0, -1)
+  return digits
+}
+
+/**
+ * The national number formatted for the region (`(415) 555-2125`); the
+ * trimmed text when it has no digits. Text starting with `+` is an
+ * international number still being typed: it is formatted as such, never
+ * reread as a national number of the region.
+ */
 export function formatPhoneInput(text: string, region: string | null | undefined): string {
   const digits = phoneDigits(text)
   if (digits === "") return text.trim()
+  if (text.trim().startsWith("+")) return new AsYouType().input(`+${digits}`)
   const country = countryOrDefault(region)
   // A whole number formats nationally (GB "2071838750" → "020 7183 8750"); a partial one as typed so far.
   const parsed = parsePhoneNumberFromString(digits, country)
@@ -156,21 +175,27 @@ export type PhoneIssue = "required" | "tenDigits" | "invalid"
 
 /**
  * 1health-fe's rule: a +1 region needs exactly 10 national digits
- * ("Enter a 10-digit US number"); any other region must be a valid number
- * for that country ("Enter a valid phone number"). No digits is `required`
- * (an optional field checks emptiness itself first). `null` when valid.
+ * ("Enter a 10-digit US number"), counted after a leading
+ * trunk "1" (so "1 415 555 2125" passes and "1 415 555 212" doesn't); any
+ * other region must be a valid number for that country ("Enter a valid
+ * phone number"). No digits is `required` (an optional field checks
+ * emptiness itself first). `null` when valid.
  */
 export function phoneIssue({ region, national }: PhoneInputValue): PhoneIssue | null {
   const digits = phoneDigits(national)
   if (digits === "") return "required"
   const country = countryOrDefault(region)
-  if (getCountryCallingCode(country) === "1") return digits.length === 10 ? null : "tenDigits"
+  if (getCountryCallingCode(country) === "1") {
+    // NANP area codes never start with 1, so a leading 1 is the trunk prefix, not a national digit.
+    const nationalDigits = digits.startsWith("1") ? digits.slice(1) : digits
+    return nationalDigits.length === 10 ? null : "tenDigits"
+  }
   return isValidPhoneNumber(digits, country) ? null : "invalid"
 }
 
-/** The E.164 form (`+14155552125`) sent as a Contact Point `value`; `null` when there are no digits or they form no number. */
-export function toE164({ region, national }: PhoneInputValue): string | null {
-  const digits = phoneDigits(national)
-  if (digits === "") return null
-  return parsePhoneNumberFromString(digits, countryOrDefault(region))?.number ?? null
+/** The E.164 form (`+14155552125`) sent as a Contact Point `value`; `null` unless `phoneIssue` passes. */
+export function toE164(value: PhoneInputValue): string | null {
+  if (phoneIssue(value) !== null) return null
+  // A value that passed phoneIssue always parses.
+  return (parsePhoneNumberFromString(phoneDigits(value.national), countryOrDefault(value.region)) as PhoneNumber).number
 }

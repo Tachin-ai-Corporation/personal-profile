@@ -71,7 +71,7 @@ test.describe("F6-2 UI kit", () => {
       page.getByRole("button", { name: "Disable" }),
       page.getByRole("checkbox", { name: "Set as primary" }),
       page.getByRole("switch", { name: "Notifications" }),
-      page.getByRole("combobox", { name: "Country code" }),
+      page.getByRole("combobox", { name: /^Country code/ }),
       page.getByRole("textbox", { name: "Phone number" }),
       page.getByRole("button", { name: "2 more types: Insurance, Population Health" }),
       kebab(page, "+1 (415) 551-2125"),
@@ -180,6 +180,39 @@ test.describe("ConfirmDialog busyLabel", () => {
   })
 })
 
+test.describe("Row kit (review)", () => {
+  for (const reducedMotion of ["no-preference", "reduce"] as const) {
+    test(`a confirm opened from a menu item returns focus to the kebab (${reducedMotion})`, async ({ page }) => {
+      await page.emulateMedia({ reducedMotion })
+      const button = kebab(page, "+1 (415) 555-0100")
+      await button.focus()
+      await page.keyboard.press("Enter")
+      await page.getByRole("menuitem", { name: "Make primary" }).click()
+      const confirm = page.getByRole("alertdialog", { name: "This changes how you sign in" })
+      await expect(confirm).toBeVisible()
+      await expect(page.getByRole("button", { name: "Cancel" })).toBeFocused()
+      await page.keyboard.press("Escape")
+      await expect(confirm).toHaveCount(0)
+      await expect(button).toBeFocused()
+    })
+  }
+
+  test("a long unbroken value wraps inside its cell at 768 px: no horizontal overflow", async ({ page }) => {
+    await page.setViewportSize({ width: 768, height: 900 })
+    const table = page.getByRole("table", { name: "Links" })
+    await expect(table).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0)
+    const box = await table.boundingBox()
+    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(768)
+    const kebabBox = await kebab(page, "the long link").boundingBox()
+    expect((kebabBox?.x ?? 999) + (kebabBox?.width ?? 0)).toBeLessThanOrEqual(768)
+  })
+
+  test("the country picker is named with the country for screen readers", async ({ page }) => {
+    await expect(page.getByRole("combobox", { name: "Country code +1 United States" })).toBeVisible()
+  })
+})
+
 test.describe("Row kit", () => {
   test("the kebab menu repeats every action; a disabled item does nothing; Escape returns focus to the kebab", async ({ page }) => {
     const button = kebab(page, "+1 (415) 551-2125")
@@ -245,9 +278,9 @@ test.describe("Phone input", () => {
     await input.blur()
     await expect(page.getByText("Enter a 10-digit US number")).toBeVisible()
     await expect(input).toHaveAttribute("aria-invalid", "true")
-    // A change past the maximum length is ignored as a whole (the previous value stays).
+    // A too-long paste keeps its first digits: trailing ones are dropped until it fits (1health-fe parity).
     await input.fill("41555521259")
-    await expect(input).toHaveValue("(415) 555-212")
+    await expect(input).toHaveValue("4155552125")
     await input.fill("")
     await input.pressSequentially("41555521259")
     await expect(input).toHaveValue("4155552125")
@@ -257,14 +290,14 @@ test.describe("Phone input", () => {
     await expect(input).not.toHaveAttribute("aria-invalid", "true")
 
     await input.fill("+44 20 7183 8750")
-    await expect(page.getByRole("combobox", { name: "Country code" })).toHaveText("🇬🇧+44")
+    await expect(page.getByRole("combobox", { name: /^Country code/ })).toHaveText("🇬🇧+44")
     await expect(page.getByTestId("e164")).toHaveText("+442071838750")
   })
 
   test("the country picker opens from the keyboard, finds a country by letter and arrows and keeps the number", async ({ page }) => {
     const input = page.getByRole("textbox", { name: "Phone number" })
     await input.fill("30 901820")
-    const country = page.getByRole("combobox", { name: "Country code" })
+    const country = page.getByRole("combobox", { name: /^Country code/ })
     await country.focus()
     await page.keyboard.press("Enter")
     await expect(page.getByRole("listbox")).toBeVisible()

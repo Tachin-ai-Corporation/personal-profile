@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { axeViolations } from "@/test/axe"
 import { stubLayoutApis } from "@/test/dom-stubs"
 import { Button } from "./button"
+import { ConfirmDialog } from "./confirm-dialog"
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from "./sheet"
 
 beforeEach(() => stubLayoutApis())
@@ -83,6 +84,56 @@ describe("Sheet (F6-2)", () => {
     fireEvent.keyDown(sheet(), { key: "Escape" })
     expect(onClose).toHaveBeenCalledTimes(3)
     expect(screen.queryByRole("dialog")).toBeNull()
+  })
+
+  it("a ConfirmDialog opened inside it handles Escape and its scrim alone, and returns focus into the sheet", async () => {
+    function Nested() {
+      const [sheetOpen, setSheetOpen] = React.useState(true)
+      const [confirmOpen, setConfirmOpen] = React.useState(false)
+      return (
+        <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+          <SheetContent>
+            <SheetHeader>
+              <SheetTitle>Edit insurance</SheetTitle>
+            </SheetHeader>
+            <SheetBody>
+              <SheetDescription>Policy</SheetDescription>
+              <Button type="button" onClick={() => setConfirmOpen(true)}>
+                Delete policy
+              </Button>
+              <ConfirmDialog
+                open={confirmOpen}
+                title="Delete this insurance policy?"
+                body="It will be removed."
+                confirmLabel="Delete policy"
+                variant="destructive"
+                onConfirm={() => setConfirmOpen(false)}
+                onCancel={() => setConfirmOpen(false)}
+              />
+            </SheetBody>
+          </SheetContent>
+        </Sheet>
+      )
+    }
+    render(<Nested />)
+    const trigger = screen.getByRole("button", { name: "Delete policy" })
+    trigger.focus()
+    fireEvent.click(trigger)
+    const confirm = screen.getByRole("alertdialog", { name: "Delete this insurance policy?" })
+    fireEvent.keyDown(confirm, { key: "Escape" })
+    expect(screen.queryByRole("alertdialog")).toBeNull()
+    expect(screen.getByRole("dialog", { name: "Edit insurance" })).toBeTruthy()
+    await nextTask()
+    expect(document.activeElement).toBe(trigger)
+
+    fireEvent.click(trigger)
+    await nextTask()
+    const scrims = document.querySelectorAll<HTMLElement>("[data-slot='dialog-overlay']")
+    const topScrim = scrims[scrims.length - 1]
+    fireEvent.pointerDown(topScrim)
+    fireEvent.click(topScrim)
+    expect(screen.queryByRole("alertdialog")).toBeNull()
+    expect(screen.getByRole("dialog", { name: "Edit insurance" })).toBeTruthy()
   })
 
   it("while not dismissible ignores close, back, Escape and the scrim", async () => {

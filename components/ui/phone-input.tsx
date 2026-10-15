@@ -8,7 +8,7 @@ import { SECTION_MESSAGES } from "@/lib/shared/messages"
 import {
   dialCodeOf,
   formatPhoneInput,
-  isPhoneTooLong,
+  clampPhoneInput,
   normalizeRegion,
   parseInternationalPhone,
   phoneRegions,
@@ -50,8 +50,10 @@ const DISALLOWED = /[^\d\s()+\-.]/g
  * 3.1, 3.2, 5.2): a country picker as the leading segment (flag + dial code,
  * on the shared `Select`, every libphonenumber region, default United
  * States as in 1health-fe) and the national number field (44 px, 16 px,
- * `inputmode="tel"`). Typing past the country's maximum length is ignored;
- * the number is formatted on blur; a pasted or typed international number
+ * `inputmode="tel"`);
+ * a too-long change keeps its first digits (trailing ones dropped,
+ * as in 1health-fe); the number is formatted on blur (never while read-only);
+ * a pasted or typed international number
  * (`+44 …`) switches the country. Validation and E.164 live in
  * `lib/shared/phone.ts` (`phoneIssue`, `toE164`); the Section's schema
  * maps the issue to catalog copy.
@@ -74,6 +76,8 @@ export function PhoneInput({
 }: PhoneInputProps): React.JSX.Element {
   const region = normalizeRegion(value.region)
   const regions = phoneRegions(locale)
+  const regionName = regions.find((entry) => entry.region === region)?.name ?? region.toUpperCase()
+  const labelId = `${React.useId()}-country`
 
   const handleInput = (event: React.ChangeEvent<HTMLInputElement>): void => {
     const text = event.target.value.replace(DISALLOWED, "")
@@ -81,13 +85,14 @@ export function PhoneInput({
       onChange(parseInternationalPhone(text) ?? { region, national: text })
       return
     }
-    if (isPhoneTooLong(text, region)) return
-    onChange({ region, national: text })
+    // Too long (e.g. a paste): trailing digits are dropped until it fits (1health-fe parity).
+    onChange({ region, national: clampPhoneInput(text, region) })
   }
 
   const handleBlur = (): void => {
     const formatted = formatPhoneInput(value.national, region)
-    if (formatted !== value.national) onChange({ region, national: formatted })
+    // Read-only (saving) and disabled values never change, not even their formatting.
+    if (!readOnly && !disabled && formatted !== value.national) onChange({ region, national: formatted })
     onBlur?.()
   }
 
@@ -100,8 +105,15 @@ export function PhoneInput({
         disabled={disabled}
         ariaDisabled={readOnly}
       >
+        {/* The trigger's name: "Country code", then the dial code and the country's name (the flag is decorative). */}
+        <span id={labelId} className="sr-only">
+          {SECTION_MESSAGES.countryCode}
+        </span>
+        <span id={`${labelId}-value`} className="sr-only">
+          {`+${dialCodeOf(region)} ${regionName}`}
+        </span>
         <SelectTrigger
-          aria-label={SECTION_MESSAGES.countryCode}
+          aria-labelledby={`${labelId} ${labelId}-value`}
           aria-invalid={invalid}
           data-slot="phone-input-country"
           className="shrink-0 gap-1.5 rounded-r-none border-r-0 px-2.5 aria-invalid:px-[9px] tabular-nums"

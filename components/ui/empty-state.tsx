@@ -24,6 +24,8 @@ export interface EmptyStateCardProps extends EmptyStateBaseProps {
   readonly variant: "card"
   /** An optional heading line above the message (`section-title`), e.g. the organizations empty state. */
   readonly title?: React.ReactNode
+  /** The title's element: a heading level that fits the page outline (e.g. `"h3"` inside a Section); defaults to `"p"`. */
+  readonly titleAs?: "p" | "h2" | "h3" | "h4"
   /** Extra content between the message and the action (e.g. feature rows). */
   readonly children?: React.ReactNode
 }
@@ -84,14 +86,14 @@ export function EmptyState(props: EmptyStateProps): React.JSX.Element {
       </tr>
     )
   }
-  const { message, action, title, children, className } = props
+  const { message, action, title, titleAs: Title = "p", children, className } = props
   return (
     <div
       data-slot="empty-state"
       data-variant="card"
       className={cn("bg-card border-border flex flex-col items-start gap-3 rounded-md border border-dashed p-6", className)}
     >
-      {title ? <p className="section-title text-foreground">{title}</p> : null}
+      {title ? <Title className="section-title text-foreground">{title}</Title> : null}
       <p className="text-muted-foreground text-body-sm">{message}</p>
       {children}
       {action ? <CardAction action={action} /> : null}

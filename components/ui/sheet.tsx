@@ -5,7 +5,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { ChevronLeft } from "lucide-react"
 
 import { DialogOverlay, DialogPortal, ModalCloseButton, useModalHandlers, type ModalBehaviorProps } from "@/components/ui/dialog"
-import { SECTION_MESSAGES } from "@/lib/shared/messages"
+import { COMMON_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
 
 /**
@@ -67,7 +67,7 @@ export interface SheetHeaderProps extends React.ComponentProps<"div"> {
 }
 
 /** Sticky header (min 60 px, bottom hairline): back control below 768 px, the title, close button from 768 px. */
-function SheetHeader({ className, children, closeLabel, backLabel = SECTION_MESSAGES.back, ...props }: SheetHeaderProps) {
+function SheetHeader({ className, children, closeLabel, backLabel = COMMON_MESSAGES.back, ...props }: SheetHeaderProps) {
   const { dismissible } = React.useContext(SheetBehavior)
   return (
     <div data-slot="sheet-header" className={cn("border-border flex min-h-[60px] shrink-0 items-center gap-2 border-b px-4 md:px-6 md:pr-3", className)} {...props}>

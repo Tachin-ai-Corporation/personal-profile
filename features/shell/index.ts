@@ -172,7 +172,7 @@ export { DESKTOP_QUERY, useMediaQuery } from "./use-media-query"
 // Section row kit and countdown (F6-2).
 export { RowActions, type RowAction, type RowActionsProps } from "./row-actions"
 export { ROW_EDIT_STATE_CLASSES, RowEditStatus, RowRemoval, type RowEditState, type RowRemovalProps } from "./row-removal"
-export { SectionTable, type MobileLine, type SectionTableColumn, type SectionTableLayout, type SectionTableProps } from "./section-table"
+export { SectionTable, type MobileLine, type SectionTableCellContext, type SectionTableColumn, type SectionTableLayout, type SectionTableProps } from "./section-table"
 export { useCountdown, type Countdown, type UseCountdownOptions } from "./use-countdown"
 export {
   PARTIAL_TOAST_MS,

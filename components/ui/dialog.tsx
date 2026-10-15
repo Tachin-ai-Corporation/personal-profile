@@ -4,7 +4,7 @@ import * as React from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { XIcon } from 'lucide-react'
 
-import { SECTION_MESSAGES } from '@/lib/shared/messages'
+import { COMMON_MESSAGES } from '@/lib/shared/messages'
 import { cn } from '@/lib/utils'
 
 // Dialog is the root component for the modal dialog, using Radix UI's DialogPrimitive.Root.
@@ -117,7 +117,7 @@ export interface ModalCloseButtonProps {
  * A 44 px icon button that closes the dialog or sheet; `aria-disabled` and a
  * no-op while not dismissible (it keeps focus and its place in the tab order).
  */
-export function ModalCloseButton({ dismissible, label = SECTION_MESSAGES.close, className, children }: ModalCloseButtonProps): React.JSX.Element {
+export function ModalCloseButton({ dismissible, label = COMMON_MESSAGES.close, className, children }: ModalCloseButtonProps): React.JSX.Element {
   return (
     <DialogPrimitive.Close
       data-slot="dialog-close"

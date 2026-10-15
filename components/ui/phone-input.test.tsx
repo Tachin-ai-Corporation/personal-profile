@@ -24,12 +24,14 @@ function Harness({ initial = { region: "us", national: "" }, onBlur, ...props }:
 }
 
 const number = () => screen.getByRole("textbox", { name: "Phone number" }) as HTMLInputElement
-const country = () => screen.getByRole("combobox", { name: "Country code" })
+const country = () => screen.getByRole("combobox", { name: /^Country code/ })
 
 describe("PhoneInput (F6-2)", () => {
   it("is a country picker (flag + dial code) joined to a 44 px, 16 px tel input wired by FormField; axe clean", async () => {
     render(<Harness />)
     expect(country().textContent).toBe("🇺🇸+1")
+    // Screen readers hear the label and the country's name (the flag is decorative).
+    expect(screen.getByRole("combobox", { name: "Country code +1 United States" })).toBe(country())
     const input = number()
     expect(input.getAttribute("type")).toBe("tel")
     expect(input.getAttribute("inputmode")).toBe("tel")
@@ -42,12 +44,15 @@ describe("PhoneInput (F6-2)", () => {
     expect(await axeViolations()).toEqual([])
   })
 
-  it("keeps typed digits, drops letters, ignores a digit past the country's maximum and formats on blur", () => {
+  it("keeps typed digits, drops letters, drops digits past the country's maximum and formats on blur", () => {
     const onBlur = vi.fn()
     render(<Harness onBlur={onBlur} />)
     fireEvent.change(number(), { target: { value: "415a5552125" } })
     expect(number().value).toBe("4155552125")
     fireEvent.change(number(), { target: { value: "41555521259" } })
+    expect(number().value).toBe("4155552125")
+    // A too-long paste keeps its first digits (1health-fe clamps trailing ones).
+    fireEvent.change(number(), { target: { value: "(415) 555-2125 ext 99" } })
     expect(number().value).toBe("4155552125")
     fireEvent.blur(number())
     expect(number().value).toBe("(415) 555-2125")
@@ -92,6 +97,9 @@ describe("PhoneInput (F6-2)", () => {
     expect(country().getAttribute("aria-disabled")).toBe("true")
     fireEvent.keyDown(country(), { key: "Enter" })
     expect(screen.queryByRole("listbox")).toBeNull()
+    // Blur never re-formats a read-only value.
+    fireEvent.blur(number())
+    expect(number().value).toBe("4155552125")
   })
 
   it("passes a ref to the number input and supports disabled", () => {

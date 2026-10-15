@@ -6,6 +6,7 @@ import {
   formatPhoneInput,
   isPhoneRegion,
   isPhoneTooLong,
+  clampPhoneInput,
   normalizeRegion,
   parseInternationalPhone,
   phoneDigits,
@@ -118,8 +119,19 @@ describe("typing helpers", () => {
     ["415555", "us", "(415) 555"],
     [" - ", "us", "-"],
     ["", "us", ""],
+    // An international number being typed is never reread as a national one.
+    ["+44 20 7183 8750", "us", "+44 20 7183 8750"],
+    ["+4420", "us", "+44 20"],
   ])("formatPhoneInput(%j, %j) → %j", (text, region, formatted) => {
     expect(formatPhoneInput(text, region)).toBe(formatted)
+  })
+
+  it.each([
+    ["4155552125", "us", "4155552125"],
+    ["(415) 555-2125 99", "us", "4155552125"],
+    ["2071838750123456789", "gb", "2071838750"],
+  ])("clampPhoneInput(%j, %j) → %j (trailing digits dropped)", (text, region, clamped) => {
+    expect(clampPhoneInput(text, region)).toBe(clamped)
   })
 
   it("parses an international paste into its region", () => {
@@ -147,6 +159,9 @@ describe("phoneIssue", () => {
     [EMPTY_PHONE_INPUT, "required"],
     [{ region: "us", national: "(415) 555-2125" }, null],
     [{ region: "us", national: "415 555 212" }, "tenDigits"],
+    // A trunk "1" is not one of the 10 national digits.
+    [{ region: "us", national: "1 415 555 212" }, "tenDigits"],
+    [{ region: "us", national: "14155552125" }, null],
     [{ region: "ca", national: "416 555 0123" }, null],
     [{ region: "gb", national: "020 7183 8750" }, null],
     [{ region: "gb", national: "123" }, "invalid"],
@@ -161,6 +176,9 @@ describe("toE164", () => {
     [{ region: "gb", national: "020 7183 8750" }, "+442071838750"],
     [{ region: "us", national: "" }, null],
     [{ region: "gb", national: "1" }, null],
+    [{ region: "us", national: "14155552125" }, "+14155552125"],
+    [{ region: "us", national: "1 415 555 212" }, null],
+    [{ region: "gb", national: "123" }, null],
   ] as const)("%j → %j", (value, e164) => {
     expect(toE164(value)).toBe(e164)
   })

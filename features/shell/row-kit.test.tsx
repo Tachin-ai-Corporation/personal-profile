@@ -1,6 +1,7 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import * as React from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { axeViolations } from "@/test/axe"
 import { stubLayoutApis } from "@/test/dom-stubs"
@@ -43,7 +44,8 @@ describe("RowActions (F6-2)", () => {
       </TooltipProvider>,
     )
     const inline = document.querySelector("[data-slot='row-actions-inline']") as HTMLElement
-    for (const token of ["md:opacity-0", "md:group-hover/row:opacity-100", "md:group-focus-within/row:opacity-100", "duration-150", "motion-reduce:transition-none", "max-md:hidden"]) {
+    // Hidden until hover/focus only with a fine pointer: on touch from 768 px they stay visible (never invisible but tappable).
+    for (const token of ["md:pointer-fine:opacity-0", "md:pointer-fine:group-hover/row:opacity-100", "md:pointer-fine:group-focus-within/row:opacity-100", "duration-150", "motion-reduce:transition-none", "max-md:hidden"]) {
       expect(inline.className).toContain(token)
     }
     const kebab = screen.getByRole("button", { name: "More actions for +1 (415) 551-2125" })
@@ -71,7 +73,9 @@ describe("RowActions (F6-2)", () => {
     const removeItem = within(menu).getByRole("menuitem", { name: "Remove" })
     expect(removeItem.getAttribute("data-variant")).toBe("destructive")
     fireEvent.click(removeItem)
-    expect(remove).toHaveBeenCalledTimes(1)
+    // The action runs once the menu has closed and focus is back on the kebab.
+    await waitFor(() => expect(remove).toHaveBeenCalledTimes(1))
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "More actions for +1 (415) 551-2125" }))
     expect(screen.queryByRole("menu")).toBeNull()
   })
 
@@ -85,12 +89,13 @@ describe("RowActions (F6-2)", () => {
 
 describe("RowRemoval / RowEditStatus (F6-2)", () => {
   function Row({ initial = "saved" as RowEditState, disabledReason }: { readonly initial?: RowEditState; readonly disabledReason?: string }) {
+    const statusId = React.useId()
     const [state, setState] = React.useState<RowEditState>(initial)
     const ref = React.useRef<HTMLButtonElement>(null)
     return (
       <TooltipProvider>
-        <RowEditStatus state={state} />
-        <RowRemoval ref={ref} state={state} disabledReason={disabledReason} onRemove={() => setState("removed")} onRestore={() => setState("saved")} />
+        <RowEditStatus id={statusId} state={state} />
+        <RowRemoval ref={ref} statusId={statusId} state={state} disabledReason={disabledReason} onRemove={() => setState("removed")} onRestore={() => setState("saved")} />
         <button type="button" onClick={() => ref.current?.focus()}>
           Focus action
         </button>
@@ -246,5 +251,160 @@ describe("SectionTable (F6-2)", () => {
     render(<SectionTable<Phone> rows={PHONES} columns={COLUMNS} getRowKey={(row) => String(row.id)} />)
     expect(screen.getAllByRole("listitem")).toHaveLength(2)
     expect(document.querySelector("[data-slot='row-actions-cell']")).toBeNull()
+  })
+
+  it("desktop: fixed layout with column widths and wrapping cells; cells get their header id", () => {
+    stubViewport(1280)
+    const cell = vi.fn((row: Phone, context: { headerId: string; layout: string }) => `${row.number} (${context.layout})`)
+    render(
+      <SectionTable<Phone>
+        rows={PHONES}
+        columns={[{ key: "number", header: "Number", cell, width: "w-[40%]" }]}
+        getRowKey={(row) => String(row.id)}
+        actions={() => <button type="button">Act</button>}
+        actionsWidth="w-24"
+      />,
+    )
+    const table = screen.getByRole("table")
+    expect(table.className).toContain("table-fixed")
+    expect([...table.querySelectorAll("col")].map((col) => col.className)).toEqual(["w-[40%]", "w-24"])
+    expect(screen.getAllByRole("cell")[0].className).toContain("[overflow-wrap:anywhere]")
+    const headerId = cell.mock.calls[0][1].headerId
+    expect(document.getElementById(headerId)?.textContent).toBe("Number")
+    expect(cell.mock.calls[0][1].layout).toBe("table")
+  })
+
+  it("desktop edit view defaults the actions column narrower", () => {
+    stubViewport(1280)
+    render(<Table editing />)
+    expect([...screen.getByRole("table").querySelectorAll("col")].at(-1)?.className).toBe("w-32")
+  })
+
+  it("an expanded row is one full-width cell on desktop and the card body on mobile", () => {
+    const resize = stubViewport(1280)
+    render(
+      <SectionTable<Phone>
+        rows={PHONES}
+        columns={COLUMNS}
+        getRowKey={(row) => String(row.id)}
+        editing
+        renderExpanded={(row) => (row.id === 2 ? <div data-testid="expanded">Address grid {row.number}</div> : null)}
+        actions={(row) => <button type="button">Remove {row.id}</button>}
+      />,
+    )
+    const expandedCell = screen.getByTestId("expanded").closest("td")
+    expect(expandedCell?.getAttribute("colspan")).toBe("5")
+    expect(expandedCell?.closest("tr")?.getAttribute("data-expanded")).toBe("true")
+    expect(screen.queryByRole("button", { name: "Remove 2" })).toBeNull()
+    expect(screen.getByRole("button", { name: "Remove 1" })).toBeTruthy()
+    act(() => resize(360))
+    const cards = screen.getAllByRole("listitem")
+    expect(within(cards[1]).getByTestId("expanded")).toBeTruthy()
+    expect(within(cards[1]).getByRole("button", { name: "Remove 2" })).toBeTruthy()
+  })
+
+  it("mobile edit view: one full-width block per column under its visible header, named by it", async () => {
+    stubViewport(360)
+    render(
+      <TooltipProvider>
+        <h2 id="edit-heading">Phone</h2>
+        <SectionTable<Phone>
+          rows={PHONES}
+          labelledBy="edit-heading"
+          columns={[
+            { key: "number", header: "Number", cell: (row) => row.number },
+            { key: "label", header: "Label", cell: (row, { headerId }) => <input aria-labelledby={headerId} defaultValue={row.label} /> },
+          ]}
+          getRowKey={(row) => String(row.id)}
+          editing
+          rowState={(row) => (row.id === 2 ? "removed" : "saved")}
+          actions={(row) => <RowRemoval state={row.id === 2 ? "removed" : "saved"} onRemove={vi.fn()} onRestore={vi.fn()} />}
+        />
+      </TooltipProvider>,
+    )
+    const cards = screen.getAllByRole("listitem")
+    expect(within(cards[0]).getByText("Number")).toBeTruthy()
+    expect(within(cards[0]).getByRole("textbox", { name: "Label" })).toBeTruthy()
+    expect(cards[0].className).toContain("items-start")
+    expect(within(cards[1]).getByText("+1 (415) 555-0100").className).toContain("line-through")
+    expect(await axeViolations()).toEqual([])
+  })
+})
+
+describe("RowActions: focus and empty lists (F6-2 review)", () => {
+  function WithConfirm() {
+    const [open, setOpen] = React.useState(false)
+    return (
+      <>
+        <RowActions name="+1 (415) 551-2125" actions={[{ id: "primary", label: "Make primary", onSelect: () => setOpen(true) }]} />
+        <ConfirmDialog
+          open={open}
+          title="This changes how you sign in"
+          body="Body"
+          confirmLabel="Make primary"
+          variant="standard"
+          onConfirm={() => setOpen(false)}
+          onCancel={() => setOpen(false)}
+        />
+      </>
+    )
+  }
+
+  it.each([false, true])("a dialog opened from a menu item returns focus to the kebab (reduced motion: %s)", async (reduced) => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: reduced && query.includes("reduce"),
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }))
+    render(<WithConfirm />)
+    const kebab = screen.getByRole("button", { name: "More actions for +1 (415) 551-2125" })
+    kebab.focus()
+    const menu = await openKebab()
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Make primary" }))
+    const dialog = await screen.findByRole("alertdialog", { name: "This changes how you sign in" })
+    fireEvent.keyDown(dialog, { key: "Escape" })
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull())
+    await waitFor(() => expect(document.activeElement).toBe(kebab))
+    vi.unstubAllGlobals()
+  })
+
+  it("renders nothing (no kebab, no empty menu) without a usable action", () => {
+    const { container } = render(<RowActions name="x" actions={[{ id: "ghost", label: "Ghost", onSelect: undefined as unknown as () => void }]} />)
+    expect(container.innerHTML).toBe("")
+  })
+})
+
+describe("RowRemoval: focus across the swap and Restore's description (F6-2 review)", () => {
+  it("keeps focus when Remove becomes Restore and back; Restore is described by 'Removed on save'", () => {
+    function Row() {
+      const [state, setState] = React.useState<RowEditState>("saved")
+      return (
+        <>
+          <RowEditStatus id="status-1" state={state} />
+          <RowRemoval statusId="status-1" state={state} onRemove={() => setState("removed")} onRestore={() => setState("saved")} />
+        </>
+      )
+    }
+    render(<Row />)
+    const remove = screen.getByRole("button", { name: "Remove" })
+    remove.focus()
+    fireEvent.click(remove)
+    const restore = screen.getByRole("button", { name: "Restore" })
+    expect(document.activeElement).toBe(restore)
+    expect(restore.getAttribute("aria-describedby")).toBe("status-1")
+    expect(document.getElementById("status-1")?.textContent).toBe("Removed on save")
+    fireEvent.click(restore)
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Remove" }))
+  })
+
+  it("doesn't take focus when the press came from elsewhere (pointer without focus)", () => {
+    function Row() {
+      const [state, setState] = React.useState<RowEditState>("saved")
+      return <RowRemoval state={state} onRemove={() => setState("removed")} onRestore={() => setState("saved")} />
+    }
+    render(<Row />)
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }))
+    expect(document.activeElement).toBe(document.body)
   })
 })

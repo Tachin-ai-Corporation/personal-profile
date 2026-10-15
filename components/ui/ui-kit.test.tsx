@@ -83,6 +83,45 @@ describe("Checkbox and Switch (F6-2)", () => {
   })
 })
 
+describe("Checkbox and Switch ariaDisabled (F6-2 review)", () => {
+  it("stay focusable, look disabled and never change on click, Space or a label press", () => {
+    const onCheckbox = vi.fn()
+    const onSwitch = vi.fn()
+    const onClick = vi.fn()
+    render(
+      <main>
+        <Checkbox id="primary" ariaDisabled aria-describedby="why" onCheckedChange={onCheckbox} />
+        <label htmlFor="primary">Set as primary</label>
+        <Switch id="notify" ariaDisabled defaultChecked onCheckedChange={onSwitch} />
+        <label htmlFor="notify">Notifications</label>
+        <Checkbox id="enabled" onClick={onClick} />
+        <label htmlFor="enabled">Enabled</label>
+        <p id="why">Verify this address first</p>
+      </main>,
+    )
+    const checkbox = screen.getByRole("checkbox", { name: "Set as primary" })
+    const toggle = screen.getByRole("switch", { name: "Notifications" })
+    for (const control of [checkbox, toggle]) {
+      expect(control.getAttribute("aria-disabled")).toBe("true")
+      expect(control.className).toContain("aria-disabled:opacity-50")
+      expect(control.hasAttribute("disabled")).toBe(false)
+      control.focus()
+      expect(document.activeElement).toBe(control)
+      fireEvent.click(control)
+      fireEvent.keyDown(control, { key: " " })
+    }
+    fireEvent.click(screen.getByText("Set as primary"))
+    expect(checkbox.getAttribute("aria-checked")).toBe("false")
+    expect(toggle.getAttribute("aria-checked")).toBe("true")
+    expect(onCheckbox).not.toHaveBeenCalled()
+    expect(onSwitch).not.toHaveBeenCalled()
+    // An enabled one still calls the caller's onClick and toggles.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Enabled" }))
+    expect(onClick).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole("checkbox", { name: "Enabled" }).getAttribute("aria-checked")).toBe("true")
+  })
+})
+
 describe("Chip (F6-2)", () => {
   it.each([
     ["label", "bg-muted"],
@@ -167,6 +206,11 @@ describe("EmptyState (F6-2)", () => {
     fireEvent.click(add)
     expect(onAdd).toHaveBeenCalledTimes(1)
     expect(await axeViolations()).toEqual([])
+  })
+
+  it("card title takes a heading level with titleAs", () => {
+    render(<EmptyState variant="card" title="You aren't managing any organizations yet" titleAs="h3" message="Register one." />)
+    expect(screen.getByRole("heading", { level: 3, name: "You aren't managing any organizations yet" }).className).toContain("section-title")
   })
 
   it("an action with a reason is aria-disabled and does nothing, in both variants", () => {

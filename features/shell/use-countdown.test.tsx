@@ -1,4 +1,5 @@
 import { act, renderHook } from "@testing-library/react"
+import { StrictMode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useCountdown } from "./use-countdown"
 
@@ -50,6 +51,19 @@ describe("useCountdown (F6-2)", () => {
     expect(result.current.remaining).toBe(0)
     advance(250)
     expect(onDone).toHaveBeenCalledTimes(1)
+  })
+
+  it("under StrictMode (double effects) still counts once per second and calls onDone once", () => {
+    const onDone = vi.fn()
+    const { result } = renderHook(() => useCountdown({ onDone }), { wrapper: StrictMode })
+    act(() => result.current.start(3))
+    advance(1000)
+    expect(result.current.remaining).toBe(2)
+    expect(vi.getTimerCount()).toBe(1)
+    advance(2000)
+    expect(result.current).toMatchObject({ remaining: 0, running: false })
+    expect(onDone).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it("uses the latest onDone and clears its timer on unmount", () => {
