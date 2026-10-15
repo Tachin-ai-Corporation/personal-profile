@@ -1,0 +1,109 @@
+---
+title: 'R5-1 Main parity recovery: server and e2e'
+type: 'bugfix'
+created: '2026-10-14'
+status: 'draft'
+baseline_commit: '3d485ab'
+route: 'dispatch'
+review_loop_iteration: 0
+context:
+  - '{project-root}/CLAUDE.md'
+  - '{project-root}/docs/FOUNDATION.md (§1 T1–T8, R1–R11)'
+  - '{project-root}/docs/AUTH-ARCHITECTURE.md'
+  - '{project-root}/_bmad-output/planning-artifacts/epics.md (D1–D13, ~L626–680)'
+  - 'origin/main (b005536): test/e2e-upstream-mock.ts, instrumentation.ts, e2e/{launch,session-dialogs,headers,shell}.spec.ts, e2e/fixtures.ts, lib/server/{env,refresh,token,launch,logout,proxy}.test.ts'
+  - '../1h-ng-bo-core-be/bo-core/src/main/java/com/sirma/bocore/common/Messages.java (EXTERNAL_APPLICATION_SECURITY_CODE_*, INVALID_SIGNATURE)'
+---
+
+<frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">
+
+## Intent
+
+**Problem:** `origin/main` (b005536) holds the other team's Epic 1 (Stories 1.1–1.8). Our branch was rebuilt on main keeping our BFF implementation; a parity audit found behaviours and tests of main that were lost: the server-side e2e upstream mock (so no e2e drives a real launch, the real proxy or a real logout), the real exchange-error texts, numeric-string `expires_in` and the narrower "session ends" rule of the refresh grant, two boot checks on the secret keys, the broad `_DEMO`/`_PROD` name gate, fail-closed `/api/token`, the opaque-redirect proxy answer, and a set of unit and e2e assertions.
+
+**Approach:** Restore each lost behaviour on our architecture (no CSRF/binding, D5; sealed session; `lib/server/env.ts` as the only env reader), with tests, and re-add the e2e launch suite against a server-side upstream mock behind `PP_E2E_MOCK=1`. Pre-approved by the human (2026-10-14): write the spec, then implement.
+
+**Human decisions (2026-10-14):**
+- (a) A replayed request that hits `TOKEN_EXPIRED` again ends the session (no forced refresh): keep HEAD.
+- (b) `/api/token` clears the session cookie on every failure, including 405, 415 and `SERVICE_DISABLED`: keep HEAD.
+- (c) Refresh: only an IdP 401 or a 400 with `error: "invalid_grant"` ends the session (401 `SESSION_EXPIRED`, cookie cleared). An IdP 403, any other 400 and a non-JSON 400 are 503 `REFRESH_UNAVAILABLE` with the cookie kept: restore main.
+
+## Boundaries & Constraints
+
+**Always:**
+- **E2E upstream mock** `test/e2e-upstream-mock.ts`: patches the server's global `fetch` and answers only the 1health launch exchange (single-use codes: a second exchange of a code → 400 with the recorded "…has already been redeemed." body), `GET /api/v2/user/myself` (`{ id: 42, personId: 4242, firstName: "Ann", lastName: "Lee", username: "ann.lee" }`, the frozen e2e `ANN`) and `POST /auth/user/logout/all-devices` (200). Every exchange issues a distinct access token whose plaintext payload carries `tenantId: 1`; a revoked access token's `myself` answers 401, so e2e can prove the logout revoke reached the platform. Anything else goes to the real `fetch`. Installed from `instrumentation.ts` only when `serverEnv().PP_E2E_MOCK` (exactly `"1"`, read only through `lib/server/env.ts`); `installUpstreamMock()` itself refuses (throws) without the flag. `e2e/server-env.ts` `TEST_SERVER_ENV` sets it. Never set in a deployment.
+- **E2E launch fixtures** in `e2e/fixtures/core.ts` (foundation): `makeLpl(code, env)`, `freshCode()`, `launch(page, env)`, with keys and app ids taken from `e2e/server-env.ts` (`E2E_LAUNCH`), so the `_DEMO`/`_PROD` names stay in the allowed files.
+- **`e2e/launch.spec.ts`** (fail-fast `test` where the page reads data): demo launch end to end (real `Set-Cookie` attributes, `onehealth_environment=demo`, no `lpl` in URL or history, a reload makes no second exchange, back → stripped `/auth` "Connected to Demo environment. No launch payload detected."), prod launch, an unencoded `+` arriving as a space, a replayed code (5 POSTs, then the error, and the session cleared), manual entry, one unmocked `/api/1h/v2/user/myself` read through the real proxy, logout with a real session (`Max-Age=0` and the revoke proven).
+- **Exchange errors** (`classifyExchangeError`): the upstream `message` (JSON `{ message }`, else the raw text) with the quoted code removed: "has already been redeemed." → `used`; "has expired." → `expired`; anything else ("Could not find external application security code: …", "Invalid signature provided.", "…could not be redeemed.") → `rejected`.
+- **Refresh** (`refreshSession`): `expires_in` may be a number or a finite numeric string; missing, 0, negative or non-numeric → 300 s; a valid `access_token` is never dropped for a bad `expires_in`; a rotated `refresh_token` is always kept. Decision (c) for the status mapping.
+- **Boot** (`parseServerEnv`): a whitespace-only `ONEHEALTH_SECRET_KEY_DEMO`/`_PROD` fails naming the variable; the two keys equal after trim fail naming both variables; values never printed. Whitespace around a non-blank key stays allowed.
+- **`check-forbidden.sh`:** the `_DEMO`/`_PROD` rule matches every `[A-Z][A-Z0-9_]*_(DEMO|PROD)` name (so `APP_ID_*` again), outside `lib/server/env.ts`, its test, `test/env-fixture.ts`, `.env.example`, `playwright.config.ts`, `e2e/server-env.ts`, `.github/workflows/ci.yml`; fixture tests.
+- **`/api/token` fails closed:** an unexpected throw in the launch or the seal → 502 `LAUNCH_INVALID`, retryable, cookie cleared (decision b), logged without the error text.
+- **Proxy:** an opaque redirect (`type: "opaqueredirect"` or status 0) → 502 `UPSTREAM_REDIRECT`; `fetchWithTimeout` returns it instead of throwing.
+
+**Ask First:** none (pre-approved).
+
+**Never:**
+- Edit `eslint.config.mjs`, `scripts/check-tokens.sh`, `vitest.config.ts`, `lib/api/**`, `features/**`, `components/**`, `app/globals*`, `CLAUDE.md`, the `package.json` name, `deferred-work.md` (spec R5-2 runs in parallel), or any `_bmad-output` file other than this spec and one Spec Change Log line in spec 7.0a.
+- Re-add CSRF, session binding or `SESSION_CHANGED` (D5), or a forced refresh (decision a).
+- Let any e2e reach real 1health.
+- Lower coverage (100 % on `lib/server`, `lib/api`, `lib/shared`).
+
+## I/O & Edge-Case Matrix
+
+| Scenario | Input / State | Expected Output / Behavior | Error Handling |
+|---|---|---|---|
+| Code redeemed | upstream 400 `{ message: "External application security code: 'X' has already been redeemed." }` | `used` → 400 `LAUNCH_USED` | — |
+| Code expired | `"…: 'X' has expired."` | `expired` → 400 `LAUNCH_EXPIRED` | — |
+| Unknown code / bad signature | `"Could not find external application security code: 'X'"`, `"Invalid signature provided."` | `rejected` → 400 `LAUNCH_INVALID` | a code value containing "expired" does not change the result |
+| Refresh `expires_in` | `"3600"` / missing / 0 / -5 / `"soon"` | 3600 s / 300 s / 300 s / 300 s / 300 s | — |
+| Refresh IdP answer | 401; 400 `invalid_grant` | 401 `SESSION_EXPIRED`, cookie cleared | — |
+| Refresh IdP answer | 403; 400 other; 400 non-JSON; 5xx; 3xx; timeout | 503 `REFRESH_UNAVAILABLE`, cookie kept | — |
+| Boot keys | DEMO `"   "`; DEMO `" k "` + PROD `"k"` | `ServerEnvError` naming the variable(s), no value | — |
+| `/api/token` throw | launch or seal throws | 502 `LAUNCH_INVALID`, retryable, cookie cleared | logged by name only |
+| Proxy opaque redirect | upstream `type: "opaqueredirect"`, status 0 | 502 `UPSTREAM_REDIRECT`, no-store | — |
+| Mock without flag | `installUpstreamMock()` with `PP_E2E_MOCK` unset | throws; `register()` leaves `fetch` untouched | — |
+
+</frozen-after-approval>
+
+## Code Map
+
+- `test/e2e-upstream-mock.ts` (+ test) -- server-side upstream mock.
+- `instrumentation.ts` (+ test), `lib/server/env.ts` (+ test) -- `PP_E2E_MOCK` flag, key boot checks.
+- `e2e/server-env.ts`, `e2e/fixtures/core.ts`, `e2e/launch.spec.ts`, `e2e/headers.spec.ts`, `e2e/shell.spec.ts`, `e2e/auth.spec.ts` -- e2e.
+- `lib/server/launch/{exchange,token-handler}.ts` (+ tests, `launch.test.ts`) -- exchange texts, fail-closed launch.
+- `lib/server/session/refresh.ts` (+ tests, `session-routes.test.ts`) -- refresh mapping and `expires_in`.
+- `lib/server/http/fetch-with-timeout.ts`, `lib/server/proxy/forward.ts` (+ tests) -- opaque redirect.
+- `scripts/check-forbidden.sh` (+ test) -- `_DEMO`/`_PROD` name gate.
+- `app/auth/page.test.tsx`, `app/api/**/route.test.ts` -- `force-dynamic` rows.
+
+## Tasks & Acceptance
+
+**Execution:**
+- [ ] Upstream mock + flag + instrumentation + guard tests; `PP_E2E_MOCK` in `TEST_SERVER_ENV`.
+- [ ] `makeLpl`/`freshCode`/`launch` in `e2e/fixtures/core.ts`; `e2e/launch.spec.ts`.
+- [ ] `classifyExchangeError` on the real texts, exact-string tests.
+- [ ] Refresh `expires_in` + decision (c), main's rows ported.
+- [ ] Boot key checks + tests; broad `_DEMO`/`_PROD` gate + tests.
+- [ ] `/api/token` fail-closed catch + injected-throw test.
+- [ ] Proxy opaque redirect + test.
+- [ ] Unit gaps: `force-dynamic` on token/refresh/logout/1h/auth; `app/auth/page.test.tsx`; non-string `lpl` and JSON array rows; no warning when the padded key itself decrypts; 5xx activity re-seal row; unsealable-cookie rows for logout and refresh.
+- [ ] E2E gaps: 360 px 16 px gutters and 44 px widths; CSP violation + `pageerror` listener on signed-in `/`; AD-21 + no-store on `POST /api/token` 400 and 415; Pragma on proxy errors; Choose Environment → Production; `/auth` Cache-Control; `headers.spec.ts` signed-in tests under the fail-fast `test` with `mockProfileDefaults`.
+- [ ] One Spec Change Log line in spec 7.0a correcting "the server-side exchange cannot be mocked".
+
+**Acceptance Criteria:**
+- Given the e2e server, when any e2e runs, then no request reaches real 1health (the mock answers the launch, `myself` and revoke; the browser fail-fast guard answers the rest).
+- Given a production build without `PP_E2E_MOCK=1`, when the server boots, then `fetch` is not patched.
+- Given every gate (install, lint, typecheck, `vitest run --coverage`, `PP_E2E_PORT=3250 test:e2e` twice, build, `check-forbidden.sh`), when run, then all pass.
+
+## Verification
+
+**Commands:**
+- `corepack pnpm install && corepack pnpm lint && corepack pnpm typecheck` -- expected: clean.
+- `corepack pnpm vitest run --coverage` -- expected: all pass, 100 % on the covered trees.
+- `PP_E2E_PORT=3250 corepack pnpm test:e2e` (twice) -- expected: all pass both times.
+- `corepack pnpm build && bash scripts/check-forbidden.sh` -- expected: OK.
+
+## Spec Change Log
+
+## Implementation Notes
