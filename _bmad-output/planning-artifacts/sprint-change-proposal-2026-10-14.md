@@ -217,39 +217,56 @@ No story text changes. The amended Epic 1 text is the source for every rework sp
 
 Each story goes through `bmad-build` from its amended text, its *Foundation* lines and FOUNDATION §5. The PR edits only Team A paths (T1, T2) and is not pushed until the user has reviewed it.
 
-1. **1.9 Header picture.**
-   - The `registerFetcher("profile-picture-id")` loader in `lib/api/profile-picture.ts`.
-   - The avatar on `FallbackImage`, with the initials as the fallback.
-   - The mutate-refresh component test and axe.
-   - No allowlist change.
-2. **1.10 Change picture.**
-   - A new `components/ui/image-reencode.ts`.
-   - The dialog in `features/header`.
-   - The avatar button only on `/`, decided with `useCurrentPage()`.
-   - Upload, then `fileDeletePath`, both best-effort.
-   - Copy in `messages/header.ts`.
-   - Needs the EXIF decision (D-C below).
-3. **1.14 Save all.** The `SaveAllBar` body, focus after the run, and `e2e/profile-save-all.spec.ts`. It also carries the D-A save safeguard, built in a foundation PR merged before the 1.14 story PR.
-4. **1.12 / 1.13 close-out**, per decision D-B.
-5. **1.16 Ops**, per decision D-D.
+1. **1.9 Header picture: DONE (review).** The spec is `spec-1-9-header-profile-picture.md`; commits `32d3372` and `43f1b8e` are pushed on `feat/NG-9027-epic1-continue`. It adds the loader in `lib/api/profile-picture.ts` and the avatar on `FallbackImage`.
+2. **The Epic 1 foundation PR** (Team A developer; both teams review; merged first). It contains:
+   - the D-A save safeguard;
+   - every test the 1.12 and 1.13 ACs still lack (D-B);
+   - a fixture page that mounts `SaveAllBar` for 1.14's e2e.
 
-### Conflicts and decisions for the epic owner (Daniel Garcia) / integrator
+   1.12 and 1.13 move to done when it merges.
+3. **1.10 Change picture**, which can run alongside step 2:
+   - a new `components/ui/image-reencode.ts`;
+   - the dialog in `features/header`;
+   - the avatar button only on `/`, decided with `useCurrentPage()`;
+   - upload, then `fileDeletePath`, best-effort;
+   - copy in `messages/header.ts`.
+
+   EXIF is decided (D-C): always re-encode, never upload the original bytes. Avoid the initials flash after the change by preloading the new image (1.9 review note).
+4. **1.14 Save all**, after the foundation PR: the `SaveAllBar` body, focus after the run, and `e2e/profile-save-all.spec.ts`.
+5. **1.16** belongs to the epic owner (D-D) and is not in the Team A sequence.
+
+### Decisions for the epic owner (Daniel Garcia) / integrator (D-A to D-D answered by 2026-10-15)
 
 - **D-A, save safeguard: APPROVED** by the epic owner on 2026-10-14 (recorded 2026-10-15; main had no record of it). User A's stale tab must not save into user B's profile after B launches in the same browser.
   - **Rule:** before any save, compare the page's rendered user (the `myself.id` it loaded) with a fresh `GET /myself`. On a mismatch, send nothing, end the page the way an expired session does, and keep A's edits on the device.
   - **Scope:** every save path. That means a Section's own Save, the Save-all run and the leave-guard Save. It is not limited to Save all.
-  - **Assigned to Story 1.14 (Save all)** in `sprint-status.yaml`. 1.14 is the Epic 1 story that owns the multi-Section save path, and its acceptance gains this check.
-  - **Delivered as a foundation PR merged before 1.14.** The shared save path is foundation code: `features/shell` (`useSectionForm`, `runSaveAll`, `LeaveGuard`) and `lib/api`. T2 bars a Team A story PR from editing it.
+  - **Delivery (owner answer, 2026-10-15):** it ships in the **Epic 1 foundation PR**, together with the 1.12/1.13 tests (D-B) and the Save-all test page. The Team A developer builds that PR; both teams review it, and it merges before 1.14. The shared save path is foundation code: `features/shell` (`useSectionForm`, `runSaveAll`, `LeaveGuard`) and `lib/api`. T2 bars a Team A story PR from editing it.
+  - **Open design point for that PR's spec:** the 1.10 picture upload doesn't go through `useSectionForm`. Placing the check at the shared write path, for example `callApi` writes, would cover it and every later write too.
   - **Design limits:** D5 still applies, so there is no session binding. The check must not reintroduce `X-PP-Session`, `sessionBinding` or `SESSION_CHANGED` / `session-changed`; `check-forbidden.sh` bans all of them. It runs in the client against `/myself` only. The copy for the mismatch outcome is a `// DRAFT COPY` entry, kept until PM reviews it.
   - **For the integrator:** add the approval next to D5 in `epics.md` and in FOUNDATION §6, which still lists point 3 as an accepted risk.
-- **D-B, Story 1.12/1.13 test gaps sit in foundation-owned files** (`e2e/section.spec.ts`, `e2e/shell.spec.ts`, `app/test-fixtures/**`, `features/shell/__fixtures__/**`). A Team A story PR may not edit them (T2). Options:
-  - **(a) Recommended:** one small foundation PR adds the three Playwright cases, then 1.12 and 1.13 move to done;
-  - **(b)** accept the existing Vitest coverage and mark both done now.
-- **D-C, Story 1.10 EXIF:** strip metadata on the server (a foundation change in `lib/server/proxy/upload.ts`, for example with sharp), or record "public pictures keep EXIF" as an accepted AD-13 risk. The client re-encode strips EXIF only for this app's own uploads.
-- **D-D, Story 1.16 ownership:**
-  - The `promote` workflow (`.github/**`) and `docs/ops/**` are foundation by T1/T2.
-  - The Vercel project, the External Application registrations and preview secrets need the owner.
-  - Proposal: split 1.16 into a foundation PR for the workflow and runbooks, plus owner tasks.
+- **D-B, Story 1.12/1.13 tests: ANSWERED 2026-10-15.** Add every test that can still cover the Story 1.12 and 1.13 ACs, in the Epic 1 foundation PR. The files are foundation-owned (`e2e/section.spec.ts`, `e2e/shell.spec.ts`, `app/test-fixtures/**`, `features/shell/__fixtures__/**`; T2). Coverage includes:
+  - **1.12:** fixture-Section Playwright cases for Save success, a mocked 400 with a mapped `errorCode`, and network failure → Retry → success, with exact copy, polite toasts and axe.
+  - **1.13:** Vitest and Playwright cases for:
+    - a tab switch with each dirty combination;
+    - the app-bar switch to Account;
+    - Return to 1health → Discard, with drafts purged;
+    - a hand-off target, with drafts kept and no logout;
+    - the scoped close;
+    - Save with an invalid participant;
+    - two guard-only fixtures (with and without `save`);
+    - keyboard operation, focus return and axe.
+
+  1.12 and 1.13 move to done when the PR merges.
+- **D-C, Story 1.10 EXIF/GPS: ANSWERED 2026-10-15, accepted risk.** Pictures uploaded outside this app may keep EXIF metadata, including GPS, because the BFF only sniffs magic bytes. There is no server-side strip, and `lib/server/proxy/upload.ts` is unchanged. In-app uploads are protected: 1.10 always re-encodes through `reencodeImage`, a canvas re-encode that drops the metadata, and never uploads the original bytes. This closes the AD-13 EXIF item in the Team A section of `deferred-work.md`.
+- **D-D, Story 1.16: ANSWERED 2026-10-15. The epic owner owns Story 1.16 entirely.** That covers:
+  - the Vercel project and scopes;
+  - the `promote` workflow;
+  - `docs/ops/*` runbooks;
+  - the External Application registrations and preview secrets;
+  - the rollback and kill-switch rehearsal;
+  - the PM copy review.
+
+  Team A does no 1.16 work, and it leaves the Team A sequence.
 - **D-E, stale planning text for the integrator** (`epics.md` is shared; this branch doesn't edit it):
   - The "Not built" list in "Foundation F6 and path corrections" still says:
     - 1.10 adds a `DELETE v2/file/{id}` entry; F7-2 denies it, and deletes use the named op;
@@ -257,10 +274,11 @@ Each story goes through `bmad-build` from its amended text, its *Foundation* lin
     - the re-encode helper goes in `features/shell/image-reencode.ts`; FOUNDATION §3.5 says `components/ui/image-reencode.ts`, and `features/shell` is foundation.
   - Story 1.10's `pictureEditable` prop note differs from FOUNDATION R11, which uses `useCurrentPage()`.
 
-### Artifacts updated on this branch (uncommitted, for review)
+### Artifacts updated on this branch
 
 - `epic-1-context.md`, recompiled from main.
 - `sprint-status.yaml`, Epic 1 story lines only. The header and `last_updated` are untouched (T8). Changes:
   - `1-1r` moves from review to done;
   - dated 2026-10-15 notes are added to `1-3r`, `1-9`, `1-10`, `1-12`, `1-13`, `1-14` and `1-16`.
 - This addendum.
+- 2026-10-15 (later): the owner's answers to D-B, D-C and D-D, and the D-A delivery, are recorded in this addendum, `epic-1-context.md` and the Epic 1 lines of `sprint-status.yaml`.
