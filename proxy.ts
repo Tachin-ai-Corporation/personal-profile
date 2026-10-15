@@ -26,7 +26,7 @@ import {
  * that answers the disabled screen with status 503. Both are no-store.
  *
  * It does not redirect requests without a session: pages call
- * `requireSession()` themselves (spec 7.0a design note).
+ * `requirePageSession()` themselves (spec 7.0a design note).
  *
  * Story 1.6 (AD-16): a top-level navigation to `/` or `/account` that carries
  * the session cookie is user activity. A valid session is re-sealed with
@@ -71,7 +71,7 @@ async function navigationActivity(request: NextRequest): Promise<NavigationActiv
     const setCookie = await renewLastSeen(session, now)
     return { kind: "renewed", setCookie, seal: setCookie.slice(SESSION_COOKIE.length + 1, setCookie.indexOf(";")) }
   } catch {
-    // Misconfigured secrets: leave the request alone, the page's requireSession() decides.
+    // Misconfigured secrets: leave the request alone, the page's requirePageSession() decides.
     return { kind: "none" }
   }
 }

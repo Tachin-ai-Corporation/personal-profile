@@ -7,11 +7,14 @@
 > 1health only through the BFF proxy with `callApi`; see
 > [CONVENTIONS.md](CONVENTIONS.md) and [../AUTH-ARCHITECTURE.md](../AUTH-ARCHITECTURE.md).
 
-**Start here if you're building features on this template.** These docs distill
-the reusable 1health API patterns (extracted from a full production app) into
-generic, copy-ready building blocks. Every concept below ships as typed code in
-[`lib/api/`](../../lib/api) — the docs explain the *why* and the *shape*; the
-code is the *how*.
+These docs describe how the 1health platform API works: its object model, read
+engines, `customData`, workflows and quirks, distilled from a full production
+app. They explain the *why* and the *shape* of the platform. The code that
+implemented these engines in the original template is gone; function and
+component names in these pages (`runQueryAll`, `parseCustomData`,
+`DynamicStepForm`, …) refer to that removed code. For how *this* app calls the
+API, see [CONVENTIONS.md](CONVENTIONS.md) and
+[FOUNDATION.md](../FOUNDATION.md).
 
 > All examples use **placeholder** type names, attribute names, and field labels.
 > Your app supplies its own (from 1health's schema/config). Nothing here is
@@ -37,8 +40,9 @@ code is the *how*.
   per-journey); *where you edit config determines its scope* (e.g. notification
   settings live on the campaign template) — see
   [PROVISIONING.md § template layers](PROVISIONING.md#the-four-template-layers-where-you-edit-matters).
-- **Everything goes through `callApi`** and the server-side proxy (Bearer token
-  and upstream origin are added server-side). See [CONVENTIONS.md](CONVENTIONS.md).
+- **In this app, everything goes through `callApi`** and the server-side proxy
+  (Bearer token and upstream origin are added server-side), and only for
+  allowlisted endpoints. See [CONVENTIONS.md](CONVENTIONS.md).
 
 ## The one distinction that trips everyone up
 
@@ -63,28 +67,13 @@ Never hardcode a step-field GUID. See [DATA-MODEL.md § Attributes](DATA-MODEL.m
 | [CUSTOM-DATA.md](CUSTOM-DATA.md) | Reading/writing `customData`, APPEND vs REPLACE, `appData` namespacing, delete-by-omission |
 | [WORKFLOWS.md](WORKFLOWS.md) | Campaign/template/journey/step model, lifecycle, the 3 step-submission recipes, attachments, comments |
 | [PROVISIONING.md](PROVISIONING.md) | The four template layers (global→tenant→campaign→journey) & where-to-edit scope · self-bootstrap: find/clone/publish + create/activate/share, by name |
-| [DYNAMIC-STEPS.md](DYNAMIC-STEPS.md) | Building step UIs generically with `DynamicStepForm` |
-| [CONVENTIONS.md](CONVENTIONS.md) | How to add a new API module; the `callApi` + `ApiResponse` pattern |
+| [DYNAMIC-STEPS.md](DYNAMIC-STEPS.md) | Building step UIs generically (the template's `DynamicStepForm`, removed) |
+| [CONVENTIONS.md](CONVENTIONS.md) | **This app:** how to add a new API module; the `callApi` + `ApiResponse` pattern |
 | [GOTCHAS.md](GOTCHAS.md) | The full list of platform quirks to code defensively around |
 
-## Code map
+## Where this app's API code lives
 
-```
-lib/api/
-  client.ts            callApi (same-origin transport, refresh, session events)
-  types.ts             ApiResponse
-  errors-codes.ts      error-envelope parsing (BFF errorCode vs upstream code)
-  session-events.ts    session-expired (published once)
-  log-api-call.ts      dev-only console logger (redacted)
-  refresh-coordinator.ts  single-flight refresh (+ navigator.locks)
-  keys.ts              SWR keys ["pp", ...] + mutateMyself / mutateContactPoints
-  fetcher.ts           shared SWR fetcher + registerFetcher (one loader per key family)
-  config.ts            proxyPath() (modules own their paths)
-  errors/<area>.ts     mapApiError(sectionId, …) core + per-area exact-message tables
-  myself.ts            fetchMyself → Myself, isProctor, isTenantMember
-  contact-points.ts    fetchContactPoints → ContactPoint[], primaryPhoneRegion
-  session.ts           startSession (/api/token) / endSession (logout)
-  index.ts             barrel — import everything from "@/lib/api"
-lib/server/proxy/      allowlist/<area>.ts, deny list, normalization, forwarding
-lib/shared/messages/   message catalog, one <area>.ts per area
-```
+Not in these docs. The module catalog (`lib/api/`, the proxy allowlist under
+`lib/server/proxy/allowlist/`, named operations, message and error tables) is
+[FOUNDATION.md](../FOUNDATION.md) §3; the BFF (launch, session, proxy, kill
+switches) is [AUTH-ARCHITECTURE.md](../AUTH-ARCHITECTURE.md).

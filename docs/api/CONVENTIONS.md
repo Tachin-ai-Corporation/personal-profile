@@ -1,6 +1,9 @@
 # API module conventions
 
-How to add a new `lib/api/*.ts` module so it behaves like the rest.
+How to add a new `lib/api/*.ts` module so it behaves like the rest. The full
+module catalog and worked recipes are in [FOUNDATION.md](../FOUNDATION.md)
+(§3.2, §4.3, §4.5, §4.7); server work the proxy can't express is a named
+operation (§4.6, [AUTH-ARCHITECTURE.md](../AUTH-ARCHITECTURE.md#named-operations)).
 
 ## The building blocks
 
@@ -9,9 +12,17 @@ How to add a new `lib/api/*.ts` module so it behaves like the rest.
   publishes `session-expired`, logs through the dev-only `logApiCall`, and
   **never throws**.
   `fetch(` anywhere else in client code is a lint error.
-- `ApiResponse<T>` = `{ success, data?, error?, statusCode?, errorCode?, upstreamCode?, details? }`.
-  BFF errors set `errorCode` (a string); upstream errors set `upstreamCode`
-  (the backend integer) and `error` (the platform message).
+- [`ApiResponse<T>`](../../lib/api/types.ts) = `{ success, data?, error?, statusCode?,
+  errorCode?, source?, upstreamCode?, platformMessage?, details?, retryable?, userMessage? }`.
+  - BFF errors (body `{ errorCode, source: "proxy" }`) set `source: "proxy"`
+    and `errorCode` (a string; absent if this client doesn't know the code).
+    `/api/token` failures also carry `userMessage` (user-safe copy, D9) and,
+    when not worth retrying, `retryable: false`.
+  - Upstream errors (body `{ message, code }`) set `upstreamCode` (the backend
+    integer), `platformMessage` and `error` (the platform message) and
+    `details`.
+  - A network failure sets `errorCode: "NETWORK_ERROR"` and no `statusCode`.
+    `FORBIDDEN` and the derived codes are named only by `lib/api/errors`.
 - [`proxyPath(path)`](../../lib/api/config.ts) — builds a same-origin proxy
   path (`/api/1h/<path relative to the upstream /api>`). Each module owns its
   own path builders (e.g. `myselfPath()`, `contactPointsPath(type)`). Owner ids
@@ -22,12 +33,16 @@ How to add a new `lib/api/*.ts` module so it behaves like the rest.
 - [`registerFetcher(resource, loader)`](../../lib/api/fetcher.ts) — each module
   registers the SWR loader of its own key family; `swrFetcher` dispatches on it.
 - [`mapApiError(sectionId, response)`](../../lib/api/errors/index.ts) — the one
-  error mapping; upstream message text is matched only in `lib/api/errors/<area>.ts`.
+  error mapping (`sectionId` is an `ErrorScope`: a section id or `"page"`,
+  `"authenticator"`, `"provider"`, `"organizations"`); upstream message text is
+  matched only in `lib/api/errors/<area>.ts`.
 
 ## Adding an endpoint
 
-1. Add an allowlist entry to its area file in `lib/server/proxy/allowlist/<area>.ts`
-   (`{ method, template, query?, body?, ... }`) and rows in that area's test.
+1. In the same change, add an allowlist entry to its area file in
+   `lib/server/proxy/allowlist/<area>.ts` (`{ method, template, query?,
+   fixedQuery?, body?, upload? + maxBytes, asImage?, profile? }`) and rows in
+   that area's test.
    Every planned area file exists and is aggregated once by `allowlist/index.ts`.
 2. In the module `lib/api/<resource>.ts`, add the path builder with
    `proxyPath(...)`.

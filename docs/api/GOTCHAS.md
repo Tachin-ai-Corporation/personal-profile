@@ -2,9 +2,10 @@
 
 > **Reference only (spec 7.0a):** the template code this page describes (`lib/api/*` engines, `components/workflow/`) was removed from Personal Profile; its endpoints are not on the proxy allowlist. See [README.md](README.md).
 
-The non-obvious behaviors that will bite you. Code defensively around these —
-the helpers in `lib/api/` already handle most, but you'll hit the rest when you
-go beyond them.
+The non-obvious behaviors that will bite you. Code defensively around these.
+Helper names below (`getRelatedAttr`, `findAttr`, `parseCustomData`,
+`runQueryAll`, `fetchJourney`, `getDraftTemplateConfig`) belong to the removed
+template code; they show where the handling went, not code you can import.
 
 ## Identifiers & naming
 
