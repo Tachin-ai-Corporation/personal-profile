@@ -77,9 +77,10 @@ export function toTypeInfo(raw: unknown): TypeInfo | null {
 }
 
 /**
- * The picker options of one VALUE_LIST attribute, as 1health-fe
- * `useValueListOptions` builds them: not-provided names (`"n/a"`, the
- * backend default) dropped, sorted by `localeCompare`. Empty when the type
+ * The picker options of one VALUE_LIST attribute: a superset of 1health-fe
+ * `useValueListOptions` filtering (it drops only the exact `"n/a"` backend
+ * default; this drops every PM3 not-provided name: `"n/a"` in any case,
+ * blank, `"-1"`), sorted by `localeCompare` like 1health-fe. Empty when the type
  * has no such VALUE_LIST attribute (callers fall back to their own list).
  */
 export function valueListOptions(info: TypeInfo | null | undefined, attrKey: string): TypeAttributeValue[] {

@@ -36,20 +36,77 @@ import {
   registerNpiPath,
   ssnExposePath,
   timeZonePath,
-  userEditPath,
   userNpiPath,
 } from "."
+import { userEditPath } from "./user-edit-path.internal"
 
 const API_DIR = join(process.cwd(), "lib/api")
-/** Internal to `callApi`, never part of the public surface. */
-const INTERNAL = new Set(["refresh-coordinator.ts"])
+
+/**
+ * Internal modules are named `*.internal.ts` and never re-exported. Frozen
+ * legacy exception (do not extend): `refresh-coordinator.ts`, internal to
+ * `callApi` before the convention existed.
+ */
+const LEGACY_INTERNAL: readonly string[] = Object.freeze(["refresh-coordinator"])
+
+/**
+ * Frozen legacy list (do not extend): the infrastructure modules `index.ts`
+ * exports by name. Every other module is a resource module, re-exported with
+ * exactly one `export * from "./x"` line.
+ */
+const LEGACY_NAMED: readonly string[] = Object.freeze([
+  "activity",
+  "client",
+  "config",
+  "contact-points",
+  "errors-codes",
+  "fetcher",
+  "files",
+  "keys",
+  "log-api-call",
+  "myself",
+  "session",
+  "session-events",
+  "types",
+])
+
+const INDEX = readFileSync(join(API_DIR, "index.ts"), "utf8")
+const MODULES = readdirSync(API_DIR)
+  .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts") && name !== "index.ts")
+  .map((name) => name.replace(/\.ts$/, ""))
+const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+const starLine = (name: string): RegExp => new RegExp(`^export \\* from "\\./${escape(name)}"$`, "m")
+
+/** Every lib/api module's runtime exports (types vanish), `errors/` through its index. */
+const LOADED = import.meta.glob<Record<string, unknown>>(["./*.ts", "./errors/index.ts", "!./*.test.ts", "!./index.ts"], { eager: true })
 
 describe("planned lib/api modules (spec F6-3)", () => {
-  it("re-exports every resource module from index.ts, so stories never edit it", () => {
-    const index = readFileSync(join(API_DIR, "index.ts"), "utf8")
-    const modules = readdirSync(API_DIR).filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts") && name !== "index.ts" && !INTERNAL.has(name))
-    expect(modules).toEqual(expect.arrayContaining(["personal.ts", "profile-picture.ts", "addresses.ts", "places.ts", "insurance.ts", "type-keys.ts", "account.ts", "mfa.ts", "npi.ts", "organizations.ts", "practice-support.ts"]))
-    for (const name of modules) expect(index).toContain(`from "./${name.replace(/\.ts$/, "")}"`)
+  it("re-exports every resource module with exactly one `export * from` line, so stories never edit index.ts", () => {
+    const resources = MODULES.filter((name) => !name.endsWith(".internal") && !LEGACY_INTERNAL.includes(name) && !LEGACY_NAMED.includes(name))
+    expect(resources).toEqual(expect.arrayContaining(["personal", "profile-picture", "addresses", "places", "insurance", "type-keys", "account", "mfa", "npi", "organizations", "practice-support"]))
+    for (const name of resources) expect(INDEX, name).toMatch(starLine(name))
+    for (const name of LEGACY_NAMED) expect(INDEX, name).toContain(`from "./${name}"`)
+  })
+
+  it("never re-exports an internal module", () => {
+    for (const name of MODULES.filter((module) => module.endsWith(".internal") || LEGACY_INTERNAL.includes(module))) {
+      expect(INDEX, name).not.toContain(`"./${name}"`)
+    }
+  })
+
+  it("has unique value-export names across modules (an index name export would silently shadow an `export *` one)", () => {
+    const owners = new Map<string, { module: string; value: unknown }>()
+    const clashes: string[] = []
+    for (const [path, exports] of Object.entries(LOADED)) {
+      for (const [name, value] of Object.entries(exports)) {
+        const seen = owners.get(name)
+        // A plain re-export of the same binding (e.g. `CONTACT_POINT_TYPES` from keys.ts) is the same name, not a clash.
+        if (seen && seen.value !== value) clashes.push(`${name}: ${seen.module} and ${path}`)
+        if (!seen) owners.set(name, { module: path, value })
+      }
+    }
+    expect(Object.keys(LOADED).length).toBeGreaterThan(20)
+    expect(clashes).toEqual([])
   })
 
   it("keeps the legacy fetchers object frozen", () => {

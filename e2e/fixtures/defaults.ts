@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test"
 import { mockAddresses, mockCountries } from "./addresses"
 import { mockContacts } from "./contacts"
-import { mockMyself, mockTypeKey } from "./core"
+import { mockMyself, mockProfilePictureId, mockTypeKey } from "./core"
 import { mockInsurance } from "./insurance"
 import { mockPracticeSupport, mockUserNpi } from "./npi"
 import { mockOrganizations } from "./orgs"
@@ -20,15 +20,14 @@ export async function mockProfileDefaults(page: Page): Promise<void> {
   await mockAddresses(page)
   await mockCountries(page)
   await mockInsurance(page)
-  await page.route("**/api/pp/profile-picture-id", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ fileId: null }) }),
-  )
+  await mockProfilePictureId(page)
 }
 
 /** Every planned read of `/account` answered with an empty, valid default; override per spec. */
 export async function mockAccountDefaults(page: Page): Promise<void> {
   await mockMyself(page)
   await mockContacts(page)
+  await mockProfilePictureId(page) // the header is shared by both pages
   await mockUserNpi(page)
   await mockPracticeSupport(page)
   await mockOrganizations(page)

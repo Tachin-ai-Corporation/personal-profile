@@ -5,6 +5,8 @@
  * registers a fetcher (`registerFetcher` in `fetcher.ts`).
  */
 
+import type { TypeKey } from "./type-keys"
+
 /** The Contact Point types the proxy allowlist accepts (`ContactPointConstants.ContactPointType` literals). */
 export const CONTACT_POINT_TYPES = ["Email", "Mobile", "Landline", "Social Media"] as const
 
@@ -33,7 +35,7 @@ export const keys = {
   /** The header picture's file id (Story 1.10). */
   profilePictureId: (): readonly ["pp", "profile-picture-id"] => ["pp", "profile-picture-id"],
   /** `GET v2/type/key/{type}` lookups, e.g. `ContactPoint` labels (Story 3.1). */
-  typeKey: <T extends string>(type: T): readonly ["pp", "type-key", T] => ["pp", "type-key", type],
+  typeKey: <T extends TypeKey>(type: T): readonly ["pp", "type-key", T] => ["pp", "type-key", type],
   /** One key per Contact Type, shared by the header, Contacts and `/account` (Story 1.9). */
   contactPoints: <T extends ContactPointType>(type: T): readonly ["pp", "contact-points", T] => ["pp", "contact-points", type],
   addresses: (): readonly ["pp", "addresses"] => ["pp", "addresses"],

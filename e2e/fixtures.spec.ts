@@ -25,10 +25,22 @@ test("mockProxy answers a glob with a fixed or computed answer and records the r
   expect(typeKeys().map((request) => new URL(request.url()).pathname)).toEqual(["/api/1h/v2/type/key/Person"])
 })
 
-base("the catch-all answers 599 and names each unmocked proxy call", async ({ page }) => {
+base("the catch-all answers 599 and names each unmocked /api/1h, /api/pp and /api/places call, popups included", async ({ page }) => {
   const unmocked = await failOnUnmockedProxy(page)
   await page.goto("/auth")
-  const status = await page.evaluate(async () => (await fetch("/api/1h/v2/not/mocked?x=1")).status)
-  expect(status).toBe(599)
-  expect(unmocked()).toEqual(["GET /api/1h/v2/not/mocked?x=1"])
+  const statuses = await page.evaluate(async () => [
+    (await fetch("/api/1h/v2/not/mocked?x=1")).status,
+    (await fetch("/api/pp/practice-support")).status,
+    (await fetch("/api/places/autocomplete", { method: "POST", body: "{}" })).status,
+  ])
+  expect(statuses).toEqual([599, 599, 599])
+  const [popup] = await Promise.all([page.waitForEvent("popup"), page.evaluate(() => void window.open("/auth"))])
+  await popup.waitForLoadState()
+  expect(await popup.evaluate(async () => (await fetch("/api/pp/profile-picture-id")).status)).toBe(599)
+  expect(unmocked()).toEqual([
+    "GET /api/1h/v2/not/mocked?x=1",
+    "GET /api/pp/practice-support",
+    "POST /api/places/autocomplete",
+    "GET /api/pp/profile-picture-id",
+  ])
 })

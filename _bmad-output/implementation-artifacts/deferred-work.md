@@ -37,6 +37,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-0a-bff-foundation-and-tooling.md` (code review, 2026-10-14)
   summary: CSP has no Google Maps hosts for `PLACES_ENABLED=1`; decide with the Places epic (AD-14 proxies Places through `/api/places`).
   evidence: moved from the spec-7-0a code-review list by spec F6-3; Story 4.3 decides.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f6-3-data-server-tests.md` (review, 2026-10-14)
+  summary: Two sources of truth for Person options: the `GET v2/type/key/Person` VALUE_LIST values (what the Section offers) vs the fixed `RACES` / `ETHNICITIES` / `BIOLOGICAL_GENDERS` enums the proxy's `PUT v2/user/edit` schema accepts. A value the platform adds to the type would show in the picker and then fail with 400 `BAD_BODY`.
+  evidence: lib/api/type-keys.ts#valueListOptions, lib/server/proxy/allowlist/personal.ts; Story 2.1/2.2 decide which list wins (intersect in the UI, or widen the schema).
 
 ## Team B (`/account`, Epics 7-10)
 
@@ -55,6 +58,12 @@
 
 ## Foundation (shared or cross-team)
 
+- source_spec: `_bmad-output/implementation-artifacts/spec-f6-3-data-server-tests.md` (review, 2026-10-14)
+  summary: The fixture-page gate test decides whether a page needs a session by a `requirePageSession()` substring in its source, so a page that calls it indirectly (or mentions it in a comment) is checked wrongly.
+  evidence: app/test-fixtures.test.ts; replace with an explicit per-page export (e.g. `export const needsSession = true`) or a mock-call count without the source check.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f6-3-data-server-tests.md` (review, 2026-10-14)
+  summary: The `NPI_ALREADY_REGISTERED` derived error code is dead: since F6-3 the NPI-taken rules map to the `personalNpi` / `practiceNpi` fields, and no rule emits it.
+  evidence: lib/api/errors-codes.ts (`DerivedErrorCode`), lib/shared/telemetry.ts; remove it with its telemetry entry once Story 9.2 confirms the field mapping.
 - source_spec: none
   summary: 7.0b Shell foundation — features/shell (app bar with non-interactive `primary-text` wordmark, tabs, navigate, leave guard, SectionRegistry, session-expired dialog on the `scrim` token — no session-changed dialog), lib/api/errors.ts, lib/shared/messages.ts, toasts, Retry.
   evidence: Split from the Epic 7 start (user-approved 2026-10-14); Story 7.1 needs Epic 1 pieces 1.7/1.8/1.11/1.12/1.13, too large for one spec. Runs after 7.0a.

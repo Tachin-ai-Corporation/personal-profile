@@ -58,7 +58,10 @@ operation (§4.6, [AUTH-ARCHITECTURE.md](../AUTH-ARCHITECTURE.md#named-operation
    with `export *` (spec F6-3): add code to your module and never edit
    `index.ts`. Import from `"@/lib/api"` everywhere. The `fetchers` object is
    frozen: read a new key with `useSWR(keys.x())` (the root fetcher dispatches
-   to your registered loader).
+   to your registered loader). A helper shared by modules but not public is
+   a `*.internal.ts` module (e.g. `user-edit-path.internal.ts`), never
+   re-exported; export names must be unique across modules
+   (`planned-modules.test.ts`).
 6. Copy goes in `lib/shared/messages/<area>.ts`; upstream messages your
    feature must recognise go in `lib/api/errors/<area>.ts` (anchored `^…$`).
 7. Test it with Vitest + MSW at the `/api` boundary (`test/msw-server.ts`).

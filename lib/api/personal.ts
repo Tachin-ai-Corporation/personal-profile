@@ -5,7 +5,8 @@
  *
  * Endpoints this module will own (each allowlist entry lands with its story in
  * `lib/server/proxy/allowlist/personal.ts`):
- * - `PUT v2/user/edit` (entry exists; shared with `account.ts`, Story 7.5);
+ * - `PUT v2/user/edit` (entry exists; shared with `account.ts`: import
+ *   `userEditPath` from `./user-edit-path.internal`, never re-export it);
  * - `GET v2/type/key/Person` (entry exists; read through `type-keys.ts`);
  * - `GET v2/person/{personId}/ssn/expose` (Story 2.3);
  * - Signature upload / new version / `DELETE v2/file/{id}` (Story 2.4).
@@ -20,11 +21,6 @@ export const PERSON_TYPE_KEY = "Person" satisfies TypeKey
 
 /** The Person VALUE_LIST attributes the Section offers (`valueListOptions(info, attrKey)`). */
 export const PERSON_VALUE_LISTS = ["race", "ethnicity", "biologicalGender"] as const
-
-/** `PUT /api/1h/v2/user/edit` (partial `PersonalInformationDTO`). */
-export function userEditPath(): string {
-  return proxyPath("v2/user/edit")
-}
 
 /** `GET /api/1h/v2/person/me/ssn/expose` (Story 2.3 adds the allowlist entry). */
 export function ssnExposePath(): string {

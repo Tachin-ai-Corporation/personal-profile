@@ -87,15 +87,22 @@ export async function mockExit(page: Page): Promise<() => number> {
   return () => logouts
 }
 
+/** `GET /api/pp/profile-picture-id` (Story 1.9; the header on both pages); default no picture. Not a proxy call. */
+export async function mockProfilePictureId(page: Page, answer: ProxyAnswer = {}): Promise<void> {
+  await page.route("**/api/pp/profile-picture-id", (route) => json(route, answer.status ?? 200, answer.body ?? { fileId: null }))
+}
+
 /**
- * The fail-fast catch-all: every `/api/1h/**` call no other mock answers gets
- * 599 `{ errorCode: "E2E_UNMOCKED" }` and is recorded as `METHOD path?query`.
- * Register it before any other mock (Playwright runs the newest route
- * first, so this one runs last). The `test` below does it for every test.
+ * The fail-fast catch-all: every data call (`/api/1h/**` proxy, `/api/pp/**`
+ * named ops, `/api/places/**`) no other mock answers gets 599
+ * `{ errorCode: "E2E_UNMOCKED" }` and is recorded as `METHOD path?query`.
+ * It is a context route, so it also covers popups and new pages, and it always
+ * runs after the page's own mocks (Playwright tries page routes first).
+ * The `test` below installs it for every test.
  */
 export async function failOnUnmockedProxy(page: Page): Promise<() => string[]> {
   const unmocked: string[] = []
-  await page.route("**/api/1h/**", (route) => {
+  await page.context().route("**/api/{1h,pp,places}/**", (route) => {
     const url = new URL(route.request().url())
     unmocked.push(`${route.request().method()} ${url.pathname}${url.search}`)
     return json(route, 599, { errorCode: "E2E_UNMOCKED", source: "proxy" })
@@ -106,14 +113,15 @@ export async function failOnUnmockedProxy(page: Page): Promise<() => string[]> {
 /**
  * `test` with the catch-all on (opt in by importing `test` from
  * `./fixtures` instead of `@playwright/test`): a test that lets any
- * `/api/1h` call through unmocked fails at the end, naming the calls.
+ * `/api/1h`, `/api/pp` or `/api/places` call through unmocked fails at the
+ * end, naming the calls.
  */
 export const test = base.extend<{ unmockedProxyGuard: void }>({
   unmockedProxyGuard: [
     async ({ page }, use) => {
       const unmocked = await failOnUnmockedProxy(page)
       await use()
-      expect(unmocked(), "unmocked /api/1h calls (add a mock in e2e/fixtures/<area>.ts)").toEqual([])
+      expect(unmocked(), "unmocked /api/{1h,pp,places} calls (add a mock in e2e/fixtures/<area>.ts)").toEqual([])
     },
     { auto: true },
   ],

@@ -11,6 +11,11 @@
  *   `DELETE v2/health/insurance/{id}` (5.2, 5.5);
  * - card uploads (entries exist) and `GET v2/health/insurance/{id}/file/{fileId}/download` (5.1, 5.3);
  * - `GET v2/type/key/Insurance` (entry exists; read through `type-keys.ts`).
+ *
+ * Live search does NOT use SWR (spec F6-3 decision): it loads through the
+ * Combobox `load(query, page, signal)` callback, never through a `keys.ts`
+ * key, and nothing is cached across searches (NPI results never, PNFR1). Do
+ * not add search keys to `keys.ts`. (Insurer search, 5.2.)
  */
 
 import { proxyPath } from "./config"

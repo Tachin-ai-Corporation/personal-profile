@@ -63,7 +63,10 @@ describe("type keys (spec F6-3; Stories 2.1, 3.1, 5.2)", () => {
     expect(toTypeInfo(null)).toBeNull()
   })
 
-  it("valueListOptions: VALUE_LIST only, n/a dropped, locale-sorted (1health-fe parity)", () => {
+  // A superset of 1health-fe's filtering (`useValueListOptions`: VALUE_LIST only, exact "n/a" dropped,
+  // localeCompare sort): `isNotProvided` also drops "N/A" in any case, blank names and "-1", which the
+  // platform uses for "no value" too (PM3), so a picker never offers a placeholder as a choice.
+  it("valueListOptions: VALUE_LIST only, not-provided names dropped, locale-sorted (a superset of 1health-fe filtering)", () => {
     const info = toTypeInfo(PERSON)
     expect(valueListOptions(info, "race").map((value) => value.name)).toEqual(["American Indian or Alaska Native", "Asian", "White"])
     expect(valueListOptions(info, "firstName")).toEqual([])
@@ -89,7 +92,7 @@ describe("type keys (spec F6-3; Stories 2.1, 3.1, 5.2)", () => {
   it("is registered for keys.typeKey(type) on the root SWR fetcher; an unknown type makes no request", async () => {
     server.use(http.get("/api/1h/v2/type/key/Insurance", () => HttpResponse.json({ boKey: "Insurance", attributes: [] })))
     expect(await swrFetcher(keys.typeKey("Insurance"))).toEqual({ boKey: "Insurance", attributes: [] })
-    await expect(swrFetcher(keys.typeKey("Organization"))).rejects.toBeInstanceOf(ApiResponseError)
+    await expect(swrFetcher(["pp", "type-key", "Organization"])).rejects.toBeInstanceOf(ApiResponseError)
     await expect(swrFetcher(["pp", "type-key"])).rejects.toThrow("Unknown type key undefined")
   })
 })

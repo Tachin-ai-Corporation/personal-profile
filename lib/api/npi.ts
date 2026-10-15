@@ -11,6 +11,11 @@
  * - `GET v2/health/npi/{n}/is-registered` and `POST v2/user/register/npi` (9.2).
  * AD-23: components never pass the entity type, so only the two fixed-type
  * search paths are exported.
+ *
+ * Live search does NOT use SWR (spec F6-3 decision): it loads through the
+ * Combobox `load(query, page, signal)` callback, never through a `keys.ts`
+ * key, and nothing is cached across searches (NPI results never, PNFR1). Do
+ * not add search keys to `keys.ts`. (NPI search, 9.1.)
  */
 
 import { proxyPath } from "./config"

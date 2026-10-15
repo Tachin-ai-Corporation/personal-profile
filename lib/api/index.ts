@@ -6,8 +6,11 @@
  *
  * Every planned resource module already exists and is re-exported below with
  * one `export *` line (spec F6-3), so a story adds code to its own module and
- * never edits this file. A new export name must be unique across modules
- * (TypeScript reports a clash).
+ * never edits this file. A new export name must be unique across modules:
+ * TypeScript does not report it. Two `export *` modules exporting one name
+ * make it ambiguous (silently not exported), and a name exported explicitly
+ * below silently shadows the `export *` one. `planned-modules.test.ts`
+ * checks the names are unique.
  */
 
 import { loadContactPoints } from "./contact-points"
