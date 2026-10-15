@@ -4,15 +4,23 @@ import { useEffect, useRef, useState } from "react"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { sessionEvents as defaultSessionEvents, type SessionEvents } from "@/lib/api"
 import { COMMON_MESSAGES, LEAVE_GUARD_MESSAGES } from "@/lib/shared/messages"
-import { isUnloadConfirmed, setLeaveGuard } from "./leave"
+import { isUnloadConfirmed, setLeaveGuard, type LeaveOptions } from "./leave"
 import { sectionHeadingId, type SectionId } from "./nav-types"
 import { runSaveAll, saveAllSummary } from "./save-all"
 import { toastPartial } from "./toasts"
-import { useIsAnyDirty, useSectionRegistry } from "./section-registry"
+import { useIsAnyDirty, useSectionRegistry, type SectionRegistry } from "./section-registry"
 
 interface Pending {
   readonly resolve: (proceed: boolean) => void
   readonly canSave: boolean
+  /** A scoped leave (`requestLeave({ scope })`): only this participant is asked about, discarded or saved. */
+  readonly scope?: SectionId
+}
+
+/** The registry as a scoped leave sees it: only the scope's participant can be dirty. */
+function scopedRegistry(registry: SectionRegistry, scope: SectionId | undefined): SectionRegistry {
+  if (scope === undefined) return registry
+  return { ...registry, getDirty: () => registry.getDirty().filter((section) => section.id === scope) }
 }
 
 function onBeforeUnload(event: BeforeUnloadEvent): void {
@@ -27,6 +35,12 @@ function onBeforeUnload(event: BeforeUnloadEvent): void {
  * `navigate()` asks before leaving while any Section is dirty, and attaches
  * `beforeunload` only while something is dirty. Mounted once per page, inside
  * the page's `SectionRegistryProvider`.
+ *
+ * A scoped leave (`requestLeave({ scope })`, Stories 1.13 / 5.2; spec F7-2)
+ * asks the same dialog about that one participant: Discard discards only it,
+ * Save validates and saves only it (on a failure the dialog closes and the
+ * participant shows its own errors: no toast, no focus move), and a clean
+ * participant leaves at once even while other Sections are dirty.
  */
 export interface LeaveGuardProps {
   /** Test seam. */
@@ -44,13 +58,14 @@ export function LeaveGuard({ events = defaultSessionEvents, order }: LeaveGuardP
   const focusAfterClose = useRef<(() => void) | null>(null)
 
   useEffect(() => {
-    const clear = setLeaveGuard(() => {
-      const dirty = registry.getDirty()
+    const clear = setLeaveGuard((options?: LeaveOptions) => {
+      const scope = options?.scope
+      const dirty = scopedRegistry(registry, scope).getDirty()
       if (dirty.length === 0) return Promise.resolve(true)
       // A second leave while the dialog is open is refused; the first one decides.
       if (pendingRef.current) return Promise.resolve(false)
       return new Promise<boolean>((resolve) => {
-        const next = { resolve, canSave: dirty.every((section) => section.canSave) }
+        const next: Pending = { resolve, canSave: dirty.every((section) => section.canSave), scope }
         pendingRef.current = next
         setPending(next)
       })
@@ -81,25 +96,27 @@ export function LeaveGuard({ events = defaultSessionEvents, order }: LeaveGuardP
   }
 
   function discard(): void {
-    for (const section of registry.getDirty()) section.discard()
+    for (const section of scopedRegistry(registry, pendingRef.current?.scope).getDirty()) section.discard()
     settle(true)
   }
 
   async function save(): Promise<void> {
     setBusy(true)
+    const scope = pendingRef.current?.scope
     let proceed = false
     let stayOpen = false
     try {
       // The Save-all runner: validates everything first (nothing sent if anything is invalid),
       // saves the Save-all Sections, then the guard-only participants; stops on a session end.
       // Not a Save-all run: no `save_all` telemetry.
-      const outcome = await runSaveAll(registry, { order, includeGuardOnly: true, trackTelemetry: false })
+      const outcome = await runSaveAll(scopedRegistry(registry, scope), { order, includeGuardOnly: true, trackTelemetry: false })
       if (outcome.kind === "invalid") focusAfterClose.current = outcome.focusFirstInvalid
       proceed = outcome.kind === "clean" || (outcome.kind === "done" && outcome.failed.length === 0 && outcome.cancelled.length === 0)
       // The user declined a step of a save (F6-1): stay in this dialog quietly (no toast, focus left as is),
       // so they can choose again (Keep editing, Discard or Save).
       stayOpen = outcome.kind === "done" && outcome.failed.length === 0 && outcome.cancelled.length > 0
-      if (outcome.kind === "done" && outcome.failed.length > 0) {
+      // A scoped participant shows its own save errors (e.g. inside its Sheet): no toast, no focus move.
+      if (outcome.kind === "done" && outcome.failed.length > 0 && scope === undefined) {
         // Stay, say what failed ("1 saved, 1 failed") and land on the first failed Section.
         const summary = saveAllSummary(outcome)
         if (summary?.tone === "partial") toastPartial(summary.text)

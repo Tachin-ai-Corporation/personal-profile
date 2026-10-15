@@ -4,18 +4,21 @@
  * (`myself.ts`, `contact-points.ts`, …) owns its paths and registers its SWR
  * fetcher; importing it from here is what registers it.
  *
- * Every planned resource module already exists and is re-exported below with
- * one `export *` line (spec F6-3), so a story adds code to its own module and
- * never edits this file. A new export name must be unique across modules:
- * TypeScript does not report it. Two `export *` modules exporting one name
- * make it ambiguous (silently not exported), and a name exported explicitly
- * below silently shadows the `export *` one. `planned-modules.test.ts`
- * checks the names are unique.
+ * Every module is re-exported below with one `export * from "./x"` line
+ * (specs F6-3, F7-2), except the three infrastructure modules exported by
+ * name, so a story adds code to its own module (and its own test) and never
+ * edits this file. A new export name must be unique across modules and, when
+ * generic, carry its area's prefix (`addressesListPath`, not `listPath`):
+ * TypeScript does not always report a clash. Two `export *` modules exporting
+ * one name make it ambiguous (silently not exported), and a name exported by
+ * name below silently shadows the `export *` one. `planned-modules.test.ts`
+ * checks both rules.
  */
 
 import { loadContactPoints } from "./contact-points"
 import { loadMyself } from "./myself"
 
+// Infrastructure modules with test seams or internals: exported by name (frozen list, spec F7-2).
 export {
   callApi,
   configureApiClient,
@@ -25,83 +28,27 @@ export {
   type CallApi,
   type CallApiInit,
 } from "./client"
-export { activity, createActivity, ACTIVITY_CHANNEL, type Activity, type ActivityListener } from "./activity"
-export type { ApiResponse } from "./types"
-export {
-  parseErrorBody,
-  type ApiErrorCode,
-  type ClientErrorCode,
-  type DerivedErrorCode,
-  type ParsedError,
-} from "./errors-codes"
-export {
-  ERROR_RULES,
-  FORBIDDEN_SCOPE_TABLE,
-  forbiddenScopeFor,
-  mapApiError,
-  mapFetchError,
-  mappedErrorCode,
-  normalizeForbiddenPath,
-  type ErrorField,
-  type ErrorScope,
-  type ForbiddenLevel,
-  type ForbiddenOwner,
-  type ForbiddenPage,
-  type ForbiddenScope,
-  type ForbiddenScopeRule,
-  type MappedError,
-  type MessageRule,
-} from "./errors"
-export { fileDownloadPath, isFileId } from "./files"
-export {
-  sessionEvents,
-  createSessionEvents,
-  type SessionEvent,
-  type SessionEventListener,
-  type SessionEvents,
-} from "./session-events"
-export {
-  keys,
-  isSwrKey,
-  mutateContactPoints,
-  mutateMyself,
-  SWR_RESOURCES,
-  type SwrKey,
-  type SwrResource,
-} from "./keys"
 export { ApiResponseError, registerFetcher, swrFetcher, unwrap, type SwrLoader } from "./fetcher"
-export { proxyPath } from "./config"
-export {
-  fetchMyself,
-  isProctor,
-  isTenantMember,
-  loadMyself,
-  myselfPath,
-  toMyself,
-  type Myself,
-  type MyselfSignature,
-  type MyselfTenant,
-} from "./myself"
-export {
-  CONTACT_POINT_TYPES,
-  PRIMARY_LABEL,
-  contactPointsPath,
-  fetchContactPoints,
-  findPrimary,
-  isContactPointType,
-  loadContactPoints,
-  primaryPhoneRegion,
-  toContactPoints,
-  type ContactPoint,
-  type ContactPointType,
-} from "./contact-points"
-export { startSession, endSession, recordUserActivity, type LaunchAttempt } from "./session"
 export { logApiCall, redact, type ApiCallLog } from "./log-api-call"
 
-// Planned resource modules (spec F6-3): Team A, then Team B. Importing them registers their loaders.
+// Every other module: one `export *` line each (spec F7-2), so a story adds code to its module and never edits this file.
+export * from "./activity"
+export * from "./types"
+export * from "./errors-codes"
+export * from "./errors"
+export * from "./files"
+export * from "./session-events"
+export * from "./keys"
+export * from "./config"
+export * from "./myself"
+export * from "./contact-points"
+export * from "./session"
+
+// Planned resource modules (spec F6-3, F7-2): Team A, then Team B. Importing them registers their loaders.
 export * from "./type-keys"
 export * from "./personal"
 export * from "./profile-picture"
+export * from "./contacts"
 export * from "./addresses"
 export * from "./places"
 export * from "./insurance"

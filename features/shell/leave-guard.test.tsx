@@ -356,3 +356,148 @@ describe("LeaveGuard", () => {
     expect(results.violations).toEqual([])
   })
 })
+
+/** A guard-only participant's own close (Story 5.2 Sheet): `requestLeave({ scope })`. */
+function CloseButton({ scope }: { scope: SectionId }) {
+  const [answer, setAnswer] = useState("")
+  return (
+    <>
+      <button type="button" onClick={() => void requestLeave({ scope }).then((ok) => setAnswer(String(ok)))}>
+        Close editor
+      </button>
+      <span data-testid="close-answer">{answer}</span>
+    </>
+  )
+}
+
+const closeAnswer = () => screen.getByTestId("close-answer").textContent
+
+async function closeEditor(): Promise<void> {
+  const trigger = screen.getByRole("button", { name: "Close editor" })
+  trigger.focus()
+  await act(async () => fireEvent.click(trigger))
+}
+
+const editor = (props: Partial<FixtureParticipantProps> = {}) => (
+  <FixtureParticipant id="insurance" label="Insurance" displayOrder={6} saveAll={false} {...props} />
+)
+
+describe("LeaveGuard: scoped requestLeave({ scope }) (Stories 1.13 / 5.2, spec F7-2)", () => {
+  it("resolves true with no dialog when the scope is clean, even while another Section is dirty", async () => {
+    render(
+      <Page>
+        {phone()}
+        {editor()}
+        <CloseButton scope="insurance" />
+      </Page>,
+    )
+    type("Phone", "1")
+    await closeEditor()
+    await waitFor(() => expect(closeAnswer()).toBe("true"))
+    expect(screen.queryByRole("alertdialog")).toBeNull()
+    expect((screen.getByLabelText("Phone") as HTMLInputElement).value).toBe("1")
+  })
+
+  it("resolves true with no guard set", async () => {
+    await expect(requestLeave({ scope: "insurance" })).resolves.toBe(true)
+  })
+
+  it("asks about the scope only: Discard discards only it", async () => {
+    render(
+      <Page>
+        {phone()}
+        {editor()}
+        <CloseButton scope="insurance" />
+      </Page>,
+    )
+    type("Phone", "1")
+    type("Insurance", "x")
+    await closeEditor()
+    expect(screen.getByRole("alertdialog", { name: TITLE })).toBeTruthy()
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Discard" })))
+    expect(closeAnswer()).toBe("true")
+    expect((screen.getByLabelText("Insurance") as HTMLInputElement).value).toBe("")
+    expect((screen.getByLabelText("Phone") as HTMLInputElement).value).toBe("1")
+  })
+
+  it("Keep editing keeps the participant open", async () => {
+    render(
+      <Page>
+        {editor()}
+        <CloseButton scope="insurance" />
+      </Page>,
+    )
+    type("Insurance", "x")
+    await closeEditor()
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Keep editing" })))
+    expect(closeAnswer()).toBe("false")
+    expect((screen.getByLabelText("Insurance") as HTMLInputElement).value).toBe("x")
+  })
+
+  it("Save validates and saves only the scope, then proceeds", async () => {
+    const saved: string[] = []
+    render(
+      <Page>
+        {phone({ onSave: () => saved.push("phone") })}
+        {editor({ onSave: () => saved.push("insurance") })}
+        <CloseButton scope="insurance" />
+      </Page>,
+    )
+    type("Phone", "invalid")
+    type("Insurance", "x")
+    await closeEditor()
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save" })))
+    await waitFor(() => expect(closeAnswer()).toBe("true"))
+    expect(saved).toEqual(["insurance"])
+  })
+
+  it("a failed scoped Save stays without a toast or focus move", async () => {
+    vi.mocked(toastPartial).mockClear()
+    render(
+      <Page>
+        {editor({ saveBehavior: "fail" })}
+        <CloseButton scope="insurance" />
+      </Page>,
+    )
+    type("Insurance", "x")
+    await closeEditor()
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save" })))
+    await waitFor(() => expect(closeAnswer()).toBe("false"))
+    await nextTask()
+    expect(toastPartial).not.toHaveBeenCalled()
+    expect(screen.queryByRole("alertdialog")).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close editor" }))
+  })
+
+  it("hides Save when the scoped participant can't save", async () => {
+    render(
+      <Page>
+        {phone()}
+        {editor({ canSave: false })}
+        <CloseButton scope="insurance" />
+      </Page>,
+    )
+    type("Insurance", "x")
+    await closeEditor()
+    const dialog = screen.getByRole("alertdialog", { name: TITLE })
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull()
+    expect(dialog).toBeTruthy()
+  })
+
+  it("an unscoped leave still asks about every dirty participant", async () => {
+    render(
+      <Page>
+        {phone()}
+        {editor()}
+        <CloseButton scope="insurance" />
+      </Page>,
+    )
+    type("Phone", "1")
+    type("Insurance", "x")
+    await leave()
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Discard" })))
+    expect(answer()).toBe("true")
+    expect((screen.getByLabelText("Insurance") as HTMLInputElement).value).toBe("")
+    expect((screen.getByLabelText("Phone") as HTMLInputElement).value).toBe("")
+  })
+})

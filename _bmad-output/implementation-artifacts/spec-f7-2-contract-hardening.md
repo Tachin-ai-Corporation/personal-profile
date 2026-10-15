@@ -2,7 +2,7 @@
 title: 'F7-2 Cross-team contract hardening'
 type: 'feature'
 created: '2026-10-14'
-status: 'approved'
+status: 'in-review'
 baseline_commit: '7ee4ca4'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -78,15 +78,15 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] Copy (labels, upload rejected).
-- [ ] `PersonalInformationPayload` + type test.
-- [ ] Forbidden owners + rows; upload codes, mapping, `isUploadRejected`, telemetry.
-- [ ] `index.ts` `export *` switch, `contacts.ts` stub, per-module tests, generic-name rule.
-- [ ] `DELETE v2/file/{fileId}` entry + `fileDeletePath` + tests.
-- [ ] `entityTypeCode` lint rule, `switch-tenant` grep + tests.
-- [ ] `FallbackImage` + fixture page + e2e; `orgInitials`.
-- [ ] Scoped `requestLeave({ scope })` + tests.
-- [ ] FOUNDATION.md, CLAUDE.md, AGENTS.md.
+- [x] Copy (labels, upload rejected).
+- [x] `PersonalInformationPayload` + type test.
+- [x] Forbidden owners + rows; upload codes, mapping, `isUploadRejected`, telemetry.
+- [x] `index.ts` `export *` switch, `contacts.ts` stub, per-module tests, generic-name rule.
+- [x] `DELETE v2/file/{fileId}` entry + `fileDeletePath` + tests.
+- [x] `entityTypeCode` lint rule, `switch-tenant` grep + tests.
+- [x] `FallbackImage` + fixture page + e2e; `orgInitials`.
+- [x] Scoped `requestLeave({ scope })` + tests.
+- [x] FOUNDATION.md, CLAUDE.md, AGENTS.md.
 
 **Acceptance Criteria:**
 - Given Story 2.1 and Story 7.4 both landing, then neither adds a "First name", "Last name" or "Birth date" catalog string.
@@ -103,3 +103,24 @@ context:
 - `corepack pnpm vitest run --coverage` -- expected: green, thresholds met
 - `PP_E2E_PORT=3240 corepack pnpm test:e2e` -- expected: green
 - `corepack pnpm build && bash scripts/check-forbidden.sh` -- expected: green
+
+## Implementation Notes
+
+Implemented 2026-10-14 on baseline `7ee4ca4` (the worktree was reset from `b005536` first).
+
+- **Copy:** `PERSON_MESSAGES.firstNameLabel` "First name", `lastNameLabel` "Last name", `birthDateLabel` "Birth date" (verbatim V&T "Account settings labels"; `messages.test.ts` asserts them), `middleNameLabel` "Middle name" (DRAFT COPY). 2.1 and 7.4 share no other label: Account's other labels (Username, Password, Primary email/phone, language, time zone, locale) and Personal's others (prefix, suffix, other names, titles, city of birth, race, ethnicity, genders, SSN) are each one team's; "Signature" already existed in `SHELL_MESSAGES`. `COMMON_MESSAGES.uploadRejected` "{fileName} couldn't be used. Choose another file." (DRAFT COPY, the line of 1.10 for 413/415 and of 5.3).
+- **Payload type:** `PersonalInformationPayload` (15 optional readonly string fields: the 2.2 `PersonalInformationDTO` list + `socialSecurityNumber`) and `PersonalInformationField`; strings because the proxy's `userEditBodySchema` accepts only strings. `lib/api/personal.test.ts` proves the key set with `expectTypeOf` and a `@ts-expect-error` on `email` (typecheck-enforced).
+- **403 owners:** `addresses` (`person/location/list`) and `insurance` (`health/patient/insurance`), both `/` only, `section` level (AD-23 names no wider scope; the paths are the ones `addresses.ts`/`insurance.ts` already build). Table order test and no-owner rows updated.
+- **Upload codes:** `DerivedErrorCode` and `TelemetryErrorCode` + `UPLOAD_TOO_LARGE`, `UPLOAD_UNSUPPORTED_MEDIA`; `classifyTransport` maps the BFF `TOO_LARGE`/`UNSUPPORTED_MEDIA` codes to `coded` (before the generic proxy branch); `isUploadRejected(mapped)` exported. Existing UI treats `coded` like generic, so no caller changes. Decision: mapped on every request (the mapper has no path); a JSON 413/415 is a client bug, documented in FOUNDATION §6.
+- **`lib/api/index.ts`:** `export *` for `activity`, `types`, `errors-codes`, `errors`, `files`, `session-events`, `keys`, `config`, `myself`, `contact-points`, `session` (all their exports were already public, so the public surface only gains `fileDeletePath`, `isUploadRejected` and the new types); named exports kept only for `client` (`ApiClientDeps`), `fetcher` (`unregisterFetcher`) and `log-api-call` (`bodyForLog`), a frozen list. `CONTACT_POINT_TYPES`/`ContactPointType` reach the index from both `keys` and `contact-points` as the same binding (no TS ambiguity; the unique-value test allows identical bindings). New `lib/api/contacts.ts` stub (`export {}`, header: Epic 3 write engine, reads stay in `contact-points.ts`, `contact` prefix) with `contacts.test.ts`.
+- **Tests split:** `planned-modules.test.ts` keeps only structure (one `export *` line per module except the frozen named three and internals, no internal re-export, unique value names, generic-name rule, frozen `fetchers`). Each module's paths/constants moved to `{personal,profile-picture,contacts,addresses,places,insurance,account,mfa,npi,organizations,practice-support}.test.ts`, `userEditPath` to `user-edit-path.internal.test.ts`. Generic-name rule: a name whose camel/snake words are all in a small generic vocabulary (verbs like load/fetch/save/to, nouns like list/path/page/size/view/payload) fails; frozen legacy exceptions `keys`, `mapFetchError`, `parseErrorBody`, `valueListOptions`; the rule has its own example table.
+- **Allowlist:** `DELETE v2/file/{fileId}`, `fixedQuery { hardDelete: "true" }` in `allowlist/files.ts` (agents.md `DELETE /v2/file/{fileInstanceIds}`, `hardDelete` boolean default false; 1health-fe `bocore.ts` sends `/file/${fileId}?hardDelete=true`). One numeric id only (a comma list is refused by `{fileId}`), not `profile`, no body. Tests: forced `true`, client `false` ignored, other query 400, bad id / list / `me` not allowed, GET/PUT 405. `fileDeletePath(id)` (same `isFileId` rule, no query) in `lib/api/files.ts`.
+- **Lint/grep:** ESLint `no-restricted-syntax` selectors (Identifier, JSXIdentifier, Literal, TemplateElement, JSXText containing `entityTypeCode`) on non-test `features/provider/**`, plus a `features/provider/**/schema.ts` block that keeps the zod-literal bans (later blocks replace earlier ones); fixtures in `eslint.config.test.ts`. `check-forbidden.sh` rule 6: `switch-tenant` in app code (tests excluded) except `lib/server/proxy/deny-list.ts`; scratch-repo tests in `scripts/check-forbidden.test.ts`.
+- **FallbackImage:** `components/ui/fallback-image.tsx` (empty `src` → fallback; `onError` or a `complete` image with `naturalWidth === 0` at attach → fallback, `onFallback` once; keyed by `src` so a new one retries; `alt` required; `next/image` lint exception as in `SignatureThumb`). Unit tests incl. axe; fixture page `app/test-fixtures/fallback-image/page.tsx` renders inline (no new `features/shell/__fixtures__` file) with `/1h-icon.png` and a 404 path; `e2e/fallback-image.spec.ts` (behaviour + axe light/dark, desktop and 360 px). `SignatureThumb` is unchanged (it adds a skeleton and fixed size; not refactored to avoid shell churn).
+- **orgInitials:** words split on whitespace, letters by `\p{L}` (code-point aware), words without letters dropped; two words → first letter of each, one word → first two letters, none → `NO_ORG_INITIALS` "?"; uppercase.
+- **Scoped leave:** `LeaveOptions { scope?: SectionId }`, `requestLeave(options?)` / `LeaveGuard = (options?) => Promise<boolean>`; `LeaveGuard` filters through a scoped registry view (`getDirty` filtered by id) for the open check, Discard and `runSaveAll`, so validation/save order logic is reused; a scoped failure skips the partial toast and the heading focus. `navigate()` and every existing caller call it without options (behaviour unchanged; doc line added). `LeaveOptions` exported from `features/shell/index.ts`. Seven new cases in `leave-guard.test.tsx`.
+- **Docs:** FOUNDATION.md §1 "Team ownership and shared changes" (8 rules; ownership map with per-area files; Team A owns the `personal` area files and `messages/header.ts`, Team B reads them), F7-2 row, catalog rows (allowlist, registry, Files, Personal payload, mapper, 403 table, codes, telemetry, initials, message areas, navigation, leave guard, `FallbackImage`, fixture pages, gates, ownership lint), planned rows (person options 2.1, contact labels 3.1, time zones 7.4, `lib/server/throttle.ts` 4.3/8.2, `components/ui/image-reencode.ts` 1.10), §5 split into Team A / Team B tables with F7-2 pieces, §6 split Foundation / Team A / Team B (+ file-delete trust and 413/415 notes). "How to extend" marks new 403 rows and derived codes as foundation PRs. CLAUDE.md: `lib/shared` list → FOUNDATION §3.3 pointer, "Team ownership" block; AGENTS.md: same pointers; both say F1–F7. `docs/api/CONVENTIONS.md` step 5 updated.
+- **Not touched:** `app/home.test.tsx`, `test/*`, `e2e/fixtures/*`, `e2e/shell.spec.ts`, `.github/*`, other `_bmad-output` files.
+- **Verification (2026-10-14):** `corepack pnpm install` OK; `pnpm lint`, `pnpm typecheck` clean; `pnpm vitest run --coverage` 144 files / 2976 tests green, 100 % statements/branches/functions/lines; `PP_E2E_PORT=3240 pnpm test:e2e` 264 passed, 2 skipped (the existing desktop-only InfoPopover placement and row-hover tests on 360 px); `pnpm build` OK; `bash scripts/check-forbidden.sh` OK.
+
+## Spec Change Log

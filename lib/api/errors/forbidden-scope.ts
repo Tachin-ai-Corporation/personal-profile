@@ -5,6 +5,10 @@
  * here, so every feature reads it through `@/lib/api`; a feature decides
  * where to render the `NoAccess` panel from the owner's `level`.
  *
+ * Adding an owner or a row is a foundation change (FOUNDATION.md §1, team ownership rules 3–4): features
+ * never `switch` exhaustively over `ForbiddenOwner`; they compare with their
+ * own owner (`scope?.owner === "addresses"`).
+ *
  * The lookup is page-aware: `contact-point/list` belongs to the `/account`
  * pickers there, but on `/` the Contacts Section that asked for that type.
  *
@@ -21,6 +25,10 @@ export type ForbiddenOwner =
   | "phone"
   | "email"
   | "social"
+  /** `/` Addresses Section: its list read (Story 4.1; spec F7-2). */
+  | "addresses"
+  /** `/` Insurance Section: its policy list read (Story 5.1; spec F7-2). */
+  | "insurance"
   /** `/account` Personal account settings: only the Primary email / phone pickers (Story 7.6). */
   | "account-pickers"
   /** `/account` Authenticator app card: a Section-level row (Epic 8). */
@@ -60,6 +68,13 @@ export const FORBIDDEN_SCOPE_TABLE: readonly ForbiddenScopeRule[] = [
   { endpoint: "contact-point/list?type=Email", pattern: CONTACT_POINT_LIST, page: "profile", type: "Email", owner: "email", level: "section" },
   { endpoint: "contact-point/list?type=Social Media", pattern: CONTACT_POINT_LIST, page: "profile", type: "Social Media", owner: "social", level: "section" },
   { endpoint: "contact-point/list", pattern: CONTACT_POINT_LIST, page: "account", owner: "account-pickers", level: "control" },
+  /*
+   * The other `/` list reads (spec F7-2, pre-declared so Team A's Stories 4.1
+   * and 5.1 add no union member): a 403 shows that Section's own no-access row
+   * and the rest of the tab keeps working (AD-23 names no wider scope).
+   */
+  { endpoint: "person/location/list", pattern: /^person\/location\/list$/, page: "profile", owner: "addresses", level: "section" },
+  { endpoint: "health/patient/insurance", pattern: /^health\/patient\/insurance$/, page: "profile", owner: "insurance", level: "section" },
   { endpoint: "mfa/*", pattern: /^mfa\/.+$/, owner: "authenticator", level: "section" },
   { endpoint: "/api/pp/mfa/validate", pattern: /^pp\/mfa\/validate$/, owner: "authenticator", level: "section" },
   { endpoint: "user/npi", pattern: /^user\/npi$/, owner: "provider", level: "tab" },

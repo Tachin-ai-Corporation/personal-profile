@@ -59,3 +59,25 @@ describe("scripts/check-forbidden.sh: 1health URLs", () => {
     expect(run.stderr).not.toContain("only the CHECKOUT_URL line")
   })
 })
+
+/** Rule 6 (spec F7-2, Story 7.3): only the deny list names switch-tenant. */
+describe("scripts/check-forbidden.sh: switch-tenant", () => {
+  const DENY = 'export const DENY = [{ method: "*", template: "v2/user/switch-tenant/**" }]\n'
+
+  it("allows the deny list and tests", () => {
+    const run = check({
+      "lib/server/proxy/deny-list.ts": DENY,
+      "lib/server/proxy/deny-list.test.ts": 'it("denies", () => isDenied("POST", "v2/user/switch-tenant"))\n',
+    })
+    expect(run.stderr).toBe("")
+    expect(run.status).toBe(0)
+  })
+
+  it.each(["lib/api/account.ts", "features/organizations/enter.ts", "app/handoff/portal/route.ts", "lib/server/handoff.ts"])("fails on %s", (path) => {
+    const run = check({ "lib/server/proxy/deny-list.ts": DENY, [path]: 'export const P = "v2/user/switch-tenant"\n' })
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain("switch-tenant outside lib/server/proxy/deny-list.ts")
+    expect(run.stderr).toContain(path)
+    expect(run.stderr).not.toContain("  lib/server/proxy/deny-list.ts")
+  })
+})

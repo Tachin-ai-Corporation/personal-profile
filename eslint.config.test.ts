@@ -118,3 +118,33 @@ describe("lint: no string literals as zod messages in features/**/schema.ts", ()
     expect(await ruleHits("features/personal/form.ts", zod('z.string().min(1, "Required")'))).toEqual([])
   })
 })
+
+describe("lint: no entityTypeCode in features/provider (AD-23, Story 9.1; spec F7-2)", () => {
+  const HIT = /no-restricted-syntax: features\/provider never names entityTypeCode/
+
+  it.each([
+    ["features/provider/search.ts", 'export const q = "entityTypeCode=1"\n'],
+    ["features/provider/search.ts", "export const q = (t: number) => `?entityTypeCode=${t}`\n"],
+    ["features/provider/search.ts", "export const q = { entityTypeCode: 1 }\n"],
+    ["features/provider/search.ts", "declare const p: { entityTypeCode: number }\nexport const q = p.entityTypeCode\n"],
+    ["features/provider/npi-field.tsx", "export const F = () => <span>entityTypeCode</span>\n"],
+    ["features/provider/nested/schema.ts", 'import { z } from "zod"\nexport const s = z.object({ entityTypeCode: z.number() })\n'],
+  ])("rejects it in %s", async (filePath, code) => {
+    expect((await ruleHits(filePath, code)).join("\n")).toMatch(HIT)
+  })
+
+  it.each([
+    ["features/provider/search.test.ts", 'export const q = "entityTypeCode=1"\n'],
+    ["features/provider/search.test.tsx", "export const q = { entityTypeCode: 1 }\n"],
+    ["features/organizations/x.ts", 'export const q = "entityTypeCode=1"\n'],
+    ["lib/api/x.ts", 'export const q = "entityTypeCode=1"\n'],
+    ["features/provider/search.ts", 'export const q = "searchText"\n'],
+  ])("allows %s", async (filePath, code) => {
+    expect((await ruleHits(filePath, code)).join("\n")).not.toMatch(HIT)
+  })
+
+  it("keeps the zod and the base bans in features/provider", async () => {
+    expect((await ruleHits("features/provider/schema.ts", 'import { z } from "zod"\nexport const s = z.string().min(1, "Required")\n')).join("\n")).toMatch(/Zod messages come from the message catalog/)
+    expect((await ruleHits("features/provider/x.ts", "export const f = () => fetch(\"/x\")\n")).join("\n")).toMatch(/Use callApi/)
+  })
+})

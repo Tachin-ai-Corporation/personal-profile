@@ -1,10 +1,25 @@
 /**
  * `requestLeave()`: the single gate before any leaving action (Stories 1.7,
- * 1.13). Only `navigate()` calls it. It resolves `true` at once while no
- * leave guard is set; the leave guard registers itself with `setLeaveGuard`.
+ * 1.13). `navigate()` calls it unscoped (every dirty participant on the
+ * page counts). A guard-only participant closing itself (Story 5.2's
+ * Insurance editor Sheet: close, Cancel, Escape, scrim, mobile Back) calls
+ * `requestLeave({ scope: id })` (Story 1.13, spec F7-2): only that
+ * participant counts. It resolves `true` at once while no leave guard is set;
+ * the leave guard registers itself with `setLeaveGuard`.
  */
 
-export type LeaveGuard = () => Promise<boolean>
+import type { SectionId } from "@/lib/shared/section-ids"
+
+export interface LeaveOptions {
+  /**
+   * Ask only about this registered participant: its dirtiness alone opens
+   * the dialog, Discard discards only it, Save validates and saves only it.
+   * Clean → `true` with no dialog, even while other Sections are dirty.
+   */
+  readonly scope?: SectionId
+}
+
+export type LeaveGuard = (options?: LeaveOptions) => Promise<boolean>
 
 let guard: LeaveGuard | null = null
 let unloadConfirmed = false
@@ -27,9 +42,9 @@ export function setLeaveGuard(next: LeaveGuard): () => void {
   }
 }
 
-/** `true` when the move may proceed. */
-export function requestLeave(): Promise<boolean> {
-  return guard ? guard() : Promise.resolve(true)
+/** `true` when the move (or the scoped participant's close) may proceed. */
+export function requestLeave(options?: LeaveOptions): Promise<boolean> {
+  return guard ? guard(options) : Promise.resolve(true)
 }
 
 function resetExit(): void {

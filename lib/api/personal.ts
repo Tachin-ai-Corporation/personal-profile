@@ -26,3 +26,35 @@ export const PERSON_VALUE_LISTS = ["race", "ethnicity", "biologicalGender"] as c
 export function ssnExposePath(): string {
   return proxyPath("v2/person/me/ssn/expose")
 }
+
+/**
+ * One changed-fields body of the Personal-information `PUT v2/user/edit`
+ * (`PersonalInformationDTO`, Stories 2.2–2.3; spec F7-2 pre-declares it so
+ * Story 7.6's type test needs no Team A code). Written out field by field,
+ * not derived from the proxy schema (`lib/api` never imports `lib/server`).
+ * Values are strings as the proxy schema accepts them (enum labels for race,
+ * ethnicity and biological gender; `YYYY-MM-DD` birth date; `"n/a"` clears an
+ * optional field). It never has `email`, `phoneNumber` or
+ * `phoneNumberRegion`: only `account.ts#updateAccount` (AD-9) builds those.
+ */
+export interface PersonalInformationPayload {
+  readonly firstName?: string
+  readonly middleName?: string
+  readonly lastName?: string
+  readonly namePrefix?: string
+  readonly nameSuffix?: string
+  readonly otherNames?: string
+  readonly titles?: string
+  readonly birthDate?: string
+  readonly cityOfBirth?: string
+  readonly race?: string
+  readonly ethnicity?: string
+  readonly biologicalGender?: string
+  readonly genderIdentity?: string
+  readonly sexualOrientation?: string
+  /** Story 2.3: `XXX-XX-XXXX`, nine digits, or `"n/a"` to remove it. */
+  readonly socialSecurityNumber?: string
+}
+
+/** The fields a Personal-information save may send. */
+export type PersonalInformationField = keyof PersonalInformationPayload

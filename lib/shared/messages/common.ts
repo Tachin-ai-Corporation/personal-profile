@@ -31,4 +31,6 @@ export const COMMON_MESSAGES = {
   notVerified: "Not verified", // DRAFT COPY (DESIGN.md status-not-verified)
   verify: "Verify", // DRAFT COPY (DESIGN.md inline row action)
   resendVerification: "Resend verification", // verbatim: EXPERIENCE.md Voice and Tone, "Verify pending"
+  // Uploads (spec F7-2): the proxy refused the file (413 TOO_LARGE / 415 UNSUPPORTED_MEDIA → `isUploadRejected`).
+  uploadRejected: "{fileName} couldn't be used. Choose another file.", // DRAFT COPY (epics Stories 1.10 and 5.3)
 } as const

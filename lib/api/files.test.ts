@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { fileDownloadPath } from "."
+import { fileDeletePath, fileDownloadPath } from "."
 import { isFileId } from "./files"
 
 describe("fileDownloadPath", () => {
@@ -18,5 +18,19 @@ describe("fileDownloadPath", () => {
     expect(isFileId(null)).toBe(false)
     expect(isFileId({})).toBe(false)
     expect(isFileId(3)).toBe(true)
+  })
+})
+
+describe("fileDeletePath (spec F7-2)", () => {
+  it.each<[number | string, string]>([
+    [42, "/api/1h/v2/file/42"],
+    ["7", "/api/1h/v2/file/7"],
+  ])("%j → the proxy's delete path, with no hardDelete param (the proxy forces it)", (id, path) => {
+    expect(fileDeletePath(id)).toBe(path)
+    expect(fileDeletePath(id)).not.toContain("?")
+  })
+
+  it.each<number | string>([0, -1, 1.5, "", "01", "1,2", "../1"])("refuses %j", (id) => {
+    expect(fileDeletePath(id)).toBeNull()
   })
 })

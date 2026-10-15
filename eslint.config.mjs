@@ -85,6 +85,21 @@ const zodLiteralMessages = [
   ...literalAt(`${MESSAGE_PROPERTY} :function ReturnStatement`),
 ].map((selector) => ({ selector, message: ZOD_LITERAL_MESSAGE }))
 
+/**
+ * AD-23 / Story 9.1 (spec F7-2): the NPI type is fixed inside
+ * `lib/api/npi.ts` (`personalNpiSearchPath` = 1, `practiceNpiSearchPath` = 2);
+ * no Provider feature code names `entityTypeCode` (its tests may assert the
+ * request URL).
+ */
+const NPI_TYPE_MESSAGE = "features/provider never names entityTypeCode: lib/api/npi.ts fixes the NPI type (AD-23, Story 9.1)."
+const npiTypeInFeature = [
+  "Identifier[name=/entityTypeCode/]",
+  "JSXIdentifier[name=/entityTypeCode/]",
+  "Literal[value=/entityTypeCode/]",
+  "TemplateElement[value.raw=/entityTypeCode/]",
+  "JSXText[value=/entityTypeCode/]",
+].map((selector) => ({ selector, message: NPI_TYPE_MESSAGE }))
+
 const syntax = (...rules) => ["error", ...rules]
 const ALL = Object.values(ban)
 const without = (...names) => Object.entries(ban).filter(([name]) => !names.includes(name)).map(([, rule]) => rule)
@@ -192,6 +207,10 @@ const eslintConfig = [
 
   // --- Zod schemas take their messages from the catalog (AD-11) ------------
   { files: ["features/**/schema.ts"], rules: { "no-restricted-syntax": syntax(...ALL, ...zodLiteralMessages) } },
+
+  // --- features/provider never names the NPI type (AD-23, Story 9.1; spec F7-2) ---
+  { files: ["features/provider/**"], ignores: ["**/*.test.{ts,tsx}"], rules: { "no-restricted-syntax": syntax(...ALL, ...npiTypeInFeature) } },
+  { files: ["features/provider/**/schema.ts"], rules: { "no-restricted-syntax": syntax(...ALL, ...zodLiteralMessages, ...npiTypeInFeature) } },
 ]
 
 export default eslintConfig

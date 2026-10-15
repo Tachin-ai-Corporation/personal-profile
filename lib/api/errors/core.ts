@@ -62,6 +62,17 @@ const NETWORK_CODES: ReadonlySet<ApiErrorCode> = new Set<ApiErrorCode>([
   "UPSTREAM_TIMEOUT",
 ])
 
+/**
+ * Proxy upload refusals (AD-13, spec F7-2): the file was too large (413) or
+ * not an accepted image (415). The app sends JSON bodies well under the cap,
+ * so on any request these mean "this file couldn't be used"
+ * (`COMMON_MESSAGES.uploadRejected`).
+ */
+const UPLOAD_REJECTED: ReadonlyMap<ApiErrorCode, DerivedErrorCode> = new Map<ApiErrorCode, DerivedErrorCode>([
+  ["TOO_LARGE", "UPLOAD_TOO_LARGE"],
+  ["UNSUPPORTED_MEDIA", "UPLOAD_UNSUPPORTED_MEDIA"],
+])
+
 const FORBIDDEN_STATUS = 403
 
 const isClientErrorStatus = (status: number): boolean => status >= 400 && status < 500
@@ -76,6 +87,8 @@ export function classifyTransport(response: ApiResponse<unknown>): MappedError |
   const { errorCode } = response
   if (errorCode === "SESSION_EXPIRED") return { kind: "session" }
   if (errorCode !== undefined && NETWORK_CODES.has(errorCode)) return { kind: "network" }
+  const upload = errorCode === undefined ? undefined : UPLOAD_REJECTED.get(errorCode)
+  if (upload !== undefined) return { kind: "coded", code: upload }
   if (errorCode !== undefined || response.source === "proxy") return { kind: "generic" }
   if (response.statusCode === undefined) return { kind: "network" }
   if (response.statusCode === FORBIDDEN_STATUS) return { kind: "forbidden" }
@@ -83,6 +96,11 @@ export function classifyTransport(response: ApiResponse<unknown>): MappedError |
   return isClientErrorStatus(response.statusCode) && response.platformMessage !== undefined
     ? { kind: "upstream", message: response.platformMessage }
     : { kind: "generic" }
+}
+
+/** `true` when the proxy refused an uploaded file (413 / 415): show `COMMON_MESSAGES.uploadRejected`. */
+export function isUploadRejected(error: MappedError): boolean {
+  return error.kind === "coded" && (error.code === "UPLOAD_TOO_LARGE" || error.code === "UPLOAD_UNSUPPORTED_MEDIA")
 }
 
 /** A short, PHI-free code for a mapped error (the `section_save` telemetry `code`). */

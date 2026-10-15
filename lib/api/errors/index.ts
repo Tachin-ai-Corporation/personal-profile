@@ -19,7 +19,7 @@ import { rules as npiRules } from "./npi"
 import { rules as orgRules } from "./orgs"
 import { rules as personalRules } from "./personal"
 
-export { mappedErrorCode, type ErrorField, type ErrorScope, type MappedError, type MessageRule } from "./core"
+export { isUploadRejected, mappedErrorCode, type ErrorField, type ErrorScope, type MappedError, type MessageRule } from "./core"
 export {
   FORBIDDEN_SCOPE_TABLE,
   forbiddenScopeFor,

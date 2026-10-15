@@ -63,7 +63,9 @@ async function logoutWithin(logout: () => Promise<unknown>, timeoutMs: number): 
 }
 
 /**
- * The app's one navigation (AD-26). Every target first passes `requestLeave()`.
+ * The app's one navigation (AD-26). Every target first passes `requestLeave()`,
+ * unscoped: every dirty participant on the page counts (a scoped
+ * `requestLeave({ scope })` is only for a participant closing itself, spec F7-2).
  * Resolves `true` when the move went ahead.
  *
  * - page and tab moves count as user activity (an activity ping, Story 1.6).

@@ -3,8 +3,18 @@
  * Profile addendum §D, AD-11). The rules themselves live in
  * `lib/shared/person-rules.ts`. `ageRange` takes `{min}` and `{max}` from
  * `birthDateAgeRange(roles)`.
+ *
+ * Field labels both pages show (spec F7-2): Personal information (Stories
+ * 2.1–2.2, Team A) and Personal account settings (Stories 7.4–7.5, Team B)
+ * use these keys; neither re-declares them in its own area file.
  */
 export const PERSON_MESSAGES = {
+  // Shared field labels (spec F7-2).
+  firstNameLabel: "First name",
+  middleNameLabel: "Middle name", // DRAFT COPY (epics Story 2.1 F1 order; not in the V&T table)
+  lastNameLabel: "Last name",
+  birthDateLabel: "Birth date",
+  // Validation (PA4, §D).
   firstNameRequired: "First name is required",
   lastNameRequired: "Last name is required",
   firstNameTooLong: "First name can be up to 24 characters",

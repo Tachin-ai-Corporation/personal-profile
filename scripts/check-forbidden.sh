@@ -14,7 +14,11 @@
 #   5. A hard-coded 1health origin in app code outside lib/shared/environments.ts
 #      (and, in lib/shared/profile-constants.ts, only the exact CHECKOUT_URL
 #      line, Story 10.1; spec F6-3: any other 1health URL there still fails).
-#   6. scripts/check-tokens.sh: hex colors, Tailwind palette classes,
+#   6. `switch-tenant` in app code outside lib/server/proxy/deny-list.ts
+#      (Story 7.3, AD-22, R7; spec F7-2): no module references
+#      `v2/user/switch-tenant`; the deny rule is the one mention (tests
+#      excluded: they assert the deny).
+#   7. scripts/check-tokens.sh: hex colors, Tailwind palette classes,
 #      text-info-strong on links and bg-error-strong in components/, features/
 #      and app/ (outside app/globals.css).
 set -euo pipefail
@@ -91,7 +95,11 @@ if [[ -f "$PROFILE_CONSTANTS" ]] && printf '%s\n' "$app_code" | grep -Fxq "$PROF
 fi
 [[ -n "$hits" ]] && report "hard-coded 1health origin outside lib/shared/environments.ts:" "$hits"
 
-# 6. Design tokens (D13): hex colors, palette classes, text-info-strong links, bg-error-strong.
+# 6. Tenant switching stays denied (Story 7.3): only the deny list names it.
+hits=$(hits_in "$(printf '%s\n' "$app_code" | grep -Fxv lib/server/proxy/deny-list.ts || true)" 'switch-tenant')
+[[ -n "$hits" ]] && report "switch-tenant outside lib/server/proxy/deny-list.ts (Story 7.3):" "$hits"
+
+# 7. Design tokens (D13): hex colors, palette classes, text-info-strong links, bg-error-strong.
 bash scripts/check-tokens.sh || status=1
 
 if [[ $status -eq 0 ]]; then echo "check-forbidden: OK"; fi

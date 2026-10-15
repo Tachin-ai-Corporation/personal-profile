@@ -20,6 +20,8 @@ export type TelemetryErrorCode =
   | "MFA_NOT_ENABLED"
   | "TOTP_ALREADY_ENABLED"
   | "NPI_ALREADY_REGISTERED"
+  | "UPLOAD_TOO_LARGE"
+  | "UPLOAD_UNSUPPORTED_MEDIA"
   | "UNEXPECTED"
 
 export interface TelemetryEvents {

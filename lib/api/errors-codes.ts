@@ -9,8 +9,20 @@ import { BFF_ERROR_SOURCE, isBffErrorCode, type BffErrorCode } from "@/lib/share
  * the only reader of these codes outside this file and `client.ts`.
  */
 
-/** Codes `mapApiError` derives from an upstream error (`coded` results, AD-19). */
-export type DerivedErrorCode = "MFA_NOT_ENABLED" | "TOTP_ALREADY_ENABLED" | "NPI_ALREADY_REGISTERED"
+/**
+ * Codes `mapApiError` derives (`coded` results, AD-19): from an upstream
+ * message (area tables), or from a proxy upload refusal (spec F7-2:
+ * `UPLOAD_TOO_LARGE` = 413 `TOO_LARGE`, `UPLOAD_UNSUPPORTED_MEDIA` = 415
+ * `UNSUPPORTED_MEDIA`; test with `isUploadRejected`). A new member is a
+ * foundation change (FOUNDATION.md §1, team ownership rules 3–4): add it here and to
+ * `TelemetryErrorCode`, never `switch` exhaustively over it in a feature.
+ */
+export type DerivedErrorCode =
+  | "MFA_NOT_ENABLED"
+  | "TOTP_ALREADY_ENABLED"
+  | "NPI_ALREADY_REGISTERED"
+  | "UPLOAD_TOO_LARGE"
+  | "UPLOAD_UNSUPPORTED_MEDIA"
 
 /**
  * Client-side codes on top of the BFF ones: `NETWORK_ERROR` (set by

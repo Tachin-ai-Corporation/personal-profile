@@ -48,7 +48,7 @@ export {
   type ValidateResult,
 } from "./nav-types"
 export { CurrentPageProvider, LOGOUT_TIMEOUT_MS, navigate, useCurrentPage, useNavigate, type NavigateDeps } from "./navigate"
-export { requestLeave, setLeaveGuard, type LeaveGuard as LeaveGuardFn } from "./leave"
+export { requestLeave, setLeaveGuard, type LeaveGuard as LeaveGuardFn, type LeaveOptions } from "./leave"
 export { onBeforeExit, onBeforeSessionExpired, type ExitCallback } from "./exit-hooks"
 export {
   SectionRegistryProvider,

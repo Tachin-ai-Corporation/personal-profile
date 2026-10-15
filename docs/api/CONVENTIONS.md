@@ -52,16 +52,20 @@ operation (§4.6, [AUTH-ARCHITECTURE.md](../AUTH-ARCHITECTURE.md#named-operation
    `null`, not a failed read). See `lib/api/myself.ts`.
 4. For reads, use the key already declared in `keys.ts` and call
    `registerFetcher("<resource>", loader)` in the module.
-5. Every planned module (`personal`, `profile-picture`, `addresses`, `places`,
-   `insurance`, `type-keys`, `account`, `mfa`, `npi`, `organizations`,
-   `practice-support`) already exists and is re-exported from `lib/api/index.ts`
-   with `export *` (spec F6-3): add code to your module and never edit
-   `index.ts`. Import from `"@/lib/api"` everywhere. The `fetchers` object is
-   frozen: read a new key with `useSWR(keys.x())` (the root fetcher dispatches
-   to your registered loader). A helper shared by modules but not public is
-   a `*.internal.ts` module (e.g. `user-edit-path.internal.ts`), never
-   re-exported; export names must be unique across modules
-   (`planned-modules.test.ts`).
+5. Every planned module (`personal`, `profile-picture`, `contacts`,
+   `addresses`, `places`, `insurance`, `type-keys`, `account`, `mfa`, `npi`,
+   `organizations`, `practice-support`) already exists and, like every other
+   module except `client`, `fetcher` and `log-api-call`, is re-exported from
+   `lib/api/index.ts` with `export *` (specs F6-3, F7-2): add code to your
+   module, test it in your module's own `<module>.test.ts`, and never edit
+   `index.ts` or `planned-modules.test.ts`. Import from `"@/lib/api"`
+   everywhere. The `fetchers` object is frozen: read a new key with
+   `useSWR(keys.x())` (the root fetcher dispatches to your registered
+   loader). A helper shared by modules but not public is a `*.internal.ts`
+   module (e.g. `user-edit-path.internal.ts`), never re-exported; export
+   names must be unique across modules and generic ones carry the area's
+   prefix (`addressesListPath`, not `listPath`; `planned-modules.test.ts`,
+   FOUNDATION.md §1 team ownership rule 6).
 6. Copy goes in `lib/shared/messages/<area>.ts`; upstream messages your
    feature must recognise go in `lib/api/errors/<area>.ts` (anchored `^…$`).
 7. Test it with Vitest + MSW at the `/api` boundary (`test/msw-server.ts`).

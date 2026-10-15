@@ -8,12 +8,16 @@ A Next.js App Router + Tailwind v4 + shadcn/ui front end built from the **1healt
 
 ## Use the shared foundation first
 
-- **Before implementing any story, read [`docs/FOUNDATION.md`](docs/FOUNDATION.md).** It catalogs everything already built in specs 7.0a–7.0c-1 and F1–F5: modules, components, hooks, routes, recipes, and a story → foundation map. Also read the story's *Foundation 2026-10-14* lines in `_bmad-output/planning-artifacts/epics.md`.
+- **Before implementing any story, read [`docs/FOUNDATION.md`](docs/FOUNDATION.md).** It catalogs everything already built in specs 7.0a–7.0c-1 and F1–F7: modules, components, hooks, routes, recipes, and a story → foundation map. Also read the story's *Foundation 2026-10-14* lines in `_bmad-output/planning-artifacts/epics.md`.
 - **Don't rebuild or bypass a foundation piece.** If something is missing, extend the module that owns it and add it to `docs/FOUNDATION.md` in the same change.
 - **1health traffic:** the browser goes only through `callApi` (`@/lib/api`) to `/api/1h/*`. Add each endpoint to its area file `lib/server/proxy/allowlist/<area>.ts`, never to `index.ts`. Server work across calls goes in a named op (`createNamedOp` → `/api/pp/*`).
 - **Copy and errors:** copy comes only from `lib/shared/messages/<area>.ts`. Errors go only through `mapApiError(scope, response)`, with upstream text matched only in `lib/api/errors/<area>.ts`.
 - **UI:** Sections use `useSectionForm` with the Section chrome, `StateFrame` for every read, `runSaveSteps` for multi-request saves, the shell toasts, and the `components/ui` controls (Select, DateInput, Combobox, InfoPopover, DisabledAction…).
 - **Tokens and lint:** use semantic tokens only. Layering and ownership lint (`eslint.config.mjs`) and `scripts/check-forbidden.sh` must stay green.
+
+## Team ownership
+
+Two teams merge in parallel: Team A (Epics 1–6, `/`) and Team B (Epics 7–10, `/account`). Who owns which folder, what a story PR may not edit, and how shared (foundation) changes ship are in [`docs/FOUNDATION.md` §1 "Team ownership and shared changes"](docs/FOUNDATION.md#team-ownership-and-shared-changes). In short: a story edits only its own team's folders; a change to anything shared is its own small foundation PR, reviewed by both teams and merged first; shared helpers, types and unions are added to, never changed.
 
 ## Commands
 
@@ -44,7 +48,7 @@ Read `docs/AUTH-ARCHITECTURE.md` and the architecture spine (`_bmad-output/plann
 ### Layers (lint-enforced in `eslint.config.mjs`)
 - `lib/server/` — server-only (`import "server-only"`): `env.ts`, `session/`, `launch/`, `proxy/`, `security/`, `http/`, `log.ts`, `page-session.ts`, `named-op.ts` + `named-ops/`, `kill-switch.ts`, `disabled-screen.ts`. The only code that calls `fetch` upstream.
 - `lib/api/` — client transport and typed modules; same-origin `/api/*` only. `fetch(` is allowed only in `lib/api/client.ts`.
-- `lib/shared/` — pure and isomorphic (`environments.ts`, `bff-contract.ts`, `app-env.ts`, `login-intent.ts`, `messages/<area>.ts`, `section-ids.ts`, `person-rules.ts`, `dates.ts`, `phone.ts`, `safe-href.ts`, `telemetry.ts`, `initials.ts`, `deep-equal.ts`). Imports nothing else from the app.
+- `lib/shared/` — pure and isomorphic helpers, copy (`messages/<area>.ts`) and contracts; the module list is [`docs/FOUNDATION.md` §3.3](docs/FOUNDATION.md#33-shared-utilities-libshared). Imports nothing else from the app.
 - `features/<id>/` — Section features; may import `lib/api`, `lib/shared`, `components/ui` and `features/shell` only. `features/shell` is the shell.
 - `components/ui/` — shadcn/ui on the 1health tokens (`components.json`).
 

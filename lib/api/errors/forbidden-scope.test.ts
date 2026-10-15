@@ -11,6 +11,8 @@ describe("forbiddenScopeFor: the AD-23 owner table", () => {
     ["/api/1h/v2/user/contact-point/list?type=Landline", "profile", { owner: "phone", level: "section" }],
     ["/api/1h/v2/user/contact-point/list?type=Email", "profile", { owner: "email", level: "section" }],
     ["/api/1h/v2/user/contact-point/list?type=Social%20Media", "profile", { owner: "social", level: "section" }],
+    ["/api/1h/v2/person/location/list?page=0&size=100", "profile", { owner: "addresses", level: "section" }],
+    ["/api/1h/v2/health/patient/insurance?page=0&size=100", "profile", { owner: "insurance", level: "section" }],
     ["v2/mfa/enable/totp", "account", { owner: "authenticator", level: "section" }],
     ["v2/mfa/disable/totp", "account", { owner: "authenticator", level: "section" }],
     ["/api/1h/v2/mfa/config", "account", { owner: "authenticator", level: "section" }],
@@ -24,6 +26,10 @@ describe("forbiddenScopeFor: the AD-23 owner table", () => {
     ["https://app.example.test/api/pp/practice-support?tenantId=9", "account", { owner: "practice-popover", level: "popover" }],
   ])("%s on %s → %j", (path, page, scope) => {
     expect(forbiddenScopeFor(path, page)).toEqual(scope)
+  })
+
+  it.each(["v2/person/location/list", "v2/health/patient/insurance"])("%j is a / Section's row only (no owner on /account)", (path) => {
+    expect(forbiddenScopeFor(path, "account")).toBeNull()
   })
 
   it("the owners don't depend on the page outside contact-point/list", () => {
@@ -42,6 +48,8 @@ describe("forbiddenScopeFor: the AD-23 owner table", () => {
     "/api/pp/profile-picture-id",
     "/api/pp/org-logo/7",
     "user/contact-point/list/x",
+    "v2/person/location/7",
+    "v2/health/patient/insurance/7",
     "",
   ])("%j has no owner (the surface that read it decides)", (path) => {
     expect(forbiddenScopeFor(path, "account")).toBeNull()
@@ -59,6 +67,8 @@ describe("forbiddenScopeFor: the AD-23 owner table", () => {
       "contact-point/list?type=Email on profile → email/section",
       "contact-point/list?type=Social Media on profile → social/section",
       "contact-point/list on account → account-pickers/control",
+      "person/location/list on profile → addresses/section",
+      "health/patient/insurance on profile → insurance/section",
       "mfa/* → authenticator/section",
       "/api/pp/mfa/validate → authenticator/section",
       "user/npi → provider/tab",

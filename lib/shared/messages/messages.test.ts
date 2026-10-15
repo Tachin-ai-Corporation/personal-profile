@@ -110,6 +110,10 @@ describe("message catalog: verbatim against EXPERIENCE.md Voice and Tone", () =>
     "You must be between 21 and 120 years old",
     "This SSN belongs to another person",
     "This number is already on your profile",
+    // Shared field labels (spec F7-2): one key each for Personal information and Account settings.
+    "First name",
+    "Last name",
+    "Birth date",
   ])("holds the shell/state/dialog copy %j", (copy) => {
     expect(VOICE_AND_TONE.has(copy)).toBe(true)
     expect(catalogValues().some((value) => matchesTemplate(value, copy))).toBe(true)

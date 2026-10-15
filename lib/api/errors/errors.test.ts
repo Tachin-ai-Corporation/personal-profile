@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { ApiResponseError, ERROR_RULES, mapApiError, mapFetchError, mappedErrorCode, type ApiResponse, type ErrorScope, type MappedError, type MessageRule } from ".."
+import { ApiResponseError, ERROR_RULES, isUploadRejected, mapApiError, mapFetchError, mappedErrorCode, type ApiResponse, type ErrorScope, type MappedError, type MessageRule } from ".."
 
 const fail = (fields: Omit<ApiResponse<unknown>, "success">): ApiResponse<unknown> => ({ success: false, ...fields })
 
@@ -22,6 +22,8 @@ describe("mapApiError", () => {
     ["503 SERVICE_DISABLED", fail({ statusCode: 503, errorCode: "SERVICE_DISABLED", source: "proxy" }), { kind: "network" }],
     ["504 UPSTREAM_TIMEOUT", fail({ statusCode: 504, errorCode: "UPSTREAM_TIMEOUT", source: "proxy" }), { kind: "network" }],
     ["SESSION_EXPIRED", fail({ statusCode: 401, errorCode: "SESSION_EXPIRED" }), { kind: "session" }],
+    ["413 TOO_LARGE (upload refused)", fail({ statusCode: 413, errorCode: "TOO_LARGE", source: "proxy" }), { kind: "coded", code: "UPLOAD_TOO_LARGE" }],
+    ["415 UNSUPPORTED_MEDIA (upload refused)", fail({ statusCode: 415, errorCode: "UNSUPPORTED_MEDIA", source: "proxy" }), { kind: "coded", code: "UPLOAD_UNSUPPORTED_MEDIA" }],
     ["upstream 400 with a message", fail({ statusCode: 400, upstreamCode: 7, platformMessage: "X", error: "X" }), { kind: "generic", message: "X" }],
     ["upstream 499 with a message", fail({ statusCode: 499, platformMessage: "Edge", error: "Edge" }), { kind: "generic", message: "Edge" }],
     ["upstream 500 with a message (never shown)", fail({ statusCode: 500, platformMessage: "Boom", error: "Boom" }), { kind: "generic" }],
@@ -125,8 +127,22 @@ describe("mappedErrorCode", () => {
     [{ kind: "generic", message: "x" }, "GENERIC"],
     [{ kind: "field", field: "ssn", messageKey: "person.ssnTaken" }, "FIELD"],
     [{ kind: "coded", code: "NPI_ALREADY_REGISTERED" }, "NPI_ALREADY_REGISTERED"],
+    [{ kind: "coded", code: "UPLOAD_TOO_LARGE" }, "UPLOAD_TOO_LARGE"],
+    [{ kind: "coded", code: "UPLOAD_UNSUPPORTED_MEDIA" }, "UPLOAD_UNSUPPORTED_MEDIA"],
   ])("%j → %s", (error, code) => {
     expect(mappedErrorCode(error)).toBe(code)
+  })
+})
+
+describe("isUploadRejected (spec F7-2)", () => {
+  it.each<[MappedError, boolean]>([
+    [{ kind: "coded", code: "UPLOAD_TOO_LARGE" }, true],
+    [{ kind: "coded", code: "UPLOAD_UNSUPPORTED_MEDIA" }, true],
+    [{ kind: "coded", code: "MFA_NOT_ENABLED" }, false],
+    [{ kind: "generic" }, false],
+    [{ kind: "network" }, false],
+  ])("%j → %s", (error, expected) => {
+    expect(isUploadRejected(error)).toBe(expected)
   })
 })
 
