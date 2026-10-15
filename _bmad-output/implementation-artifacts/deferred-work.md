@@ -196,3 +196,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
   summary: /api/pp/org-logo makes up to 5 membership calls plus an S3 fetch per <img>, with no-store, so a 12-card page can cost ~70 upstream calls per render.
   evidence: lib/server/named-ops/org-logo.ts. Story 10.2 should cache the membership lookup per session (or pass the list's tenant ids) and consider a short private max-age for successful logos.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f5-1-select-date-input-popover.md`
+  summary: With a Radix Select listbox open, axe `aria-hidden-focus` flags the page: Radix Select (the F3-1 port, `@radix-ui/react-select` 2.3.7) hides the rest of the page with `aria-hidden` while trapping focus, without `aria-modal`. Library behaviour; the e2e scans only the listbox in that state.
+  evidence: `e2e/inputs.spec.ts` (comment at the open-listbox axe scan); F5-1 Review Triage Log "Deferred". Revisit on a Radix Select upgrade, or patch the content with `aria-modal="true"` if axe still flags it; feature e2e that scan with an open Select (2.2, 4.2, 5.2, 7.5, 7.6) scan only the listbox too.

@@ -43,7 +43,7 @@ development_status:
   1-4-callapi-transport-swr-keys-and-usemyself: done  # 2026-10-14: covered by spec-7-0a (callApi, session events, keys, fetcher, root SWRConfig, useMyself, logApiCall); myself.ts move in F1
   1-5-client-coordinated-token-refresh: done  # 2026-10-14: covered by spec-7-0a (refresh route, refresh-coordinator, replay rules)
   1-6-idle-logoff-activity-ping-and-cross-tab-activity: done  # 2026-10-14: covered by spec-7-0c-1 (limits, ping, activity re-seal, pp-activity channel, IdleWarning)
-  1-7-logout-and-session-expired-session-changed-dialogs: done  # 2026-10-14: covered by spec-7-0a (logout + all-devices revoke, login intent) + 7-0b-2 (SessionDialog, onBeforeSessionExpired/onBeforeExit, navigate portal, requestLeave); draft flush/purge on those hooks is 1-15 (F4)
+  1-7-logout-and-session-expired-session-changed-dialogs: done  # 2026-10-14: covered by spec-7-0a (logout + all-devices revoke, login intent) + 7-0b-2 (SessionDialog, onBeforeSessionExpired/onBeforeExit, navigate portal, requestLeave); draft flush/purge on those hooks is 1-15 (F4); 2026-10-14: draft flush (onBeforeSessionExpired, pagehide) and portal purge (onBeforeExit) built in spec-f4-drafts
   1-8-profile-page-shell-tokens-app-bar-tabs-and-section-navigatio: done  # 2026-10-14: fully covered by specs 7.0b-1 (tokens), 7.0b-2 (app bar, page nav, tabs, page frame), F3-1 (select, focus-ring) and F3-3 (section menu, Jump to, scroll-spy, deep links, Contacts/Insurance panels) on feat/NG-9019-epic-7
   1-1r-foundation-and-launch-rework: review
   1-3r-transport-and-proxy-rework: done  # 2026-10-14: covered by spec-7-0a (proxy: no CSRF/binding, {errorCode,source}, exact deny list, profile tag, ACCOUNT_DISABLED, root SWRConfig, logApiCall) on feat/NG-9019-epic-7
@@ -53,39 +53,39 @@ development_status:
   1-10-change-profile-picture: backlog  # 2026-10-14: F2 (spec-f2) built the upload mechanism (upload.ts, readCapped, 413/415 table test) + picture upload entry in allowlist/core.ts (no client ?fileName=; name from the multipart part). Remaining (Team A): dialog, image-reencode, avatar button, DELETE v2/file entry, client flow; decide server-side EXIF strip vs accepted AD-13 risk (deferred-work); F3-1 built toastSuccess, busy Button, FieldError (use them)
   1-11-section-framework-registry-edit-model-inline-validation-and: backlog  # 2026-10-14: registry (useRegisterSection, SaveResult/failedParts, canSave) built in spec-7-0b-2, ConfirmDialog in 7-0b-1. Remaining: final registry contract, runSaveSteps, edit primitives, DisabledAction/Tooltip, fixture Section (F3); RowActions/RowRemoval (Team A). zod message lint + telemetry module built in spec-f1; 2026-10-14: DisabledAction, Tooltip(+Provider), FormField/FieldError, Input restyle, InputLocked, busy Button built in spec-f3-1. Remaining: final registry contract, useSectionForm, header/footer, runSaveSteps, fixture Section + spec (F3-2); RowActions/RowRemoval/DropdownMenu (Team A)
   1-12-error-mapping-message-catalog-toasts-and-retry: backlog  # 2026-10-14: message catalog + verbatim/voice tests, mapApiError(response), read states built in spec-7-0b-1. mapper v2 (field/coded, exact-message tables), catalog split, use-toast lint built in spec-f1. Remaining: toasts, Section save/load error UI, fixture spec (F3); 2026-10-14: toasts.ts (toastSuccess/toastPartial/toastError), toast placement/limit/durations, InlineBanner, LoadError/ReadStateFor on it (+attempt), save copy built in spec-f3-1. Remaining: Section save-failure UI + fixture spec (F3-2), SectionFrame load error (F3-3)
-  1-13-leave-guard: backlog  # 2026-10-14: LeaveGuard, requestLeave/setLeaveGuard, beforeunload built in spec-7-0b-2. Remaining: drafts.purgeUser on Discard->Return (F4), Save via the Save-all runner (F3), scoped requestLeave({scope}) with the Sheet (Team A)
-  1-14-save-all: backlog  # 2026-10-14: nothing built; runner + dirtyCount in F3, bar/pill/SAVE_ORDER Team A; F3-1 built toastPartial, All saved / partialSaved copy, busy Button, --toast-bottom-offset
-  1-15-drafts-keep-unsaved-edits-across-an-expired-session: backlog  # 2026-10-14: nothing built; whole story is F4 (hooks onBeforeSessionExpired/onBeforeExit exist from 7-0b-2); InlineBanner info for restore/conflict built in spec-f3-1
+  1-13-leave-guard: backlog  # 2026-10-14: LeaveGuard, requestLeave/setLeaveGuard, beforeunload built in spec-7-0b-2. Remaining: drafts.purgeUser on Discard->Return (F4), Save via the Save-all runner (F3), scoped requestLeave({scope}) with the Sheet (Team A); 2026-10-14: portal-exit purge (DraftsProvider on onBeforeExit) + draft delete on leave-guard Save/Discard built in spec-f4-drafts. Remaining (Team A): scoped requestLeave({scope}) with the Sheet
+  1-14-save-all: backlog  # 2026-10-14: nothing built; runner + dirtyCount in F3, bar/pill/SAVE_ORDER Team A; F3-1 built toastPartial, All saved / partialSaved copy, busy Button, --toast-bottom-offset; 2026-10-14: draft delete after Save all / Discard all (registry saved/discarded events) built in spec-f4-drafts
+  1-15-drafts-keep-unsaved-edits-across-an-expired-session: done  # 2026-10-14: fully covered by spec-f4-drafts (drafts.ts, DraftsProvider/useSectionDraft, SectionDraftNotice, DraftCompare, e2e/drafts.spec.ts) on feat/NG-9019-epic-7; remaining: per-Section wiring only (draftFields, describeDraftDiff, applyDraft, dataStatus), owned by each Section's story
   1-16-deployments-environments-and-operations-runbooks: backlog  # 2026-10-14: environment map test + API-route PP_DISABLED 503 built in spec-7-0a/7-0c-1; kill-switch matcher in proxy.ts + 503 disabled screen (app/disabled/route.ts) + e2e built in spec-f2. Remaining (Team A): Vercel project, promote workflow, docs/ops runbooks, kill-switch/rollback rehearsal, PM review of draft copy
   epic-1-retrospective: optional
 
   epic-2: backlog
   2-1-view-personal-information: backlog  # 2026-10-14: myself fields + file download entry (spec-f1), asImage hardening (spec-f2). Remaining: F3 table/StateFrame/SignatureThumb; Team A Section
-  2-2-edit-and-save-personal-information: backlog
-  2-3-ssn-entry-and-reveal: backlog
-  2-4-signature: backlog  # 2026-10-14: signature upload + version entries in allowlist/personal.ts (spec-f2). Remaining (Team A): pad, save steps, DELETE v2/file entry, confirm, tests; take the version id only from myself.signature (deferred-work ownership)
+  2-2-edit-and-save-personal-information: backlog  # 2026-10-14: DateInput + birthDateBounds + resetKey, Select placeholder (spec-f5-1), gender identity Combobox staticOptions/free-text (spec-f5-2), drafts via useSectionForm draftFields/describeDraftDiff/dataStatus (spec-f4) built. Remaining (Team A): Section, schema, save, draft wiring
+  2-3-ssn-entry-and-reveal: backlog  # 2026-10-14: ssn/socialSecurityNumber draft denylist built in spec-f4-drafts
+  2-4-signature: backlog  # 2026-10-14: signature upload + version entries in allowlist/personal.ts (spec-f2). Remaining (Team A): pad, save steps, DELETE v2/file entry, confirm, tests; take the version id only from myself.signature (deferred-work ownership); 2026-10-14: signature/signatureFile draft denylist built in spec-f4-drafts
   epic-2-retrospective: optional
 
   epic-3: backlog
   3-1-contact-point-engine-and-phone-read-view: backlog
-  3-2-add-relabel-and-remove-phones: backlog
+  3-2-add-relabel-and-remove-phones: backlog  # 2026-10-14: draft wiring kit (useSectionForm draftFields/describeDraftDiff/dataStatus, SectionContainer sectionId) built in spec-f4-drafts; Select placeholder in spec-f5-1
   3-3-verify-phones: backlog
   3-4-make-a-phone-primary-and-manage-notifications: backlog
-  3-5-view-add-relabel-and-remove-emails: backlog
+  3-5-view-add-relabel-and-remove-emails: backlog  # 2026-10-14: draft wiring kit built in spec-f4-drafts
   3-6-verify-emails-make-an-email-primary-and-manage-notifications: backlog
-  3-7-manage-social-media-links: backlog
+  3-7-manage-social-media-links: backlog  # 2026-10-14: draft wiring kit built in spec-f4-drafts
   epic-3-retrospective: optional
 
   epic-4: backlog
   4-1-view-addresses: backlog
-  4-2-add-and-edit-addresses: backlog
-  4-3-address-suggestions-via-server: backlog  # 2026-10-14: /api/places/{autocomplete,details} server routes built in spec-f2 (requests carry lookupId). Remaining (Team A): lib/api/places.ts, combobox UI, fill/validated, client tests; throttle decision (deferred-work)
+  4-2-add-and-edit-addresses: backlog  # 2026-10-14: draft wiring kit (spec-f4-drafts) and Select placeholder/loading (spec-f5-1) built
+  4-3-address-suggestions-via-server: backlog  # 2026-10-14: /api/places/{autocomplete,details} server routes built in spec-f2 (requests carry lookupId). Remaining (Team A): lib/api/places.ts, combobox UI, fill/validated, client tests; throttle decision (deferred-work); 2026-10-14: address Combobox variant (minChars 3, 250 ms, max 5, free-text, quiet, searchDisabled, highlightMatch, COMBOBOX_MESSAGES.addressHelp) built in spec-f5-2. Remaining (Team A): lib/api/places.ts loader, fill/validated, pill hiding, client tests
   4-4-primary-address-and-removal: backlog
   epic-4-retrospective: optional
 
   epic-5: backlog
   5-1-view-policies-and-card-images: backlog  # 2026-10-14: asImage hardening built in spec-f2. Remaining (Team A): everything else incl. the insurance card download entry
-  5-2-add-and-edit-a-policy: backlog
+  5-2-add-and-edit-a-policy: backlog  # 2026-10-14: insurer Combobox variant (pageSize 20, allowAdd, exactMatch, defaultSelection, insurerHelp) in spec-f5-2; DateInput + calendar, birthDateBounds, Select placeholder in spec-f5-1; guard-only never drafted (spec-f4) built
   5-3-card-image-upload-with-retry: backlog  # 2026-10-14: both insurance card upload entries built in spec-f2. Remaining (Team A): card images UI, re-encode, retry, replace-then-delete; ids only from saved/own policies (deferred-work ownership)
   5-4-primary-per-type-with-demote-offer: backlog
   5-5-delete-a-policy: backlog
@@ -108,12 +108,12 @@ development_status:
   f4-drafts: done
   f5-1-select-date-input-popover: done  # aria-disabled Select + helper, DateInput + Calendar, Popover + info-popover
   f5-2-async-combobox: done  # ARIA 1.2 combobox (NPI, address, insurer, gender identity variants)
-  7-1-account-page-route-tabs-deep-links-and-states: backlog
+  7-1-account-page-route-tabs-deep-links-and-states: backlog  # 2026-10-14: per-page DraftsProvider in PageFrame + portal purge / hand-off keep built in spec-f4-drafts
   7-2-account-page-hardening-denies-kill-switch-headers-mobile-and-a: backlog  # 2026-10-14: page/route-level ACCOUNT_DISABLED kill switch + 503 screen + e2e matrix built in spec-f2. Remaining (Team B): /account no-store test (needs 7.1), Profile deny/traversal rows, /account header asserts, mobile + keyboard/axe runs
   7-3-portal-hand-off-route: backlog
   7-4-view-personal-account-settings: backlog
-  7-5-edit-names-birth-date-and-regional-preferences: backlog  # 2026-10-14: InputLocked, InfoIconButton (About birth date) + Tooltip wide, FormField, Select, busy Button, toasts, InlineBanner built in spec-f3-1 (no longer created here)
-  7-6-switch-primary-email-and-phone: backlog  # 2026-10-14: Select + InlineBanner info built in spec-f3-1; aria-disabled Select helper F5
+  7-5-edit-names-birth-date-and-regional-preferences: backlog  # 2026-10-14: InputLocked, InfoIconButton (About birth date) + Tooltip wide, FormField, Select, busy Button, toasts, InlineBanner built in spec-f3-1 (no longer created here); 2026-10-14: DateInput + calendar + birthDateBounds + resetKey, Select placeholder/unlistedValue (spec-f5-1), drafts kit + username/password denylist (spec-f4) built
+  7-6-switch-primary-email-and-phone: backlog  # 2026-10-14: Select + InlineBanner info built in spec-f3-1; aria-disabled Select helper F5; 2026-10-14: Select ariaDisabled + helper + loading built in spec-f5-1; draft kit (spec-f4) built
   epic-7-retrospective: optional
 
   epic-8: backlog
@@ -123,13 +123,13 @@ development_status:
   epic-8-retrospective: optional
 
   epic-9: backlog
-  9-1-registration-state-and-npi-search: backlog
-  9-2-register: backlog
-  9-3-registered-view: backlog  # 2026-10-14: GET /api/pp/practice-support named op + route tests built in spec-f2. Remaining (Team B): practiceSupport loader, popover (F5 info-popover), registered view
+  9-1-registration-state-and-npi-search: backlog  # 2026-10-14: InfoPopover (spec-f5-1) and NPI Combobox variant (openOnFocus, 600 ms, pageSize 10, select-only, npi copy) (spec-f5-2) built; do not add a second popover
+  9-2-register: backlog  # 2026-10-14: Combobox selection/onSelect built in spec-f5-2
+  9-3-registered-view: backlog  # 2026-10-14: GET /api/pp/practice-support named op + route tests built in spec-f2. Remaining (Team B): practiceSupport loader, popover (F5 info-popover), registered view; 2026-10-14: InfoPopover state slots + LinkTextButton trigger + NPI_MESSAGES.practiceSupportLoadError built in spec-f5-1
   epic-9-retrospective: optional
 
   epic-10: backlog
   10-1-list-search-and-pagination-of-my-organizations: backlog
-  10-2-organization-card-logo-name-types-and-primary-contact: backlog  # 2026-10-14: GET /api/pp/org-logo/[tenantId] named op + publicFilesOrigin + route tests built in spec-f2. Remaining (Team B): card UI, membership caching (deferred-work), confirm publicFilesOrigin on demo/prod (deferred-work)
+  10-2-organization-card-logo-name-types-and-primary-contact: backlog  # 2026-10-14: GET /api/pp/org-logo/[tenantId] named op + publicFilesOrigin + route tests built in spec-f2. Remaining (Team B): card UI, membership caching (deferred-work), confirm publicFilesOrigin on demo/prod (deferred-work); 2026-10-14: InfoPopover (title Primary contact) built in spec-f5-1; do not add a second popover
   10-3-enter-portal: backlog  # 2026-10-14: DisabledAction (disabled Enter portal) built in spec-f3-1
   epic-10-retrospective: optional
