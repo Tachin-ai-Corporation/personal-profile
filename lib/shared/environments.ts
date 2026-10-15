@@ -53,6 +53,11 @@ export function environmentConfig(environment: Environment): EnvironmentConfig {
   return CONFIG[environment]
 }
 
+/** The environment whose portal URL this is (the page's `PortalUrlProvider` value), else `null`. */
+export function environmentOfPortalUrl(portalUrl: string): Environment | null {
+  return ENVIRONMENTS.find((environment) => CONFIG[environment].portalUrl === portalUrl) ?? null
+}
+
 /** Display-only Demo/Prod guess from the page that opened `/auth` (never sent with a request). */
 export function environmentFromReferrer(referrer: string): Environment | null {
   let hostname: string

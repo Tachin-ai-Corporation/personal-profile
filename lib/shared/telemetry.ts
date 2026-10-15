@@ -26,6 +26,12 @@ export interface TelemetryEvents {
   readonly section_save: { readonly sectionId: SectionId; readonly ok: boolean; readonly code: TelemetryErrorCode | null }
   readonly save_all: { readonly saved: number; readonly failed: number }
   readonly mfa_link: { readonly ok: boolean; readonly attempt: number }
+  /** F4 drafts: draft fields dropped in production (names never sent). */
+  readonly draft_fields_dropped: {
+    readonly sectionId: SectionId
+    readonly count: number
+    readonly reason: "denylisted" | "guardOnly" | "nestedDenylisted"
+  }
 }
 
 export type TelemetryEvent = keyof TelemetryEvents

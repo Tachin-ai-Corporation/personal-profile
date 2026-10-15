@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { environmentConfig, environmentFromReferrer, isEnvironment } from "./environments"
+import { environmentConfig, environmentFromReferrer, environmentOfPortalUrl, isEnvironment } from "./environments"
 
 describe("environments", () => {
   it("holds the D4 map values", () => {
@@ -32,6 +32,12 @@ describe("environments", () => {
     ["not a url", null],
   ])("detects %s as %s", (referrer, expected) => {
     expect(environmentFromReferrer(referrer)).toBe(expected)
+  })
+
+  it("maps a portal URL back to its environment", () => {
+    expect(environmentOfPortalUrl("https://1health.demo.1health.io")).toBe("demo")
+    expect(environmentOfPortalUrl("https://1health.app.1health.io")).toBe("prod")
+    expect(environmentOfPortalUrl("https://portal.test")).toBeNull()
   })
 
   it("narrows environment values", () => {

@@ -17,9 +17,18 @@ import type { ErrorField } from "@/lib/api"
 import { deepEqual } from "@/lib/shared/deep-equal"
 import { formatMessage, messageFor, SECTION_MESSAGES } from "@/lib/shared/messages"
 import { telemetry } from "@/lib/shared/telemetry"
-import { SESSION_EXPIRED_CODE, sectionHeadingId, type DraftDiffRow, type DraftValues, type SaveError, type SaveResult, type SectionId } from "./nav-types"
+import {
+  SESSION_EXPIRED_CODE,
+  sectionHeadingId,
+  type DraftDiffRow,
+  type DraftValues,
+  type SaveError,
+  type SaveResult,
+  type SectionDataStatus,
+  type SectionId,
+} from "./nav-types"
 import type { SectionFooterError, SectionFooterProps } from "./section-footer"
-import { useRegisterSection } from "./section-registry"
+import { useRegisterSection, useSectionRegistry } from "./section-registry"
 import { toastError, toastSuccess, type ShownToast } from "./toasts"
 
 export type SectionMode = "read" | "edit" | "saving"
@@ -55,8 +64,15 @@ export interface UseSectionFormOptions<T extends FieldValues> {
   readonly errorFields?: Partial<Record<ErrorField, Path<T>>>
   /** The Section-level error copy for a failure; `undefined` falls back to the generic / network copy. */
   readonly describeError?: (error: SaveError) => string | undefined
-  /** F4 drafts: the fields a draft may hold (never SSN, Signature, codes). */
+  /**
+   * F4 drafts: the fields a draft may hold (never SSN, Signature, codes, NPI
+   * selections, username, password). A draft is written only after a user
+   * change (typing, or a `Controller` / `field()` change): values the Section
+   * presets with `form.setValue` never count.
+   */
   readonly draftFields?: readonly (keyof T & string)[]
+  /** F4 drafts: the Section's server data; a stored draft is offered only once `loaded` (the default). */
+  readonly dataStatus?: SectionDataStatus
   /** F4 drafts: the changed fields between a draft and the current server values. */
   readonly describeDraftDiff?: (draft: DraftValues, current: DraftValues) => readonly DraftDiffRow[]
 }
@@ -131,7 +147,9 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
     describeError,
     draftFields,
     describeDraftDiff,
+    dataStatus,
   } = options
+  const registry = useSectionRegistry()
 
   const form = useForm<T, unknown, T>({
     resolver: zodResolver(schema),
@@ -152,6 +170,13 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
   const [status, setStatus] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<SectionFooterError | null>(null)
   const [, setFocusTick] = useState(0)
+  /**
+   * F4: the form values just before the user's first change in this edit
+   * (preset values included); `null` while the user changed nothing.
+   */
+  const [presetBase, setPresetBase] = useState<FieldValues | null>(null)
+  /** The latest values seen by the form subscription (read only in its callback). */
+  const lastValues = useRef<FieldValues>(options.baseline)
   /** The baseline the form values were last reset to (merges keep the edits made since). */
   const synced = useRef<T>(options.baseline)
   const busy = useRef(false)
@@ -172,6 +197,24 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
   /** The one dirty predicate (footer, registry, no-changes Save): deep inequality with the baseline. */
   const differsFromBaseline = (values: FieldValues): boolean => !deepEqual({ ...baseline, ...values }, baseline)
   const isDirty = isEditing && differsFromBaseline(watched)
+  // Clean again: the next user change starts over (a later preset alone never counts).
+  if (presetBase !== null && !isDirty) setPresetBase(null)
+  /** F4: the values differ from what they were before the user's first change (so presets alone, or reverted edits, don't count). */
+  const userChanged = isDirty && presetBase !== null && !deepEqual({ ...presetBase, ...watched }, presetBase)
+
+  // A change event from a registered input or a Controller is the user's; `setValue` presets are not.
+  useEffect(
+    () =>
+      form.subscribe({
+        formState: { values: true },
+        callback: ({ type, values }) => {
+          const before = lastValues.current
+          if (type === "change") setPresetBase((previous) => previous ?? before)
+          lastValues.current = { ...values }
+        },
+      }),
+    [form],
+  )
 
   function requestFocus(target: FocusTarget): void {
     focusTarget.current = target
@@ -271,6 +314,7 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
     synced.current = baseline
     form.reset(baseline)
     clearMessages()
+    setPresetBase(null)
     setMode("edit")
   }
 
@@ -279,6 +323,7 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
     form.reset(baseline)
     clearMessages()
     dismissErrorToast()
+    setPresetBase(null)
     setMode("read")
   }
 
@@ -289,7 +334,10 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
 
   function cancel(): void {
     if (busy.current) return
+    const wasDirty = isDirty
     toRead()
+    // Only a dirty Section's Cancel discards a draft (a stored one may still be on offer).
+    if (wasDirty) registry.report({ type: "discarded", id })
     requestFocus(cancelFocus)
   }
 
@@ -361,7 +409,10 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
       form.reset(values)
       rebase(values)
       dismissErrorToast()
+      setPresetBase(null)
       setMode("read")
+      // The Section's own Save; the registered save() is reported by the registry.
+      if (withUi) registry.report({ type: "saved", id })
       if (withUi) {
         requestFocus("heading")
         const text = successToast ?? formatMessage(SECTION_MESSAGES.saved, { section: label })
@@ -424,17 +475,23 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
     save: registeredSave,
     discard: toRead,
     draftFields,
+    userChanged,
+    dataStatus,
     getDraftValues: draftFields ? () => pick(form.getValues(), draftFields) : undefined,
     getDraftBase: draftFields ? () => pick(baseline, draftFields) : undefined,
     applyDraft: draftFields
       ? (values) => {
-          if (mode === "saving") return
+          if (mode === "saving") return false
           if (mode === "read") enterEdit()
+          // A restored draft is the user's own change, against the values before it: it is written again (with the current base).
+          const before = form.getValues()
+          setPresetBase({ ...before })
           for (const key of draftFields) {
             if (Object.hasOwn(values, key)) {
               form.setValue(key as Path<T>, values[key] as PathValue<T, Path<T>>, { shouldValidate: true, shouldDirty: true })
             }
           }
+          return true
         }
       : undefined,
     describeDraftDiff,

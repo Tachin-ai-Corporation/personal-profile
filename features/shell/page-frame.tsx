@@ -3,11 +3,14 @@
 import type { ReactNode } from "react"
 import { mapFetchError } from "@/lib/api"
 import type { PageIdleTiming } from "@/lib/shared/bff-contract"
+import { environmentOfPortalUrl } from "@/lib/shared/environments"
 import { AppBar } from "./app-bar"
+import { DraftsProvider } from "./draft-provider"
 import { IdleWarning } from "./idle-warning"
 import { LeaveGuard } from "./leave-guard"
 import type { PageId, SectionId } from "./nav-types"
 import { CurrentPageProvider } from "./navigate"
+import { usePortalUrl } from "./portal-url-provider"
 import { ReadStateFor } from "./read-state"
 import { SectionRegistryProvider } from "./section-registry"
 import { SessionDialog } from "./session-dialog"
@@ -18,6 +21,17 @@ function MyselfReadState() {
   const { error, retry } = useMyself()
   if (!error) return null
   return <ReadStateFor error={mapFetchError("page", error)} onRetry={retry} className="mx-4 mt-4 md:mx-6" />
+}
+
+/** The page's drafts, keyed to the Launching user once `myself` loads (Story 1.15). */
+function PageDrafts({ children }: { readonly children: ReactNode }) {
+  const { myself } = useMyself()
+  const environment = environmentOfPortalUrl(usePortalUrl())
+  return (
+    <DraftsProvider userId={myself?.id} environment={environment}>
+      {children}
+    </DraftsProvider>
+  )
 }
 
 interface PageFrameBaseProps {
@@ -44,26 +58,28 @@ export type PageFrameProps = PageFrameBaseProps &
 
 /**
  * The page frame shared by `/` and `/account` (Stories 1.8, 7.1): app bar →
- * header → tabs → content, with the page's own Section registry, its leave
- * guard, the idle warning and the session dialog. Must sit inside
+ * header → tabs → content, with the page's own Section registry, its drafts
+ * (Story 1.15), its leave guard, the idle warning and the session dialog. Must sit inside
  * `PortalUrlProvider`.
  */
 export function PageFrame({ page, header, children, idle, saveAllSlot, saveOrder }: PageFrameProps) {
   return (
     <CurrentPageProvider value={page}>
       <SectionRegistryProvider>
-        <div className="min-h-screen bg-background">
-          <AppBar current={page} />
-          <main>
-            {header}
-            <MyselfReadState />
-            {children}
-          </main>
-          {page === "profile" ? saveAllSlot : null}
-        </div>
-        <LeaveGuard order={saveOrder} />
-        <IdleWarning {...idle} />
-        <SessionDialog />
+        <PageDrafts>
+          <div className="min-h-screen bg-background">
+            <AppBar current={page} />
+            <main>
+              {header}
+              <MyselfReadState />
+              {children}
+            </main>
+            {page === "profile" ? saveAllSlot : null}
+          </div>
+          <LeaveGuard order={saveOrder} />
+          <IdleWarning {...idle} />
+          <SessionDialog />
+        </PageDrafts>
       </SectionRegistryProvider>
     </CurrentPageProvider>
   )

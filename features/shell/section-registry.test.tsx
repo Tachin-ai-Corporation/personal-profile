@@ -1,6 +1,8 @@
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react"
+import { useEffect } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { FixtureParticipant } from "./__fixtures__/fixture-participant"
+import { setTelemetrySink } from "@/lib/shared/telemetry"
 import type { SectionRegistration } from "./nav-types"
 import { createSectionRegistry, SectionRegistryProvider, useDirtyCount, useIsAnyDirty, useRegisterSection, useSectionRegistry } from "./section-registry"
 
@@ -75,7 +77,7 @@ describe("createSectionRegistry", () => {
       }),
     )
     registry.register(reg({ id: "email", save: () => Promise.reject(new Error("async")) }))
-    registry.register(reg({ id: "account", draftFields: ["firstName"], save: async () => ({ ok: false, error: { failedParts: ["timeZone"] } }) }))
+    registry.register(reg({ id: "account", draftFields: ["firstName"], describeDraftDiff: () => [], save: async () => ({ ok: false, error: { failedParts: ["timeZone"] } }) }))
     const byId = Object.fromEntries(registry.getAll().map((s) => [s.id, s]))
     expect(await byId.phone.save()).toEqual({ ok: false, error: { code: "UNEXPECTED" } })
     expect(await byId.email.save()).toEqual({ ok: false, error: { code: "UNEXPECTED" } })
@@ -182,13 +184,17 @@ describe("draft hooks (F4 contract)", () => {
     let registry: ReturnType<typeof createSectionRegistry> | undefined
     const applied: unknown[] = []
     function Section({ value }: { value: string }) {
-      registry = useSectionRegistry()
+      const current = useSectionRegistry()
+      useEffect(() => {
+        registry = current
+      })
       useRegisterSection(
         reg({
+          save: async () => ({ ok: true }),
           draftFields: ["value"],
           getDraftValues: () => ({ value }),
           getDraftBase: () => ({ value: `base-${value}` }),
-          applyDraft: (values) => applied.push([value, values]),
+          applyDraft: (values) => applied.push([value, values]) > 0,
           describeDraftDiff: (draft, current) => [{ field: "value", label: "Value", mine: String(draft.value), current: `${String(current.value)}-${value}` }],
         }),
       )
@@ -249,7 +255,10 @@ describe("useRegisterSection", () => {
   it("unregisters on unmount", () => {
     let registry: ReturnType<typeof createSectionRegistry> | undefined
     function Capture() {
-      registry = useSectionRegistry()
+      const current = useSectionRegistry()
+      useEffect(() => {
+        registry = current
+      })
       return null
     }
     const tree = (show: boolean) => (
@@ -270,3 +279,83 @@ describe("useRegisterSection", () => {
   })
 })
 
+
+const describeDraftDiff = () => []
+const OK = async () => ({ ok: true }) as const
+
+describe("draft contract (F4)", () => {
+  it("throws in development on a denylisted draft field, a guard-only participant's draft fields or no describeDraftDiff", () => {
+    const registry = createSectionRegistry()
+    expect(() => registry.register(reg({ id: "personal", save: OK, describeDraftDiff, draftFields: ["firstName", "SSN"] }))).toThrow(/denylisted/)
+    expect(() => registry.register(reg({ id: "insurance", saveAll: false, save: OK, describeDraftDiff, draftFields: ["insurer"] }))).toThrow(/guard-only/)
+    expect(() => registry.register(reg({ id: "email", describeDraftDiff, draftFields: ["value"] }))).toThrow(/guard-only/)
+    expect(() => registry.register(reg({ id: "social", save: OK, draftFields: ["value"] }))).toThrow(/describeDraftDiff/)
+    expect(registry.getAll()).toEqual([])
+  })
+
+  it("validates update() too, only when the draft contract changed", () => {
+    const registry = createSectionRegistry()
+    registry.register(reg({ save: OK, describeDraftDiff, draftFields: ["number"] }))
+    expect(() => registry.update(reg({ save: OK, describeDraftDiff, draftFields: ["number", "password"] }))).toThrow(/denylisted/)
+    vi.stubEnv("NODE_ENV", "production")
+    const tracked: unknown[] = []
+    const restore = setTelemetrySink((event, payload) => void tracked.push([event, payload]))
+    registry.update(reg({ save: OK, describeDraftDiff, draftFields: ["number", "npi"] }))
+    // Same contract on later renders (a new but equal array): not re-validated, no repeated telemetry.
+    registry.update(reg({ save: OK, describeDraftDiff, draftFields: ["number", "npi"], isDirty: true }))
+    restore()
+    expect(registry.get("phone")?.draftFields).toEqual(["number"])
+    expect(tracked).toEqual([["draft_fields_dropped", { sectionId: "phone", count: 1, reason: "denylisted" }]])
+  })
+
+  it("drops them in production", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    const registry = createSectionRegistry()
+    registry.register(reg({ id: "personal", save: OK, describeDraftDiff, draftFields: ["firstName", "signature", "socialSecurityNumber"] }))
+    registry.register(reg({ id: "insurance", saveAll: false, save: OK, draftFields: ["insurer"] }))
+    expect(registry.getAll().map((section) => [section.id, section.draftFields])).toEqual([
+      ["personal", ["firstName"]],
+      ["insurance", []],
+    ])
+  })
+
+  it("defaults userChanged to isDirty, and dataStatus to loading with draft fields (else loaded)", () => {
+    const registry = createSectionRegistry()
+    registry.register(reg({ isDirty: true }))
+    registry.register(reg({ id: "email", save: OK, describeDraftDiff, draftFields: ["value"] }))
+    expect(registry.get("phone")).toMatchObject({ userChanged: true, dataStatus: "loaded" })
+    expect(registry.get("email")).toMatchObject({ dataStatus: "loading" })
+    registry.update(reg({ isDirty: true, userChanged: false, dataStatus: "error" }))
+    expect(registry.get("phone")).toMatchObject({ userChanged: false, dataStatus: "error" })
+    expect(registry.get("social")).toBeUndefined()
+  })
+
+  it("reports registered, updated, saved (ok only), discarded (dirty only) and unregistered (still readable) to observers; report() relays", async () => {
+    const registry = createSectionRegistry()
+    const events: string[] = []
+    const off = registry.observe((event) => events.push(`${event.type}:${event.id}:${registry.get(event.id) ? "readable" : "gone"}`))
+    let ok = true
+    const save = async () => (ok ? { ok: true as const } : { ok: false as const, error: { code: "GENERIC" as const } })
+    const unregister = registry.register(reg({ save }))
+    registry.get("phone")?.discard()
+    registry.update(reg({ isDirty: true, save }))
+    const [section] = registry.getAll()
+    await section.save()
+    ok = false
+    await section.save()
+    section.discard()
+    registry.report({ type: "saved", id: "phone" })
+    unregister()
+    off()
+    registry.report({ type: "discarded", id: "phone" })
+    expect(events).toEqual([
+      "registered:phone:readable",
+      "updated:phone:readable",
+      "saved:phone:readable",
+      "discarded:phone:readable",
+      "saved:phone:readable",
+      "unregistered:phone:readable",
+    ])
+    expect(registry.get("phone")).toBeUndefined()
+  })
+})

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { SECTION_MESSAGES } from "@/lib/shared/messages"
 import { KeyValueEditTable, KeyValueTable } from "../key-value-table"
-import { sectionHeadingId, type SaveResult } from "../nav-types"
+import { sectionHeadingId, type DraftDiffRow, type DraftValues, type SaveResult } from "../nav-types"
 import { SectionContainer } from "../section-container"
 import { SectionFooter } from "../section-footer"
 import { SectionHeader } from "../section-header"
@@ -14,11 +14,35 @@ import { fixtureSectionSchema, type FixtureSectionValues } from "./schema"
 
 export const FIXTURE_BASELINE: FixtureSectionValues = { number: "4155512125", note: "" }
 
+/** The fixture's draft fields (F4). */
+export const FIXTURE_DRAFT_FIELDS = ["number", "note"] as const
+
+const FIXTURE_LABELS: Readonly<Record<string, string>> = { number: "Number", note: "Note" }
+
+/** The fixture's conflict compare rows: one per draft field whose draft value differs from the current one. */
+export function fixtureDraftDiff(draft: DraftValues, current: DraftValues): readonly DraftDiffRow[] {
+  return FIXTURE_DRAFT_FIELDS.filter((field) => draft[field] !== current[field]).map((field) => ({
+    field,
+    label: FIXTURE_LABELS[field],
+    mine: String(draft[field] ?? ""),
+    current: String(current[field] ?? ""),
+  }))
+}
+
 export interface FixtureSectionProps
   extends Partial<
     Pick<
       UseSectionFormOptions<FixtureSectionValues>,
-      "onNoChanges" | "successToast" | "cancelFocus" | "saveAll" | "displayOrder" | "draftFields" | "describeError" | "errorFields"
+      | "onNoChanges"
+      | "successToast"
+      | "cancelFocus"
+      | "saveAll"
+      | "displayOrder"
+      | "draftFields"
+      | "describeDraftDiff"
+      | "dataStatus"
+      | "describeError"
+      | "errorFields"
     >
   > {
   readonly baseline?: FixtureSectionValues
@@ -36,7 +60,8 @@ export interface FixtureSectionProps
  * Test-only Section (unit tests and the e2e fixture page; F3-2): id `phone`,
  * label "Phone", its own `schema.ts`, a required 10-digit number and an
  * optional note, on `useSectionForm` with the shared chrome and key/value
- * table. Not app UI; its labels are fixture data, its messages catalog copy.
+ * table, and its stored-draft slot (F4). Not app UI; its labels are fixture
+ * data, its messages catalog copy.
  */
 export function FixtureSection({ baseline = FIXTURE_BASELINE, save = async () => ({ ok: true }), onAddRow, ...options }: FixtureSectionProps) {
   const rebase = useRef<(next: FixtureSectionValues) => void>(() => undefined)
@@ -70,7 +95,7 @@ export function FixtureSection({ baseline = FIXTURE_BASELINE, save = async () =>
           )
         }
       />
-      <SectionContainer editing={isEditing}>
+      <SectionContainer editing={isEditing} sectionId="phone">
         {isEditing ? (
           <>
             <KeyValueEditTable

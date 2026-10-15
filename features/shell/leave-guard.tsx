@@ -115,7 +115,7 @@ export function LeaveGuard({ events = defaultSessionEvents, order }: LeaveGuardP
       body={pending?.canSave === false ? LEAVE_GUARD_MESSAGES.bodyCannotSave : LEAVE_GUARD_MESSAGES.body}
       variant="standard"
       cancelLabel={LEAVE_GUARD_MESSAGES.keepEditing}
-      extraAction={{ label: LEAVE_GUARD_MESSAGES.discard, onClick: discard }}
+      extraAction={{ label: COMMON_MESSAGES.discard, onClick: discard }}
       confirmLabel={COMMON_MESSAGES.save}
       showConfirm={pending?.canSave !== false}
       busy={busy}

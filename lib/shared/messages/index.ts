@@ -20,6 +20,7 @@ import { ADDRESS_MESSAGES } from "./addresses"
 import { COMMON_MESSAGES } from "./common"
 import { CONTACT_MESSAGES } from "./contacts"
 import { DISABLED_MESSAGES } from "./disabled"
+import { DRAFT_MESSAGES } from "./drafts"
 import { HEADER_MESSAGES } from "./header"
 import { IDLE_MESSAGES } from "./idle"
 import { INSURANCE_MESSAGES } from "./insurance"
@@ -41,6 +42,7 @@ export {
   COMMON_MESSAGES,
   CONTACT_MESSAGES,
   DISABLED_MESSAGES,
+  DRAFT_MESSAGES,
   HEADER_MESSAGES,
   IDLE_MESSAGES,
   INSURANCE_MESSAGES,
@@ -65,6 +67,7 @@ export const MESSAGE_CATALOG = {
   header: HEADER_MESSAGES,
   leaveGuard: LEAVE_GUARD_MESSAGES,
   sessionExpired: SESSION_EXPIRED_MESSAGES,
+  drafts: DRAFT_MESSAGES,
   idle: IDLE_MESSAGES,
   person: PERSON_MESSAGES,
   contacts: CONTACT_MESSAGES,

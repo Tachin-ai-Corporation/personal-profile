@@ -212,7 +212,7 @@ Built on `feat/NG-9019-epic-7` by specs 7.0a, 7.0b-1, 7.0b-2, 7.0c-1, F1, F2, F3
     | `user/organization/portal` | the Organizations tab |
     | `practice-support` | the Practice-name popover only |
 - **Drafts:**
-  - The key is `pp:draft:v1:<userId>:account`.
+  - The key is `pp:draft:v1:<environment>:<userId>:account`.
   - `draftFields` are `firstName`, `lastName`, `birthDate`, `preferredLanguage`, `timeZone`, `locale`, plus `primaryEmail` and `primaryPhone` (added in 7.6).
   - `baseHash` hashes the server values of exactly those fields.
   - A draft never contains the username, password, MFA data or NPI data.
@@ -241,7 +241,7 @@ Built on `feat/NG-9019-epic-7` by specs 7.0a, 7.0b-1, 7.0b-2, 7.0c-1, F1, F2, F3
 | **1.11 Section framework** | `SectionRegistry` per page; `useRegisterSection({id,label,displayOrder,form,validate,save,discard,draftFields})`; a `SectionId` that includes `account`; the edit-mode primitives (`input-locked`, the footer with "Unsaved changes", Cancel and Save); a `save()` error shape that allows `failedParts` | Registry + `failedParts` **built (7.0b-2)**; `InputLocked`, `FormField`, busy `Button`, `DisabledAction`/`Tooltip` **built (F3-1)**; footer and edit model **F3-2** | 7.1, 7.5 |
 | **1.12 Errors, messages, toasts** | `lib/api/errors.ts` (`FORBIDDEN`, generic proxy errors, platform message, field mapping), the non-launch strings in `lib/shared/messages.ts` (today it holds only the launch and disabled draft copy) with the verbatim test, toasts, and a Retry pattern | Catalog, `mapApiError(response)`, read states **built (7.0b-1)**; mapper v2 **F1**; toasts + `InlineBanner` (`LoadError` takes `attempt`) **built (F3-1)**; save-failure UI **F3-2** | 7.1, 7.5, 7.6 |
 | **1.13 Leave guard** | The three-way dialog ("You have unsaved changes": Keep editing, Discard, Save) that `navigate()` invokes, plus `beforeunload` | **Built (7.0b-2)**; Save-all runner F3, drafts purge F4 | 7.1, 7.3, 7.5 |
-| **1.15 Drafts** | `pp:draft:v1:<userId>:<section>` with a 500 ms debounce and a write before the session-expired dialog; `baseHash` conflicts; the restore banner; `drafts.purgeUser(userId)` | **F4** (before 7.5); plugs into `onBeforeExit`/`onBeforeSessionExpired` (7.0b-2) | 7.5, 7.6 |
+| **1.15 Drafts** | `pp:draft:v1:<environment>:<userId>:<section>` with a 500 ms debounce and a write before the session-expired dialog; `baseHash` conflicts; the restore banner; `drafts.purgeUser(userId)` | **F4** (before 7.5); plugs into `onBeforeExit`/`onBeforeSessionExpired` (7.0b-2) | 7.5, 7.6 |
 | **1.16 Disabled screen** | `features/shell/disabled-screen.tsx` for page-level 503s (the copy already exists in `messages.ts`) | **Built (F2)** as `app/disabled/route.ts` + `lib/server/disabled-screen.ts` (503 route handler; a page would render 200), with the kill-switch matcher in `proxy.ts` | 7.2 |
 
 **Not needed for Epic 7:** 1.6 Idle logoff (built anyway in 7.0c-1; `IdleWarning` runs on `/account` through `PageFrame`), 1.10 Profile Picture, 1.14 Save all (`/account` must not mount one), and the 1.16 deployment work beyond the `ACCOUNT_DISABLED` env var.

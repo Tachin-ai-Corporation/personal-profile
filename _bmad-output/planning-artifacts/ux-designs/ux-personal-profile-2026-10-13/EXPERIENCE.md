@@ -437,7 +437,7 @@ Failure / edge: a card where she is disabled shows Enter portal aria-disabled wi
 
 Same as UJ-5, on `/account`. Only the deltas:
 
-- Only Account settings has a draft (key `pp:draft:v1:<userId>:account`); it is restored with the same banner after relaunch.
+- Only Account settings has a draft (key `pp:draft:v1:<environment>:<userId>:account`); it is restored with the same banner after relaunch.
 - Switching tabs with Account settings dirty opens the leave guard.
 - MFA codes, the QR and NPI selections are never kept.
 

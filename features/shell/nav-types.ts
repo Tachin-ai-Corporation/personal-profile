@@ -108,6 +108,25 @@ export interface DraftDiffRow {
   readonly current: string
 }
 
+/**
+ * Where a Section's server data stands (F4 drafts): a stored draft is offered
+ * only once it is `loaded`, and never while the read failed (`error`).
+ */
+export type SectionDataStatus = "loading" | "loaded" | "error"
+
+/**
+ * A registry event for F4 drafts. `registered` / `unregistered` (sent while
+ * the Section is still readable, so its draft can be written) and `updated`
+ * (sent on every `update()`, i.e. each render of a registered Section, since
+ * draft values change without any registration field changing). `saved`: a
+ * save that resolved `{ ok: true }` (own Save, Save all, leave-guard Save);
+ * `discarded`: a discard of a dirty Section (Cancel, Discard all, leave-guard
+ * Discard). Both delete the Section's draft.
+ */
+export type SectionEvent =
+  | { readonly type: "registered" | "updated" | "unregistered"; readonly id: SectionId }
+  | { readonly type: "saved" | "discarded"; readonly id: SectionId }
+
 /** What a Section (or a guard-only participant) registers (Story 1.11). */
 export interface SectionRegistration {
   readonly id: SectionId
@@ -126,14 +145,30 @@ export interface SectionRegistration {
   /** Omitted by a guard-only participant that can't save: it is then `canSave: false`. */
   readonly save?: () => Promise<SaveResult>
   readonly discard: () => void
-  /** The fields a draft may hold (Story 1.15). */
+  /**
+   * The fields a draft may hold (Story 1.15). Never a denylisted field (SSN,
+   * Signature, MFA/QR codes, NPI selections, username, password) and never on
+   * a guard-only participant: the registry throws in development and drops
+   * them in production.
+   */
   readonly draftFields?: readonly string[]
+  /**
+   * F4 drafts: the user changed a value in this edit (not only app-preselected
+   * defaults); no draft is written before. Defaults to `isDirty`.
+   */
+  readonly userChanged?: boolean
+  /** F4 drafts: the Section's server data; defaults to `loading` for a Section with draft fields (nothing offered until it says `loaded`), else `loaded`. */
+  readonly dataStatus?: SectionDataStatus
   /** F4 drafts: the current values of `draftFields` (written while dirty). */
   readonly getDraftValues?: () => DraftValues
   /** F4 drafts: the server values of `draftFields` the edit started from (hashed into `baseHash`). */
   readonly getDraftBase?: () => DraftValues
-  /** F4 drafts: opens edit view with a restored draft's values. */
-  readonly applyDraft?: (values: DraftValues) => void
-  /** F4 drafts: the changed fields between a draft and the current server values, for the conflict compare. */
+  /**
+   * F4 drafts: opens edit view with a restored draft's values; `false` when it
+   * couldn't (e.g. while saving), so the draft stays offered. A Section
+   * without it keeps no draft.
+   */
+  readonly applyDraft?: (values: DraftValues) => boolean
+  /** F4 drafts: the changed fields between a draft and the current server values, for the conflict compare (required with draft fields: development throws without it). */
   readonly describeDraftDiff?: (draft: DraftValues, current: DraftValues) => readonly DraftDiffRow[]
 }

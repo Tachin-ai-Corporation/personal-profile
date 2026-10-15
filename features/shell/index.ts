@@ -36,6 +36,8 @@ export {
   type SaveError,
   type SaveErrorCode,
   type SaveResult,
+  type SectionDataStatus,
+  type SectionEvent,
   type SectionId,
   type SectionRegistration,
   type ValidateResult,
@@ -53,6 +55,13 @@ export {
   type SectionRegistry,
 } from "./section-registry"
 export { LeaveGuard, type LeaveGuardProps } from "./leave-guard"
+
+// Drafts (Story 1.15; F4). Sections never touch storage: they register `draftFields` and render `SectionContainer sectionId`.
+// The draft store itself is deliberately not exported: only drafts.ts reads, writes and deletes keys.
+export { DRAFT_DEBOUNCE_MS, DRAFT_DENYLIST, DRAFT_MAX_AGE_MS, defaultDraftDiff, type DraftOffer } from "./drafts"
+export { DraftsProvider, useSectionDraft, type DraftsProviderProps, type SectionDraft } from "./draft-provider"
+export { SectionDraftNotice, type SectionDraftNoticeProps } from "./draft-banner"
+export { DraftCompare, type DraftCompareProps } from "./draft-compare"
 
 // The Section edit kit (Stories 1.11–1.14; F3-2).
 export {

@@ -36,7 +36,7 @@ Goal: build once, before feature work by either team, every cross-cutting piece 
 - Port of main Story 1.8B: Section menu, Jump to (Select), scroll-spy, deep links, Contacts/Insurance panels.
 
 ## F4 Drafts (Story 1.15)
-- `features/shell/drafts.ts`: `pp:draft:v1:<userId>:<sectionId>`, 500 ms debounce, flush on `onBeforeSessionExpired`, `baseHash`, denylisted fields, 24 h purge, `purgeUser` via `onBeforeExit`, restore banner and conflict compare.
+- `features/shell/drafts.ts`: `pp:draft:v1:<environment>:<userId>:<sectionId>`, 500 ms debounce, flush on `onBeforeSessionExpired`, `baseHash`, denylisted fields, 24 h purge, `purgeUser` via `onBeforeExit`, restore banner and conflict compare.
 
 ## F5 Shared input controls
 - Select (aria-disabled + helper), masked date input with calendar Popover, async Combobox, Popover + `info-popover`.
@@ -114,7 +114,7 @@ Specs 7.0a, 7.0b-1, 7.0b-2, 7.0c-1, F1, F2, F3-1, F3-2 and F3-3 are done. `epics
 F3 is delivered as three specs: F3-1 UI primitives and toasts → (F3-2 section edit model ∥ F3-3 states and section navigation) → F4. Story-specific variations are parameters, not decisions: cancel focus (`heading` for Profile Sections per 1.11, `edit` for 7.5), no-changes Save (`close` for 2.2, `status` "There are no changes" for 7.5), success toast text, signature fallback text ("Not provided" 2.1 / "No signature available" 9.3). Defaults chosen: toast radius per DESIGN.md token (`rounded-md`), partial toast 5 s, locked inputs `readOnly` + `aria-readonly` (focusable, with help line).
 
 ## F4 / F5 decisions (2026-10-14)
-- F4 drafts: localStorage (AD-12), key `pp:draft:v1:<userId>:<sectionId>`; denylist adds `username` and `password` to Story 1.15's list (Story 7.5 requires it); `baseHash` (SHA-256 of sorted JSON of the server values of the Section's draft fields via `getDraftBase`) is computed and cached when edit starts or the base changes, because the session-expired flush is synchronous; a Section that is dirty only because of app-preselected defaults writes no draft until a user change; flush also on `pagehide` (addition); multi-tab is last-writer-wins on one key (documented, no `storage` sync); list Sections define their own `describeDraftDiff` rows.
+- F4 drafts: localStorage (AD-12), key `pp:draft:v1:<environment>:<userId>:<sectionId>`; denylist adds `username` and `password` to Story 1.15's list (Story 7.5 requires it); `baseHash` (SHA-256 of sorted JSON of the server values of the Section's draft fields via `getDraftBase`) is computed and cached when edit starts or the base changes, because the session-expired flush is synchronous; a Section that is dirty only because of app-preselected defaults writes no draft until a user change; flush also on `pagehide` (addition); multi-tab is last-writer-wins on one key (documented, no `storage` sync); list Sections define their own `describeDraftDiff` rows.
 - F5 is split: F5-1 Select (aria-disabled + helper, placeholder prop, unlisted value) + DateInput/Calendar (react-day-picker 10.0.1 + date-fns 4) + Popover (@radix-ui/react-popover 1.1.23) + info-popover variants; F5-2 async Combobox (headless hook + view; NPI, address, insurer, gender-identity variants as props). Date bounds follow F1 `isBirthDateInRange` (backend rule); calendar button optional by prop.
 - Planning fix: Story 7.6 tests and EXPERIENCE.md amended to Mobile-only primary phone (consistent with the validated backend rule).
 

@@ -5,7 +5,7 @@ import { setTelemetrySink, type TelemetryEvents } from "@/lib/shared/telemetry"
 import { axeViolations } from "@/test/axe"
 import { stubViewport } from "@/test/media"
 import { FIXTURE_BASELINE, FixtureSection, type FixtureSectionProps } from "./__fixtures__/fixture-section"
-import type { FixtureSectionValues } from "./__fixtures__/schema"
+import { fixtureSectionSchema, type FixtureSectionValues } from "./__fixtures__/schema"
 import { z } from "zod"
 import { CONTACT_MESSAGES } from "@/lib/shared/messages"
 import type { SaveResult } from "./nav-types"
@@ -396,21 +396,37 @@ describe("registration (leave guard, Save all)", () => {
     expect(screen.getByRole("cell", { name: "4155512125" })).toBeTruthy()
   })
 
-  it("registers saveAll: false and the draft hooks (F4)", async () => {
-    setup({ saveAll: false, draftFields: ["number"] })
+  it("registers saveAll: false (never counted)", async () => {
+    setup({ saveAll: false })
     await edit()
     type(number(), "4155550000")
     const [section] = registry?.getAll() ?? []
     expect(section.saveAll).toBe(false)
     expect(registry?.getDirtyCount()).toBe(0)
+    expect(section.draftFields).toEqual([])
+  })
+
+  it("registers the draft hooks (F4)", async () => {
+    setup({ draftFields: ["number"], describeDraftDiff: () => [] })
+    await edit()
+    type(number(), "4155550000")
+    const [section] = registry?.getAll() ?? []
     expect(section.draftFields).toEqual(["number"])
+    expect(section.userChanged).toBe(true)
     expect(section.getDraftValues?.()).toEqual({ number: "4155550000" })
     expect(section.getDraftBase?.()).toEqual({ number: FIXTURE_BASELINE.number })
     act(() => section.discard())
-    act(() => section.applyDraft?.({ number: "4155559999", other: "x" }))
+    let applied: boolean | undefined
+    act(() => {
+      applied = section.applyDraft?.({ number: "4155559999", other: "x" })
+    })
+    expect(applied).toBe(true)
     expect(number().value).toBe("4155559999")
     expect(screen.getByText("Unsaved changes")).toBeTruthy()
+    // A restored draft counts as the user's change (it is written again with the current base).
+    expect(registry?.getAll()[0].userChanged).toBe(true)
   })
+
 
   it("without draftFields registers no draft hooks", () => {
     setup()
@@ -568,7 +584,7 @@ describe("review fixes", () => {
 
   it("applyDraft: read → edit like Edit (baseline, no messages), validates the values; ignored while saving", async () => {
     let finish: (result: SaveResult) => void = () => undefined
-    setup({ draftFields: ["number"], save: () => new Promise<SaveResult>((resolve) => (finish = resolve)) })
+    setup({ draftFields: ["number"], describeDraftDiff: () => [], save: () => new Promise<SaveResult>((resolve) => (finish = resolve)) })
     const [section] = registry?.getAll() ?? []
     await act(async () => section.applyDraft?.({ number: "12" }))
     expect(screen.getByText("Editing")).toBeTruthy()
@@ -702,5 +718,87 @@ describe("nested and list fields", () => {
 describe("createSectionRegistry with the fixture", () => {
   it("is independent per provider", () => {
     expect(createSectionRegistry().getDirtyCount()).toBe(0)
+  })
+})
+
+describe("F4 draft signals", () => {
+  function Presetting({ observed }: { readonly observed: string[] }) {
+    const current = useSectionRegistry()
+    useEffect(() => current.observe((event) => void (event.type === "saved" || event.type === "discarded" ? observed.push(event.type) : undefined)), [current, observed])
+    const section = useSectionForm<FixtureSectionValues>({
+      id: "phone",
+      label: "Phone",
+      displayOrder: 2,
+      schema: fixtureSectionSchema,
+      baseline: FIXTURE_BASELINE,
+      save: async () => OK,
+      draftFields: ["number", "note"],
+      describeDraftDiff: () => [],
+      dataStatus: "error",
+    })
+    useEffect(() => {
+      registry = current
+    })
+    return (
+      <>
+        <button type="button" onClick={section.startEdit}>
+          Edit
+        </button>
+        <button type="button" onClick={() => section.form.setValue("note", "preset")}>
+          Preset
+        </button>
+        {section.isEditing ? <input aria-label="Number" {...section.field("number")} /> : null}
+        <button type="button" onClick={section.cancel}>
+          Cancel
+        </button>
+        <button type="button" onClick={() => void section.submit()}>
+          Save
+        </button>
+      </>
+    )
+  }
+
+  it("a preset value makes the Section dirty but not user-changed; typing does; Cancel and Save report and reset it", async () => {
+    const observed: string[] = []
+    render(
+      <SectionRegistryProvider>
+        <Presetting observed={observed} />
+      </SectionRegistryProvider>,
+    )
+    const section = () => registry?.getAll()[0]
+    expect(section()?.dataStatus).toBe("error")
+    await act(async () => fireEvent.click(button("Edit")))
+    await act(async () => fireEvent.click(button("Preset")))
+    expect(section()).toMatchObject({ isDirty: true, userChanged: false })
+    type(screen.getByRole("textbox", { name: "Number" }) as HTMLInputElement, "4155550000")
+    await flush()
+    expect(section()).toMatchObject({ isDirty: true, userChanged: true })
+    // Reverting the user's edit: presets still make it dirty, but it is no longer the user's change.
+    type(screen.getByRole("textbox", { name: "Number" }) as HTMLInputElement, FIXTURE_BASELINE.number)
+    await flush()
+    expect(section()).toMatchObject({ isDirty: true, userChanged: false })
+    await act(async () => fireEvent.click(button("Cancel")))
+    expect(section()).toMatchObject({ isDirty: false, userChanged: false })
+    expect(observed).toEqual(["discarded"])
+    // Cancel of a clean Section reports nothing (a stored draft may still be on offer).
+    await act(async () => fireEvent.click(button("Edit")))
+    await act(async () => fireEvent.click(button("Cancel")))
+    expect(observed).toEqual(["discarded"])
+    // Clean again after a revert: a later preset alone isn't a user change.
+    await act(async () => fireEvent.click(button("Edit")))
+    type(screen.getByRole("textbox", { name: "Number" }) as HTMLInputElement, "4155550009")
+    await flush()
+    type(screen.getByRole("textbox", { name: "Number" }) as HTMLInputElement, FIXTURE_BASELINE.number)
+    await flush()
+    expect(section()).toMatchObject({ isDirty: false, userChanged: false })
+    await act(async () => fireEvent.click(button("Preset")))
+    expect(section()).toMatchObject({ isDirty: true, userChanged: false })
+    await act(async () => fireEvent.click(button("Cancel")))
+    expect(observed).toEqual(["discarded", "discarded"])
+    await act(async () => fireEvent.click(button("Edit")))
+    type(screen.getByRole("textbox", { name: "Number" }) as HTMLInputElement, "4155550001")
+    await act(async () => fireEvent.click(button("Save")))
+    expect(observed).toEqual(["discarded", "discarded", "saved"])
+    expect(section()).toMatchObject({ isDirty: false, userChanged: false })
   })
 })

@@ -2,7 +2,17 @@
 
 import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react"
 import { isProductionBuild } from "@/lib/shared/app-env"
-import type { DraftDiffRow, DraftValues, SaveResult, SectionId, SectionRegistration, ValidateResult } from "./nav-types"
+import { allowedDraftFields } from "./drafts"
+import type {
+  DraftDiffRow,
+  DraftValues,
+  SaveResult,
+  SectionDataStatus,
+  SectionEvent,
+  SectionId,
+  SectionRegistration,
+  ValidateResult,
+} from "./nav-types"
 
 /** A registered Section as the leave guard sees it. */
 export interface RegisteredSection {
@@ -17,16 +27,25 @@ export interface RegisteredSection {
    * participant registered without `save`: not counted, not saved by Save all.
    */
   readonly saveAll: boolean
+  /** The allowed draft fields (denylisted ones and a guard-only participant's are dropped). */
   readonly draftFields: readonly string[]
+  /** F4 drafts: the user changed a value in this edit (defaults to `isDirty`). */
+  readonly userChanged: boolean
+  /** F4 drafts: the Section's server data (defaults to `loaded`). */
+  readonly dataStatus: SectionDataStatus
   /** F4 draft hooks, as registered (absent when the Section keeps no draft). */
   readonly getDraftValues?: () => DraftValues
   readonly getDraftBase?: () => DraftValues
-  readonly applyDraft?: (values: DraftValues) => void
+  readonly applyDraft?: (values: DraftValues) => boolean
   readonly describeDraftDiff?: (draft: DraftValues, current: DraftValues) => readonly DraftDiffRow[]
   /** Never rejects: a throw or rejection counts as invalid. */
   validate(): Promise<ValidateResult>
-  /** Never rejects: a throw or rejection resolves `{ ok: false, error: { code: "UNEXPECTED" } }`. */
+  /**
+   * Never rejects: a throw or rejection resolves `{ ok: false, error: { code: "UNEXPECTED" } }`.
+   * `{ ok: true }` reports `saved` (F4 deletes the Section's draft).
+   */
   save(): Promise<SaveResult>
+  /** Reports `discarded` (F4 deletes the Section's draft). */
   discard(): void
 }
 
@@ -43,7 +62,14 @@ export interface SectionRegistry {
   getDirtyCount(): number
   /** Any Section dirty, guard-only participants included. */
   isAnyDirty(): boolean
+  /** One registered Section, if any. */
+  get(id: SectionId): RegisteredSection | undefined
+  /** Re-renders on dirty / Save-all changes only. */
   subscribe(listener: () => void): () => void
+  /** Every registration change and lifecycle event, in order (F4 drafts). */
+  observe(listener: (event: SectionEvent) => void): () => void
+  /** A Section's own Save succeeded or its Cancel ran (`useSectionForm`); the registry's `save`/`discard` report themselves. */
+  report(event: Extract<SectionEvent, { type: "saved" | "discarded" }>): void
 }
 
 const UNEXPECTED: SaveResult = { ok: false, error: { code: "UNEXPECTED" } }
@@ -72,34 +98,87 @@ function countsForSaveAll(registration: SectionRegistration): boolean {
   return registration.saveAll !== false && registration.save !== undefined
 }
 
+/** A registration's draft contract inputs, compared to skip re-validating unchanged fields. */
+function draftContractKey(registration: SectionRegistration): string {
+  return JSON.stringify([registration.draftFields ?? [], countsForSaveAll(registration), registration.describeDraftDiff !== undefined])
+}
+
+interface Entry {
+  current: SectionRegistration
+  /** The allowed draft fields, validated once per contract change (throws in development). */
+  draftFields: readonly string[]
+  contractKey: string
+  /** The cached view of `current`. */
+  view: RegisteredSection
+}
+
 /** One registry per page (AD-7); no other module keeps dirty or save state. */
 export function createSectionRegistry(): SectionRegistry {
-  // Each registration lives in a box, so unregister removes only its own entry.
-  const entries = new Map<SectionId, { current: SectionRegistration }>()
+  // Each registration lives in an entry box, so unregister removes only its own entry.
+  const entries = new Map<SectionId, Entry>()
   const listeners = new Set<() => void>()
+  const observers = new Set<(event: SectionEvent) => void>()
   const notify = (): void => {
     for (const listener of [...listeners]) listener()
   }
+  const emit = (event: SectionEvent): void => {
+    for (const observer of [...observers]) observer(event)
+  }
 
-  const view = (registration: SectionRegistration): RegisteredSection => ({
+  /** Validates the draft contract (throws in development; see `allowedDraftFields`). */
+  const allowedFor = (registration: SectionRegistration): readonly string[] =>
+    allowedDraftFields(registration.id, registration.draftFields, {
+      savesAll: countsForSaveAll(registration),
+      describes: registration.describeDraftDiff !== undefined,
+    })
+
+  const entryFor = (registration: SectionRegistration): Entry => {
+    const draftFields = allowedFor(registration)
+    return { current: registration, draftFields, contractKey: draftContractKey(registration), view: view(registration, draftFields) }
+  }
+
+  /** Re-validates the draft contract only when it changed, and refreshes the cached view. */
+  const refresh = (entry: Entry, registration: SectionRegistration): void => {
+    const contractKey = draftContractKey(registration)
+    if (contractKey !== entry.contractKey) {
+      entry.draftFields = allowedFor(registration)
+      entry.contractKey = contractKey
+    }
+    entry.current = registration
+    entry.view = view(registration, entry.draftFields)
+  }
+
+  const view = (registration: SectionRegistration, draftFields: readonly string[]): RegisteredSection => ({
     id: registration.id,
     label: registration.label,
     displayOrder: registration.displayOrder,
     isDirty: registration.isDirty,
     canSave: registration.save !== undefined,
     saveAll: countsForSaveAll(registration),
-    draftFields: registration.draftFields ?? [],
+    draftFields,
+    userChanged: registration.userChanged ?? registration.isDirty,
+    // A Section with draft fields must say when its data loaded: a placeholder baseline would show a false conflict.
+    dataStatus: registration.dataStatus ?? (draftFields.length > 0 ? "loading" : "loaded"),
     getDraftValues: registration.getDraftValues,
     getDraftBase: registration.getDraftBase,
     applyDraft: registration.applyDraft,
     describeDraftDiff: registration.describeDraftDiff,
     validate: () => safeValidate(registration.validate),
-    save: () => (registration.save ? safeSave(registration.save) : Promise.resolve(UNEXPECTED)),
-    discard: () => registration.discard(),
+    save: async () => {
+      const result = registration.save ? await safeSave(registration.save) : UNEXPECTED
+      if (result.ok) emit({ type: "saved", id: registration.id })
+      return result
+    },
+    discard: () => {
+      const wasDirty = registration.isDirty
+      registration.discard()
+      // A clean Section's discard deletes nothing (e.g. a stored draft still on offer).
+      if (wasDirty) emit({ type: "discarded", id: registration.id })
+    },
   })
 
   const getAll = (): readonly RegisteredSection[] =>
-    [...entries.values()].map((box) => view(box.current)).toSorted((a, b) => a.displayOrder - b.displayOrder)
+    [...entries.values()].map((entry) => entry.view).toSorted((a, b) => a.displayOrder - b.displayOrder)
 
   return {
     register(registration) {
@@ -107,11 +186,15 @@ export function createSectionRegistry(): SectionRegistry {
         if (!isProductionBuild()) throw new Error(`Section "${registration.id}" is already registered on this page`)
         return () => undefined
       }
-      const box = { current: registration }
+      // Throws in development on a denylisted draft field, a guard-only participant's draft fields or no describeDraftDiff.
+      const box = entryFor(registration)
       entries.set(registration.id, box)
       notify()
+      emit({ type: "registered", id: registration.id })
       return () => {
         if (entries.get(registration.id) !== box) return
+        // Sent while the Section is still readable, so drafts can keep its latest edit.
+        emit({ type: "unregistered", id: registration.id })
         entries.delete(registration.id)
         notify()
       }
@@ -120,10 +203,12 @@ export function createSectionRegistry(): SectionRegistry {
       const box = entries.get(registration.id)
       if (!box) return
       const previous = box.current
-      box.current = registration
+      refresh(box, registration)
       if (previous.isDirty !== registration.isDirty || countsForSaveAll(previous) !== countsForSaveAll(registration)) notify()
+      emit({ type: "updated", id: registration.id })
     },
     getAll,
+    get: (id) => entries.get(id)?.view,
     getDirty: () => getAll().filter((section) => section.isDirty),
     getDirtyCount: () => [...entries.values()].filter((box) => box.current.isDirty && countsForSaveAll(box.current)).length,
     isAnyDirty: () => [...entries.values()].some((box) => box.current.isDirty),
@@ -132,6 +217,15 @@ export function createSectionRegistry(): SectionRegistry {
       return () => {
         listeners.delete(listener)
       }
+    },
+    observe(observer) {
+      observers.add(observer)
+      return () => {
+        observers.delete(observer)
+      }
+    },
+    report(event) {
+      emit(event)
     },
   }
 }
