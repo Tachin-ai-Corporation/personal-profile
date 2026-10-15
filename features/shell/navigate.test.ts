@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { server } from "@/test/msw-server"
 import { onBeforeExit, onBeforeSessionExpired, runBeforeExit, runBeforeSessionExpired } from "./exit-hooks"
 import { beginExit, confirmUnload, isUnloadConfirmed, requestLeave, resetLeaveState, setLeaveGuard, UNLOAD_CONFIRM_MS } from "./leave"
-import { isAccountTab, isProfileTab, pageOfPath, pageTabTarget, TAB_PARAM, type NavTarget } from "./nav-types"
+import { isAccountTab, isProfileTab, PAGE_TAB_PARAM, pageOfPath, pageTabTarget, TAB_PARAM, type NavTarget } from "./nav-types"
 import { LOGOUT_TIMEOUT_MS, navigate, type NavigateDeps } from "./navigate"
 
 const PORTAL = "https://portal.test"
@@ -292,23 +292,24 @@ describe("navigate: exits", () => {
   })
 })
 
-describe("a page's tab param (F6-1)", () => {
-  it("a same-page tab move sets `tabParam` instead of `tab`, other params kept", async () => {
-    const { deps, calls } = setup("/account", {}, "?tab=keep&view=personal")
-    expect(await navigate({ page: "account", tab: "provider", tabParam: "view" }, deps)).toBe(true)
-    expect(calls).toContain("replace /account?tab=keep&view=provider")
+describe("a page's tab param is page config (F6-1 review L3)", () => {
+  it("PAGE_TAB_PARAM is `tab` on both pages", () => {
+    expect(PAGE_TAB_PARAM).toEqual({ profile: TAB_PARAM, account: TAB_PARAM })
   })
 
-  it("a cross-page move puts the tab in `tabParam`", async () => {
-    const { deps, calls } = setup("/")
-    expect(await navigate({ page: "account", tab: "organizations", tabParam: "view" }, deps)).toBe(true)
-    expect(calls).toContain("push /account?view=organizations")
+  it("same-page and cross-page tab moves write the page's tab param, other params kept", async () => {
+    const same = setup("/account", {}, "?x=1&tab=personal")
+    expect(await navigate({ page: "account", tab: "provider" }, same.deps)).toBe(true)
+    expect(same.calls).toContain("replace /account?x=1&tab=provider")
+    const cross = setup("/")
+    expect(await navigate({ page: "account", tab: "organizations" }, cross.deps)).toBe(true)
+    expect(cross.calls).toContain("push /account?tab=organizations")
   })
 
-  it("pageTabTarget types a page's tab and adds tabParam only when it isn't `tab`", () => {
+  it("pageTabTarget types a page's tab", () => {
     expect(pageTabTarget("profile", "insurance")).toEqual({ page: "profile", tab: "insurance" })
     expect(pageTabTarget("profile", "personal")).toBeNull()
-    expect(pageTabTarget("account", "provider", "view")).toEqual({ page: "account", tab: "provider", tabParam: "view" })
-    expect(pageTabTarget("account", "medical", TAB_PARAM)).toBeNull()
+    expect(pageTabTarget("account", "provider")).toEqual({ page: "account", tab: "provider" })
+    expect(pageTabTarget("account", "medical")).toBeNull()
   })
 })

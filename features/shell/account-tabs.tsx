@@ -2,7 +2,7 @@ import type { ReactNode } from "react"
 import { AccountPersonalPanel } from "./anchored-panel"
 import { DEFAULT_ACCOUNT_TAB } from "./nav-types"
 import { PageTabs } from "./page-tabs"
-import { ACCOUNT_TAB_DEFINITIONS } from "./page-tabs-config"
+import { ACCOUNT_TAB_DEFINITIONS, PAGE_TAB_LIST_LABELS } from "./page-tabs-config"
 import { AccountTabPlaceholder } from "./placeholders"
 
 export interface AccountTabsProps {
@@ -23,6 +23,7 @@ export function AccountTabs({ personal, provider, organizations }: AccountTabsPr
     <PageTabs
       page="account"
       tabs={ACCOUNT_TAB_DEFINITIONS}
+      aria-label={PAGE_TAB_LIST_LABELS.account}
       defaultTab={DEFAULT_ACCOUNT_TAB}
       panels={{
         personal: personal ?? <AccountPersonalPanel />,

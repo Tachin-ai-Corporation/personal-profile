@@ -1,10 +1,10 @@
 "use client"
 
 import { Fragment, type ReactNode } from "react"
-import { PROFILE_SECTIONS, type ProfileSectionId } from "./anchors"
+import { PROFILE_SECTION_IDS, PROFILE_SECTIONS, type ProfileSectionId } from "./anchors"
 import { ProfileSectionPlaceholder } from "./placeholders"
 import { SectionCountProvider } from "./section-counts"
-import { SectionFrameProvider } from "./section-frame"
+import { SectionFrameProvider, useLandmarkCheck } from "./section-frame"
 import { SectionNav, useSectionNavigation } from "./section-nav"
 
 export interface ContactsPanelProps {
@@ -33,6 +33,7 @@ export function ContactsPanel({ sections }: ContactsPanelProps = {}) {
 
 function ContactsBody({ sections }: ContactsPanelProps) {
   const nav = useSectionNavigation()
+  useLandmarkCheck(PROFILE_SECTION_IDS, "ContactsPanel")
   return (
     <div className="md:grid md:grid-cols-[200px_minmax(0,1fr)]">
       <SectionNav state={nav} />

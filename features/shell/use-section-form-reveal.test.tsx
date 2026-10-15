@@ -104,10 +104,12 @@ interface RowsProps {
   readonly reveal?: boolean
   /** The rows `revealField` may expand; default all. */
   readonly revealRows?: readonly number[]
+  /** `revealField` answers `true` but mounts nothing (a broken reveal). */
+  readonly fakeReveal?: boolean
 }
 
 /** Rows after the first start collapsed (their inputs unmounted), like Story 4.2's address rows. */
-function RowsSection({ save, baseline = { links: [{ url: "a" }, { url: "b" }] }, reveal = true, revealRows }: RowsProps) {
+function RowsSection({ save, baseline = { links: [{ url: "a" }, { url: "b" }] }, reveal = true, revealRows, fakeReveal = false }: RowsProps) {
   const [open, setOpen] = useState<readonly boolean[]>(() => baseline.links.map((_, i) => i === 0))
   const section = useSectionForm<RowsValues>({
     id: "addresses",
@@ -121,6 +123,7 @@ function RowsSection({ save, baseline = { links: [{ url: "a" }, { url: "b" }] },
     revealField: (path) => {
       const index = /^links\.(\d+)\./.exec(path)?.[1]
       if (!reveal || index === undefined || (revealRows && !revealRows.includes(Number(index)))) return false
+      if (fakeReveal) return true
       setOpen((rows) => rows.map((value, i) => value || i === Number(index)))
       return true
     },
@@ -240,6 +243,17 @@ describe("startEdit({ focus }) and revealField (Story 4.2)", () => {
     expect(screen.getByText(CONTACT_MESSAGES.phoneTenDigits)).toBeTruthy()
     expect(screen.getByText("collapsed 3")).toBeTruthy()
     expect(document.activeElement).toBe(row(2))
+  })
+
+  it("a reveal that mounts nothing: the second pass shows the Section error and focuses it (F6-1 review L1)", async () => {
+    const saveFn = vi.fn(async () => OK)
+    renderRows({ save: saveFn, baseline: { links: [{ url: "a" }, { url: "" }] }, fakeReveal: true })
+    await edit()
+    type(row(1), "a2")
+    await save()
+    expect(saveFn).not.toHaveBeenCalled()
+    expect(screen.getByText(CONTACT_MESSAGES.phoneTenDigits)).toBeTruthy()
+    expect(document.activeElement?.closest("[data-slot~='inline-banner']")).toBeTruthy()
   })
 
   it("a server field error on a collapsed row reveals and focuses it", async () => {

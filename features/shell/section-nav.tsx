@@ -93,12 +93,23 @@ export function useSectionNavigation(): SectionNavState {
     setActiveId(PROFILE_SECTION_IDS.find((id) => visible.current.has(id)) ?? PROFILE_SECTION_IDS[0])
   }, [])
 
-  const { frameReady, cancelPending } = useHashAnchors(PROFILE_SECTION_IDS, {
+  /** Bumped when a Section frame becomes ready: the scroll-spy looks its landmarks up again (F6-1 review M2). */
+  const [observeTick, setObserveTick] = useState(0)
+
+  const { frameReady: followReady, cancelPending } = useHashAnchors(PROFILE_SECTION_IDS, {
     subAnchors: PROFILE_SUB_ANCHORS,
     onFollow: (frame) => {
       if (isProfileSectionId(frame)) pin(frame)
     },
   })
+
+  const frameReady = useCallback(
+    (frameId: string) => {
+      followReady(frameId)
+      setObserveTick((tick) => tick + 1)
+    },
+    [followReady],
+  )
 
   const activate = useCallback(
     (id: ProfileSectionId) => {
@@ -116,10 +127,29 @@ export function useSectionNavigation(): SectionNavState {
     [pin, cancelPending],
   )
 
+  const observerRef = useRef<IntersectionObserver | null>(null)
+  /** The landmark element observed per Section id. */
+  const observed = useRef(new Map<ProfileSectionId, Element>())
+
+  /** Observes each Section landmark currently in the document (again, when its element changed). */
+  const observeLandmarks = useCallback(() => {
+    const observer = observerRef.current
+    if (!observer) return
+    for (const id of PROFILE_SECTION_IDS) {
+      const element = document.getElementById(id)
+      const previous = observed.current.get(id)
+      if (!element || element === previous) continue
+      if (previous) observer.unobserve(previous)
+      observer.observe(element)
+      observed.current.set(id, element)
+    }
+  }, [])
+
   // Scroll-spy.
   useEffect(() => {
     if (typeof IntersectionObserver === "undefined") return
     const seen = visible.current
+    const elements = observed.current
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -132,15 +162,20 @@ export function useSectionNavigation(): SectionNavState {
       },
       { rootMargin: "0px 0px -60% 0px" },
     )
-    for (const id of PROFILE_SECTION_IDS) {
-      const element = document.getElementById(id)
-      if (element) observer.observe(element)
-    }
+    observerRef.current = observer
+    observeLandmarks()
     return () => {
       observer.disconnect()
+      observerRef.current = null
+      elements.clear()
       seen.clear()
     }
-  }, [recompute])
+  }, [recompute, observeLandmarks])
+
+  // A frame became ready: a landmark that was (wrongly) remounted is a new element; observe it instead.
+  useEffect(() => {
+    if (observeTick > 0) observeLandmarks()
+  }, [observeTick, observeLandmarks])
 
   // Reaching (or leaving) the end of the page changes no intersection: recompute on scroll too.
   useEffect(() => {

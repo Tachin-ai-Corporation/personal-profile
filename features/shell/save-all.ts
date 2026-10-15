@@ -1,6 +1,6 @@
 import { formatMessage, SECTION_MESSAGES } from "@/lib/shared/messages"
 import { telemetry } from "@/lib/shared/telemetry"
-import { isSessionExpired, type SectionId } from "./nav-types"
+import { isCancelled, isSessionExpired, type SectionId } from "./nav-types"
 import type { RegisteredSection, SectionRegistry } from "./section-registry"
 
 export interface SaveAllOptions {
@@ -34,9 +34,12 @@ export type SaveAllOutcome =
   /** At least one dirty Section is invalid: nothing sent. `invalid` is in page (`displayOrder`) order. */
   | { readonly kind: "invalid"; readonly invalid: readonly InvalidSection[]; readonly focusFirstInvalid: () => void }
   /** A save hit `SESSION_EXPIRED`: the run stopped there (no summary; the session dialog takes over). */
-  | { readonly kind: "session"; readonly saved: readonly SectionRef[]; readonly failed: readonly SectionRef[] }
-  /** Every dirty Section was attempted. */
-  | { readonly kind: "done"; readonly saved: readonly SectionRef[]; readonly failed: readonly SectionRef[] }
+  | { readonly kind: "session"; readonly saved: readonly SectionRef[]; readonly failed: readonly SectionRef[]; readonly cancelled: readonly SectionRef[] }
+  /**
+   * Every dirty Section was attempted. `cancelled`: the user declined a step
+   * of that Section's save (`CANCELLED`, F6-1): not saved, but not a failure.
+   */
+  | { readonly kind: "done"; readonly saved: readonly SectionRef[]; readonly failed: readonly SectionRef[]; readonly cancelled: readonly SectionRef[] }
 
 const ref = ({ id, label }: RegisteredSection): SectionRef => ({ id, label })
 
@@ -84,11 +87,16 @@ export async function runSaveAll(
   ]
   const saved: SectionRef[] = []
   const failed: SectionRef[] = []
+  const cancelled: SectionRef[] = []
   let sessionEnded = false
   for (const section of queue) {
     const result = await section.save()
     if (result.ok) {
       saved.push(ref(section))
+      continue
+    }
+    if (isCancelled(result)) {
+      cancelled.push(ref(section))
       continue
     }
     failed.push(ref(section))
@@ -97,8 +105,9 @@ export async function runSaveAll(
       break
     }
   }
+  // `failed` excludes cancels (a user's choice, not a failure).
   if (trackTelemetry && queue.length > 0) telemetry.track("save_all", { saved: saved.length, failed: failed.length })
-  return { kind: sessionEnded ? "session" : "done", saved, failed }
+  return { kind: sessionEnded ? "session" : "done", saved, failed, cancelled }
 }
 
 export type SaveAllSummary =
@@ -128,13 +137,16 @@ export function saveAllSummary(outcome: SaveAllOutcome): SaveAllSummary | null {
         ),
       }
     case "done": {
-      const { saved, failed } = outcome
+      const { saved, failed, cancelled } = outcome
       if (failed.length > 0) {
         return { tone: "partial", text: formatMessage(SECTION_MESSAGES.partialSaved, { saved: saved.length, failed: failed.length }) }
       }
+      // A cancel is the user's choice: never "failed" copy; only what was saved, or nothing.
+      if (saved.length === 0) return null
+      if (saved.length === 1) return { tone: "success", text: formatMessage(SECTION_MESSAGES.saved, { section: saved[0].label }) }
       return {
         tone: "success",
-        text: saved.length === 1 ? formatMessage(SECTION_MESSAGES.saved, { section: saved[0].label }) : SECTION_MESSAGES.allSaved,
+        text: cancelled.length > 0 ? formatMessage(SECTION_MESSAGES.savedCount, { saved: saved.length }) : SECTION_MESSAGES.allSaved,
       }
     }
   }

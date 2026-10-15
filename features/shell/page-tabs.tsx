@@ -5,7 +5,8 @@ import { useEffect, useRef, type ReactNode } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { SHELL_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
-import { pageTabTarget, TAB_PARAM, type PageId } from "./nav-types"
+import { isProductionBuild } from "@/lib/shared/app-env"
+import { PAGE_TAB_PARAM, pageTabTarget, type NavTarget, type PageId } from "./nav-types"
 import { useNavigate } from "./navigate"
 import type { PageTabDefinition } from "./page-tabs-config"
 
@@ -21,10 +22,25 @@ export interface PageTabsProps<T extends string> {
    */
   readonly panels: Readonly<Record<T, ReactNode>>
   readonly defaultTab: T
-  /** The query parameter that holds the tab; defaults to `tab` (AD-7). */
-  readonly param?: string
-  /** The tablist's accessible name, when the page needs one. */
+  /** The tablist's accessible name (catalog copy). */
   readonly "aria-label"?: string
+}
+
+/**
+ * Development check (F6-1 review M3): unique ids, `defaultTab` among them,
+ * and every id a tab `navigate()` can route on `page`. Throws outside
+ * production builds; production renders whatever it was given.
+ */
+export function assertPageTabsConfig(page: PageId, tabs: readonly PageTabDefinition<string>[], defaultTab: string): void {
+  if (isProductionBuild()) return
+  const ids = tabs.map((tab) => tab.id)
+  const fail = (problem: string): never => {
+    throw new Error(`PageTabs (${page}): ${problem}`)
+  }
+  if (new Set(ids).size !== ids.length) fail("duplicate tab ids")
+  if (!ids.includes(defaultTab)) fail(`defaultTab "${defaultTab}" is not one of the tabs`)
+  const unroutable = ids.find((id) => pageTabTarget(page, id) === null)
+  if (unroutable !== undefined) fail(`tab "${unroutable}" is not routable`)
 }
 
 /** Scrolls the strip sideways (never the page) so the selected tab is in view. */
@@ -53,7 +69,9 @@ function ComingSoonTag() {
  * (`?tab=a&tab=b`) shows `defaultTab` and is normalized to one value with a
  * replace (other params and the hash kept).
  */
-export function PageTabs<T extends string>({ page, tabs, panels, defaultTab, param = TAB_PARAM, "aria-label": ariaLabel }: PageTabsProps<T>) {
+export function PageTabs<T extends string>({ page, tabs, panels, defaultTab, "aria-label": ariaLabel }: PageTabsProps<T>) {
+  assertPageTabsConfig(page, tabs, defaultTab)
+  const param = PAGE_TAB_PARAM[page]
   const navigate = useNavigate()
   const values = useSearchParams().getAll(param)
   const isTab = (value: unknown): value is T => tabs.some((tab) => tab.id === value)
@@ -77,9 +95,9 @@ export function PageTabs<T extends string>({ page, tabs, panels, defaultTab, par
     <Tabs
       value={current}
       onValueChange={(next) => {
-        if (next === current) return
-        const target = pageTabTarget(page, next, param)
-        if (target) void navigate(target)
+        // Routed by the configured ids (validated as routable above).
+        if (next === current || !isTab(next)) return
+        void navigate({ page, tab: next } as NavTarget)
       }}
     >
       <TabsList ref={listRef} aria-label={ariaLabel} className="px-4 md:px-6">

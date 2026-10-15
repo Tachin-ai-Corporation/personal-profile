@@ -23,6 +23,7 @@ export {
   PROFILE_TABS,
   CANCELLED_CODE,
   SESSION_EXPIRED_CODE,
+  PAGE_TAB_PARAM,
   TAB_PARAM,
   isCancelled,
   pageTabTarget,
@@ -104,8 +105,9 @@ export { PageNav } from "./page-nav"
 export { ReturnLink } from "./return-link"
 
 // Page composition (F6-1): generic tabs, page presets, slots and placeholders. Composition happens only in app/**.
-export { PageTabs, type PageTabsProps } from "./page-tabs"
-export { ACCOUNT_TAB_DEFINITIONS, PROFILE_TAB_DEFINITIONS, type PageTabDefinition } from "./page-tabs-config"
+export { assertPageTabsConfig, PageTabs, type PageTabsProps } from "./page-tabs"
+export { ACCOUNT_TAB_DEFINITIONS, PAGE_TAB_LIST_LABELS, PROFILE_TAB_DEFINITIONS, type PageTabDefinition } from "./page-tabs-config"
+export { MyselfErrorClaimProvider, useClaimMyselfError, useMyselfErrorClaimed } from "./myself-error-claim"
 export { ProfileTabs, QuietPanel, type ProfileTabsProps } from "./profile-tabs"
 export { AccountTabs, type AccountTabsProps } from "./account-tabs"
 export { AccountPersonalPanel, AnchoredPanel, type AccountPersonalPanelProps, type AnchoredPanelProps } from "./anchored-panel"
@@ -120,7 +122,14 @@ export {
   type ProfilePlaceholderId,
   type ProfileSectionPlaceholderProps,
 } from "./placeholders"
-export { SectionFrameProvider, useSectionFrame, type SectionFrame, type SectionFrameProviderProps } from "./section-frame"
+export {
+  SectionFrameProvider,
+  useLandmarkCheck,
+  useSectionFrame,
+  type SectionFrame,
+  type SectionFrameId,
+  type SectionFrameProviderProps,
+} from "./section-frame"
 export { SAVE_ORDER } from "./save-order"
 export { handoffHref, isHandoffHref, isTenantId, TENANT_ID_PATTERN, type HandoffTarget } from "./handoff"
 

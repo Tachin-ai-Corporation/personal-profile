@@ -116,7 +116,7 @@ describe("runSaveAll", () => {
     const { registry, sent } = setup({ phone: {}, email: { result: FAIL } })
     const outcome = await runSaveAll(registry)
     expect(sent).toEqual(["phone", "email"])
-    expect(outcome).toEqual({ kind: "done", saved: [{ id: "phone", label: "Phone" }], failed: [{ id: "email", label: "Email" }] })
+    expect(outcome).toEqual({ kind: "done", saved: [{ id: "phone", label: "Phone" }], failed: [{ id: "email", label: "Email" }], cancelled: [] })
     expect(saveAllSummary(outcome)).toEqual({ tone: "partial", text: "1 saved, 1 failed" })
     expect(events).toEqual([["save_all", { saved: 1, failed: 1 }]])
   })
@@ -144,7 +144,7 @@ describe("runSaveAll", () => {
     const { registry, sent } = setup({ personal: {}, phone: { result: SESSION }, email: {} })
     const outcome = await runSaveAll(registry)
     expect(sent).toEqual(["personal", "phone"])
-    expect(outcome).toEqual({ kind: "session", saved: [{ id: "personal", label: "Personal information" }], failed: [{ id: "phone", label: "Phone" }] })
+    expect(outcome).toEqual({ kind: "session", saved: [{ id: "personal", label: "Personal information" }], failed: [{ id: "phone", label: "Phone" }], cancelled: [] })
     expect(saveAllSummary(outcome)).toBeNull()
     expect(events).toEqual([["save_all", { saved: 1, failed: 1 }]])
   })
@@ -174,7 +174,7 @@ describe("runSaveAll", () => {
     registry.register({ id: "phone", label: "Phone", displayOrder: 2, isDirty: true, save: vi.fn().mockRejectedValue(new Error("x")), discard: () => undefined })
     registry.register({ id: "email", label: "Email", displayOrder: 3, isDirty: true, save: async () => OK, discard: () => undefined })
     const outcome: SaveAllOutcome = await runSaveAll(registry)
-    expect(outcome).toEqual({ kind: "done", saved: [{ id: "email", label: "Email" }], failed: [{ id: "phone", label: "Phone" }] })
+    expect(outcome).toEqual({ kind: "done", saved: [{ id: "email", label: "Email" }], failed: [{ id: "phone", label: "Phone" }], cancelled: [] })
   })
 })
 
@@ -193,13 +193,13 @@ describe("runSaveAll options", () => {
     registry.register({ id: "phone", label: "Phone", displayOrder: 2, isDirty: true, save, discard: () => undefined })
     expect(registry.getDirtyCount()).toBe(1)
     expect(registry.getAll().find((s) => s.id === "insurance")?.saveAll).toBe(false)
-    expect(await runSaveAll(registry, { includeGuardOnly: true })).toEqual({ kind: "done", saved: [{ id: "phone", label: "Phone" }], failed: [] })
+    expect(await runSaveAll(registry, { includeGuardOnly: true })).toEqual({ kind: "done", saved: [{ id: "phone", label: "Phone" }], failed: [], cancelled: [] })
     expect(save).toHaveBeenCalledTimes(1)
     events = []
     // Nothing that can save is dirty: nothing sent, no telemetry.
     const onlyUnsaveable = createSectionRegistry()
     onlyUnsaveable.register({ id: "insurance", label: "Insurance", displayOrder: 6, isDirty: true, discard: () => undefined })
-    expect(await runSaveAll(onlyUnsaveable, { includeGuardOnly: true })).toEqual({ kind: "done", saved: [], failed: [] })
+    expect(await runSaveAll(onlyUnsaveable, { includeGuardOnly: true })).toEqual({ kind: "done", saved: [], failed: [], cancelled: [] })
     expect(events).toEqual([])
   })
 })
@@ -207,5 +207,35 @@ describe("runSaveAll options", () => {
 describe("saveAllSummary", () => {
   it("is null for a clean run", () => {
     expect(saveAllSummary({ kind: "clean" })).toBeNull()
+  })
+})
+
+describe("CANCELLED (F6-1 review H2)", () => {
+  const CANCELLED: SaveResult = { ok: false, error: { code: "CANCELLED" } }
+
+  it("a cancelled Section is its own bucket: not failed, not in save_all failed; the run continues", async () => {
+    const { registry, sent } = setup({ personal: { result: CANCELLED }, phone: {}, email: {} })
+    const outcome = await runSaveAll(registry)
+    expect(sent).toEqual(["personal", "phone", "email"])
+    expect(outcome).toEqual({
+      kind: "done",
+      saved: [
+        { id: "phone", label: "Phone" },
+        { id: "email", label: "Email" },
+      ],
+      failed: [],
+      cancelled: [{ id: "personal", label: "Personal information" }],
+    })
+    expect(events).toEqual([["save_all", { saved: 2, failed: 0 }]])
+    expect(saveAllSummary(outcome)).toEqual({ tone: "success", text: "2 saved." })
+  })
+
+  it("no 'failed' copy for cancels: one saved names it; none saved shows nothing; a real failure still reads partial", async () => {
+    const one = await runSaveAll(setup({ personal: { result: CANCELLED }, phone: {} }).registry)
+    expect(saveAllSummary(one)).toEqual({ tone: "success", text: "Phone saved." })
+    const none = await runSaveAll(setup({ personal: { result: CANCELLED } }).registry)
+    expect(saveAllSummary(none)).toBeNull()
+    const mixed = await runSaveAll(setup({ personal: { result: CANCELLED }, phone: { result: FAIL }, email: {} }).registry)
+    expect(saveAllSummary(mixed)).toEqual({ tone: "partial", text: "1 saved, 1 failed" })
   })
 })

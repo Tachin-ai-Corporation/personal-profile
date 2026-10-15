@@ -13,6 +13,8 @@ export const SHELL_MESSAGES = {
   medicalComingSoon: "Coming soon: medications, allergies and conditions will appear here",
   // Kept: Story 7.1 still shows it on the /account Provider and Organizations tabs until Epics 9–10.
   tabPlaceholder: "This tab is on its way.", // DRAFT COPY (7.0b-2 placeholder panel until Epics 3–5)
+  profileTabsLabel: "Profile sections", // DRAFT COPY (tablist name on /, F6-1; not in EXPERIENCE.md)
+  accountTabsLabel: "Account sections", // DRAFT COPY (tablist name on /account, F6-1; not in EXPERIENCE.md)
   accountTabPersonal: "Personal Account", // DRAFT COPY (DESIGN.md /account tabs)
   accountTabProvider: "Individual Provider Registration", // DRAFT COPY (DESIGN.md /account tabs)
   accountTabOrganizations: "My Organizations", // DRAFT COPY (DESIGN.md /account tabs)

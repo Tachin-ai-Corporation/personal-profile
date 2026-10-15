@@ -6,7 +6,7 @@ import { endSession, recordUserActivity } from "@/lib/api"
 import { runBeforeExit } from "./exit-hooks"
 import { isHandoffHref } from "./handoff"
 import { beginExit, cancelExit, confirmUnload, requestLeave } from "./leave"
-import { HASH_NAVIGATE_EVENT, PAGE_PATHS, pageOfPath, TAB_PARAM, type NavTarget, type PageId } from "./nav-types"
+import { HASH_NAVIGATE_EVENT, PAGE_PATHS, PAGE_TAB_PARAM, pageOfPath, TAB_PARAM, type NavTarget, type PageId } from "./nav-types"
 import { usePortalUrl } from "./portal-url-provider"
 
 /** Logout gets at most this long before the portal navigation (Story 1.7). */
@@ -107,12 +107,12 @@ export async function navigate(target: NavTarget, deps: NavigateDeps): Promise<b
   if (samePage) {
     const history = deps.history ?? window.history
     // `null` state: Next's patched history then syncs `useSearchParams` and keeps its own tree.
-    history.replaceState(null, "", withHash(`${location.pathname}${queryWith(location.search, target.tab, target.tabParam)}`, target.hash))
+    history.replaceState(null, "", withHash(`${location.pathname}${queryWith(location.search, target.tab, PAGE_TAB_PARAM[target.page])}`, target.hash))
     // A replace fires no hashchange: tell the page's anchors (useHashAnchors) to follow the new hash.
     if (target.hash && typeof window !== "undefined") window.dispatchEvent(new Event(HASH_NAVIGATE_EVENT))
     return true
   }
-  deps.router.push(withHash(`${PAGE_PATHS[target.page]}${queryWith("", target.tab, target.tabParam)}`, target.hash))
+  deps.router.push(withHash(`${PAGE_PATHS[target.page]}${queryWith("", target.tab, PAGE_TAB_PARAM[target.page])}`, target.hash))
   return true
 }
 

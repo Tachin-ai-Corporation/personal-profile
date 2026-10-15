@@ -88,13 +88,17 @@ export function LeaveGuard({ events = defaultSessionEvents, order }: LeaveGuardP
   async function save(): Promise<void> {
     setBusy(true)
     let proceed = false
+    let stayOpen = false
     try {
       // The Save-all runner: validates everything first (nothing sent if anything is invalid),
       // saves the Save-all Sections, then the guard-only participants; stops on a session end.
       // Not a Save-all run: no `save_all` telemetry.
       const outcome = await runSaveAll(registry, { order, includeGuardOnly: true, trackTelemetry: false })
       if (outcome.kind === "invalid") focusAfterClose.current = outcome.focusFirstInvalid
-      proceed = outcome.kind === "clean" || (outcome.kind === "done" && outcome.failed.length === 0)
+      proceed = outcome.kind === "clean" || (outcome.kind === "done" && outcome.failed.length === 0 && outcome.cancelled.length === 0)
+      // The user declined a step of a save (F6-1): stay in this dialog quietly (no toast, focus left as is),
+      // so they can choose again (Keep editing, Discard or Save).
+      stayOpen = outcome.kind === "done" && outcome.failed.length === 0 && outcome.cancelled.length > 0
       if (outcome.kind === "done" && outcome.failed.length > 0) {
         // Stay, say what failed ("1 saved, 1 failed") and land on the first failed Section.
         const summary = saveAllSummary(outcome)
@@ -103,8 +107,9 @@ export function LeaveGuard({ events = defaultSessionEvents, order }: LeaveGuardP
         focusAfterClose.current = () => document.getElementById(failedId)?.focus()
       }
     } finally {
-      // Always settles, so the dialog never stays busy.
-      settle(proceed)
+      // Always settles (or at least un-busies), so the dialog never stays busy.
+      if (stayOpen) setBusy(false)
+      else settle(proceed)
     }
   }
 

@@ -17,17 +17,20 @@ export const DEFAULT_ACCOUNT_TAB: AccountTab = "personal"
 
 export type PageId = "profile" | "account"
 
-/** The URL query parameter that holds a page's tab (AD-7); `PageTabs` and `navigate()` default to it. */
+/** The URL query parameter that holds a page's tab (AD-7). */
 export const TAB_PARAM = "tab"
 
 /**
- * A page's tab as a `navigate()` target (with `tabParam` only when it isn't
- * `TAB_PARAM`); `null` when `tab` isn't one of that page's tabs.
+ * Each page's tab query parameter: part of the page config, read by
+ * `navigate()` (and so by `PageNav`, `ReturnLink` and every caller) and by
+ * `PageTabs`; never passed per call (F6-1 review L3).
  */
-export function pageTabTarget(page: PageId, tab: string, tabParam: string = TAB_PARAM): NavTarget | null {
-  const param = tabParam === TAB_PARAM ? {} : { tabParam }
-  if (page === "profile") return isProfileTab(tab) ? { page, tab, ...param } : null
-  return isAccountTab(tab) ? { page, tab, ...param } : null
+export const PAGE_TAB_PARAM: Readonly<Record<PageId, string>> = { profile: TAB_PARAM, account: TAB_PARAM }
+
+/** A page's tab as a `navigate()` target; `null` when `tab` isn't one of that page's routable tabs. */
+export function pageTabTarget(page: PageId, tab: string): NavTarget | null {
+  if (page === "profile") return isProfileTab(tab) ? { page, tab } : null
+  return isAccountTab(tab) ? { page, tab } : null
 }
 
 /** The app's two pages and their paths. */
@@ -35,8 +38,8 @@ export const PAGE_PATHS: Readonly<Record<PageId, string>> = { profile: "/", acco
 
 /** Every cross-page, tab and external move (AD-26). */
 export type NavTarget =
-  | { readonly page: "profile"; readonly tab?: ProfileTab; readonly hash?: string; readonly tabParam?: string }
-  | { readonly page: "account"; readonly tab?: AccountTab; readonly hash?: string; readonly tabParam?: string }
+  | { readonly page: "profile"; readonly tab?: ProfileTab; readonly hash?: string }
+  | { readonly page: "account"; readonly tab?: AccountTab; readonly hash?: string }
   | { readonly external: "portal" }
   | { readonly external: "handoff"; readonly href: string }
 

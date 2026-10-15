@@ -1,5 +1,11 @@
 import { SHELL_MESSAGES } from "@/lib/shared/messages"
-import { ACCOUNT_TABS, PROFILE_TABS, type AccountTab, type ProfileTab } from "./nav-types"
+import { ACCOUNT_TABS, PROFILE_TABS, type AccountTab, type PageId, type ProfileTab } from "./nav-types"
+
+/** Each page's tablist accessible name (F6-1 review L4). The tab param is `PAGE_TAB_PARAM` in `nav-types.ts`. */
+export const PAGE_TAB_LIST_LABELS: Readonly<Record<PageId, string>> = {
+  profile: SHELL_MESSAGES.profileTabsLabel,
+  account: SHELL_MESSAGES.accountTabsLabel,
+}
 
 /**
  * One tab of a `PageTabs` strip (F6-1): static configuration only; the

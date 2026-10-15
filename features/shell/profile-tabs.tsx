@@ -4,7 +4,7 @@ import { ContactsPanel } from "./contacts-panel"
 import { InsurancePanel } from "./insurance-panel"
 import { DEFAULT_PROFILE_TAB } from "./nav-types"
 import { PageTabs } from "./page-tabs"
-import { PROFILE_TAB_DEFINITIONS } from "./page-tabs-config"
+import { PAGE_TAB_LIST_LABELS, PROFILE_TAB_DEFINITIONS } from "./page-tabs-config"
 
 /** A quiet centered muted panel, no action (DESIGN.md Empty state: Medical). */
 export function QuietPanel({ children }: { readonly children: ReactNode }) {
@@ -29,6 +29,7 @@ export function ProfileTabs({ contacts, insurance, medical }: ProfileTabsProps =
     <PageTabs
       page="profile"
       tabs={PROFILE_TAB_DEFINITIONS}
+      aria-label={PAGE_TAB_LIST_LABELS.profile}
       defaultTab={DEFAULT_PROFILE_TAB}
       panels={{
         contacts: contacts ?? <ContactsPanel />,

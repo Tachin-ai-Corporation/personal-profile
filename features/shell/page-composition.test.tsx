@@ -3,7 +3,7 @@ import { http, HttpResponse } from "msw"
 import { useState } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { axeViolations } from "@/test/axe"
-import { installDomStubs, type DomStubs } from "@/test/dom-stubs"
+import { FakeIntersectionObserver, installDomStubs, type DomStubs } from "@/test/dom-stubs"
 import { server } from "@/test/msw-server"
 import { setTestUrl } from "@/test/next-navigation"
 import { TestProviders, testIdle } from "@/test/providers"
@@ -15,12 +15,14 @@ import { InsurancePanel } from "./insurance-panel"
 import { resetLeaveState } from "./leave"
 import { CurrentPageProvider } from "./navigate"
 import { PageFrame } from "./page-frame"
-import { PageTabs } from "./page-tabs"
+import { assertPageTabsConfig, PageTabs } from "./page-tabs"
 import { ACCOUNT_TAB_DEFINITIONS, PROFILE_TAB_DEFINITIONS, type PageTabDefinition } from "./page-tabs-config"
 import { AccountTabPlaceholder } from "./placeholders"
 import { ProfileTabs } from "./profile-tabs"
 import { SAVE_ORDER } from "./save-order"
+import { useClaimMyselfError } from "./myself-error-claim"
 import { useSectionFrame } from "./section-frame"
+import { useMyself } from "./use-myself"
 import { SectionLandmark } from "./section-landmark"
 import { SectionRegistryProvider } from "./section-registry"
 import { StateFrame, type FrameState } from "./state-frame"
@@ -31,7 +33,7 @@ vi.mock("next/navigation", async () => (await import("@/test/next-navigation")).
  * F6-1 page composition: generic `PageTabs` (config + panels, repeated
  * `?tab=`), the `/` and `/account` presets with their slots and
  * placeholders, the Section-ready signal (`useSectionFrame`), the
- * `/account` anchored panel, `PageFrame myselfLoadError`, `SAVE_ORDER`.
+ * `/account` anchored panel, the `myself` error claim, the landmark check, `SAVE_ORDER`.
  */
 
 let stubs: DomStubs
@@ -68,8 +70,8 @@ describe("PageTabs (generic, prop-driven)", () => {
   const panels = { personal: <p>First panel</p>, provider: <p>Second panel</p> }
 
   it("renders the given tabs, labels, tag, panels and accessible name; knows no page", () => {
-    setTestUrl("/account?view=provider")
-    onPage("account", <PageTabs page="account" tabs={TABS} panels={panels} defaultTab="personal" param="view" aria-label="Sections of this page" />)
+    setTestUrl("/account?tab=provider")
+    onPage("account", <PageTabs page="account" tabs={TABS} panels={panels} defaultTab="personal" aria-label="Sections of this page" />)
     expect(screen.getByRole("tablist", { name: "Sections of this page" })).toBeTruthy()
     expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["First", "SecondComing soonSoon"])
     expect(screen.getByText("Second panel")).toBeTruthy()
@@ -78,25 +80,40 @@ describe("PageTabs (generic, prop-driven)", () => {
     expect(panel?.classList.contains("px-4")).toBe(false)
   })
 
-  it("a custom param is read, normalized and changed through navigate()", async () => {
-    setTestUrl("/account?view=bogus&tab=keep")
-    onPage("account", <PageTabs page="account" tabs={TABS} panels={panels} defaultTab="personal" param="view" />)
-    expect(url()).toBe("/account?view=personal&tab=keep")
+  it("clicks route by the configured ids through navigate(); the page's tab param is normalized", async () => {
+    setTestUrl("/account?tab=bogus&x=keep")
+    onPage("account", <PageTabs page="account" tabs={TABS} panels={panels} defaultTab="personal" />)
+    expect(url()).toBe("/account?tab=personal&x=keep")
     await act(async () => fireEvent.mouseDown(screen.getByRole("tab", { name: /^Second/ }), { button: 0 }))
-    expect(url()).toBe("/account?view=provider&tab=keep")
+    expect(url()).toBe("/account?tab=provider&x=keep")
     expect(screen.getByText("Second panel")).toBeTruthy()
   })
 
-  it("a tab id that isn't one of the page's typed tabs does not navigate", async () => {
+  it.each<[string, readonly PageTabDefinition<string>[], string, RegExp]>([
+    ["an unroutable id", [{ id: "contacts", label: "Contacts" }, { id: "odd", label: "Odd" }], "contacts", /tab "odd" is not routable/],
+    ["duplicate ids", [{ id: "contacts", label: "A" }, { id: "contacts", label: "B" }], "contacts", /duplicate tab ids/],
+    ["a defaultTab outside the tabs", [{ id: "contacts", label: "Contacts" }], "insurance", /defaultTab "insurance"/],
+  ])("a bad config (%s) throws outside production", (_name, tabs, defaultTab, message) => {
     setTestUrl("/?tab=contacts")
-    const odd = [
-      { id: "contacts", label: "Contacts" },
-      { id: "odd", label: "Odd" },
-    ] as const satisfies readonly PageTabDefinition<string>[]
-    onPage("profile", <PageTabs page="profile" tabs={odd} panels={{ contacts: <p>c</p>, odd: <p>o</p> }} defaultTab="contacts" />)
-    await act(async () => fireEvent.mouseDown(screen.getByRole("tab", { name: "Odd" }), { button: 0 }))
-    expect(url()).toBe("/?tab=contacts")
-    expect(selected()).toBe("Contacts")
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    expect(() => onPage("profile", <PageTabs page="profile" tabs={tabs} panels={{ contacts: <p>c</p>, odd: <p>o</p> }} defaultTab={defaultTab} />)).toThrow(message)
+    quiet.mockRestore()
+  })
+
+  it("a bad config is not checked in production", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    expect(() => assertPageTabsConfig("profile", [{ id: "odd", label: "Odd" }], "nope")).not.toThrow()
+    vi.unstubAllEnvs()
+  })
+
+  it("the presets name their tablists from the catalog", () => {
+    setTestUrl("/?tab=contacts")
+    const { unmount } = onPage("profile", <ProfileTabs />)
+    expect(screen.getByRole("tablist", { name: "Profile sections" })).toBeTruthy()
+    unmount()
+    setTestUrl("/account?tab=provider")
+    onPage("account", <AccountTabs />)
+    expect(screen.getByRole("tablist", { name: "Account sections" })).toBeTruthy()
   })
 
   it.each([
@@ -248,24 +265,103 @@ describe("the Section-ready signal (useSectionFrame)", () => {
   })
 })
 
-describe("PageFrame myselfLoadError (F6-1)", () => {
+describe("the myself error claim (F6-1 review H1)", () => {
   const LOAD_ERROR = "Something went wrong while loading profile information"
 
-  it.each([
-    ["page", 1],
-    ["sections", 0],
-  ] as const)("%s: %i page-level banner(s) for a failed myself", async (mode, count) => {
+  /** A Section that shows its own myself error (as 7.4 will) and claims it. */
+  function ClaimingSection() {
+    const { error } = useMyself()
+    useClaimMyselfError(Boolean(error))
+    return (
+      <SectionLandmark id="account" title="Personal account settings">
+        {error ? <p>own error</p> : null}
+      </SectionLandmark>
+    )
+  }
+
+  it("the page banner hides while a mounted Section claims the error, and comes back on a tab without one", async () => {
     setTestUrl("/account?tab=personal")
     server.use(http.get("/api/1h/v2/user/myself", () => HttpResponse.json({ errorCode: "UPSTREAM_ERROR", source: "proxy" }, { status: 502 })))
     render(
       <TestProviders>
-        <PageFrame page="account" header={<div />} idle={testIdle()} myselfLoadError={mode}>
+        <PageFrame page="account" header={<div />} idle={testIdle()}>
+          <AccountTabs personal={<AccountPersonalPanel account={<ClaimingSection />} />} />
+        </PageFrame>
+      </TestProviders>,
+    )
+    expect(await screen.findByText("own error")).toBeTruthy()
+    expect(screen.queryAllByText(LOAD_ERROR)).toHaveLength(0)
+    await act(async () => fireEvent.mouseDown(screen.getByRole("tab", { name: "My Organizations" }), { button: 0 }))
+    expect(await screen.findByText(LOAD_ERROR)).toBeTruthy()
+    await act(async () => fireEvent.mouseDown(screen.getByRole("tab", { name: "Personal Account" }), { button: 0 }))
+    expect(screen.getByText("own error")).toBeTruthy()
+    expect(screen.queryAllByText(LOAD_ERROR)).toHaveLength(0)
+  })
+
+  it("without a claiming Section the page banner shows", async () => {
+    setTestUrl("/account?tab=personal")
+    server.use(http.get("/api/1h/v2/user/myself", () => HttpResponse.json({ errorCode: "UPSTREAM_ERROR", source: "proxy" }, { status: 502 })))
+    render(
+      <TestProviders>
+        <PageFrame page="account" header={<div />} idle={testIdle()}>
           <AccountTabs />
         </PageFrame>
       </TestProviders>,
     )
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)))
-    expect(screen.queryAllByText(LOAD_ERROR)).toHaveLength(count)
+    expect(await screen.findByText(LOAD_ERROR)).toBeTruthy()
+  })
+})
+
+describe("landmark check (F6-1 review M2)", () => {
+  it("ContactsPanel and AnchoredPanel report a slot that renders no landmark (outside production)", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    setTestUrl("/?tab=contacts")
+    const { unmount } = onPage("profile", <ContactsPanel sections={{ phone: <p>no landmark</p> }} />)
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('ContactsPanel: no landmark #phone after mount'))
+    unmount()
+    error.mockClear()
+    setTestUrl("/account?tab=personal")
+    onPage("account", <AccountPersonalPanel authenticator={<p>no landmark</p>} />)
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("AnchoredPanel: no landmark #authenticator"))
+    expect(error).toHaveBeenCalledTimes(1)
+    error.mockRestore()
+  })
+
+  it("nothing is reported when every landmark exists, nor in production", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    setTestUrl("/?tab=contacts")
+    const { unmount } = onPage("profile", <ContactsPanel />)
+    unmount()
+    vi.stubEnv("NODE_ENV", "production")
+    onPage("profile", <ContactsPanel sections={{ phone: <p>no landmark</p> }} />)
+    vi.unstubAllEnvs()
+    expect(error).not.toHaveBeenCalled()
+    error.mockRestore()
+  })
+
+  it("a frame ready re-observes a remounted landmark for the scroll-spy", () => {
+    setTestUrl("/?tab=contacts")
+    function Remounting() {
+      const { onReady } = useSectionFrame("phone")
+      const [generation, setGeneration] = useState(0)
+      return (
+        <SectionLandmark key={generation} id="phone" title="Phone">
+          <button type="button" onClick={() => setGeneration(1)}>
+            remount
+          </button>
+          <StateFrame state={generation ? "ready" : "loading"} skeleton="kv" loadError={{ kind: "page" }} level="section" onRetry={vi.fn()} onReady={onReady} />
+        </SectionLandmark>
+      )
+    }
+    onPage("profile", <ContactsPanel sections={{ phone: <Remounting /> }} />)
+    const observer = FakeIntersectionObserver.instances.at(-1)
+    const before = document.getElementById("phone")
+    expect(observer?.targets.has(before as Element)).toBe(true)
+    fireEvent.click(screen.getByRole("button", { name: "remount" }))
+    const after = document.getElementById("phone")
+    expect(after).not.toBe(before)
+    expect(observer?.targets.has(after as Element)).toBe(true)
+    expect(observer?.targets.has(before as Element)).toBe(false)
   })
 })
 

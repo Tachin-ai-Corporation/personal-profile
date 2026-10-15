@@ -84,6 +84,13 @@ export interface UseSectionFormOptions<T extends FieldValues> {
    * leave guard), a server field error and `startEdit({ focus })`.
    */
   readonly revealField?: (path: string) => boolean
+  /**
+   * F6-1 (Story 2.4 "Remove your signature?"): asked after validation, before
+   * anything is sent and before the saving state, on the own Save and the
+   * registered save (Save all, leave guard). Resolving `false` makes the save
+   * `CANCELLED`: the Section stays in edit, no error, no focus move, no telemetry.
+   */
+  readonly confirmBeforeSave?: (values: T) => Promise<boolean>
 }
 
 /** `startEdit` options. */
@@ -126,6 +133,7 @@ export interface SectionForm<T extends FieldValues> {
 type FocusTarget = "heading" | "edit" | "error" | "firstInvalid" | { readonly field: string; readonly revealed?: boolean }
 
 const UNEXPECTED: SaveResult = { ok: false, error: { code: "UNEXPECTED", mapped: { kind: "generic" } } }
+const CANCELLED: SaveResult = { ok: false, error: { code: CANCELLED_CODE } }
 
 /** One schema issue: its dotted path (e.g. `phones.1.value`, `""` for a root refine) and message. */
 interface ErrorLeaf {
@@ -165,6 +173,7 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
     describeDraftDiff,
     dataStatus,
     revealField,
+    confirmBeforeSave,
   } = options
   const registry = useSectionRegistry()
 
@@ -312,8 +321,9 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
       count: Math.max(1, leaves.length),
       focusFirst: (withUi) => {
         const revealing = allowReveal && revealField ? hidden.filter((leaf) => revealField(leaf.path)) : []
-        // The second pass already showed the Section error for what stayed hidden.
-        const unlocated = allowReveal ? hidden.find((leaf) => !revealing.includes(leaf)) : undefined
+        // The first pass already showed the Section error for what stayed hidden; the second pass
+        // shows it only when the reveal mounted nothing to focus (so focus never gets lost).
+        const unlocated = allowReveal || !located[0] ? hidden.find((leaf) => !revealing.includes(leaf)) : undefined
         if (revealing.length > 0) {
           if (unlocated) showSectionError(unlocated.message ?? formatMessage(SECTION_MESSAGES.saveFailed, { section: label.toLowerCase() }), withUi, false)
           requestFocus("firstInvalid")
@@ -420,11 +430,29 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
    */
   function send(values: T, withUi: boolean): Promise<SaveResult> {
     if (inFlight.current) return inFlight.current
-    const promise = sendOnce(values, withUi).finally(() => {
+    const promise = confirmThenSend(values, withUi).finally(() => {
       inFlight.current = null
     })
     inFlight.current = promise
     return promise
+  }
+
+  /**
+   * `confirmBeforeSave` first (F6-1 review M1): awaited in edit mode, before
+   * the saving state; `false` (or a rejection) is `CANCELLED`, which changes
+   * nothing on screen.
+   */
+  async function confirmThenSend(values: T, withUi: boolean): Promise<SaveResult> {
+    if (confirmBeforeSave) {
+      let confirmed = false
+      try {
+        confirmed = await confirmBeforeSave(values)
+      } catch {
+        confirmed = false
+      }
+      if (!confirmed) return CANCELLED
+    }
+    return sendOnce(values, withUi)
   }
 
   async function sendOnce(values: T, withUi: boolean): Promise<SaveResult> {

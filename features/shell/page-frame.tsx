@@ -8,6 +8,7 @@ import { AppBar } from "./app-bar"
 import { DraftsProvider } from "./draft-provider"
 import { IdleWarning } from "./idle-warning"
 import { LeaveGuard } from "./leave-guard"
+import { MyselfErrorClaimProvider, useMyselfErrorClaimed } from "./myself-error-claim"
 import type { PageId, SectionId } from "./nav-types"
 import { CurrentPageProvider } from "./navigate"
 import { usePortalUrl } from "./portal-url-provider"
@@ -16,10 +17,14 @@ import { SectionRegistryProvider } from "./section-registry"
 import { SessionDialog } from "./session-dialog"
 import { useMyself } from "./use-myself"
 
-/** The Launching user's read failure, via `ReadStateFor` (nothing while loading or on success). */
+/**
+ * The Launching user's read failure, via `ReadStateFor` (nothing while loading
+ * or on success), unless a mounted Section shows it itself (`useClaimMyselfError`).
+ */
 function MyselfReadState() {
   const { error, retry } = useMyself()
-  if (!error) return null
+  const claimed = useMyselfErrorClaimed()
+  if (!error || claimed) return null
   return <ReadStateFor error={mapFetchError("page", error)} onRetry={retry} className="mx-4 mt-4 md:mx-6" />
 }
 
@@ -43,14 +48,6 @@ interface PageFrameBaseProps {
   readonly idle: PageIdleTiming
   /** The leave guard's save order (`SAVE_ORDER` on `/`); defaults to `displayOrder`. */
   readonly saveOrder?: readonly SectionId[]
-  /**
-   * Who shows a failed `myself` read (F6-1). `"page"` (default): one load-error
-   * banner under the header, while every Section is still a placeholder.
-   * `"sections"`: no page banner, because the Sections that read `myself`
-   * show it in their own `StateFrame` (Stories 2.1, 7.4, 8.1); the route
-   * switches to it when the first such Section lands, so the error is never shown twice.
-   */
-  readonly myselfLoadError?: "page" | "sections"
 }
 
 /**
@@ -70,24 +67,26 @@ export type PageFrameProps = PageFrameBaseProps &
  * (Story 1.15), its leave guard, the idle warning and the session dialog. Must sit inside
  * `PortalUrlProvider`.
  */
-export function PageFrame({ page, header, children, idle, saveAllSlot, saveOrder, myselfLoadError = "page" }: PageFrameProps) {
+export function PageFrame({ page, header, children, idle, saveAllSlot, saveOrder }: PageFrameProps) {
   return (
     <CurrentPageProvider value={page}>
       <SectionRegistryProvider>
-        <PageDrafts>
-          <div className="min-h-screen bg-background">
-            <AppBar current={page} />
-            <main>
-              {header}
-              {myselfLoadError === "page" ? <MyselfReadState /> : null}
-              {children}
-            </main>
-            {page === "profile" ? saveAllSlot : null}
-          </div>
-          <LeaveGuard order={saveOrder} />
-          <IdleWarning {...idle} />
-          <SessionDialog />
-        </PageDrafts>
+        <MyselfErrorClaimProvider>
+          <PageDrafts>
+            <div className="min-h-screen bg-background">
+              <AppBar current={page} />
+              <main>
+                {header}
+                <MyselfReadState />
+                {children}
+              </main>
+              {page === "profile" ? saveAllSlot : null}
+            </div>
+            <LeaveGuard order={saveOrder} />
+            <IdleWarning {...idle} />
+            <SessionDialog />
+          </PageDrafts>
+        </MyselfErrorClaimProvider>
       </SectionRegistryProvider>
     </CurrentPageProvider>
   )

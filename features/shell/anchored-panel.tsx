@@ -4,7 +4,7 @@ import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
 import { ACCOUNT_ANCHORS } from "./anchors"
 import { AccountSectionPlaceholder } from "./placeholders"
-import { SectionFrameProvider } from "./section-frame"
+import { SectionFrameProvider, useLandmarkCheck } from "./section-frame"
 import { useHashAnchors } from "./use-hash-anchors"
 
 export interface AnchoredPanelProps {
@@ -26,6 +26,7 @@ export interface AnchoredPanelProps {
  */
 export function AnchoredPanel({ anchors, focusHeading = false, subAnchors, className, children }: AnchoredPanelProps) {
   const { frameReady } = useHashAnchors(anchors, { focusHeading, subAnchors })
+  useLandmarkCheck(anchors, "AnchoredPanel")
   return (
     <SectionFrameProvider onReady={frameReady}>
       <div className={cn("flex min-w-0 flex-col gap-8", className)}>{children}</div>

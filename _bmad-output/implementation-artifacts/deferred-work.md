@@ -56,6 +56,10 @@
   summary: /api/pp/org-logo makes up to 5 membership calls plus an S3 fetch per <img>, with no-store, so a 12-card page can cost ~70 upstream calls per render.
   evidence: lib/server/named-ops/org-logo.ts. Story 10.2 should cache the membership lookup per session (or pass the list's tenant ids) and consider a short private max-age for successful logos.
 
+- source_spec: `_bmad-output/implementation-artifacts/spec-f6-1-page-composition.md`
+  summary: (Team B, Story 7.2) e2e no-store assertion for RSC and prefetch requests to `/`, `/account` and `/handoff/**`; and whether pages need `Vary: Cookie` (Next 16 replaces `Vary` on rendered pages with its RSC list).
+  evidence: `proxy.ts#isNoStorePath` + `proxy.test.ts` (unit matrix covers navigation, RSC and prefetch); `e2e/headers.spec.ts` asserts navigations only. F6-1 Review Triage Log "Deferred".
+
 ## Foundation (shared or cross-team)
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-f6-3-data-server-tests.md` (review, 2026-10-14)

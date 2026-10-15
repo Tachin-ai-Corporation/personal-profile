@@ -1,6 +1,8 @@
 "use client"
 
-import { createContext, useCallback, useContext, type ReactNode } from "react"
+import { createContext, useCallback, useContext, useEffect, type ReactNode } from "react"
+import { isProductionBuild } from "@/lib/shared/app-env"
+import type { AccountSectionId, ProfileSectionId } from "./anchors"
 
 /**
  * The Section-ready signal (F6-1). A panel that follows deep links
@@ -29,8 +31,30 @@ export interface SectionFrame {
   readonly onReady: () => void
 }
 
-/** The ready signal of the frame `id` (a Section id or `/account` anchor, e.g. `phone`, `authenticator`). */
-export function useSectionFrame(id: string): SectionFrame {
+/**
+ * Development check (F6-1 review M2): after the panel mounts, every landmark
+ * it expects (`<section id>` from `SectionLandmark`) must exist, because the
+ * Section menu, scroll-spy and deep links look them up by id. A composed
+ * Section renders its `SectionLandmark id` on its first render (loading
+ * included) and never remounts it. Logs `console.error` outside production.
+ */
+export function useLandmarkCheck(ids: readonly string[], where: string): void {
+  const key = ids.join(" ")
+  useEffect(() => {
+    if (isProductionBuild()) return
+    for (const id of key.split(" ")) {
+      if (!document.getElementById(id)) {
+        console.error(`${where}: no landmark #${id} after mount. Render SectionLandmark id="${id}" on the first render and never remount it.`)
+      }
+    }
+  }, [key, where])
+}
+
+/** Every landmark that can report ready: the `/` Sections, Insurance, and the `/account` landmarks. */
+export type SectionFrameId = ProfileSectionId | "insurance" | AccountSectionId
+
+/** The ready signal of the frame `id` (e.g. `phone`, `authenticator`). */
+export function useSectionFrame(id: SectionFrameId): SectionFrame {
   const sink = useContext(SectionFrameContext)
   const onReady = useCallback(() => sink?.(id), [sink, id])
   return { onReady }

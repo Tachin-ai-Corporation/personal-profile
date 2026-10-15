@@ -3,6 +3,7 @@ import { EmailSection, PhoneSection, SocialSection } from "@/features/contacts"
 import { ProfileHeader } from "@/features/header"
 import { InsuranceSection } from "@/features/insurance"
 import { PersonalSection } from "@/features/personal"
+import { SaveAllBar } from "@/features/save-all"
 import { ContactsPanel, InsurancePanel, PageFrame, PortalUrlProvider, ProfileTabs, SAVE_ORDER } from "@/features/shell"
 import { requirePageSession } from "@/lib/server/page-session"
 
@@ -18,7 +19,13 @@ export default async function HomePage() {
 
   return (
     <PortalUrlProvider portalUrl={portalUrl}>
-      <PageFrame page="profile" header={<ProfileHeader />} idle={idle} saveOrder={SAVE_ORDER}>
+      <PageFrame
+        page="profile"
+        header={<ProfileHeader />}
+        idle={idle}
+        saveOrder={SAVE_ORDER}
+        saveAllSlot={<SaveAllBar />}
+      >
         <ProfileTabs
           contacts={
             <ContactsPanel

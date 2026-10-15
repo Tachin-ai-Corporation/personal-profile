@@ -102,6 +102,27 @@ Implemented 2026-10-14.
 - **Verification (2026-10-14)**: `corepack pnpm install` OK; `lint` and `typecheck` clean; `vitest run --coverage` 118 files / 2580 tests green, thresholds met; `PP_E2E_PORT=3200 test:e2e` 221 passed, 1 skipped (the existing desktop-only placement test on 360 px); `build` OK; `check-forbidden.sh` OK (tokens OK).
 - **Deferred**: `Vary: Cookie` on rendered pages (Next owns it; Story 7.2 decides whether a deployment-level header is needed). `SectionNav` stays bound to `PROFILE_SECTIONS` (it is the Contacts tab's own navigation; making it generic was out of scope).
 
+- **Review fixes** (2026-10-14, "fix: F6-1 review findings"; they supersede the notes above where they differ):
+  - **`myself` error (H1):** the `myselfLoadError` prop is gone (no route edit). `PageFrame` mounts `MyselfErrorClaimProvider`; a Section that renders its own `myself` load error calls `useClaimMyselfError(Boolean(error))`, and the page banner hides only while a mounted Section holds a claim, so another tab (e.g. My Organizations) still shows it.
+  - **`CANCELLED` in runners (H2):** `runSaveAll` outcomes (`done`, `session`) carry `cancelled` (via `isCancelled`), never counted in `failed` nor in `save_all` `failed`. `saveAllSummary` shows no "failed" copy for cancels: "{Section} saved." for one saved, new DRAFT COPY `SECTION_MESSAGES.savedCount` "{saved} saved." for several with a cancel, `null` when nothing was saved. The leave guard keeps its dialog open quietly on a cancel (no toast, focus left as is, not busy; the leave stays pending until Keep editing, Discard or Save).
+  - **`confirmBeforeSave` (M1):** `useSectionForm` option `confirmBeforeSave?: (values) => Promise<boolean>`, awaited after validation, before `send()`'s saving state, on the own Save and the registered save; `false` or a rejection is `CANCELLED`. A second Save while it is pending joins it.
+  - **Landmarks (M2):** `useLandmarkCheck(ids, where)` in `ContactsPanel` and `AnchoredPanel` logs a `console.error` outside production when an expected `<section id>` is missing after mount. The rule (render `SectionLandmark id` on the first render, never remount it) is in `docs/FOUNDATION.md` and every feature stub index. A frame ready makes the Contacts scroll-spy re-observe a landmark whose element changed (`observeLandmarks`; the hash lookup already resolves at ready time).
+  - **Tabs (M3, L3, L4):** `PageTabs` validates its config outside production (`assertPageTabsConfig`: unique ids, `defaultTab` present, every id routable on the page; throws) and routes clicks by the configured ids. The tab query param is page config, `PAGE_TAB_PARAM[page]` (`tab` on both pages), used by `navigate()` (so `PageNav` and `ReturnLink` follow it) and `PageTabs`; the per-call `tabParam` and the `param` prop are gone. The presets name their tablists from new DRAFT COPY `SHELL_MESSAGES.profileTabsLabel` "Profile sections" and `accountTabsLabel` "Account sections" (EXPERIENCE.md names none), via `PAGE_TAB_LIST_LABELS`.
+  - **Save all slot (M4):** stub `features/save-all` `SaveAllBar` (renders `null`) wired now as `PageFrame saveAllSlot` in `app/page.tsx`, one prop per line; Story 1.14 only replaces the stub body.
+  - **Types (M6):** `useSectionFrame(id: SectionFrameId)` (`ProfileSectionId | "insurance" | AccountSectionId`).
+  - **Reveal (L1):** the second pass, when the reveal mounted nothing to focus, shows the Section error and focuses it.
+  - **Tests:** `page-composition.test.tsx` (claim on two tabs, bad tab configs throw and are skipped in production, tablist names, landmark check, re-observe), `confirm-before-save.test.tsx` (own Save pending/declined/confirmed/rejected, invalid form never asks, leave-guard path declined and confirmed), `save-all.test.ts` (cancelled bucket, telemetry, summaries), `use-section-form-reveal.test.tsx` (L1), `navigate.test.ts` (`PAGE_TAB_PARAM`).
+  - **Verification (2026-10-14):** `lint`, `typecheck` clean; `vitest run --coverage` 119 files / 2602 tests green, thresholds met; `PP_E2E_PORT=3200 test:e2e` 221 passed, 1 skipped; `build` OK; `check-forbidden.sh` OK.
+
 ## Spec Change Log
 
+- 2026-10-14 (review): item 3's decision changed from a static `PageFrame myselfLoadError` prop to the automatic claim (`useClaimMyselfError`); the configurable tab param moved from a `PageTabs` prop / `NavTarget.tabParam` to page config (`PAGE_TAB_PARAM`). Frozen intent unchanged.
+
 ## Review Triage Log
+
+Review of `ed9eaca` vs `8547231` (coordinator-relayed findings).
+
+- **Patched ("fix: F6-1 review findings"):** H1 automatic `myself` error claim; H2 `cancelled` bucket in `runSaveAll`, summary and leave guard; M1 `confirmBeforeSave`; M2 dev landmark check + documented landmark rule + scroll-spy re-observe on ready; M3 `PageTabs` config validation, clicks by configured ids; M4 `features/save-all` stub wired as `saveAllSlot`; M6 typed `useSectionFrame` id; L1 second-pass Section error + focus; L3 `PAGE_TAB_PARAM`; L4 tablist names (DRAFT COPY in `messages/shell.ts`).
+- **Rejected:** L2 (stricter client-side hand-off href validation): the route (Story 7.3) re-validates every input and answers only 303s to the resolved portal, so the client check stays a path prefix.
+- **Deferred:** e2e no-store assertion for RSC and prefetch requests → Story 7.2 (Team B, `deferred-work.md`); the unit matrix in `proxy.test.ts` already covers them.
+- **Covered elsewhere:** M5 (client `lib/api` loader stubs) is spec F6-3's scope.
