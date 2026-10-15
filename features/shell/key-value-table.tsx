@@ -2,6 +2,7 @@
 
 import { useId, type ReactNode } from "react"
 import { FieldError, FormField, type FieldControlProps } from "@/components/ui/form-field"
+import { isNotProvided } from "@/lib/shared/display-value"
 import { COMMON_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
 import { DESKTOP_QUERY, useMediaQuery } from "./use-media-query"
@@ -12,7 +13,11 @@ export interface KeyValueRow {
   readonly key: string
   /** The field name (catalog copy), e.g. "First name". */
   readonly label: string
-  /** `null`, `undefined`, `false` or `""` reads "Not provided". */
+  /**
+   * Reads "Not provided" when `false` or not provided by the PM3 rule
+   * (`lib/shared/display-value#isNotProvided`: null, undefined, blank,
+   * `"n/a"` any case, `-1`, `"-1"`, an empty list).
+   */
   readonly value?: ReactNode
   /** An anchor id on the row's key cell (e.g. `signature` for `#signature` deep links). */
   readonly rowId?: string
@@ -32,7 +37,7 @@ const VALUE_CELL = "text-foreground text-body-sm px-3 py-2.5 align-top font-medi
 const ROW = "border-border border-b last:border-b-0"
 
 function Value({ value }: { readonly value: ReactNode }) {
-  if (isEmpty(value)) return <span className="text-muted-foreground font-normal">{COMMON_MESSAGES.notProvided}</span>
+  if (value === false || isNotProvided(value)) return <span className="text-muted-foreground font-normal">{COMMON_MESSAGES.notProvided}</span>
   return <>{value}</>
 }
 

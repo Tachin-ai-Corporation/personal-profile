@@ -1,105 +1,63 @@
+import { readdirSync, readFileSync } from "node:fs"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const notFound = vi.fn(() => {
   throw new Error("NEXT_NOT_FOUND")
 })
-const requirePageSession = vi.fn(async () => ({ portalUrl: "https://portal.test" }))
+const requirePageSession = vi.fn(async () => ({ portalUrl: "https://portal.test", idle: { idleTimeoutMs: 1, absoluteDeadline: 1 } }))
 let fixturesOn = false
 
 vi.mock("next/navigation", () => ({ notFound }))
 vi.mock("@/lib/server/page-session", () => ({ requirePageSession }))
 vi.mock("@/lib/server/env", () => ({ serverEnv: () => ({ PP_E2E_FIXTURES: fixturesOn }) }))
-// The page's client tree is not rendered here; only its server gate is under test.
-vi.mock("@/features/shell", () => ({ PageFrame: () => null, PortalUrlProvider: () => null, ProfileTabs: () => null }))
-vi.mock("@/features/header", () => ({ ProfileHeader: () => null }))
-vi.mock("@/features/shell/__fixtures__/fixture-participant", () => ({ FixtureParticipant: () => null }))
-vi.mock("@/features/shell/__fixtures__/primitives-fixture", () => ({ PrimitivesFixture: () => null }))
-vi.mock("@/features/shell/__fixtures__/inputs-fixture", () => ({ InputsFixture: () => null }))
-vi.mock("@/features/shell/__fixtures__/combobox-fixture", () => ({ ComboboxFixture: () => null }))
-vi.mock("@/features/shell/__fixtures__/section-fixture-page", () => ({ SectionFixturePage: () => null }))
 
-/** Imported after the mocks above are registered. */
-const LeaveGuardFixturePage = async () => (await import("./test-fixtures/leave-guard/page")).default()
-const PrimitivesFixturePage = async () => (await import("./test-fixtures/primitives/page")).default()
-const InputsFixturePage = async () => (await import("./test-fixtures/inputs/page")).default()
-const ComboboxFixturePage = async () => (await import("./test-fixtures/combobox/page")).default()
-const SectionFixture = async () => (await import("./test-fixtures/section/page")).default()
+/**
+ * Every fixture page under `app/test-fixtures/*` (spec F6-3: discovered, not
+ * listed, so a new fixture page is gated without editing this file). Each
+ * page's client tree is imported but never rendered: only its server gate is
+ * under test.
+ */
+const FIXTURES_DIR = new URL("./test-fixtures/", import.meta.url)
+const PAGES = readdirSync(FIXTURES_DIR, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name)
+  .filter((name) => readdirSync(new URL(`${name}/`, FIXTURES_DIR)).includes("page.tsx"))
+  .toSorted()
+
+const source = (name: string): string => readFileSync(new URL(`${name}/page.tsx`, FIXTURES_DIR), "utf8")
+const load = async (name: string): Promise<() => Promise<unknown>> =>
+  ((await import(`./test-fixtures/${name}/page.tsx`)) as { default: () => Promise<unknown> }).default
 
 beforeEach(() => {
   notFound.mockClear()
   requirePageSession.mockClear()
 })
 
-describe("/test-fixtures/leave-guard gate", () => {
+describe("fixture pages are discovered", () => {
+  it("finds the known fixture pages (and any added later)", () => {
+    expect(PAGES).toEqual(expect.arrayContaining(["combobox", "inputs", "leave-guard", "primitives", "section"]))
+  })
+})
+
+describe.each(PAGES)("/test-fixtures/%s gate", (name) => {
+  it("is force-dynamic and checks PP_E2E_FIXTURES", () => {
+    expect(source(name)).toContain('export const dynamic = "force-dynamic"')
+    expect(source(name)).toContain("serverEnv().PP_E2E_FIXTURES")
+  })
+
   it("is a 404 unless PP_E2E_FIXTURES=1, before any session check", async () => {
     fixturesOn = false
-    await expect(LeaveGuardFixturePage()).rejects.toThrow("NEXT_NOT_FOUND")
+    const page = await load(name)
+    await expect(page()).rejects.toThrow("NEXT_NOT_FOUND")
     expect(notFound).toHaveBeenCalledTimes(1)
     expect(requirePageSession).not.toHaveBeenCalled()
   })
 
-  it("requires a session and renders when the flag is on", async () => {
+  it("renders when the flag is on (with a session when the page needs one)", async () => {
     fixturesOn = true
-    await expect(LeaveGuardFixturePage()).resolves.toBeTruthy()
+    const page = await load(name)
+    await expect(page()).resolves.toBeTruthy()
     expect(notFound).not.toHaveBeenCalled()
-    expect(requirePageSession).toHaveBeenCalledTimes(1)
-  })
-})
-
-describe("/test-fixtures/primitives gate", () => {
-  it("is a 404 unless PP_E2E_FIXTURES=1", async () => {
-    fixturesOn = false
-    await expect(PrimitivesFixturePage()).rejects.toThrow("NEXT_NOT_FOUND")
-    expect(notFound).toHaveBeenCalledTimes(1)
-  })
-
-  it("renders when the flag is on", async () => {
-    fixturesOn = true
-    await expect(PrimitivesFixturePage()).resolves.toBeTruthy()
-    expect(notFound).not.toHaveBeenCalled()
-  })
-})
-
-describe("/test-fixtures/inputs gate", () => {
-  it("is a 404 unless PP_E2E_FIXTURES=1", async () => {
-    fixturesOn = false
-    await expect(InputsFixturePage()).rejects.toThrow("NEXT_NOT_FOUND")
-    expect(notFound).toHaveBeenCalledTimes(1)
-  })
-
-  it("renders when the flag is on", async () => {
-    fixturesOn = true
-    await expect(InputsFixturePage()).resolves.toBeTruthy()
-    expect(notFound).not.toHaveBeenCalled()
-  })
-})
-
-describe("/test-fixtures/combobox gate", () => {
-  it("is a 404 unless PP_E2E_FIXTURES=1", async () => {
-    fixturesOn = false
-    await expect(ComboboxFixturePage()).rejects.toThrow("NEXT_NOT_FOUND")
-    expect(notFound).toHaveBeenCalledTimes(1)
-  })
-
-  it("renders when the flag is on", async () => {
-    fixturesOn = true
-    await expect(ComboboxFixturePage()).resolves.toBeTruthy()
-    expect(notFound).not.toHaveBeenCalled()
-  })
-})
-
-describe("/test-fixtures/section gate", () => {
-  it("is a 404 unless PP_E2E_FIXTURES=1, before any session check", async () => {
-    fixturesOn = false
-    await expect(SectionFixture()).rejects.toThrow("NEXT_NOT_FOUND")
-    expect(notFound).toHaveBeenCalledTimes(1)
-    expect(requirePageSession).not.toHaveBeenCalled()
-  })
-
-  it("requires a session and renders when the flag is on", async () => {
-    fixturesOn = true
-    await expect(SectionFixture()).resolves.toBeTruthy()
-    expect(notFound).not.toHaveBeenCalled()
-    expect(requirePageSession).toHaveBeenCalledTimes(1)
+    expect(requirePageSession).toHaveBeenCalledTimes(source(name).includes("requirePageSession()") ? 1 : 0)
   })
 })

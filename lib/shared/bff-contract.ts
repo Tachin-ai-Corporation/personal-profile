@@ -82,6 +82,15 @@ export interface PracticeSupportBody {
   readonly email?: string
 }
 
+/**
+ * The countries address suggestions serve (AD-14): the server rejects any
+ * other `countryCode`, and Story 4.3 turns suggestions off for the rest
+ * (spec F6-3 moved it here so client and server share one list).
+ */
+export const PLACES_COUNTRIES = ["US", "CA", "AU"] as const
+
+export type PlacesCountry = (typeof PLACES_COUNTRIES)[number]
+
 /** `POST /api/places/autocomplete` request (Story 4.3). */
 export interface PlacesAutocompleteRequest {
   readonly input: string

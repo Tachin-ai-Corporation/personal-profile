@@ -115,4 +115,6 @@ export const entries: readonly AllowlistEntry[] = [
     upload: { part: "fileNewVersion", types: ["png"] },
     maxBytes: SIGNATURE_MAX_BYTES,
   },
+  /** Person value lists (Story 2.1: race, ethnicity, biological gender), read by the shared `type-key` loader (spec F6-3). */
+  { method: "GET", template: "v2/type/key/Person" },
 ]

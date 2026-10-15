@@ -12,6 +12,12 @@ export interface QueryParamRule {
   readonly pattern: RegExp
   /** The parameter may appear more than once (e.g. `type=Email&type=Mobile`). */
   readonly repeatable?: true
+  /**
+   * The parameter must be present (at least once); a request without it is
+   * 400 `BAD_QUERY` (e.g. NPI search `entityTypeCode`, Story 9.1; `timeZone`
+   * / `locale`, Story 7.5).
+   */
+  readonly required?: true
 }
 
 /** Image kinds an upload entry may accept, recognised by their leading bytes. */

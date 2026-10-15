@@ -58,9 +58,10 @@ export function upstreamSegments(entry: AllowlistEntry, segments: readonly strin
 
 /**
  * Validates a client query against per-name rules (decoded name + value
- * regex; own properties only) and applies the server-fixed params, whose
- * client values are ignored. Returns the rebuilt query, or `null` for 400
- * `BAD_QUERY`. With no rules every client param is rejected.
+ * regex; own properties only), checks that every `required` param is
+ * present and applies the server-fixed params, whose client values are
+ * ignored. Returns the rebuilt query, or `null` for 400 `BAD_QUERY`. With no
+ * rules every client param is rejected.
  */
 export function validateQuery(
   rules: Readonly<Record<string, QueryParamRule>> | undefined,
@@ -79,6 +80,7 @@ export function validateQuery(
     seen.add(key)
     out.append(key, value)
   }
+  if (rules && Object.entries(rules).some(([key, rule]) => rule.required && !seen.has(key))) return null
   for (const [key, value] of Object.entries(fixed)) out.set(key, value)
   return out
 }

@@ -11,6 +11,7 @@ describe("PUT v2/user/edit entry", () => {
       "PUT v2/user/edit",
       "POST v2/health/type/Person/{personId}/relation/PersonHasSignatureFile/file/upload",
       "POST v2/file/{fileId}/version",
+      "GET v2/type/key/Person",
     ])
     expect(entries.every((e) => e.profile === undefined)).toBe(true)
   })

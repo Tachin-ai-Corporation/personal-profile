@@ -2,7 +2,7 @@ import "server-only"
 
 import { createHmac } from "node:crypto"
 import { z } from "zod"
-import type { PlaceAddress, PlacesAutocompleteBody, PlacesDetailsBody, PlaceSuggestion } from "@/lib/shared/bff-contract"
+import { PLACES_COUNTRIES, type PlaceAddress, type PlacesAutocompleteBody, type PlacesDetailsBody, type PlaceSuggestion } from "@/lib/shared/bff-contract"
 import type { ServerEnv } from "@/lib/server/env"
 import { discardBody, fetchWithTimeout } from "@/lib/server/http/fetch-with-timeout"
 import { readStreamCapped } from "@/lib/server/http/read-capped"
@@ -23,8 +23,6 @@ const PLACES_API = "https://places.googleapis.com/v1"
 export const PLACES_TIMEOUT_MS = 5_000
 const PLACES_MAX_BYTES = 256 * 1024
 export const MAX_SUGGESTIONS = 5
-/** Region codes are fixed server-side (AD-14). */
-export const PLACES_COUNTRIES = ["US", "CA", "AU"] as const
 /** The server-constant Place Details field mask: address components + formatted address only. */
 export const DETAILS_FIELD_MASK = "addressComponents,formattedAddress"
 

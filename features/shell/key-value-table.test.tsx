@@ -134,3 +134,17 @@ describe("KeyValueEditTable (edit)", () => {
     expect(await axeViolations()).toEqual([])
   })
 })
+
+describe("KeyValueTable: the PM3 Not provided rule (spec F6-3)", () => {
+  beforeEach(() => stubViewport(360))
+
+  it("reads Not provided for n/a in any case, -1, \"-1\", blank text, an empty list and false; keeps 0", () => {
+    const values: KeyValueRow["value"][] = ["N/A", " n/a ", -1, "-1", "   ", [], false, 0, "Ann"]
+    render(<KeyValueTable rows={values.map((value, index) => ({ key: String(index), label: `Field ${index}`, value }))} />)
+    expect(screen.getAllByRole("row").map((row) => cellsOf(row)[1])).toEqual([
+      ...Array.from({ length: 7 }, () => "Not provided"),
+      "0",
+      "Ann",
+    ])
+  })
+})

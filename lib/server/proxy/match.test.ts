@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildUpstreamQuery, logTemplate, matchEntry, upstreamSegments } from "./match"
+import { buildUpstreamQuery, logTemplate, matchEntry, upstreamSegments, validateQuery } from "./match"
 import type { AllowlistEntry } from "./types"
 
 const FIXTURES: AllowlistEntry[] = [
@@ -54,5 +54,43 @@ describe("buildUpstreamQuery", () => {
 
   it("forces preview=true on image entries", () => {
     expect(buildUpstreamQuery(FIXTURES[4], q("preview=false"))?.toString()).toBe("preview=true")
+  })
+
+  describe("required params (spec F6-3)", () => {
+    // Shapes of the planned rules: NPI search (Story 9.1) and time zone / locale (Story 7.5).
+    const NPI_SEARCH: AllowlistEntry = {
+      method: "GET",
+      template: "v2/public/npi/list",
+      query: {
+        entityTypeCode: { pattern: /^[12]$/, required: true },
+        searchText: { pattern: /^[^]{0,100}$/ },
+        page: { pattern: /^\d{1,4}$/ },
+        limit: { pattern: /^([1-9]|10)$/ },
+      },
+    }
+    const TIME_ZONE: AllowlistEntry = {
+      method: "POST",
+      template: "v2/user/time-zone",
+      query: { timeZone: { pattern: /^America\/Chicago$/, required: true } },
+    }
+
+    it("accepts a request carrying every required param", () => {
+      expect(buildUpstreamQuery(NPI_SEARCH, q("entityTypeCode=1&searchText=&page=0&limit=10"))?.get("entityTypeCode")).toBe("1")
+      expect(buildUpstreamQuery(TIME_ZONE, q("timeZone=America%2FChicago"))?.toString()).toBe("timeZone=America%2FChicago")
+    })
+
+    it.each(["", "searchText=ann&page=0&limit=10", "entityTypeCode=3", "entityTypeCode="])("rejects NPI search %j (missing or bad entityTypeCode)", (query) => {
+      expect(buildUpstreamQuery(NPI_SEARCH, q(query))).toBeNull()
+    })
+
+    it("rejects a time-zone call without timeZone, or with another zone", () => {
+      expect(buildUpstreamQuery(TIME_ZONE, q(""))).toBeNull()
+      expect(buildUpstreamQuery(TIME_ZONE, q("timeZone=Europe%2FParis"))).toBeNull()
+    })
+
+    it("keeps optional params optional, and a required name filled by a fixed param never satisfies itself", () => {
+      expect(validateQuery({ page: { pattern: /^\d$/ } }, {}, q(""))?.toString()).toBe("")
+      expect(validateQuery({ locale: { pattern: /^en-US$/, required: true } }, { locale: "en-US" }, q("locale=en-US"))).toBeNull()
+    })
   })
 })

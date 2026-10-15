@@ -11,7 +11,9 @@
 #      PUBLIC_FILES_ORIGIN, X-PP-Session, sessionBinding, SESSION_CHANGED,
 #      Sec-Fetch-Site, SameSite=None, Partitioned, window.top, bg-black/50, and
 #      any /launch route.
-#   5. A hard-coded 1health origin in app code outside lib/shared/environments.ts.
+#   5. A hard-coded 1health origin in app code outside lib/shared/environments.ts
+#      (and lib/shared/profile-constants.ts, which holds the one product URL:
+#      CHECKOUT_URL, Story 10.1; spec F6-3).
 #   6. scripts/check-tokens.sh: hex colors, Tailwind palette classes,
 #      text-info-strong on links and bg-error-strong in components/, features/
 #      and app/ (outside app/globals.css).
@@ -78,8 +80,9 @@ hits=$(hits_in "$app_code" 'bg-black/50')
 [[ -n "$hits" ]] && report "bg-black/50 (use the scrim token, D13):" "$hits"
 [[ -d app/launch ]] && report "a /launch route exists (D1):" "app/launch"
 
-hits=$(hits_in "$(printf '%s\n' "$app_code" | grep -Fxv lib/shared/environments.ts || true)" 'https?://[a-z0-9.-]*1health\.io')
-[[ -n "$hits" ]] && report "hard-coded 1health origin outside lib/shared/environments.ts:" "$hits"
+ORIGIN_ALLOWED=$'lib/shared/environments.ts\nlib/shared/profile-constants.ts'
+hits=$(hits_in "$(printf '%s\n' "$app_code" | grep -Fxv "$ORIGIN_ALLOWED" || true)" 'https?://[a-z0-9.-]*1health\.io')
+[[ -n "$hits" ]] && report "hard-coded 1health origin outside lib/shared/environments.ts and lib/shared/profile-constants.ts:" "$hits"
 
 # 6. Design tokens (D13): hex colors, palette classes, text-info-strong links, bg-error-strong.
 bash scripts/check-tokens.sh || status=1

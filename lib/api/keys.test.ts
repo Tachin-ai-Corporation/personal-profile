@@ -15,6 +15,7 @@ describe("keys", () => {
     expect(keys.npi()).toEqual(["pp", "npi"])
     expect(keys.practiceSupport()).toEqual(["pp", "practice-support"])
     expect(keys.orgs("acme", 2)).toEqual(["pp", "orgs", "acme", 2])
+    expect(keys.countries()).toEqual(["pp", "countries"])
     expect(CONTACT_POINT_TYPES).toEqual(["Email", "Mobile", "Landline", "Social Media"])
   })
 

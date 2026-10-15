@@ -65,6 +65,14 @@ export const FORBIDDEN_SCOPE_TABLE: readonly ForbiddenScopeRule[] = [
   { endpoint: "user/npi", pattern: /^user\/npi$/, owner: "provider", level: "tab" },
   { endpoint: "public/npi/list", pattern: /^public\/npi\/list$/, owner: "provider", level: "tab" },
   { endpoint: "user/register/npi", pattern: /^user\/register\/npi$/, owner: "provider", level: "tab" },
+  /*
+   * `health/npi/{n}/is-registered` (spec F6-3): Story 9.2 checks both NPIs
+   * before Register, so a 403 there is the tab's no-access panel like the other
+   * provider calls. Story 9.3 also calls it (the "Register your practice" CTA
+   * on `practiceNpi.id`) but ignores every error of that call (no CTA, no
+   * panel) without calling `forbiddenScopeFor`; this row does not apply there.
+   */
+  { endpoint: "health/npi/{n}/is-registered", pattern: /^health\/npi\/\d{1,19}\/is-registered$/, owner: "provider", level: "tab" },
   { endpoint: "user/organization/portal", pattern: /^user\/organization\/portal$/, owner: "organizations", level: "tab" },
   { endpoint: "/api/pp/practice-support", pattern: /^pp\/practice-support$/, owner: "practice-popover", level: "popover" },
 ]

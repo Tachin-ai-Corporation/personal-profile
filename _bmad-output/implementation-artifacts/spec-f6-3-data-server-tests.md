@@ -2,7 +2,7 @@
 title: 'F6-3 Data layer stubs, proxy rules, test scaffolding and shared copy'
 type: 'feature'
 created: '2026-10-14'
-status: 'in-progress'
+status: 'in-review'
 baseline_commit: '8547231'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -70,13 +70,13 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] lib/api stubs, `type-keys` loader, `keys.countries`, frozen `fetchers`, index lines (+tests).
-- [ ] Proxy `required` + type-key allowlist entries (+tests).
-- [ ] 403 row, NPI field rules, NPI copy (+tests).
-- [ ] `isNotProvided`, `joinProvided`, `KeyValueTable`; `PLACES_COUNTRIES` move; profile constants + gate.
-- [ ] `COMMON_MESSAGES` additions.
-- [ ] e2e fixtures split, `mockProxy`, defaults, catch-all; `test/myself-fixture.ts`; gate test discovery.
-- [ ] Tracking files split.
+- [x] lib/api stubs, `type-keys` loader, `keys.countries`, frozen `fetchers`, index lines (+tests).
+- [x] Proxy `required` + type-key allowlist entries (+tests).
+- [x] 403 row, NPI field rules, NPI copy (+tests).
+- [x] `isNotProvided`, `joinProvided`, `KeyValueTable`; `PLACES_COUNTRIES` move; profile constants + gate.
+- [x] `COMMON_MESSAGES` additions.
+- [x] e2e fixtures split, `mockProxy`, defaults, catch-all; `test/myself-fixture.ts`; gate test discovery.
+- [x] Tracking files split.
 
 **Acceptance Criteria:**
 - Given a new story adding `lib/api/addresses.ts` code, a loader, an e2e mock or a fixture page, then it edits no shared list (`index.ts`, `fetchers`, `e2e/fixtures/index.ts`, `app/test-fixtures.test.ts`).
@@ -92,6 +92,27 @@ context:
 - `corepack pnpm build && bash scripts/check-forbidden.sh` -- expected: green
 
 ## Implementation Notes
+
+Implemented 2026-10-14 (worktree fast-forwarded from `b005536` to the stated baseline `8547231` first).
+
+- **lib/api modules:** `personal.ts` (`PERSON_TYPE_KEY`, `PERSON_VALUE_LISTS`, `userEditPath`, `ssnExposePath`), `profile-picture.ts` (`profilePictureIdPath`, `profilePictureUploadPath`), `addresses.ts` (`ADDRESS_LIST_PAGE_SIZE`, `PINNED_COUNTRY_CODES`, `addressesListPath`, `countriesPath`), `places.ts` (`PLACES_COUNTRIES` re-export, `isPlacesCountry`, `placesAutocompletePath`, `placesDetailsPath`), `insurance.ts` (`INSURANCE_TYPE_KEY`, `INSURER_PAGE_SIZE`, `INSURANCE_CARD_RELATIONS`, `insuranceListPath`, `insuranceCardUploadPath`), `account.ts` (`ACCOUNT_LOCALE`, `timeZonePath`, `localePath`; `updateAccount` stays Story 7.5's), `mfa.ts` (enable/disable/validate paths), `npi.ts` (`NPI_PAGE_SIZE`, `NPI_SEARCH_MAX_LENGTH`, `personalNpiSearchPath`/`practiceNpiSearchPath` with the type fixed (AD-23), `userNpiPath`, `npiIsRegisteredPath(recordId)`, `registerNpiPath`), `organizations.ts` (`ORGS_PAGE_SIZE`, `organizationsPath`, `orgLogoPath`), `practice-support.ts` (`practiceSupportPath`). Each has a header naming owner team, stories and endpoints. Paths for endpoints without an allowlist entry yet are only builders; the entries still land with their stories. One `export * from "./x"` line each in `lib/api/index.ts`; `planned-modules.test.ts` fails if a module under `lib/api/` is not re-exported (except the internal `refresh-coordinator.ts`).
+- **`fetchers`:** frozen (`Object.freeze`, typed readonly) with its two shell entries; documented: new reads use `useSWR(keys.x())` through the root fetcher, typed loaders are imported by name. Not removed because `features/shell/use-myself.ts` and `features/header` use it (out of bounds here).
+- **`type-keys.ts`:** `TYPE_KEYS` (`Person`, `ContactPoint`, `Insurance`), `TypeInfo`/`TypeAttribute`/`TypeAttributeValue`, `toTypeInfo` (malformed attributes/values dropped, never a failed read), `valueListOptions(info, attrKey)` (VALUE_LIST only, `"n/a"` dropped via `isNotProvided`, `localeCompare` sort: 1health-fe `useValueListOptions` parity; deleted values are not filtered, as in 1health-fe), `typeKeyPath`, `fetchTypeKey`, `loadTypeKey`, `registerFetcher("type-key")` (an unknown type rejects without a request). Shape from agents.md `GET /v2/type/key/{key}` (`TypeInfo`) and 1health-fe `api.d.ts` (`AttributeInfo`, `IAttributeValue`).
+- **Allowlist:** the proxy's `{name}` placeholder is numeric-only, so the type key is three literal entries, each in its own area file: `GET v2/type/key/Person` (`personal.ts`), `.../ContactPoint` (`contacts.ts`), `.../Insurance` (`insurance.ts`); no query, no body, not `profile`. Tests in `allowlist/type-keys.test.ts` (+ updated `personal.test.ts`, `contacts.test.ts` entry lists).
+- **Required query params:** `QueryParamRule.required?: true`; `validateQuery` returns `null` (400 `BAD_QUERY`) when a required name is absent. A required name that is also a fixed param can never be satisfied (client values for fixed names are ignored) — tested as a misconfiguration guard. Named ops share `validateQuery`, so they get the rule too. Tests use the planned 9.1 NPI search and 7.5 time-zone shapes.
+- **403 row:** `health/npi/{n}/is-registered` → `provider`/`tab` (`^health\/npi\/\d{1,19}\/is-registered$`), with the comment that Story 9.3 ignores errors of that call without calling `forbiddenScopeFor`.
+- **NPI field rules:** two anchored rules on `provider` → `field personalNpi` / `practiceNpi` with `npi.personalNpiTaken` / `npi.practiceNpiTaken` (verbatim Voice and Tone). The `NPI_ALREADY_REGISTERED` derived code stays in `DerivedErrorCode`/telemetry (no rule emits it now); removing it would touch telemetry types for no gain.
+- **PM3:** `lib/shared/display-value.ts`: `isNotProvided` (null, undefined, blank, `"n/a"` any case trimmed, `-1`, `"-1"`, empty array; `0`, `false`, objects are values), `providedOrNull`, `joinProvided(parts, sep)` (10.2 "middle name unless n/a"). `KeyValueTable` read values use `value === false || isNotProvided(value)`; the edit table's help/error emptiness check is unchanged. Story 7.4's birth-date-out-of-range rule stays with the story (it needs roles and today).
+- **Places:** `PLACES_COUNTRIES` (+ `PlacesCountry`) in `lib/shared/bff-contract.ts`; `lib/server/named-ops/places.ts` imports it.
+- **Constants:** `lib/shared/profile-constants.ts`: `CHECKOUT_URL`, `INTERNAL_EMAIL_DOMAINS` (10.1 has them, not 7.5), plus `isInternalEmail(email)` (case-insensitive, trimmed suffix, the bare domain is not internal). `check-forbidden.sh` allows exactly that file besides `environments.ts` (probe verified: another `lib/shared` file with a 1health.io URL still fails).
+- **COMMON_MESSAGES added:** `close` "Close" (draft), `remove` "Remove" (verbatim), `delete` "Delete" (draft), `replace` "Replace" (verbatim), `clear` "Clear" (verbatim), `submit` "Submit" (verbatim), `back` "Back" (draft), `previous` "Previous" (draft), `next` "Next" (draft), `moreActionsFor` "More actions for {name}" (draft), `primary` "Primary" (draft), `makePrimary` "Make primary" (verbatim), `verified` "Verified" (draft), `notVerified` "Not verified" (draft), `verify` "Verify" (draft), `resendVerification` "Resend verification" (verbatim). No catalog duplicates existed to move. "Edit" stays `SECTION_MESSAGES.edit` (moving it would edit `features/shell/__fixtures__/fixture-section.tsx`, out of bounds; F6-2 may reconcile). `launch.ts` "Submit" is outside the catalog (D9 strings).
+- **e2e:** `e2e/fixtures.ts` → `e2e/fixtures/core.ts` (git mv) + `contacts.ts` (`mockContacts`, now typed with Social Media), `addresses.ts` (`mockAddresses`, `mockCountries`), `insurance.ts` (`mockInsurance`), `npi.ts` (`mockUserNpi`, `mockPracticeSupport`), `orgs.ts` (`mockOrganizations`), `account.ts`/`mfa.ts` (empty, documented), `defaults.ts` (`mockProfileDefaults`, `mockAccountDefaults`), `index.ts` re-exporting all; existing `./fixtures` imports unchanged. Core adds `mockProxy(page, glob, answer | (request) => answer)` (returns the requests), `mockTypeKey`, `failOnUnmockedProxy(page)` (599 `E2E_UNMOCKED`, records `METHOD path?query`) and an extended `test` with an auto fixture that fails a test with unmocked `/api/1h` calls. The guard is opt-in (import `test` from `./fixtures`); existing specs keep `@playwright/test`. Default shapes for `user/npi` (404) and `organization/portal` (empty Spring page) are placeholders for 9.1/10.1 to confirm. `e2e/fixtures.spec.ts` covers defaults on `/`, `mockProxy` and the catch-all.
+- **Unit fixture:** `test/myself-fixture.ts` (`myselfWire` with every mapped field filled, `contactPointWire`, `myselfHandlers({ myself?, contacts? })`), guarded by `lib/api/myself-fixture.test.ts` (every `Myself` field non-null).
+- **Fixture gate test:** `app/test-fixtures.test.ts` discovers `app/test-fixtures/*/page.tsx` with `readdirSync` and runs the same three checks per page (force-dynamic + flag check in the source; 404 before any session check when off; renders when on, with `requirePageSession` called exactly when the page uses it). The per-fixture `vi.mock`s are gone: pages and their client trees import fine in the node project (only the gate runs; nothing renders), so F6-2's new pages need no edit.
+- **Tracking:** `deferred-work.md` regrouped into Team A / Team B / Foundation sections with a tracking-rule comment (every item kept verbatim; the Places CSP bullet of the 7.0a review list became a Team A item); `sprint-status.yaml` got a header comment: feature branches don't edit the header, `last_updated` or other teams' lines.
+- **Docs:** `docs/FOUNDATION.md` (F6-3 row, registry, error rules, message areas, fixtures, e2e helpers) and `docs/api/CONVENTIONS.md` step 5.
+- **Verification (2026-10-14):** `corepack pnpm install` OK; `pnpm lint`, `pnpm typecheck` clean; `pnpm vitest run --coverage` 120 files / 2578 tests green, 100 % statements/branches/functions/lines; `PP_E2E_PORT=3220 pnpm test:e2e` 211 passed, 1 skipped (the existing desktop-only placement test on 360 px); `pnpm build` OK; `bash scripts/check-forbidden.sh` OK.
+- **Deferred:** switching the existing specs to the fail-fast `test` (each needs its unmocked reads audited); removing `fetchers` once the shell hooks move to `useSWR(keys.x())` (shell is out of bounds here).
 
 ## Spec Change Log
 

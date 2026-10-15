@@ -21,6 +21,7 @@ export const SWR_RESOURCES = [
   "npi",
   "practice-support",
   "orgs",
+  "countries",
 ] as const
 
 export type SwrResource = (typeof SWR_RESOURCES)[number]
@@ -41,6 +42,8 @@ export const keys = {
   practiceSupport: (): readonly ["pp", "practice-support"] => ["pp", "practice-support"],
   /** My Organizations, by search text and page (Story 10.1). */
   orgs: (name: string, page: number): readonly ["pp", "orgs", string, number] => ["pp", "orgs", name, page],
+  /** `GET v2/public/countries` for the address Country select (Story 4.2). */
+  countries: (): readonly ["pp", "countries"] => ["pp", "countries"],
 } as const satisfies Record<string, (...args: never[]) => SwrKey>
 
 export function isSwrKey(value: unknown): value is SwrKey {

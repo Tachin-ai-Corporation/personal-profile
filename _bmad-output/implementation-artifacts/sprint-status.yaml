@@ -1,3 +1,7 @@
+# TRACKING RULE (spec F6-3): feature branches (Team A, Team B) must NOT edit this header,
+# the generated / last_updated / project / tracking keys, or another team's story lines.
+# Change only your own story's status line (and its trailing comment); the foundation
+# integrator updates last_updated and the header when merging to feat/NG-9019-epic-7.
 # 2026-10-14: rebased feat/NG-9019-epic-7 onto main; Epic 7 foundation specs 7.0a/7.0b-1/7.0b-2 replace the R2-R4 reworks.
 # STATUS DEFINITIONS:
 # ==================

@@ -52,7 +52,13 @@ operation (§4.6, [AUTH-ARCHITECTURE.md](../AUTH-ARCHITECTURE.md#named-operation
    `null`, not a failed read). See `lib/api/myself.ts`.
 4. For reads, use the key already declared in `keys.ts` and call
    `registerFetcher("<resource>", loader)` in the module.
-5. Re-export from `lib/api/index.ts`. Import from `"@/lib/api"` everywhere.
+5. Every planned module (`personal`, `profile-picture`, `addresses`, `places`,
+   `insurance`, `type-keys`, `account`, `mfa`, `npi`, `organizations`,
+   `practice-support`) already exists and is re-exported from `lib/api/index.ts`
+   with `export *` (spec F6-3): add code to your module and never edit
+   `index.ts`. Import from `"@/lib/api"` everywhere. The `fetchers` object is
+   frozen: read a new key with `useSWR(keys.x())` (the root fetcher dispatches
+   to your registered loader).
 6. Copy goes in `lib/shared/messages/<area>.ts`; upstream messages your
    feature must recognise go in `lib/api/errors/<area>.ts` (anchored `^…$`).
 7. Test it with Vitest + MSW at the `/api` boundary (`test/msw-server.ts`).

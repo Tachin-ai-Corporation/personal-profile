@@ -7,7 +7,7 @@ const [entry] = entries
 
 describe("contact-point list", () => {
   it("is the one shared GET, not a Profile-module entry", () => {
-    expect(entries.map((e) => `${e.method} ${e.template}`)).toEqual(["GET v2/user/contact-point/list"])
+    expect(entries.map((e) => `${e.method} ${e.template}`)).toEqual(["GET v2/user/contact-point/list", "GET v2/type/key/ContactPoint"])
     expect(entry.profile).toBeUndefined()
   })
 

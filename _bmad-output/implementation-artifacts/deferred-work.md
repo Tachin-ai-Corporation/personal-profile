@@ -1,15 +1,66 @@
-- source_spec: none
-  summary: 7.0b Shell foundation — features/shell (app bar with non-interactive `primary-text` wordmark, tabs, navigate, leave guard, SectionRegistry, session-expired dialog on the `scrim` token — no session-changed dialog), lib/api/errors.ts, lib/shared/messages.ts, toasts, Retry.
-  evidence: Split from the Epic 7 start (user-approved 2026-10-14); Story 7.1 needs Epic 1 pieces 1.7/1.8/1.11/1.12/1.13, too large for one spec. Runs after 7.0a.
-- source_spec: none
-  summary: Story 7.1 Account page — route, tabs, deep links and states, built on 7.0a + 7.0b.
-  evidence: Split from the Epic 7 start (user-approved 2026-10-14); depends on the 7.0a/7.0b foundation specs.
-- source_spec: `_bmad-output/implementation-artifacts/spec-7-0a-bff-foundation-and-tooling.md`
-  summary: Proxy request bodies are buffered before the size check when no Content-Length is sent; needs a streaming byte-capped reader.
-  evidence: lib/server/proxy/handler.ts readEntryBody uses request.text(); bounded today by Next/Vercel body limits and no upload entries ship yet (AD-13 upload stories must add the streaming reader).
+# Deferred work
+
+<!-- Tracking rule (spec F6-3): add a new item under the section of the team that owns it.
+     Team A = `/` (Epics 1-6), Team B = `/account` (Epics 7-10), Foundation = shared code
+     (lib/server, lib/api, lib/shared, components/ui, features/shell, tooling) or cross-team.
+     Feature branches append only at the end of their own team's section, so merges don't conflict. -->
+
+## Team A (`/`, Epics 1-6)
+
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-0a-bff-foundation-and-tooling.md`
   summary: PUT v2/user/edit body schema lacks namePrefix, nameSuffix, otherNames, titles, cityOfBirth and accepts birthDate "n/a" although the backend type is LocalDate.
   evidence: backend UserServiceImpl.validateUserAttributes applies only non-null fields (partial update, no wipe); the Personal information card story must add the fields and confirm how a birth date is cleared on demo (unverified).
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0b-2-shell-navigation.md`
+  summary: Header shows primary phone numbers raw (e.g. +12125550100) although phoneNumberRegion is mapped.
+  evidence: features/header ContactItem prints value; formatPhoneDisplay() arrives with Story 7.4 and should be applied to the header then.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0b-2-shell-navigation.md`
+  summary: A failed save inside the leave guard closes the dialog with no Section-level feedback.
+  evidence: Story 1.13 only requires staying on the page; per-Section save error UI lands with the edit model (7.5).
+- source_spec: `_bmad-output/implementation-artifacts/1-8b-profile-page-shell-app-bar-tabs-and-section-navigation.md`
+  summary: PM copy question: the load-error template lower-cases the Section label ("Couldn't load phone", "Couldn't load personal information"), while EXPERIENCE.md's example reads "Couldn't load phones".
+  evidence: EXPERIENCE.md lines 73 and 156. Story 1.12 owns the message catalog and error copy.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f1-shared-contracts-and-data-layer.md`
+  summary: Product questions found in the backend while planning F1 — (1) the backend's patient-supported contact types omit "Social Media" (Story 3.7, Team A); (2) backend primary contact types are Email and Mobile only and myself.phoneNumber comes from the primary Mobile, but Story 7.6 lets a Landline be the primary phone (Team B); (3) myself has no phoneNumberRegion (Story 7.4 must take it from the matching contact point row or default to US).
+  evidence: 1h-ng-bo-core-be ContactPointConstants.java:37,151-160; UserServiceImpl.java:2769-2786. Verify on demo before Stories 3.7 / 7.4 / 7.6.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f1-shared-contracts-and-data-layer.md`
+  summary: RESOLVED 2026-10-14 — the three contact-point product questions were validated against agents.md (dev/demo/prod), the backend and 1health-fe: (1) Social Media is a valid patient type via POST /v2/health/contact-point; (2) Story 7.6 primary phone = verified Mobile only (Landline rejected by PUT v2/user/edit; 1health-fe's Landline option is a latent bug); (3) phone region comes from the contact-point list row, default "us". Stories 7.4/7.6 and the F1 spec are amended.
+  evidence: agents.md v2/health/contact-point (demo), v2/user/contact-point/list, v2/user/myself; ContactPointServiceImpl.java:196-253,528-546,583-618,796-860; UserServiceImpl.java:625-648,2769-2786; 1health-fe PersonalAccountUtils.ts:53-62.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
+  summary: Backend follow-ups found while planning F2 — (1) hard DELETE v2/file targets the public bucket only, so private signature/insurance-card objects may stay in S3; (2) file uploads have no server-side ownership check on the person/insurance id (the BFF's `me` substitution and id regex are the only guard).
+  evidence: 1h-ng-bo-core-be FileServiceImpl.java:797-816; OneHealthServiceImpl.java:4552-4562. Report to the backend team.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
+  summary: Public profile picture uploads pass the original bytes (EXIF incl. GPS, trailing payloads) — the BFF only sniffs magic bytes; client-side reencodeImage (Story 1.10) is not a server guarantee.
+  evidence: lib/server/proxy/upload.ts; isPublic=true entry in allowlist/core.ts. Story 1.10 (Team A) must decide server-side re-encode/metadata strip (e.g. sharp) or record it as an accepted AD-13 risk.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
+  summary: Signature-version (`v2/file/{fileId}/version`) and insurance uploads trust client-supplied ids; ownership is enforced only upstream (and the backend has no ownership check).
+  evidence: allowlist/personal.ts, allowlist/insurance.ts; backend follow-up already recorded (OneHealthServiceImpl.java:4552-4562). Stories 2.4 / 5.3 should resolve ids from myself / the user's own insurance list, or a named op should verify ownership.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0a-bff-foundation-and-tooling.md` (code review, 2026-10-14)
+  summary: CSP has no Google Maps hosts for `PLACES_ENABLED=1`; decide with the Places epic (AD-14 proxies Places through `/api/places`).
+  evidence: moved from the spec-7-0a code-review list by spec F6-3; Story 4.3 decides.
+
+## Team B (`/account`, Epics 7-10)
+
+- source_spec: none
+  summary: Story 7.1 Account page — route, tabs, deep links and states, built on 7.0a + 7.0b.
+  evidence: Split from the Epic 7 start (user-approved 2026-10-14); depends on the 7.0a/7.0b foundation specs.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0b-2-shell-navigation.md`
+  summary: The e2e "page switch (clean)" journey goes to a 404 because /account does not exist yet, so its "myself not refetched" assertion proves nothing about the shared SWR cache.
+  evidence: PageNav targets /account; Story 7.1 adds app/account/page.tsx and must assert the shared cache (one /myself request) and Account aria-current on the real page.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
+  summary: Confirm publicFilesOrigin (bocore-public-files-{demo,prod}.s3.us-west-1.amazonaws.com, found only in 2022–2023 backend git history) against a live tenantLogo.publicUrl on demo and prod before Story 10.2; SVG tenant logos will always show initials.
+  evidence: 1h-ng-bo-core-be history (test-product.ftl, test.html); SimpleStorageService.java:346-353; TenantServiceImpl.java:738.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
+  summary: /api/pp/org-logo makes up to 5 membership calls plus an S3 fetch per <img>, with no-store, so a 12-card page can cost ~70 upstream calls per render.
+  evidence: lib/server/named-ops/org-logo.ts. Story 10.2 should cache the membership lookup per session (or pass the list's tenant ids) and consider a short private max-age for successful logos.
+
+## Foundation (shared or cross-team)
+
+- source_spec: none
+  summary: 7.0b Shell foundation — features/shell (app bar with non-interactive `primary-text` wordmark, tabs, navigate, leave guard, SectionRegistry, session-expired dialog on the `scrim` token — no session-changed dialog), lib/api/errors.ts, lib/shared/messages.ts, toasts, Retry.
+  evidence: Split from the Epic 7 start (user-approved 2026-10-14); Story 7.1 needs Epic 1 pieces 1.7/1.8/1.11/1.12/1.13, too large for one spec. Runs after 7.0a.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-0a-bff-foundation-and-tooling.md`
+  summary: Proxy request bodies are buffered before the size check when no Content-Length is sent; needs a streaming byte-capped reader.
+  evidence: lib/server/proxy/handler.ts readEntryBody uses request.text(); bounded today by Next/Vercel body limits and no upload entries ship yet (AD-13 upload stories must add the streaming reader).
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-0a-bff-foundation-and-tooling.md`
   summary: Launch exchange errors are classified by substring ("used"/"expired"), so words like "refused" map to LAUNCH_USED.
   evidence: lib/server/launch/exchange.ts classifyExchangeError; same status, retry behavior and user message either way, only the logged errorCode differs; switch to word/structured matching once real upstream error bodies are recorded.
@@ -22,15 +73,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-0a-bff-foundation-and-tooling.md`
   summary: Token lifetimes of 30 s or less would make every proxy call TOKEN_EXPIRED and end the session (unverified, medium if real).
   evidence: lib/server/session/refresh.ts EXPIRY_SKEW_MS = 30 s; real IdP lifetimes are minutes. Settle by recording expires_in from demo/prod; fix by clamping the skew to min(30 s, expires_in/2).
-
-## Deferred from: code review of spec-7-0a-bff-foundation-and-tooling (2026-10-14)
-
-- Upstream 401 on a clock-fresh access token ends the session instead of forcing a refresh (Story 1.5 L1050/L1067 behaviour); revisit with a force-refresh flag when 1.6/7.0b touch refresh.
-- `/api/token` (and the proxy) buffer chunked request bodies without Content-Length before the size cap; bounded by Next/Vercel limits, add a streaming byte-capped reader with the AD-13 upload stories.
-- `fetchWithTimeout` now caps body streaming at 25 s, which would cut future large `asImage` downloads; switch to an idle timeout when the first `asImage` entry ships.
-- Proxy deny check runs on client segments before owner-id substitution; re-run it on upstream segments when the first `{userId}`/`{personId}` entry is added.
-- A relaunch over an existing session drops the previous tokens without revoking them; add a best-effort `revokeAllDevices` for the replaced session.
-- CSP has no Google Maps hosts for `PLACES_ENABLED=1`; decide with the Places epic (AD-14 proxies Places through `/api/places`).
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-0b-1-tokens-messages-errors.md`
   summary: 7.0b-2 Shell navigation — app bar (non-interactive wordmark, page nav, Return to 1health), ARIA tabs pattern, minimal header (initials only, primary phone/email ≥768 px), navigate() + requestLeave/leave guard + SectionRegistry, session-expired dialog with login-intent save, `/` page frame with placeholder tabs.
   evidence: Split from spec 7.0b at the human's request (2026-10-14, size gate); builds on 7.0b-1 (tokens, messages, errors.ts, ConfirmDialog, read states). Decisions already taken: relaunch after expiry always lands on `/` (intent used only for `/` paths); header shows initials only until Story 1.10.
@@ -46,15 +88,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-0b-1-tokens-messages-errors.md`
   summary: Outline button keeps dark:border-input (1.24:1) and Input's invalid border uses --destructive (4.10:1) instead of the D13 control-border / error-strong boundary.
   evidence: components/ui/button.tsx, input.tsx; DESIGN.md control-border covers Input, Select and Jump to — decide the button boundary with the 7.0b-2/7.5 controls.
-- source_spec: `_bmad-output/implementation-artifacts/spec-7-0b-2-shell-navigation.md`
-  summary: The e2e "page switch (clean)" journey goes to a 404 because /account does not exist yet, so its "myself not refetched" assertion proves nothing about the shared SWR cache.
-  evidence: PageNav targets /account; Story 7.1 adds app/account/page.tsx and must assert the shared cache (one /myself request) and Account aria-current on the real page.
-- source_spec: `_bmad-output/implementation-artifacts/spec-7-0b-2-shell-navigation.md`
-  summary: Header shows primary phone numbers raw (e.g. +12125550100) although phoneNumberRegion is mapped.
-  evidence: features/header ContactItem prints value; formatPhoneDisplay() arrives with Story 7.4 and should be applied to the header then.
-- source_spec: `_bmad-output/implementation-artifacts/spec-7-0b-2-shell-navigation.md`
-  summary: A failed save inside the leave guard closes the dialog with no Section-level feedback.
-  evidence: Story 1.13 only requires staying on the page; per-Section save error UI lands with the edit model (7.5).
 - source_spec: `_bmad-output/implementation-artifacts/1-1-foundation-environment-config-security-headers-test-tooling.md`
   summary: AGENTS.md is auto-generated by `next dev` (Next 16) (resolved 2026-10-14: AGENTS.md is tracked and carries the shared-foundation pointer outside the `nextjs-agent-rules` markers).
   evidence: Appears in the review diff only because staging used `git add -N` on all untracked files; the Implementation Note says it was left untracked. Fix touches an agent-context file, so deferred.
@@ -136,9 +169,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/1-8b-profile-page-shell-app-bar-tabs-and-section-navigation.md`
   summary: The deep-link scroll runs once at mount, and the scroll-spy observes only the Sections present when it starts. When header data (`MyselfName`, Story 1.9) or Section content (1.11) changes the layout, re-follow the hash and observe late Sections.
   evidence: The layout shifts after the initial scroll and moves `#signature`/`#<section>` targets. It is harmless while every Section is a fixed-height skeleton.
-- source_spec: `_bmad-output/implementation-artifacts/1-8b-profile-page-shell-app-bar-tabs-and-section-navigation.md`
-  summary: PM copy question: the load-error template lower-cases the Section label ("Couldn't load phone", "Couldn't load personal information"), while EXPERIENCE.md's example reads "Couldn't load phones".
-  evidence: EXPERIENCE.md lines 73 and 156. Story 1.12 owns the message catalog and error copy.
 - source_spec: `_bmad-output/implementation-artifacts/1-1r-foundation-and-launch-rework.md`
   summary: "Owner question (D9 / Story 1.2): a lost success response followed by a retry wipes the just-created session. Attempt 2 gets LAUNCH_USED, and the mandated clear-first deletes the new cookie, so the user sees 'This link has expired'. Option: on LAUNCH_USED, keep an existing valid session for the same user and environment."
   evidence: Conflicts with Story 1.2's frozen clear-first and used→400 rules. The user chose to defer it to the epic owner on 2026-10-14. Rare (needs a dropped response) and recoverable by relaunching.
@@ -172,30 +202,17 @@
 - source_spec: none
   summary: Former queued specs 7.0c-2 (section navigation) and 7.0c-3 (disabled screen) are absorbed into the shared foundation F3 and F2.
   evidence: Human approved shared-foundation-plan.md on 2026-10-14.
-- source_spec: `_bmad-output/implementation-artifacts/spec-f1-shared-contracts-and-data-layer.md`
-  summary: Product questions found in the backend while planning F1 — (1) the backend's patient-supported contact types omit "Social Media" (Story 3.7, Team A); (2) backend primary contact types are Email and Mobile only and myself.phoneNumber comes from the primary Mobile, but Story 7.6 lets a Landline be the primary phone (Team B); (3) myself has no phoneNumberRegion (Story 7.4 must take it from the matching contact point row or default to US).
-  evidence: 1h-ng-bo-core-be ContactPointConstants.java:37,151-160; UserServiceImpl.java:2769-2786. Verify on demo before Stories 3.7 / 7.4 / 7.6.
-- source_spec: `_bmad-output/implementation-artifacts/spec-f1-shared-contracts-and-data-layer.md`
-  summary: RESOLVED 2026-10-14 — the three contact-point product questions were validated against agents.md (dev/demo/prod), the backend and 1health-fe: (1) Social Media is a valid patient type via POST /v2/health/contact-point; (2) Story 7.6 primary phone = verified Mobile only (Landline rejected by PUT v2/user/edit; 1health-fe's Landline option is a latent bug); (3) phone region comes from the contact-point list row, default "us". Stories 7.4/7.6 and the F1 spec are amended.
-  evidence: agents.md v2/health/contact-point (demo), v2/user/contact-point/list, v2/user/myself; ContactPointServiceImpl.java:196-253,528-546,583-618,796-860; UserServiceImpl.java:625-648,2769-2786; 1health-fe PersonalAccountUtils.ts:53-62.
-- source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
-  summary: Backend follow-ups found while planning F2 — (1) hard DELETE v2/file targets the public bucket only, so private signature/insurance-card objects may stay in S3; (2) file uploads have no server-side ownership check on the person/insurance id (the BFF's `me` substitution and id regex are the only guard).
-  evidence: 1h-ng-bo-core-be FileServiceImpl.java:797-816; OneHealthServiceImpl.java:4552-4562. Report to the backend team.
-- source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
-  summary: Confirm publicFilesOrigin (bocore-public-files-{demo,prod}.s3.us-west-1.amazonaws.com, found only in 2022–2023 backend git history) against a live tenantLogo.publicUrl on demo and prod before Story 10.2; SVG tenant logos will always show initials.
-  evidence: 1h-ng-bo-core-be history (test-product.ftl, test.html); SimpleStorageService.java:346-353; TenantServiceImpl.java:738.
 - source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
   summary: No per-session throttle on /api/places/autocomplete (paid Google calls) or /api/pp/mfa/validate (6-digit code guessing relies on upstream lockout, not confirmed in MfaResource).
   evidence: Serverless in-memory limits are per instance; decide with Stories 4.3 (Team A) and 8.2 (Team B): confirm upstream TOTP lockout on demo, add a sealed-session attempt counter or edge rate limit if absent.
-- source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
-  summary: Public profile picture uploads pass the original bytes (EXIF incl. GPS, trailing payloads) — the BFF only sniffs magic bytes; client-side reencodeImage (Story 1.10) is not a server guarantee.
-  evidence: lib/server/proxy/upload.ts; isPublic=true entry in allowlist/core.ts. Story 1.10 (Team A) must decide server-side re-encode/metadata strip (e.g. sharp) or record it as an accepted AD-13 risk.
-- source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
-  summary: Signature-version (`v2/file/{fileId}/version`) and insurance uploads trust client-supplied ids; ownership is enforced only upstream (and the backend has no ownership check).
-  evidence: allowlist/personal.ts, allowlist/insurance.ts; backend follow-up already recorded (OneHealthServiceImpl.java:4552-4562). Stories 2.4 / 5.3 should resolve ids from myself / the user's own insurance list, or a named op should verify ownership.
-- source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
-  summary: /api/pp/org-logo makes up to 5 membership calls plus an S3 fetch per <img>, with no-store, so a 12-card page can cost ~70 upstream calls per render.
-  evidence: lib/server/named-ops/org-logo.ts. Story 10.2 should cache the membership lookup per session (or pass the list's tenant ids) and consider a short private max-age for successful logos.
 - source_spec: `_bmad-output/implementation-artifacts/spec-f5-1-select-date-input-popover.md`
   summary: With a Radix Select listbox open, axe `aria-hidden-focus` flags the page: Radix Select (the F3-1 port, `@radix-ui/react-select` 2.3.7) hides the rest of the page with `aria-hidden` while trapping focus, without `aria-modal`. Library behaviour; the e2e scans only the listbox in that state.
   evidence: `e2e/inputs.spec.ts` (comment at the open-listbox axe scan); F5-1 Review Triage Log "Deferred". Revisit on a Radix Select upgrade, or patch the content with `aria-modal="true"` if axe still flags it; feature e2e that scan with an open Select (2.2, 4.2, 5.2, 7.5, 7.6) scan only the listbox too.
+
+### Deferred from: code review of spec-7-0a-bff-foundation-and-tooling (2026-10-14)
+
+- Upstream 401 on a clock-fresh access token ends the session instead of forcing a refresh (Story 1.5 L1050/L1067 behaviour); revisit with a force-refresh flag when 1.6/7.0b touch refresh.
+- `/api/token` (and the proxy) buffer chunked request bodies without Content-Length before the size cap; bounded by Next/Vercel limits, add a streaming byte-capped reader with the AD-13 upload stories.
+- `fetchWithTimeout` now caps body streaming at 25 s, which would cut future large `asImage` downloads; switch to an idle timeout when the first `asImage` entry ships.
+- Proxy deny check runs on client segments before owner-id substitution; re-run it on upstream segments when the first `{userId}`/`{personId}` entry is added.
+- A relaunch over an existing session drops the previous tokens without revoking them; add a best-effort `revokeAllDevices` for the replaced session.
