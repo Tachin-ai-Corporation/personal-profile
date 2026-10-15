@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { isDenied } from "../deny-list"
 import { buildUpstreamQuery, matchEntry } from "../match"
 import type { ProxyMethod } from "../types"
 import { entries } from "./files"
@@ -30,30 +31,30 @@ describe("file download", () => {
   })
 })
 
-/** Spec F7-2: the one hard-delete entry Stories 1.10, 2.4 and 5.3 share. */
+/** Spec F7-2 review: deletes go only through the named op `/api/pp/file/{fileId}`. */
 describe("file delete", () => {
-  it("forces hardDelete=true, with no body and not a Profile-module entry", () => {
-    const entry = matched("DELETE", "v2/file/42")
-    expect(entry.asImage).toBeUndefined()
-    expect(entry.body).toBeUndefined()
-    expect(entry.upload).toBeUndefined()
+  it("has no proxy entry, and the deny list refuses it before any allowlist", () => {
+    expect(matchEntry(entries, "DELETE", seg("v2/file/42")).kind).toBe("not-allowed")
+    expect(entries.some((entry) => entry.method === "DELETE")).toBe(false)
+    expect(isDenied("DELETE", seg("v2/file/42"))).toBe(true)
+  })
+})
+
+/** Spec F7-2 review: the Story 1.9 avatar image, pre-added so the story edits no foundation file. */
+describe("profile picture preview", () => {
+  it("is an image entry (preview=true forced) that accepts only a numeric v", () => {
+    const entry = matched("GET", "v2/user/profile-picture/preview")
+    expect(entry.asImage).toBe(true)
     expect(entry.profile).toBeUndefined()
-    expect(buildUpstreamQuery(entry, q(""))?.toString()).toBe("hardDelete=true")
+    expect(buildUpstreamQuery(entry, q("v=321"))?.toString()).toBe("v=321&preview=true")
+    expect(buildUpstreamQuery(entry, q(""))?.toString()).toBe("preview=true")
+    expect(buildUpstreamQuery(entry, q("v=abc"))).toBeNull()
+    expect(buildUpstreamQuery(entry, q("v=12345678901234567890"))).toBeNull()
+    expect(buildUpstreamQuery(entry, q("v=1&x=2"))).toBeNull()
   })
 
-  it("ignores a client hardDelete (false still reaches upstream as true)", () => {
-    const entry = matched("DELETE", "v2/file/42")
-    expect(buildUpstreamQuery(entry, q("hardDelete=false"))?.toString()).toBe("hardDelete=true")
-  })
-
-  it("rejects any other query, a non-numeric id, an id list and other methods", () => {
-    const entry = matched("DELETE", "v2/file/42")
-    expect(buildUpstreamQuery(entry, q("x=1"))).toBeNull()
-    expect(buildUpstreamQuery(entry, q("hardDelete=false&x=1"))).toBeNull()
-    expect(matchEntry(entries, "DELETE", seg("v2/file/abc")).kind).toBe("not-allowed")
-    expect(matchEntry(entries, "DELETE", seg("v2/file/1,2")).kind).toBe("not-allowed")
-    expect(matchEntry(entries, "DELETE", seg("v2/file/me")).kind).toBe("not-allowed")
-    expect(matchEntry(entries, "GET", seg("v2/file/42")).kind).toBe("method-not-allowed")
-    expect(matchEntry(entries, "PUT", seg("v2/file/42")).kind).toBe("method-not-allowed")
+  it("answers GET only", () => {
+    expect(matchEntry(entries, "POST", seg("v2/user/profile-picture/preview")).kind).toBe("method-not-allowed")
+    expect(matchEntry(entries, "GET", seg("v2/user/profile-picture/preview/x")).kind).toBe("not-allowed")
   })
 })

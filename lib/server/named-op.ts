@@ -37,7 +37,7 @@ export const NAMED_OP_MAX_BODY_BYTES = 16 * 1024
 /** Upstream JSON answers larger than this are an upstream error (nothing is buffered past it). */
 export const UPSTREAM_JSON_MAX_BYTES = 2 * 1024 * 1024
 
-export type NamedOpMethod = "GET" | "POST"
+export type NamedOpMethod = "GET" | "POST" | "DELETE"
 export type RouteParams = Readonly<Record<string, string | string[] | undefined>>
 
 /** The Next route-handler context (`params` is a promise in Next 16). */

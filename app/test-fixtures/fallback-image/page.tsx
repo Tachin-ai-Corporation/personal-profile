@@ -4,9 +4,11 @@ import { serverEnv } from "@/lib/server/env"
 
 export const dynamic = "force-dynamic"
 
-function InitialsTile({ testId }: { readonly testId: string }) {
+/** The fallback carries the image's accessible name: `alt` → `role="img"` + label; `alt=""` → hidden. */
+function InitialsTile({ testId, label }: { readonly testId: string; readonly label?: string }) {
+  const name = label ? { role: "img", "aria-label": label } : { "aria-hidden": true }
   return (
-    <span data-testid={testId} className="bg-muted text-muted-foreground inline-flex size-18 items-center justify-center rounded-md font-semibold">
+    <span data-testid={testId} {...name} className="bg-muted text-muted-foreground inline-flex size-18 items-center justify-center rounded-md font-semibold">
       AL
     </span>
   )
@@ -14,7 +16,7 @@ function InitialsTile({ testId }: { readonly testId: string }) {
 
 /**
  * Playwright-only fixture (spec F7-2): `FallbackImage` in a real browser: an
- * image that loads, one that 404s (its fallback shows, no broken image) and
+ * image that loads, one that loads behind its fallback (`fallbackWhileLoading`), one that 404s (its fallback shows, no broken image) and
  * one without a `src`. A 404 unless `PP_E2E_FIXTURES=1` (never set in a
  * deployment).
  */
@@ -24,7 +26,18 @@ export default async function FallbackImageFixturePage() {
     <main className="bg-background text-foreground flex flex-col gap-4 p-4">
       <h1 className="text-xl font-semibold">Fallback image</h1>
       <section aria-label="Loads" className="flex items-center gap-2">
-        <FallbackImage src="/1h-icon.png" alt="1health" width={72} height={72} className="size-18 object-contain" fallback={<InitialsTile testId="loads-fallback" />} />
+        <FallbackImage src="/1h-icon.png" alt="1health" width={72} height={72} className="size-18 object-contain" fallback={<InitialsTile testId="loads-fallback" label="1health" />} />
+      </section>
+      <section aria-label="Hidden until loaded" className="flex items-center gap-2">
+        <FallbackImage
+          src="/apple-icon.png"
+          alt="1health app"
+          width={72}
+          height={72}
+          className="size-18 object-contain"
+          fallbackWhileLoading
+          fallback={<InitialsTile testId="while-loading-fallback" label="1health app" />}
+        />
       </section>
       <section aria-label="Fails" className="flex items-center gap-2">
         <FallbackImage src="/missing-fallback-image.png" alt="" width={72} height={72} className="size-18 object-contain" fallback={<InitialsTile testId="fails-fallback" />} />

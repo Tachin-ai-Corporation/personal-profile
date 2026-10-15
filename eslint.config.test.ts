@@ -129,6 +129,10 @@ describe("lint: no entityTypeCode in features/provider (AD-23, Story 9.1; spec F
     ["features/provider/search.ts", "declare const p: { entityTypeCode: number }\nexport const q = p.entityTypeCode\n"],
     ["features/provider/npi-field.tsx", "export const F = () => <span>entityTypeCode</span>\n"],
     ["features/provider/nested/schema.ts", 'import { z } from "zod"\nexport const s = z.object({ entityTypeCode: z.number() })\n'],
+    // Any case and spelling (spec F7-2 review).
+    ["features/provider/search.ts", 'export const q = "entity_type_code=1"\n'],
+    ["features/provider/search.ts", "export const ENTITY_TYPE_CODE = 1\n"],
+    ["features/provider/search.ts", 'export const q = "EntityTypeCode"\n'],
   ])("rejects it in %s", async (filePath, code) => {
     expect((await ruleHits(filePath, code)).join("\n")).toMatch(HIT)
   })

@@ -124,3 +124,37 @@ Implemented 2026-10-14 on baseline `7ee4ca4` (the worktree was reset from `b0055
 - **Verification (2026-10-14):** `corepack pnpm install` OK; `pnpm lint`, `pnpm typecheck` clean; `pnpm vitest run --coverage` 144 files / 2976 tests green, 100 % statements/branches/functions/lines; `PP_E2E_PORT=3240 pnpm test:e2e` 264 passed, 2 skipped (the existing desktop-only InfoPopover placement and row-hover tests on 360 px); `pnpm build` OK; `bash scripts/check-forbidden.sh` OK.
 
 ## Spec Change Log
+
+- Review (coordinator, 2026-10-14): the generic `DELETE v2/file/{fileId}` proxy entry is replaced by the ownership-checked named op `DELETE /api/pp/file/{fileId}` (the backend's `FileServiceImpl.checkIfTheIdsAreLegal` checks only the tenant). The Boundaries line "Allowlist: `DELETE v2/file/{fileId}` …" and the matrix row "File delete" are superseded by Review fixes 1.
+
+## Review Triage Log
+
+Review of `0daf206` (coordinator, 2026-10-14; integrated with F7-1 on `feat/NG-9019-epic-7`).
+
+- **Patched ("fix: F7-2 review findings"):**
+  1. *Security (high):* tenant-wide hard delete through the generic proxy entry → removed; named op + deny rule (Review fixes 1).
+  2. `FallbackImage` `fallbackWhileLoading` + accessible-name contract for the fallback (Review fixes 2).
+  3. Upload structural multipart errors → 400 `BAD_BODY`, 415 only for media type / bytes (Review fixes 3).
+  4. `entityTypeCode` lint and `switch-tenant` grep made case- and spelling-insensitive (Review fixes 4).
+  5. Dev warning for `requestLeave({ scope })` with an unregistered scope (Review fixes 5).
+  6. `planned-modules.test.ts` clash scan: internals excluded, equal primitives declared twice flagged (Review fixes 6).
+  7. Shared field labels moved out of Team A's `messages/person.ts` into foundation `messages/fields.ts` (Review fixes 7).
+  8. Story 1.9's `GET v2/user/profile-picture/preview` entry + path builder pre-added; stale "(Story 1.10)" delete comment fixed (Review fixes 8).
+- **Deferred:** none new. Doc lines for `docs/FOUNDATION.md`, `CLAUDE.md` and `deferred-work.md` are handed to the integrator (not edited here: the F7-1 agent edits those files in parallel).
+- **Rejected:** none. One reading recorded: a non-`multipart/form-data` body (JSON, none, `multipart/mixed`) stays 415 (a wrong media type, not a malformed multipart); everything malformed inside `multipart/form-data` is 400.
+
+## Review fixes
+
+Applied 2026-10-14 on `0daf206` (the worktree was reset to it first).
+
+1. **File delete named op.** `lib/server/named-ops/file-delete.ts#createFileDeleteHandler` + `app/api/pp/file/[fileId]/route.ts` (every method exported; force-dynamic): kill switch `"pp"`, `DELETE` only (405 otherwise), session, request id, no-store/nosniff via `createNamedOp` (`NamedOpMethod` gains `"DELETE"`, used for the op and its upstream calls). `BFF_PATHS.fileDeletePrefix` `/api/pp/file/`, new BFF code `NO_FILE`. Ownership, with the session's token, stopping at the first match: (a) `GET v2/user/myself` → `signature.id` (`OneHealthUserDTO.signature` is an `IdNameDTO`, as `lib/api/myself.ts` maps it); (b) the `profile-picture-id` GraphQL document (`profilePictureRequest(userId)`, every `PersonHasProfilePictureFile` relation id via the new `pictureFileIds`); (c) `GET v2/health/patient/insurance?page=N&size=100` (`PageImpl<ResponseInsuranceDTO>`, `frontSideCardFile.id` / `backSideCardFile.id`, `PublicFileDTO`; agents.md + backend DTO + 1health-fe `api.d.ts`), pages until `last`, at most 5 (beyond → fail closed). Only then `DELETE v2/file/{id}?hardDelete=true` → 204; an upstream 4xx is relayed, 5xx → 502. Not owned, or a malformed id (`0`, `abc`, `1,2`, > 2^53) → 404 `NO_FILE` (same answer, no oracle; a bad id makes no upstream call). A failed or unusable lookup fails closed with nothing deleted: 401 → `TOKEN_EXPIRED` (client refresh + replay), 403/other 4xx/5xx/bad shape → 502 `UPSTREAM_ERROR`, timeout → 504; the log line carries `outcome` `not_owned` / `ownership_lookup_failed`. The proxy: the `files.ts` delete entry is gone and `deny-list.ts` adds `DELETE v2/file/**` (so a later allowlist mistake can't reopen it; the `handler.test.ts` fixedQuery fixture moved to `v2/fixture/{id}`). `lib/api/files.ts#fileDeletePath` → `/api/pp/file/{id}`. Tests: `file-delete.test.ts` (owned signature after one read, owned picture with the session Bearer, owned card on page 2, foreign ids, malformed ids, eleven fail-closed cases, page cap, delete relays, session/method/kill switch), `route.test.ts`, deny and allowlist rows.
+2. **FallbackImage:** `fallbackWhileLoading` (fallback rendered and the `<img>` `hidden` until `load`; an error keeps only the fallback; an image already loaded before hydration shows at once; a caller's `hidden` is kept). The `fallback` doc now requires the same accessible name as `alt` (`role="img"` + `aria-label`, or `aria-hidden` for `alt=""`); the fixture page follows it and adds a `fallbackWhileLoading` case (the e2e spec is unchanged: e2e/** is out of bounds this round).
+3. **Uploads:** `readUpload` → 415 only when the Content-Type isn't `multipart/form-data` or the file's bytes aren't an accepted image; 400 `BAD_BODY` for `multipart/form-data` without a boundary, an unparsable body, not exactly one entry, a wrong part name or a text field. `upload.test.ts` and `handler.test.ts` rows split accordingly. The client mapping (413/415 → `isUploadRejected`) is unchanged; a 400 is generic (a client bug).
+4. **Lint/grep:** ESLint selectors use `/entity_?type_?code/i` (`entity_type_code`, `ENTITY_TYPE_CODE`, `EntityTypeCode` rows added); `check-forbidden.sh` rule 6 uses the ERE `[Ss][Ww][Ii][Tt][Cc][Hh][-_]?[Tt][Ee][Nn][Aa][Nn][Tt]` (the shared `grep -E` helper has no `-i`), deny-list exemption and test exclusion kept; spelling rows added.
+5. **Scoped leave:** `LeaveGuard` warns (`console.warn`, outside production builds) when `requestLeave({ scope })` names an id with no registered participant; behaviour unchanged (resolves `true`). Two tests.
+6. **planned-modules.test.ts:** scans only public modules (`*.internal.ts` and the legacy internal excluded); `findClashes` allows a duplicate name only as an identity re-export (every holder but one lists it in an `export { … }` and the value is `===`), so two equal primitives declared twice are flagged; five synthetic cases test it. Generic-name rule also on public modules only.
+7. **Labels:** `lib/shared/messages/fields.ts` (`FIELD_MESSAGES.firstName`, `middleName` (DRAFT COPY), `lastName`, `birthDate`), aggregated as `MESSAGE_CATALOG.fields` (`MessageKey` `"fields.firstName"`); removed from `PERSON_MESSAGES`.
+8. **Story 1.9 picture:** `GET v2/user/profile-picture/preview` (`asImage`, only `v` `^\d{1,19}$`, agents.md: no upstream params) in `allowlist/files.ts` + tests; `profilePicturePreviewPath(fileId)` (`…/preview?v={id}`, `null` without an id) in `lib/api/profile-picture.ts` + test; its header now points the 1.10 delete at `fileDeletePath` / the named op.
+
+- **Not touched:** `docs/FOUNDATION.md`, `CLAUDE.md`, `AGENTS.md`, `e2e/**`, `test/**`, other `_bmad-output` files.
+- **Review verification (2026-10-14):** `corepack pnpm install` OK; `pnpm lint`, `pnpm typecheck` clean; `pnpm vitest run --coverage` 157 files / 3110 tests green, 100 % statements/branches/functions/lines; `PP_E2E_PORT=3240 pnpm test:e2e` 272 passed, 2 skipped (the existing desktop-only InfoPopover placement and row-hover tests on 360 px); `pnpm build` OK (`/api/pp/file/[fileId]` listed); `bash scripts/check-forbidden.sh` OK.

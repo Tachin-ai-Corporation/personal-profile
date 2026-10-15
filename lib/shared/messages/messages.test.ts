@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
-import { formatMessage, LAUNCH_ERROR_MESSAGES, LAUNCH_MESSAGES, MESSAGE_CATALOG, messageFor, PERSON_MESSAGES, SECTION_LOAD_NOUNS, STATE_MESSAGES } from "."
+import { FIELD_MESSAGES, formatMessage, LAUNCH_ERROR_MESSAGES, LAUNCH_MESSAGES, MESSAGE_CATALOG, messageFor, PERSON_MESSAGES, SECTION_LOAD_NOUNS, STATE_MESSAGES } from "."
 
 const read = (relative: string): string => readFileSync(new URL(relative, import.meta.url), "utf8")
 
@@ -159,6 +159,7 @@ describe("messageFor", () => {
   it("resolves a typed group.key reference", () => {
     expect(messageFor("person.ssnTaken")).toBe(PERSON_MESSAGES.ssnTaken)
     expect(messageFor("common.retry")).toBe("Retry")
+    expect(messageFor("fields.firstName")).toBe(FIELD_MESSAGES.firstName)
   })
 })
 

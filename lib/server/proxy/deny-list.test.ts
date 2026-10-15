@@ -24,6 +24,9 @@ describe("deny list", () => {
     ["GET", "v2/admin/users", true],
     ["POST", "graphql", true],
     ["GET", "v2/user/myself", false],
+    ["DELETE", "v2/file/42", true],
+    ["DELETE", "v2/file/1,2", true],
+    ["GET", "v2/file/42/download", false],
   ])("%s %s → denied: %s", (method, path, expected) => {
     expect(isDenied(method, seg(path))).toBe(expected)
   })

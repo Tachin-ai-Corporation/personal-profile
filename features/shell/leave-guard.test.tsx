@@ -398,6 +398,35 @@ describe("LeaveGuard: scoped requestLeave({ scope }) (Stories 1.13 / 5.2, spec F
     expect((screen.getByLabelText("Phone") as HTMLInputElement).value).toBe("1")
   })
 
+  it("warns outside production when the scope isn't registered (and lets it through)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    render(
+      <Page>
+        {phone()}
+        <CloseButton scope="insurance" />
+      </Page>,
+    )
+    type("Phone", "1")
+    await closeEditor()
+    await waitFor(() => expect(closeAnswer()).toBe("true"))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('requestLeave({ scope: "insurance" })'))
+    warn.mockRestore()
+  })
+
+  it("does not warn for a registered scope", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    render(
+      <Page>
+        {editor()}
+        <CloseButton scope="insurance" />
+      </Page>,
+    )
+    await closeEditor()
+    await waitFor(() => expect(closeAnswer()).toBe("true"))
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
   it("resolves true with no guard set", async () => {
     await expect(requestLeave({ scope: "insurance" })).resolves.toBe(true)
   })

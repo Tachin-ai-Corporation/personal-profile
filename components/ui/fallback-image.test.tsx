@@ -62,6 +62,44 @@ describe("FallbackImage (spec F7-2)", () => {
     width.mockRestore()
   })
 
+  describe("fallbackWhileLoading (Story 10.2, spec F7-2 review)", () => {
+    it("shows the fallback and loads the image hidden, then swaps to the image on load", () => {
+      const onLoad = vi.fn()
+      const { container } = render(<FallbackImage src="/logo.png" alt="" fallbackWhileLoading onLoad={onLoad} fallback={<Tile />} />)
+      const img = container.querySelector("img") as HTMLImageElement
+      expect(img.hidden).toBe(true)
+      expect(screen.getByTestId("tile")).toBeTruthy()
+      fireEvent.load(img)
+      expect(onLoad).toHaveBeenCalledTimes(1)
+      expect(screen.queryByTestId("tile")).toBeNull()
+      expect((container.querySelector("img") as HTMLImageElement).hidden).toBe(false)
+    })
+
+    it("keeps only the fallback on an error", () => {
+      const onFallback = vi.fn()
+      const { container } = render(<FallbackImage src="/logo.png" alt="" fallbackWhileLoading onFallback={onFallback} fallback={<Tile />} />)
+      fireEvent.error(container.querySelector("img") as HTMLImageElement)
+      expect(container.querySelector("img")).toBeNull()
+      expect(screen.getAllByTestId("tile")).toHaveLength(1)
+      expect(onFallback).toHaveBeenCalledTimes(1)
+    })
+
+    it("shows an image that loaded before hydration at once", () => {
+      const complete = vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true)
+      const width = vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(40)
+      const { container } = render(<FallbackImage src="/ok.png" alt="" fallbackWhileLoading fallback={<Tile />} />)
+      expect((container.querySelector("img") as HTMLImageElement).hidden).toBe(false)
+      expect(screen.queryByTestId("tile")).toBeNull()
+      complete.mockRestore()
+      width.mockRestore()
+    })
+
+    it("still honours a caller's hidden prop", () => {
+      const { container } = render(<FallbackImage src="/ok.png" alt="" hidden fallback={<Tile />} />)
+      expect((container.querySelector("img") as HTMLImageElement).hidden).toBe(true)
+    })
+  })
+
   it("has no axe violations as an image or as its fallback", async () => {
     const { container } = render(
       <main>

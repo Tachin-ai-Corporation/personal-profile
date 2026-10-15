@@ -73,6 +73,12 @@ describe("scripts/check-forbidden.sh: switch-tenant", () => {
     expect(run.status).toBe(0)
   })
 
+  it.each(["switchTenant", "SWITCH_TENANT", "switch_tenant", "Switch-Tenant", "switchtenant"])("fails on the spelling %j (spec F7-2 review)", (name) => {
+    const run = check({ "lib/server/proxy/deny-list.ts": DENY, "lib/api/x.ts": `export const ${name.replace("-", "_")} = "${name}"\n` })
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain("lib/api/x.ts")
+  })
+
   it.each(["lib/api/account.ts", "features/organizations/enter.ts", "app/handoff/portal/route.ts", "lib/server/handoff.ts"])("fails on %s", (path) => {
     const run = check({ "lib/server/proxy/deny-list.ts": DENY, [path]: 'export const P = "v2/user/switch-tenant"\n' })
     expect(run.status).toBe(1)

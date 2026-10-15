@@ -31,6 +31,8 @@ export const BFF_ERROR_CODES = [
   "NO_LOGO",
   /** Practice support route (Story 9.3): no practice NPI organization → 404. */
   "NO_PRACTICE",
+  /** File delete route (spec F7-2): not one of the caller's own files (or a bad id) → 404, no oracle. */
+  "NO_FILE",
 ] as const
 
 export type BffErrorCode = (typeof BFF_ERROR_CODES)[number]
@@ -60,6 +62,12 @@ export const BFF_PATHS = {
   practiceSupport: "/api/pp/practice-support",
   /** `GET <orgLogoPrefix><tenantId>`, used as an `<img src>`. */
   orgLogoPrefix: "/api/pp/org-logo/",
+  /**
+   * `DELETE <fileDeletePrefix><fileId>` (spec F7-2; Stories 1.10, 2.4, 5.3):
+   * hard-deletes one of the caller's own files (picture, signature, insurance
+   * card), checked on the server.
+   */
+  fileDeletePrefix: "/api/pp/file/",
   placesAutocomplete: "/api/places/autocomplete",
   placesDetails: "/api/places/details",
   /**

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { sessionEvents as defaultSessionEvents, type SessionEvents } from "@/lib/api"
+import { isProductionBuild } from "@/lib/shared/app-env"
 import { COMMON_MESSAGES, LEAVE_GUARD_MESSAGES } from "@/lib/shared/messages"
 import { isUnloadConfirmed, setLeaveGuard, type LeaveOptions } from "./leave"
 import { sectionHeadingId, type SectionId } from "./nav-types"
@@ -60,6 +61,10 @@ export function LeaveGuard({ events = defaultSessionEvents, order }: LeaveGuardP
   useEffect(() => {
     const clear = setLeaveGuard((options?: LeaveOptions) => {
       const scope = options?.scope
+      // A scope nobody registered can never be dirty, so the close would never be guarded: say so outside production.
+      if (scope !== undefined && registry.get(scope) === undefined && !isProductionBuild()) {
+        console.warn(`requestLeave({ scope: "${scope}" }): no participant is registered with this id, so nothing is guarded.`)
+      }
       const dirty = scopedRegistry(registry, scope).getDirty()
       if (dirty.length === 0) return Promise.resolve(true)
       // A second leave while the dialog is open is refused; the first one decides.

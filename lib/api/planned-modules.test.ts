@@ -64,6 +64,45 @@ const starLine = (name: string): RegExp => new RegExp(`^export \\* from "\\./${e
 /** Every lib/api module's runtime exports (types vanish), `errors/` through its index. */
 const LOADED = import.meta.glob<Record<string, unknown>>(["./*.ts", "./errors/index.ts", "!./*.test.ts", "!./index.ts"], { eager: true })
 
+interface ModuleExports {
+  readonly path: string
+  readonly source: string
+  readonly exports: Readonly<Record<string, unknown>>
+}
+
+/** The public modules (internal ones are never re-exported, so their names can't clash), with their sources. */
+const PUBLIC_MODULES: readonly ModuleExports[] = Object.entries(LOADED)
+  .filter(([path]) => !path.endsWith(".internal.ts") && !LEGACY_INTERNAL.some((name) => path === `./${name}.ts`))
+  .map(([path, exports]) => ({ path, exports, source: readFileSync(join(API_DIR, path), "utf8") }))
+
+const SHARED_VALUE: readonly unknown[] = Object.freeze([])
+
+/** `export { …name… }` (with or without `from`): the module re-exports a binding it doesn't declare. */
+const reExports = (source: string, name: string): boolean =>
+  [...source.matchAll(/export\s*\{([^}]*)\}/g)].some((match) => new RegExp(`(^|[\\s,])${escape(name)}\\s*(,|$)`).test(match[1].trim()))
+
+/**
+ * Names exported by more than one module (spec F7-2 review). The only
+ * allowed duplicate is an identity re-export: every module but the
+ * declaring one lists the name in an `export { … }` re-export and the value
+ * is the same (`===`). An equal primitive declared twice (two `PAGE_SIZE =
+ * 10`) is a clash, though the values compare equal.
+ */
+function findClashes(modules: readonly ModuleExports[]): string[] {
+  const holders = new Map<string, ModuleExports[]>()
+  for (const mod of modules) {
+    for (const name of Object.keys(mod.exports)) holders.set(name, [...(holders.get(name) ?? []), mod])
+  }
+  const clashes: string[] = []
+  for (const [name, list] of holders) {
+    if (list.length < 2) continue
+    const declaring = list.filter((mod) => !reExports(mod.source, name))
+    const sameValue = list.every((mod) => mod.exports[name] === list[0].exports[name])
+    if (declaring.length > 1 || !sameValue) clashes.push(`${name}: ${list.map((mod) => mod.path).join(" and ")}`)
+  }
+  return clashes.toSorted()
+}
+
 describe("lib/api structure (specs F6-3, F7-2)", () => {
   it("re-exports every module with exactly one `export * from` line, so stories never edit index.ts", () => {
     const starred = MODULES.filter((name) => !name.endsWith(".internal") && !LEGACY_INTERNAL.includes(name) && !NAMED_EXPORTS.includes(name))
@@ -80,28 +119,64 @@ describe("lib/api structure (specs F6-3, F7-2)", () => {
   })
 
   it("never re-exports an internal module", () => {
-    for (const name of MODULES.filter((module) => module.endsWith(".internal") || LEGACY_INTERNAL.includes(module))) {
+    for (const name of MODULES.filter((mod) => mod.endsWith(".internal") || LEGACY_INTERNAL.includes(mod))) {
       expect(INDEX, name).not.toContain(`"./${name}"`)
     }
   })
 
-  it("has unique value-export names across modules (an index name export would silently shadow an `export *` one)", () => {
-    const owners = new Map<string, { module: string; value: unknown }>()
-    const clashes: string[] = []
-    for (const [path, exports] of Object.entries(LOADED)) {
-      for (const [name, value] of Object.entries(exports)) {
-        const seen = owners.get(name)
-        // A plain re-export of the same binding (e.g. `CONTACT_POINT_TYPES` from keys.ts) is the same name, not a clash.
-        if (seen && seen.value !== value) clashes.push(`${name}: ${seen.module} and ${path}`)
-        if (!seen) owners.set(name, { module: path, value })
-      }
-    }
-    expect(Object.keys(LOADED).length).toBeGreaterThan(20)
-    expect(clashes).toEqual([])
+  it("has unique value-export names across public modules (an index name export would silently shadow an `export *` one)", () => {
+    expect(PUBLIC_MODULES.length).toBeGreaterThan(20)
+    expect(PUBLIC_MODULES.some((mod) => mod.path.endsWith(".internal.ts"))).toBe(false)
+    expect(findClashes(PUBLIC_MODULES)).toEqual([])
+  })
+
+  it.each<[string, readonly ModuleExports[], string[]]>([
+    [
+      "an equal primitive declared in two modules",
+      [
+        { path: "./a.ts", source: "export const PAGE_SIZE = 10", exports: { PAGE_SIZE: 10 } },
+        { path: "./b.ts", source: "export const PAGE_SIZE = 10", exports: { PAGE_SIZE: 10 } },
+      ],
+      ["PAGE_SIZE: ./a.ts and ./b.ts"],
+    ],
+    [
+      "a re-exported primitive (identity re-export)",
+      [
+        { path: "./a.ts", source: "export const LIMIT = 3", exports: { LIMIT: 3 } },
+        { path: "./b.ts", source: 'import { LIMIT } from "./a"\nexport { LIMIT }', exports: { LIMIT: 3 } },
+      ],
+      [],
+    ],
+    [
+      "a re-exported object",
+      [
+        { path: "./a.ts", source: "export const LIST = []", exports: { LIST: SHARED_VALUE } },
+        { path: "./b.ts", source: 'export { LIST, type Item } from "./a"', exports: { LIST: SHARED_VALUE } },
+      ],
+      [],
+    ],
+    [
+      "a re-export list that names a different value",
+      [
+        { path: "./a.ts", source: "export const LIST = []", exports: { LIST: SHARED_VALUE } },
+        { path: "./b.ts", source: "export { LIST }", exports: { LIST: [] } },
+      ],
+      ["LIST: ./a.ts and ./b.ts"],
+    ],
+    [
+      "different functions with one name",
+      [
+        { path: "./a.ts", source: "export function load() {}", exports: { load: () => 1 } },
+        { path: "./b.ts", source: "export function load() {}", exports: { load: () => 2 } },
+      ],
+      ["load: ./a.ts and ./b.ts"],
+    ],
+  ])("findClashes: %s", (_label, modules, expected) => {
+    expect(findClashes(modules)).toEqual(expected)
   })
 
   it("gives every generic export name its area's prefix (legacy names frozen)", () => {
-    const names = new Set(Object.values(LOADED).flatMap((exports) => Object.keys(exports)))
+    const names = new Set(PUBLIC_MODULES.flatMap((mod) => Object.keys(mod.exports)))
     const generic = [...names].filter((name) => isGenericName(name) && !LEGACY_GENERIC.includes(name)).toSorted()
     expect(generic).toEqual([])
     // The legacy exceptions are real (drop one when its name goes away).

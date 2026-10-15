@@ -93,11 +93,11 @@ const zodLiteralMessages = [
  */
 const NPI_TYPE_MESSAGE = "features/provider never names entityTypeCode: lib/api/npi.ts fixes the NPI type (AD-23, Story 9.1)."
 const npiTypeInFeature = [
-  "Identifier[name=/entityTypeCode/]",
-  "JSXIdentifier[name=/entityTypeCode/]",
-  "Literal[value=/entityTypeCode/]",
-  "TemplateElement[value.raw=/entityTypeCode/]",
-  "JSXText[value=/entityTypeCode/]",
+  "Identifier[name=/entity_?type_?code/i]",
+  "JSXIdentifier[name=/entity_?type_?code/i]",
+  "Literal[value=/entity_?type_?code/i]",
+  "TemplateElement[value.raw=/entity_?type_?code/i]",
+  "JSXText[value=/entity_?type_?code/i]",
 ].map((selector) => ({ selector, message: NPI_TYPE_MESSAGE }))
 
 const syntax = (...rules) => ["error", ...rules]

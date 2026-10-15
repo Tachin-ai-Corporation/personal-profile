@@ -17,11 +17,15 @@ export type UploadRead =
   | { readonly ok: true; readonly form: FormData }
   | { readonly ok: false; readonly status: number; readonly errorCode: BffErrorCode }
 
+/** Not `multipart/form-data` at all, or a file whose bytes aren't an accepted image. */
 const unsupported: UploadRead = { ok: false, status: 415, errorCode: "UNSUPPORTED_MEDIA" }
+/** `multipart/form-data`, but malformed for this entry (spec F7-2 review): no boundary, unparsable, not exactly one file part with the entry's name. */
+const badBody: UploadRead = { ok: false, status: 400, errorCode: "BAD_BODY" }
 const tooLarge: UploadRead = { ok: false, status: 413, errorCode: "TOO_LARGE" }
 
-function hasBoundary(contentType: string | null): contentType is string {
-  if (contentType === null) return false
+const FORM_DATA = /^multipart\/form-data\s*(;|$)/i
+
+function hasBoundary(contentType: string): boolean {
   const match = MULTIPART.exec(contentType)
   return match !== null && BOUNDARY.test(match[1])
 }
@@ -45,17 +49,20 @@ export function sanitizeFileName(name: string, kind: UploadImageType): string {
 
 /**
  * Reads and validates an upload entry's body (AD-13, Story 1.10). Checks, in
- * order: `multipart/form-data` with a boundary (415), the request cap
- * `maxBytes + 16 KiB` by `Content-Length` and while streaming (413), a
- * parsable body with exactly one entry, a file named `spec.part` (415), the
- * file cap `maxBytes` (413) and the file's leading bytes against
- * `spec.types` (415). Returns a rebuilt `FormData` with that one part only:
+ * order: `multipart/form-data` (else 415) with a boundary (else 400
+ * `BAD_BODY`), the request cap `maxBytes + 16 KiB` by `Content-Length` and
+ * while streaming (413), a parsable body with exactly one entry, a file named
+ * `spec.part` (400 `BAD_BODY`: a malformed request, spec F7-2 review), the
+ * file cap `maxBytes` (413) and the file's leading bytes against `spec.types`
+ * (415: the only "this file can't be used" answer besides 413, which the
+ * client maps to `isUploadRejected`). Returns a rebuilt `FormData` with that one part only:
  * a Blob typed from the sniffed bytes and a sanitized file name. Nothing the
  * client sent besides the file's bytes reaches upstream.
  */
 export async function readUpload(request: Request, spec: UploadSpec, maxBytes: number): Promise<UploadRead> {
   const contentType = request.headers.get("Content-Type")
-  if (!hasBoundary(contentType)) return unsupported
+  if (contentType === null || !FORM_DATA.test(contentType)) return unsupported
+  if (!hasBoundary(contentType)) return badBody
 
   const read = await readCapped(request, maxBytes + UPLOAD_OVERHEAD_BYTES)
   if (!read.ok) return read
@@ -64,12 +71,12 @@ export async function readUpload(request: Request, spec: UploadSpec, maxBytes: n
   try {
     form = await new Response(read.bytes, { headers: { "Content-Type": contentType } }).formData()
   } catch {
-    return unsupported
+    return badBody
   }
   const entries = [...form.entries()]
-  if (entries.length !== 1) return unsupported
+  if (entries.length !== 1) return badBody
   const [name, file] = entries[0]
-  if (name !== spec.part || typeof file === "string") return unsupported
+  if (name !== spec.part || typeof file === "string") return badBody
   if (file.size > maxBytes) return tooLarge
 
   const kind = sniffImage(new Uint8Array(await file.slice(0, SNIFF_BYTES).arrayBuffer()))

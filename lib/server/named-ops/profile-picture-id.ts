@@ -38,12 +38,27 @@ const answerSchema = z.object({
 /** `errors` present and non-empty: the whole answer is an upstream error, whatever `data` holds. */
 const errorsSchema = z.object({ errors: z.array(z.unknown()).min(1) })
 
-/** The picture's file id, `null` when there is none, or `undefined` for an unusable answer. */
-export function pictureFileId(answer: unknown): number | null | undefined {
+/** Every picture file id related to the user (normally zero or one), or `undefined` for an unusable answer. */
+export function pictureFileIds(answer: unknown): number[] | undefined {
   if (errorsSchema.safeParse(answer).success) return undefined
   const parsed = answerSchema.safeParse(answer)
   if (!parsed.success) return undefined
-  return parsed.data.data.Person.records[0]?.PersonHasProfilePictureFile?.relations[0]?.record.id ?? null
+  return (parsed.data.data.Person.records[0]?.PersonHasProfilePictureFile?.relations ?? []).map((relation) => relation.record.id)
+}
+
+/** The picture's file id, `null` when there is none, or `undefined` for an unusable answer. */
+export function pictureFileId(answer: unknown): number | null | undefined {
+  const ids = pictureFileIds(answer)
+  return ids === undefined ? undefined : (ids[0] ?? null)
+}
+
+/** The picture lookup as an upstream call (also used by the file-delete op's ownership check, spec F7-2). */
+export function profilePictureRequest(userId: number) {
+  return {
+    method: "POST" as const,
+    segments: ["graphql"],
+    body: { query: PROFILE_PICTURE_QUERY, variables: { filter: { userId: { equal: userId } } } },
+  }
 }
 
 /**
@@ -60,11 +75,7 @@ export function createProfilePictureIdHandler(deps: NamedOpDeps = {}) {
       method: "GET",
       upstream: "1health",
       async handle({ session, upstream }) {
-        const result = await upstream.json({
-          method: "POST",
-          segments: ["graphql"],
-          body: { query: PROFILE_PICTURE_QUERY, variables: { filter: { userId: { equal: session.userId } } } },
-        })
+        const result = await upstream.json(profilePictureRequest(session.userId))
         if (result.kind === "failed") return failureResponse(result.failure)
         const fileId = result.kind === "ok" ? pictureFileId(result.data) : undefined
         if (fileId === undefined) return jsonError(502, "UPSTREAM_ERROR")

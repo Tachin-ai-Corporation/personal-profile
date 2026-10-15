@@ -14,7 +14,7 @@
 #   5. A hard-coded 1health origin in app code outside lib/shared/environments.ts
 #      (and, in lib/shared/profile-constants.ts, only the exact CHECKOUT_URL
 #      line, Story 10.1; spec F6-3: any other 1health URL there still fails).
-#   6. `switch-tenant` in app code outside lib/server/proxy/deny-list.ts
+#   6. `switch-tenant` in any case and spelling (`switchTenant`, `SWITCH_TENANT`) in app code outside lib/server/proxy/deny-list.ts
 #      (Story 7.3, AD-22, R7; spec F7-2): no module references
 #      `v2/user/switch-tenant`; the deny rule is the one mention (tests
 #      excluded: they assert the deny).
@@ -96,7 +96,7 @@ fi
 [[ -n "$hits" ]] && report "hard-coded 1health origin outside lib/shared/environments.ts:" "$hits"
 
 # 6. Tenant switching stays denied (Story 7.3): only the deny list names it.
-hits=$(hits_in "$(printf '%s\n' "$app_code" | grep -Fxv lib/server/proxy/deny-list.ts || true)" 'switch-tenant')
+hits=$(hits_in "$(printf '%s\n' "$app_code" | grep -Fxv lib/server/proxy/deny-list.ts || true)" '[Ss][Ww][Ii][Tt][Cc][Hh][-_]?[Tt][Ee][Nn][Aa][Nn][Tt]')
 [[ -n "$hits" ]] && report "switch-tenant outside lib/server/proxy/deny-list.ts (Story 7.3):" "$hits"
 
 # 7. Design tokens (D13): hex colors, palette classes, text-info-strong links, bg-error-strong.

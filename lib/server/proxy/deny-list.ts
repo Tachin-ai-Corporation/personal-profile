@@ -20,6 +20,12 @@ export const DENY_RULES: readonly DenyRule[] = [
   { method: "*", template: "v2/user/switch-tenant/**" },
   { method: "*", template: "v2/user/update-password" },
   { method: "*", template: "v2/tenant/sys-config" },
+  /**
+   * Spec F7-2 review: the backend's file delete checks only the tenant, so a
+   * proxied delete could remove any file of the tenant. Deletes go only
+   * through the named op `DELETE /api/pp/file/{fileId}` (ownership first).
+   */
+  { method: "DELETE", template: "v2/file/**" },
 ]
 
 const NUMERIC_ID = /^\d{1,19}$/

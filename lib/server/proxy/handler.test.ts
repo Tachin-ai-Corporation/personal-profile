@@ -21,7 +21,7 @@ const FIXTURES: AllowlistEntry[] = [
   { method: "GET", template: "v2/person/{personId}/ssn/expose" },
   { method: "POST", template: "v2/mfa/enable/totp", profile: true },
   { method: "POST", template: "v2/mfa/disable/totp", profile: true },
-  { method: "DELETE", template: "v2/file/{id}", fixedQuery: { hardDelete: "true" } },
+  { method: "DELETE", template: "v2/fixture/{id}", fixedQuery: { hardDelete: "true" } },
   { method: "POST", template: "v2/small", body: z.object({ a: z.string() }), maxBytes: 20 },
   { method: "GET", template: "v2/mfa/enable/{userId}" },
   { method: "POST", template: "v2/fixture/png-only", upload: { part: "file", types: ["png"] }, maxBytes: 2048 },
@@ -271,14 +271,14 @@ describe("proxy: forwarding", () => {
         search = new URL(request.url).search
         return HttpResponse.json([])
       }),
-      http.delete(`${UP}/v2/file/:id`, ({ request }) => {
+      http.delete(`${UP}/v2/fixture/:id`, ({ request }) => {
         search = new URL(request.url).search
         return new HttpResponse(null, { status: 204 })
       }),
     )
     await call({ path: "v2/user/contact-point/list?type=Email&type=Landline" })
     expect(search).toBe("?type=Email&type=Landline")
-    const deleted = await call({ method: "DELETE", path: "v2/file/12?hardDelete=false" })
+    const deleted = await call({ method: "DELETE", path: "v2/fixture/12?hardDelete=false" })
     expect(deleted.status).toBe(204)
     expect(search).toBe("?hardDelete=true")
   })
@@ -595,10 +595,15 @@ describe("proxy: uploads (Story 1.10 table, AD-13)", () => {
       ["SVG renamed .png", [{ name: "file", bytes: IMAGES.svg, filename: "a.png" }]],
       ["HTML renamed .png", [{ name: "file", bytes: IMAGES.html, filename: "a.png" }]],
       ["GIF renamed .png", [{ name: "file", bytes: IMAGES.gif, filename: "a.png" }]],
-      ["two file parts", [{ name: "file", bytes: IMAGES.png }, { name: "file", bytes: IMAGES.png }]],
-      ["a part named image", [{ name: "image", bytes: IMAGES.png }]],
     ] as const)("%s → 415 UNSUPPORTED_MEDIA", async (_label, parts) => {
       await expectError(await upload(PICTURE, parts), 415, "UNSUPPORTED_MEDIA")
+    })
+
+    it.each([
+      ["two file parts", [{ name: "file", bytes: IMAGES.png }, { name: "file", bytes: IMAGES.png }]],
+      ["a part named image", [{ name: "image", bytes: IMAGES.png }]],
+    ] as const)("%s → 400 BAD_BODY (malformed multipart, spec F7-2 review)", async (_label, parts) => {
+      await expectError(await upload(PICTURE, parts), 400, "BAD_BODY")
     })
 
     it("a JSON body → 415 UNSUPPORTED_MEDIA", async () => {

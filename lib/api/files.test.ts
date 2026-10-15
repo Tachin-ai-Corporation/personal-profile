@@ -23,9 +23,9 @@ describe("fileDownloadPath", () => {
 
 describe("fileDeletePath (spec F7-2)", () => {
   it.each<[number | string, string]>([
-    [42, "/api/1h/v2/file/42"],
-    ["7", "/api/1h/v2/file/7"],
-  ])("%j → the proxy's delete path, with no hardDelete param (the proxy forces it)", (id, path) => {
+    [42, "/api/pp/file/42"],
+    ["7", "/api/pp/file/7"],
+  ])("%j → the ownership-checked delete op, with no query", (id, path) => {
     expect(fileDeletePath(id)).toBe(path)
     expect(fileDeletePath(id)).not.toContain("?")
   })

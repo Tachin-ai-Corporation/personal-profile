@@ -23,6 +23,7 @@ import { CONTACT_MESSAGES } from "./contacts"
 import { CONTROL_MESSAGES } from "./controls"
 import { DISABLED_MESSAGES } from "./disabled"
 import { DRAFT_MESSAGES } from "./drafts"
+import { FIELD_MESSAGES } from "./fields"
 import { HEADER_MESSAGES } from "./header"
 import { IDLE_MESSAGES } from "./idle"
 import { INSURANCE_MESSAGES } from "./insurance"
@@ -47,6 +48,7 @@ export {
   CONTROL_MESSAGES,
   DISABLED_MESSAGES,
   DRAFT_MESSAGES,
+  FIELD_MESSAGES,
   HEADER_MESSAGES,
   IDLE_MESSAGES,
   INSURANCE_MESSAGES,
@@ -75,6 +77,7 @@ export const MESSAGE_CATALOG = {
   sessionExpired: SESSION_EXPIRED_MESSAGES,
   drafts: DRAFT_MESSAGES,
   idle: IDLE_MESSAGES,
+  fields: FIELD_MESSAGES,
   person: PERSON_MESSAGES,
   contacts: CONTACT_MESSAGES,
   addresses: ADDRESS_MESSAGES,

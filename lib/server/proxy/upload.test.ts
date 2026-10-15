@@ -48,32 +48,38 @@ describe("readUpload (Story 1.10 table)", () => {
     ["HTML renamed .png", [{ name: "file", bytes: IMAGES.html, filename: "a.png" }]],
     ["GIF renamed .png", [{ name: "file", bytes: IMAGES.gif, filename: "a.png" }]],
     ["WebP (not an upload type)", [{ name: "file", bytes: IMAGES.webp, filename: "a.png" }]],
+  ] as const)("rejects the bytes of %s with 415", async (_label, parts) => {
+    expect(await upload(parts)).toEqual({ ok: false, status: 415, errorCode: "UNSUPPORTED_MEDIA" })
+  })
+
+  it.each([
     ["two file parts", [{ name: "file", bytes: IMAGES.png }, { name: "file", bytes: IMAGES.png }]],
     ["a file plus a text field", [{ name: "file", bytes: IMAGES.png }, { name: "note", filename: false }]],
     ["a part named image", [{ name: "image", bytes: IMAGES.png }]],
     ["a text field named file", [{ name: "file", filename: false }]],
     ["no parts", []],
-  ] as const)("rejects %s with 415", async (_label, parts) => {
-    expect(await upload(parts)).toEqual({ ok: false, status: 415, errorCode: "UNSUPPORTED_MEDIA" })
+  ] as const)("rejects the malformed multipart %s with 400 BAD_BODY (spec F7-2 review)", async (_label, parts) => {
+    expect(await upload(parts)).toEqual({ ok: false, status: 400, errorCode: "BAD_BODY" })
   })
 
   it("a PNG-only entry rejects a JPEG and accepts a PNG under its own part name", async () => {
     expect(await upload([{ name: "fileNewVersion", bytes: IMAGES.jpeg }], PNG_ONLY)).toEqual({ ok: false, status: 415, errorCode: "UNSUPPORTED_MEDIA" })
-    expect(await upload([{ name: "file", bytes: IMAGES.png }], PNG_ONLY)).toEqual({ ok: false, status: 415, errorCode: "UNSUPPORTED_MEDIA" })
+    expect(await upload([{ name: "file", bytes: IMAGES.png }], PNG_ONLY)).toEqual({ ok: false, status: 400, errorCode: "BAD_BODY" })
     expect((await upload([{ name: "fileNewVersion", bytes: IMAGES.png }], PNG_ONLY)).ok).toBe(true)
   })
 
   it.each([
-    ["a JSON body", "application/json", JSON.stringify({ file: "x" })],
-    ["no Content-Type", null, "x"],
-    ["multipart without a boundary", "multipart/form-data", "x"],
-    ["another multipart type", "multipart/mixed; boundary=abc", "x"],
-    ["a body that is not multipart", "multipart/form-data; boundary=abc", "not a multipart body"],
-  ])("rejects %s with 415", async (_label, contentType, body) => {
+    ["a JSON body", "application/json", JSON.stringify({ file: "x" }), 415, "UNSUPPORTED_MEDIA"],
+    ["no Content-Type", null, "x", 415, "UNSUPPORTED_MEDIA"],
+    ["another multipart type", "multipart/mixed; boundary=abc", "x", 415, "UNSUPPORTED_MEDIA"],
+    ["multipart/form-data without a boundary", "multipart/form-data", "x", 400, "BAD_BODY"],
+    ["multipart/form-data with an empty boundary", "multipart/form-data; charset=utf-8", "x", 400, "BAD_BODY"],
+    ["a form-data body that doesn't parse", "multipart/form-data; boundary=abc", "not a multipart body", 400, "BAD_BODY"],
+  ])("rejects %s with %i %s", async (_label, contentType, body, status, errorCode) => {
     const headers = contentType === null ? undefined : { "Content-Type": contentType }
     const request = new Request("http://localhost/x", { method: "POST", headers, body })
     if (contentType === null) request.headers.delete("Content-Type")
-    expect(await readUpload(request, SPEC, CAP)).toEqual({ ok: false, status: 415, errorCode: "UNSUPPORTED_MEDIA" })
+    expect(await readUpload(request, SPEC, CAP)).toEqual({ ok: false, status, errorCode })
   })
 })
 
