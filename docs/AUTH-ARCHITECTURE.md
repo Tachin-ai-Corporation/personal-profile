@@ -92,8 +92,10 @@ fills them from the session.
 Each endpoint is one entry in its area file
 `lib/server/proxy/allowlist/<area>.ts` (aggregated by `allowlist/index.ts`);
 the deny list (`deny-list.ts`) blocks `auth/**`, `v2/admin/**`, `graphql/**`,
-external-application, tenant-switch, password, MFA enable/disable and
-`v2/tenant/sys-config` whatever the allowlist says. JSON bodies are read
+external-application, tenant-switch, password, MFA enable/disable,
+`v2/tenant/sys-config` and every file delete (`DELETE v2/file/**`: the
+backend checks only the tenant, so deletes go through the named op
+`DELETE /api/pp/file/{fileId}`) whatever the allowlist says. JSON bodies are read
 through the byte-capped reader (64 KB default, `maxBytes` per entry),
 validated with the entry's zod schema and re-serialised; an entry without a
 schema accepts no body.
@@ -110,10 +112,12 @@ logged on the server (D6).
 
 Upload entries (`upload: { part, types }` with a required `maxBytes`, AD-13)
 are read by `lib/server/proxy/upload.ts#readUpload`: `multipart/form-data`
-with a boundary (else 415), the request capped at `maxBytes + 16 KiB` by
-`Content-Length` and while streaming (413 `TOO_LARGE`), exactly one entry, a
-file named `part` (`file` or `fileNewVersion`), the file at most `maxBytes`
-(413) and its leading bytes one of `types` (`png`, `jpeg`, `bmp`; else 415).
+(else 415 `UNSUPPORTED_MEDIA`) with a boundary (else 400 `BAD_BODY`), the
+request capped at `maxBytes + 16 KiB` by `Content-Length` and while
+streaming (413 `TOO_LARGE`), a parsable body with exactly one entry, a file
+named `part` (`file` or `fileNewVersion`) (else 400 `BAD_BODY`), the file at
+most `maxBytes` (413) and its leading bytes one of `types` (`png`, `jpeg`,
+`bmp`; else 415).
 The server rebuilds the form with that one part only: a Blob typed from the
 sniffed bytes and a sanitized file name (`sanitizeFileName`). Upload entries
 force their query server-side (`fixedQuery`, e.g. `isPublic`). Shipped: the
@@ -122,8 +126,9 @@ PNG only) and insurance card front/back (`insurance`, 4 MB).
 
 ### Image downloads
 
-An `asImage` entry (`GET v2/file/{fileId}/download`) forces `preview=true`
-upstream. Upstream declares `image/jpeg` for every preview, so only the
+An `asImage` entry (`GET v2/file/{fileId}/download`, and
+`GET v2/user/profile-picture/preview` with only `v` = the picture's file id as
+a cache-buster) forces `preview=true` upstream. Upstream declares `image/jpeg` for every preview, so only the
 leading bytes count (`lib/server/http/image-sniff.ts`, `peekStream` reads the
 head without buffering the body): PNG, JPEG or BMP → `inline` with the type of
 the bytes; anything else (SVG, HTML, GIF…) → `application/octet-stream` with
@@ -152,6 +157,7 @@ Every response is no-store + `nosniff`, logged as one template-only line
 | `GET /api/pp/practice-support` | `account` | Practice tenant's support contact, or 404 `NO_PRACTICE` |
 | `GET /api/pp/org-logo/[tenantId]` | `account` | See [Organization logos](#organization-logos) |
 | `POST /api/places/autocomplete`, `/details` | `pp` | Google Places (New), server-side only |
+| `DELETE /api/pp/file/[fileId]` | `pp` | Checks with the session's token that the id is the caller's Signature, profile picture or one of their insurance cards, then hard-deletes it (204). Not owned or a malformed id → 404 `NO_FILE`; a failed ownership lookup fails closed (401 `TOKEN_EXPIRED`, 502, 504) and deletes nothing |
 
 Places (`lib/server/named-ops/places.ts`) is on only with `PLACES_ENABLED=1`
 (then `GOOGLE_PLACES_KEY` is required at boot); off, both routes answer 200

@@ -17,7 +17,7 @@
  * notification calls (3.4, 3.6).
  *
  * Export names carry the `contact` prefix (`contactPointCreatePath`, not
- * `createPath`): FOUNDATION.md §1, team ownership rule 6.
+ * `createPath`): FOUNDATION.md §1, rule T6.
  */
 
 export {}

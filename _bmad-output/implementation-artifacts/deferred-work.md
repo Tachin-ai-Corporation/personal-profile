@@ -26,13 +26,13 @@
   summary: RESOLVED 2026-10-14 — the three contact-point product questions were validated against agents.md (dev/demo/prod), the backend and 1health-fe: (1) Social Media is a valid patient type via POST /v2/health/contact-point; (2) Story 7.6 primary phone = verified Mobile only (Landline rejected by PUT v2/user/edit; 1health-fe's Landline option is a latent bug); (3) phone region comes from the contact-point list row, default "us". Stories 7.4/7.6 and the F1 spec are amended.
   evidence: agents.md v2/health/contact-point (demo), v2/user/contact-point/list, v2/user/myself; ContactPointServiceImpl.java:196-253,528-546,583-618,796-860; UserServiceImpl.java:625-648,2769-2786; 1health-fe PersonalAccountUtils.ts:53-62.
 - source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
-  summary: Backend follow-ups found while planning F2 — (1) hard DELETE v2/file targets the public bucket only, so private signature/insurance-card objects may stay in S3; (2) file uploads have no server-side ownership check on the person/insurance id (the BFF's `me` substitution and id regex are the only guard).
+  summary: Backend follow-ups found while planning F2 — (1) hard DELETE v2/file targets the public bucket only, so private signature/insurance-card objects may stay in S3 (still open after F7-2: the BFF now ownership-checks every delete in the named op `DELETE /api/pp/file/{fileId}`, but the hard delete itself is unchanged); (2) file uploads have no server-side ownership check on the person/insurance id (the BFF's `me` substitution and id regex are the only guard).
   evidence: 1h-ng-bo-core-be FileServiceImpl.java:797-816; OneHealthServiceImpl.java:4552-4562. Report to the backend team.
 - source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
   summary: Public profile picture uploads pass the original bytes (EXIF incl. GPS, trailing payloads) — the BFF only sniffs magic bytes; client-side reencodeImage (Story 1.10) is not a server guarantee.
   evidence: lib/server/proxy/upload.ts; isPublic=true entry in allowlist/core.ts. Story 1.10 (Team A) must decide server-side re-encode/metadata strip (e.g. sharp) or record it as an accepted AD-13 risk.
 - source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
-  summary: Signature-version (`v2/file/{fileId}/version`) and insurance uploads trust client-supplied ids; ownership is enforced only upstream (and the backend has no ownership check).
+  summary: Signature-version (`v2/file/{fileId}/version`) and insurance uploads trust client-supplied ids, checked only as numeric ids; ownership is enforced only upstream (and the backend has no ownership check). File deletes are no longer in this item: since F7-2 they are ownership-checked on the server (`DELETE /api/pp/file/{fileId}`, 404 `NO_FILE`), and `DELETE v2/file/**` is denied in the proxy.
   evidence: allowlist/personal.ts, allowlist/insurance.ts; backend follow-up already recorded (OneHealthServiceImpl.java:4552-4562). Stories 2.4 / 5.3 should resolve ids from myself / the user's own insurance list, or a named op should verify ownership.
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-0a-bff-foundation-and-tooling.md` (code review, 2026-10-14)
   summary: CSP has no Google Maps hosts for `PLACES_ENABLED=1`; decide with the Places epic (AD-14 proxies Places through `/api/places`).
@@ -233,6 +233,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-f6-2-shared-ui-kit.md` (review, 2026-10-14)
   summary: `useAnnounce` re-announces identical text by toggling a trailing no-break space (the F5-2 combobox rule); verify with VoiceOver and NVDA that the repeat is read.
   evidence: components/ui/live-status.tsx; unit test asserts the DOM change only.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f7-2-contract-hardening.md` (review, 2026-10-14)
+  summary: CLOSED — file deletes no longer trust the client's id. The backend's `DELETE v2/file/{id}` checks only the tenant, so the proxy denies `DELETE v2/file/**` and Stories 1.10, 2.4 and 5.3 delete through the named op `DELETE /api/pp/file/{fileId}` (`fileDeletePath`), which proves with the session's token that the id is the caller's profile picture, Signature or one of their insurance cards before hard-deleting; anything else is 404 `NO_FILE`. Still open (backend follow-up, Team A item above): hard delete may leave private S3 objects.
+  evidence: lib/server/named-ops/file-delete.ts, app/api/pp/file/[fileId]/route.ts, lib/server/proxy/deny-list.ts, lib/api/files.ts#fileDeletePath.
 
 ### Deferred from: code review of spec-7-0a-bff-foundation-and-tooling (2026-10-14)
 

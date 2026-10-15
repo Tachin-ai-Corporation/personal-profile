@@ -2,7 +2,7 @@
 title: 'F7-2 Cross-team contract hardening'
 type: 'feature'
 created: '2026-10-14'
-status: 'in-review'
+status: 'done'
 baseline_commit: '7ee4ca4'
 route: 'dispatch'
 review_loop_iteration: 0

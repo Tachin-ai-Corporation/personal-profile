@@ -60,6 +60,7 @@ Read `docs/AUTH-ARCHITECTURE.md` and the architecture spine (`_bmad-output/plann
 
 ### Proxy and API layer (always import from `"@/lib/api"`)
 - All 1health traffic goes through `/api/1h/<path relative to upstream /api>`. Adding an endpoint = adding an entry to its area file `lib/server/proxy/allowlist/<area>.ts` (with that area's tests) in the same change. Owner ids are the literal `me`.
+- File deletes go only through the named op `DELETE /api/pp/file/{fileId}` (server-side ownership check); `DELETE v2/file/**` is denied in the proxy.
 - Each `lib/api/<resource>.ts` owns its paths (`proxyPath()`) and registers its SWR loader (`registerFetcher`); `lib/api/myself.ts` is the `Myself` domain module. Errors: `mapApiError(sectionId, response)`; upstream message text is matched only in `lib/api/errors/<area>.ts`. Copy: `lib/shared/messages/<area>.ts`.
 - `callApi(context, path, init)` never throws and returns `ApiResponse<T> = { success, data?, error?, statusCode?, errorCode?, source?, upstreamCode?, platformMessage?, details?, retryable?, userMessage? }`. BFF errors are `{ errorCode, source: "proxy" }`; upstream errors pass through as `{ message, code }`.
 - SWR keys come only from `lib/api/keys.ts` (`["pp", ...]`); one root `SWRConfig` (`features/shell/swr-provider.tsx`). `useMyself()` reads `["pp","myself"]`.

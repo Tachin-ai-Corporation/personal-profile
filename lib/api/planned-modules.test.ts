@@ -26,7 +26,7 @@ const LEGACY_INTERNAL: readonly string[] = Object.freeze(["refresh-coordinator"]
 const NAMED_EXPORTS: readonly string[] = Object.freeze(["client", "fetcher", "log-api-call"])
 
 /**
- * Generic-name rule (spec F7-2; FOUNDATION.md §1, team ownership rule 6): an exported name
+ * Generic-name rule (spec F7-2; FOUNDATION.md §1, rule T6): an exported name
  * made only of these words (`loadList`, `savePayload`, `toView`, `PAGE_SIZE`,
  * `keys`) is ambiguous across `export *` modules and must carry its area's
  * prefix (`addressesListPath`, `ADDRESS_LIST_PAGE_SIZE`, `toAccountView`).
