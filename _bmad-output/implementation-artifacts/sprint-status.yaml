@@ -113,7 +113,7 @@ development_status:
   f5-1-select-date-input-popover: done  # aria-disabled Select + helper, DateInput + Calendar, Popover + info-popover
   f5-2-async-combobox: done  # ARIA 1.2 combobox (NPI, address, insurer, gender identity variants)
   f6-1-page-composition: done  # prop-driven PageTabs/panels, Section slots, feature stubs, useSectionForm focus/reveal/CANCELLED/confirmBeforeSave, skeletons, handoffHref, page no-store
-  f6-2-shared-ui-kit: in-progress  # DropdownMenu/Checkbox/Switch, Dialog/Sheet, ConfirmDialog busyLabel, Chip, EmptyState, LiveStatus, row kit, PhoneInput, countdown, tokens
+  f6-2-shared-ui-kit: done  # DropdownMenu/Checkbox/Switch, Dialog/Sheet, ConfirmDialog busyLabel, Chip, EmptyState, LiveStatus, row kit, PhoneInput, countdown, tokens
   f6-3-data-server-tests: done  # lib/api stubs + type-keys loader, required query params, NPI field rules, isNotProvided, profile-constants, COMMON_MESSAGES, e2e fixtures per area
   7-1-account-page-route-tabs-deep-links-and-states: backlog  # 2026-10-14: per-page DraftsProvider in PageFrame + portal purge / hand-off keep built in spec-f4-drafts
   7-2-account-page-hardening-denies-kill-switch-headers-mobile-and-a: backlog  # 2026-10-14: page/route-level ACCOUNT_DISABLED kill switch + 503 screen + e2e matrix built in spec-f2. Remaining (Team B): /account no-store test (needs 7.1), Profile deny/traversal rows, /account header asserts, mobile + keyboard/axe runs

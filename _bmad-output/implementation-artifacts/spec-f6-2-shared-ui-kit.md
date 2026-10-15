@@ -2,7 +2,7 @@
 title: 'F6-2 Shared UI kit: dialogs, menus, rows, chips, phone input'
 type: 'feature'
 created: '2026-10-14'
-status: 'in-review'
+status: 'done'
 baseline_commit: '8547231'
 route: 'dispatch'
 review_loop_iteration: 0
