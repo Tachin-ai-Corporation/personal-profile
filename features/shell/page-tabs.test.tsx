@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { http, HttpResponse } from "msw"
 import axe from "axe-core"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -114,13 +115,13 @@ describe("ProfileTabs", () => {
 
   // Ported from origin/main's profile-tabs.test.tsx (spec R5-2).
   it("Tab enters on the selected tab only (roving tabindex)", async () => {
+    const user = userEvent.setup()
     setTestUrl("/?tab=insurance")
     setup()
-    // No tab is a tab stop of its own; the tablist is, and hands focus to the selected tab.
+    // Nothing before the tabs is focusable here: the first Tab enters the tablist.
     expect(screen.getAllByRole("tab").map((t) => t.getAttribute("tabindex"))).toEqual(["-1", "-1", "-1"])
-    expect(screen.getByRole("tablist").getAttribute("tabindex")).toBe("0")
-    await act(async () => screen.getByRole("tablist").focus())
-    expect(document.activeElement).toBe(tab("Insurance"))
+    await user.tab()
+    await waitFor(() => expect(document.activeElement).toBe(tab("Insurance")))
     expect(screen.getAllByRole("tab").map((t) => t.getAttribute("tabindex"))).toEqual(["-1", "0", "-1"])
     await press(tab("Insurance"), "ArrowRight")
     expect(document.activeElement).toBe(tab(MEDICAL))

@@ -254,3 +254,10 @@
 - The e2e mock revokes per Bearer token (intentional: parallel e2e runs share one server); revisit only if a test needs all-devices semantics.
 - `playwright.config.ts` `reuseExistingServer` is on locally, so a stale server (other env, e.g. without `PP_E2E_MOCK`) can be reused; consider a port/env check.
 - The 360 px shell test reads gutters through structural selectors (`body header > :first-child`, `#personal` parent, the combobox parent); give those containers test-stable hooks.
+
+### Deferred from: code review of spec-r5-2-main-parity-client-tooling (2026-10-15)
+
+- The fetch lint ban misses `window["fetch"]` (computed member) and a bare `fetch` reached through an alias (`const f = fetch; f(…)` or `const { fetch: f } = globalThis`); extend the selectors or add a scope-aware rule like `pp/inline-swr-key`.
+- `callApi` answers `NETWORK_ERROR` for invalid caller headers, which `isTransientReadFailure` counts as transient, so a `myself` read with bad headers would be retried 3 times; give it its own code (e.g. `BAD_HEADERS`) if a read ever passes caller headers.
+- CI `cache: pnpm` with `corepack enable` before `setup-node` (and again for Node 24) is unconfirmed until the first GitHub Actions run; if `pnpm store path` fails there, add `pnpm/action-setup` before `setup-node`.
+- Move `test/page-session.test.ts` next to `lib/server/session/session.test.ts` once R5-1 and R5-2 are merged (it sits in `test/` only because `lib/server/**` was frozen for R5-2).

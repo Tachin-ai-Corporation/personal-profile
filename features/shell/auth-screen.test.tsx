@@ -223,19 +223,37 @@ describe("AuthScreen: blank lpl values and accessibility", () => {
     return () => posts
   }
 
-  it.each(["/auth?lpl=", "/auth?lpl=%20%20", "/auth?lpl=+++&x=1"])("%s is treated like no lpl: no POST, the card shows, lpl is stripped", async (url) => {
+  it.each([
+    ["/auth?lpl=", ""],
+    ["/auth?lpl=%20%20", ""],
+    ["/auth?lpl=+++&x=1", "?x=1"],
+  ])("%s is treated like no lpl: no POST, the card shows, lpl is stripped (other params kept)", async (url, search) => {
     const posts = countTokenPosts()
     setUrl(url)
     const view = render(<AuthScreen rememberedEnvironment="demo" />)
     expect(await screen.findByText(M.manualTitle)).toBeTruthy()
-    expect(window.location.search).not.toContain("lpl")
+    expect(window.location.search).toBe(search)
     view.unmount()
     setUrl(url)
     render(<AuthScreen rememberedEnvironment={null} />)
     expect(await screen.findByText(M.chooseTitle)).toBeTruthy()
-    expect(window.location.search).not.toContain("lpl")
+    expect(window.location.search).toBe(search)
     await act(async () => undefined)
     expect(posts()).toBe(0)
+  })
+
+  it("never reads the browser cookie jar without an lpl, on manual entry, or on the error screen", async () => {
+    const cookieGet = vi.spyOn(document, "cookie", "get")
+    server.use(http.post("/api/token", () => HttpResponse.json({ ok: false, errorCode: "LAUNCH_INVALID", source: "proxy", message: "Nope", retryable: false }, { status: 400 })))
+    // No lpl → the manual card; then a manual submit → the error screen.
+    render(<AuthScreen rememberedEnvironment="demo" />)
+    fireEvent.change(await screen.findByLabelText(M.lplLabel), { target: { value: "abc" } })
+    fireEvent.click(screen.getByRole("button", { name: M.submit }))
+    expect(await screen.findByText(M.failedTitle)).toBeTruthy()
+    // The chooser from the error screen.
+    fireEvent.click(screen.getByRole("button", { name: M.switchEnvironment }))
+    expect(screen.getByText(M.chooseTitle)).toBeTruthy()
+    expect(cookieGet).not.toHaveBeenCalled()
   })
 
   it("axe-core reports zero violations on the error state", async () => {

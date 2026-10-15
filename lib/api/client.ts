@@ -79,8 +79,14 @@ function buildInit(init: RequestInit, userActivity: boolean): RequestInit {
 /** Resolves dot segments the way `fetch` would; the result must still be under `/api/`. */
 const GUARD_BASE = "http://pp.invalid"
 
+/** A `.` / `..` segment, plain or percent-encoded (`%2e`, any case). */
+const DOT_SEGMENT = /^(\.|%2e){1,2}$/i
+
 function isApiPath(path: unknown): path is string {
-  if (typeof path !== "string" || !path.startsWith("/api/")) return false
+  if (typeof path !== "string" || !path.startsWith("/api/") || path.includes("\\")) return false
+  // `/api/1h/../session/logout` would normalise to another BFF route: never send a dot segment.
+  const pathname = path.split(/[?#]/, 1)[0]
+  if (pathname.split("/").some((segment) => DOT_SEGMENT.test(segment))) return false
   try {
     return new URL(path, GUARD_BASE).pathname.startsWith("/api/")
   } catch {

@@ -5,7 +5,11 @@ import { SWRConfig } from "swr"
 import { swrFetcher } from "@/lib/api"
 import { MYSELF_RETRY_COUNT } from "./use-myself"
 
-/** Base of the `myself` retry backoff (~1 s, 2 s, 4 s with jitter). */
+/**
+ * Base of the `myself` retry backoff: retry n waits floor((0.5–1.5) × 2^n) ×
+ * this, i.e. 1–2 s, then 2–5 s, then 4–11 s (at most ~18 s in all before the
+ * Retry UI). A manual Retry starts a fresh request with a fresh 3-retry budget.
+ */
 export const SWR_ERROR_RETRY_INTERVAL_MS = 1000
 
 /**

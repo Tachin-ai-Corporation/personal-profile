@@ -58,7 +58,26 @@ describe("callApi transport", () => {
   })
 
   // Ported from origin/main's path guard (spec R5-2).
-  it.each(["https://evil/x", "//evil/x", "api/x", "/foo", "", "/api", "/api/../auth", "/api/%2e%2e/x", "/api/./../x"])(
+  it.each([
+    "https://evil/x",
+    "//evil/x",
+    "api/x",
+    "/foo",
+    "",
+    "/api",
+    "/api/../auth",
+    "/api/%2e%2e/x",
+    "/api/./../x",
+    // Review fix 3: a dot segment that stays under /api/ would still reach another BFF route.
+    "/api/1h/../session/logout",
+    "/api/1h/./v2/user/myself",
+    "/api/1h/%2E%2E/session/logout",
+    "/api/1h/%2e/x",
+    "/api/1h/.%2E/x",
+    "/api/1h/..?x=1",
+    "/api/1h\\..\\session/logout",
+    "/api/1h/v2\\user",
+  ])(
     "rejects %j without a network call",
     async (path) => {
       const fetchSpy = vi.spyOn(globalThis, "fetch")
@@ -68,6 +87,11 @@ describe("callApi transport", () => {
       expect(fetchSpy).not.toHaveBeenCalled()
     },
   )
+
+  it("still sends dots that are not whole segments, and dots in the query", async () => {
+    server.use(http.get("/api/1h/v2/file/a.b..c", () => HttpResponse.json({ ok: 1 })))
+    expect(await freshClient()("t/dots", "/api/1h/v2/file/a.b..c?next=../x")).toMatchObject({ success: true })
+  })
 
   it("rejects a non-string path without throwing", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch")
@@ -355,6 +379,33 @@ describe("callApi refresh (AD-16)", () => {
       expect(res).toMatchObject({ success: false, errorCode: "REFRESH_UNAVAILABLE" })
       expect(upstream.refreshCalls()).toBe(1)
       expect(upstream.apiCalls()).toBe(1)
+      expect(published).toEqual([])
+    })
+
+    it("two concurrent TOKEN_EXPIRED while that orphaned refresh runs → one refresh; both answer REFRESH_UNAVAILABLE", async () => {
+      let refreshCalls = 0
+      server.use(
+        http.post("/api/session/refresh", async () => {
+          refreshCalls += 1
+          await delay(50)
+          return HttpResponse.json({ ok: true })
+        }),
+        http.get("/api/1h/a", () => proxyError("TOKEN_EXPIRED", 401)),
+        // The second 401 arrives after the lock already failed, while the refresh still runs.
+        http.get("/api/1h/b", async () => {
+          await delay(15)
+          return proxyError("TOKEN_EXPIRED", 401)
+        }),
+      )
+      const request = vi.fn(async <T,>(_name: string, callback: () => Promise<T>): Promise<T> => {
+        void callback()
+        throw new DOMException("lock released abnormally", "AbortError")
+      })
+      const call = freshClient(() => ({ request: request as LockManagerLike["request"] }))
+      const results = await Promise.all([call("a", "/api/1h/a"), call("b", "/api/1h/b")])
+      expect(results.map((r) => r.errorCode)).toEqual(["REFRESH_UNAVAILABLE", "REFRESH_UNAVAILABLE"])
+      expect(refreshCalls).toBe(1)
+      expect(request).toHaveBeenCalledOnce()
       expect(published).toEqual([])
     })
   })

@@ -52,19 +52,114 @@ const ban = {
     selector: "ImportExpression[source.value=/(^|\\/)lib\\/api(\\/index|\\/account)?(\\.ts)?$/]",
     message: "lib/api is imported statically; updateAccount() is importable only in features/account (AD-9).",
   },
-  /**
-   * AD-10: an array, template or string literal as the key of any SWR entry
-   * point, called bare or as a member (`cache.mutate([…])`); `keys.*` is fine.
-   */
-  inlineSwrKey: [
-    "CallExpression[callee.type='Identifier'][callee.name=/^(useSWR|useSWRImmutable|useSWRMutation|useSWRSubscription|mutate|preload)$/]",
-    "CallExpression[callee.type='MemberExpression'][callee.property.name=/^(mutate|preload)$/]",
-  ].flatMap((call) =>
-    ["[arguments.0.type='ArrayExpression']", "[arguments.0.type='TemplateLiteral']", "[arguments.0.type='Literal'][arguments.0.raw=/^[\"']/]"].map((arg) => ({
-      selector: `${call}${arg}`,
-      message: "Build SWR keys with lib/api/keys.ts (AD-10).",
-    })),
-  ),
+}
+
+/**
+ * AD-10 (spec R5-2, review fix 4): SWR keys come only from `lib/api/keys.ts`.
+ * A scope-aware rule (selectors can't see imports): it reports an array,
+ * template or string literal key, also behind `as` / `satisfies` / `!`, in
+ * either branch of `?:` or `&&`/`||`, or returned by a key function, as the
+ * first argument of
+ * - `useSWR`, `useSWRImmutable`, `useSWRMutation`, `useSWRSubscription`;
+ * - `preload` (not react-dom's `preload(href, { as })`: an object 2nd argument);
+ * - the global `mutate`: imported from swr, destructured from `useSWRConfig()`,
+ *   or `useSWRConfig().mutate` / `config.mutate` with `config = useSWRConfig()`.
+ * A bound `mutate` (from `useSWR(...)`, or any other object's) takes data, not
+ * a key, and is never reported.
+ */
+const SWR_KEY_MESSAGE = "Build SWR keys with lib/api/keys.ts (AD-10)."
+const SWR_HOOKS = new Set(["useSWR", "useSWRImmutable", "useSWRMutation", "useSWRSubscription"])
+const TS_WRAPPERS = new Set(["TSAsExpression", "TSSatisfiesExpression", "TSNonNullExpression", "TSTypeAssertion"])
+
+/** Whether `node` is (or may evaluate to) an inline key literal. */
+function isInlineKey(node) {
+  if (!node) return false
+  if (TS_WRAPPERS.has(node.type)) return isInlineKey(node.expression)
+  switch (node.type) {
+    case "ArrayExpression":
+    case "TemplateLiteral":
+      return true
+    case "Literal":
+      return typeof node.value === "string"
+    case "ConditionalExpression":
+      return isInlineKey(node.consequent) || isInlineKey(node.alternate)
+    case "LogicalExpression":
+      return isInlineKey(node.left) || isInlineKey(node.right)
+    case "ArrowFunctionExpression":
+    case "FunctionExpression":
+      return node.body.type === "BlockStatement" ? returnsInlineKey(node.body) : isInlineKey(node.body)
+    default:
+      return false
+  }
+}
+
+/** A `return <inline key>` in a function body (not inside nested functions). */
+function returnsInlineKey(statement) {
+  if (!statement) return false
+  switch (statement.type) {
+    case "ReturnStatement":
+      return isInlineKey(statement.argument)
+    case "BlockStatement":
+      return statement.body.some(returnsInlineKey)
+    case "IfStatement":
+      return returnsInlineKey(statement.consequent) || returnsInlineKey(statement.alternate)
+    default:
+      return false
+  }
+}
+
+/** The variable `name` resolves to from `node`'s scope, if declared in the file. */
+function resolve(context, node, name) {
+  for (let scope = context.sourceCode.getScope(node); scope; scope = scope.upper) {
+    const variable = scope.set.get(name)
+    if (variable) return variable
+  }
+  return undefined
+}
+
+const isUseSwrConfigCall = (node) => node?.type === "CallExpression" && node.callee.type === "Identifier" && node.callee.name === "useSWRConfig"
+
+/** `name` is swr's global mutate: imported from swr, or destructured from `useSWRConfig()`. */
+function isGlobalMutate(context, node, name) {
+  const definition = resolve(context, node, name)?.defs[0]
+  if (!definition) return false
+  if (definition.type === "ImportBinding") return /^swr(\/|$)/.test(definition.parent.source.value)
+  return definition.type === "Variable" && definition.node.id.type === "ObjectPattern" && isUseSwrConfigCall(definition.node.init)
+}
+
+/** `object` is `useSWRConfig()` itself, or a variable initialised with it. */
+function isSwrConfig(context, object) {
+  if (isUseSwrConfigCall(object)) return true
+  if (object.type !== "Identifier") return false
+  const definition = resolve(context, object, object.name)?.defs[0]
+  return definition?.type === "Variable" && definition.node.id.type === "Identifier" && isUseSwrConfigCall(definition.node.init)
+}
+
+/** Whether this call takes an SWR key as its first argument. */
+function takesSwrKey(context, node) {
+  const { callee } = node
+  const name = callee.type === "Identifier" ? callee.name : callee.type === "MemberExpression" && !callee.computed ? callee.property.name : undefined
+  if (name === "preload") return node.arguments[1]?.type !== "ObjectExpression"
+  if (callee.type === "Identifier") {
+    if (SWR_HOOKS.has(name)) return true
+    return name === "mutate" && isGlobalMutate(context, node, name)
+  }
+  return name === "mutate" && isSwrConfig(context, callee.object)
+}
+
+const ppPlugin = {
+  rules: {
+    "inline-swr-key": {
+      meta: { type: "problem", schema: [], messages: { inline: SWR_KEY_MESSAGE } },
+      create(context) {
+        return {
+          CallExpression(node) {
+            if (takesSwrKey(context, node) && isInlineKey(node.arguments[0])) context.report({ node: node.arguments[0], messageId: "inline" })
+          },
+        }
+      },
+    },
+  },
 }
 
 /**
@@ -171,12 +266,15 @@ const eslintConfig = [
     ],
   },
 
+  // --- SWR keys only from lib/api/keys.ts (AD-10) --------------------------
+  { files: ["**/*.{ts,tsx,js,jsx,mjs}"], plugins: { pp: ppPlugin }, rules: { "pp/inline-swr-key": "error" } },
+  { files: ["lib/api/keys.ts"], rules: { "pp/inline-swr-key": "off" } },
+
   // --- Syntax bans (later blocks override earlier ones for their files) ----
   { files: ["**/*.{ts,tsx,js,jsx,mjs}"], rules: { "no-restricted-syntax": syntax(...ALL) } },
   { files: ["lib/server/**"], rules: { "no-restricted-syntax": syntax(...without("fetch")) } },
   { files: ["lib/server/env.ts"], rules: { "no-restricted-syntax": syntax(...without("fetch", "processEnv")) } },
   { files: ["lib/api/client.ts"], rules: { "no-restricted-syntax": syntax(...without("fetch")) } },
-  { files: ["lib/api/keys.ts"], rules: { "no-restricted-syntax": syntax(...without("inlineSwrKey")) } },
   { files: ["lib/shared/app-env.ts"], rules: { "no-restricted-syntax": syntax(...without("processEnv"), APP_ENV_ONLY_NODE_ENV) } },
   // The shell and the /auth screen own navigation and the display-only referrer (AD-26, D2).
   {

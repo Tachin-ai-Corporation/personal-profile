@@ -7,7 +7,9 @@
 #   1. hex colors (#abc, #abcd, #aabbcc, #aabbccdd), including Tailwind
 #      arbitrary values like bg-[#fff]; comment-only lines (issue refs) are skipped;
 #   2. Tailwind palette color classes (bg-red-500, text-white, bg-black/50,
-#      drop-shadow-red-500, bg-mauve-500, ...), every Tailwind 4.3 palette;
+#      drop-shadow-red-500, text-shadow-red-500, bg-mauve-500, ...), every
+#      Tailwind 4.3 palette, also through the palette's CSS variable
+#      (bg-(--color-red-500), bg-[var(--color-red-500)]);
 #      semantic tokens (bg-destructive-fill, text-neutral, ...) are fine;
 #   3. text-info-strong on a link (use text-link-text);
 #   4. bg-error-strong anywhere (use bg-destructive-fill).
@@ -79,9 +81,11 @@ hits() {
 }
 
 HEX='(^|[^&0-9A-Za-z_])#([0-9A-Fa-f]{8}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3,4})([^0-9A-Za-z_-]|$)'
-PREFIX='(bg|text|border|border-[xytrblse]|ring|ring-offset|outline|fill|stroke|from|via|to|divide|placeholder|decoration|shadow|drop-shadow|accent|caret|inset-shadow|inset-ring)'
+PREFIX='(bg|text|border|border-[xytrblse]|ring|ring-offset|outline|fill|stroke|from|via|to|divide|placeholder|decoration|shadow|drop-shadow|text-shadow|accent|caret|inset-shadow|inset-ring)'
 PALETTE='(slate|gray|zinc|neutral|stone|mauve|olive|mist|taupe|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|[1-9]00|950)'
 CLASS="(^|[^A-Za-z0-9_-])${PREFIX}-(${PALETTE}|black|white)([^A-Za-z0-9_-]|$)"
+# The same palette through its Tailwind CSS variable: bg-(--color-red-500), bg-[var(--color-red-500)].
+CLASS_VAR="(^|[^A-Za-z0-9_-])${PREFIX}-(\\(|\\[var\\()--color-(${PALETTE}|black|white)([^A-Za-z0-9_-]|$)"
 LINK_LINE='<a[[:space:]>]|<Link[[:space:]>]|href=|variant=["'"'"']link|underline'
 # "path:line:" then a line that is only a comment (//, /*, *, {/*).
 COMMENT_LINE='^[^:]+:[0-9]+:[[:space:]]*(//|/\*|\*|\{/\*)'
@@ -93,6 +97,9 @@ found=$([[ -z "$found" ]] || printf '%s\n' "$found" | cut -d: -f1,2)
 
 found=$(hits "$CLASS")
 [[ -n "$found" ]] && report "Tailwind palette color class (use a semantic token):" "$found"
+
+found=$(hits "$CLASS_VAR")
+[[ -n "$found" ]] && report "Tailwind palette color class via its CSS variable (use a semantic token):" "$found"
 
 found=$(matches 'text-info-strong')
 found=$([[ -z "$found" ]] || printf '%s\n' "$found" | filter "$LINK_LINE") || exit 2

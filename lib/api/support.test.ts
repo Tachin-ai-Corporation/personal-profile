@@ -104,7 +104,7 @@ describe("refresh coordinator", () => {
       expect(run).toHaveBeenCalledOnce()
     })
 
-    it("after the callback started but before its outcome → unavailable, no second refresh", async () => {
+    it("after the callback started but before its outcome → unavailable once that refresh settles; a concurrent caller joins it", async () => {
       let finish: (value: { kind: "refreshed" }) => void = () => undefined
       const run = vi.fn(() => new Promise<{ kind: "refreshed" }>((resolve) => (finish = resolve)))
       const request = async <T,>(_name: string, callback: () => Promise<T>): Promise<T> => {
@@ -112,8 +112,33 @@ describe("refresh coordinator", () => {
         throw new DOMException("lock released abnormally", "AbortError")
       }
       const coordinator = createRefreshCoordinator(run, () => ({ request }))
-      expect(await coordinator.refresh()).toEqual({ kind: "unavailable" })
+      let settled = false
+      const first = coordinator.refresh().finally(() => (settled = true))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      // The lock already failed, but the refresh still runs: no answer yet, and a second caller joins it.
+      expect(settled).toBe(false)
+      const second = coordinator.refresh()
       finish({ kind: "refreshed" })
+      expect(await Promise.all([first, second])).toEqual([{ kind: "unavailable" }, { kind: "unavailable" }])
+      expect(run).toHaveBeenCalledOnce()
+      // Settled: the next refresh starts a new one.
+      const third = coordinator.refresh()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(run).toHaveBeenCalledTimes(2)
+      finish({ kind: "refreshed" })
+      await third
+    })
+
+    it("a refresh that rejects after the lock failed still ends as unavailable", async () => {
+      const run = vi.fn(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        throw new Error("boom")
+      })
+      const request = async <T,>(_name: string, callback: () => Promise<T>): Promise<T> => {
+        void callback().catch(() => undefined)
+        throw new DOMException("lock released abnormally", "AbortError")
+      }
+      expect(await createRefreshCoordinator(run, () => ({ request })).refresh()).toEqual({ kind: "unavailable" })
       expect(run).toHaveBeenCalledOnce()
     })
   })

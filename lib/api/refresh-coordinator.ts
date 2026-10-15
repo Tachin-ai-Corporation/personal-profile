@@ -26,21 +26,25 @@ export const REFRESH_LOCK = "pp-refresh"
 /**
  * Runs `run` under the lock. If the lock itself fails (`request` rejects):
  * before the callback ran → refresh unlocked; after it produced an outcome →
- * that outcome; after it started without an outcome → `unavailable` (never a
- * second, concurrent refresh). Spec R5-2, main's fallback.
+ * that outcome; after it started without an outcome → `unavailable`, but only
+ * once that refresh has settled, so the coordinator's `inFlight` keeps pointing
+ * at it and a concurrent `TOKEN_EXPIRED` in this tab joins it instead of
+ * starting a second refresh. Spec R5-2, main's fallback (+ review fix 2).
  */
 async function runLocked(locks: LockManagerLike, run: () => Promise<RefreshOutcome>): Promise<RefreshOutcome> {
-  let ran = false
+  let running: Promise<RefreshOutcome> | undefined
   let outcome: RefreshOutcome | undefined
   try {
     return await locks.request(REFRESH_LOCK, async () => {
-      ran = true
-      outcome = await run()
+      running = run()
+      outcome = await running
       return outcome
     })
   } catch {
-    if (!ran) return run()
-    return outcome ?? { kind: "unavailable" }
+    if (!running) return run()
+    if (outcome) return outcome
+    await running.catch(() => undefined)
+    return { kind: "unavailable" }
   }
 }
 

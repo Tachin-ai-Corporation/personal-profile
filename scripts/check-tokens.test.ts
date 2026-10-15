@@ -144,6 +144,14 @@ describe("scripts/check-tokens.sh", () => {
     "text-olive-700",
     "border-mist-300",
     "ring-taupe-400",
+    // Review fix 5.
+    "text-shadow-red-500",
+    "text-shadow-black/20",
+    "bg-(--color-red-500)",
+    "hover:text-(--color-blue-600)/50",
+    "bg-[var(--color-red-500)]",
+    "border-[var(--color-white)]",
+    "text-shadow-(--color-sky-400)",
   ])("fails on the palette class %s", (cls) => {
     const run = check({ "components/x.tsx": `export const X = () => <div className="${cls}" />\n` })
     expect(run.status).toBe(1)
@@ -171,7 +179,7 @@ describe("scripts/check-tokens.sh", () => {
 
   it("passes on transparent / current / inherit and bare neutral tokens", () => {
     const run = check({
-      "features/ok.tsx": `const a = "bg-transparent text-current fill-current stroke-current border-inherit text-inherit text-neutral bg-neutral/10 drop-shadow-md"\n`,
+      "features/ok.tsx": `const a = "bg-transparent text-current fill-current stroke-current border-inherit text-inherit text-neutral bg-neutral/10 drop-shadow-md text-shadow-lg bg-(--color-card) bg-[var(--color-destructive-fill)] text-(--color-link-text)"\n`,
     })
     expect(run.status).toBe(0)
   })

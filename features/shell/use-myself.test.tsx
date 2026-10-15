@@ -27,10 +27,25 @@ const MYSELF = "/api/1h/v2/user/myself"
 const LOAD_ERROR = "Something went wrong while loading profile information"
 const upstream502 = () => HttpResponse.json({ errorCode: "UPSTREAM_ERROR", source: "proxy" }, { status: 502 })
 
-function Providers({ children, retries }: { readonly children: ReactNode; readonly retries?: number }) {
+interface ProvidersProps {
+  readonly children: ReactNode
+  readonly retries?: number
+  readonly interval?: number
+  readonly revalidateOnMount?: boolean
+}
+
+function Providers({ children, retries, interval = 5, revalidateOnMount }: ProvidersProps) {
   return (
     <SwrProvider>
-      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0, errorRetryInterval: 5, ...(retries === undefined ? {} : { errorRetryCount: retries }) }}>
+      <SWRConfig
+        value={{
+          provider: () => new Map(),
+          dedupingInterval: 0,
+          errorRetryInterval: interval,
+          ...(retries === undefined ? {} : { errorRetryCount: retries }),
+          ...(revalidateOnMount === undefined ? {} : { revalidateOnMount }),
+        }}
+      >
         <PortalUrlProvider portalUrl="https://portal.test">{children}</PortalUrlProvider>
       </SWRConfig>
     </SwrProvider>
@@ -152,6 +167,56 @@ describe("useMyself auto-retry", () => {
     await waitFor(() => expect(result.current.error).toBeDefined(), { timeout: 3000 })
     expect(result.current.myself?.firstName).toBe("Ann")
     expect(result.current.isLoading).toBe(false)
+  })
+
+  it("never retries a 401 SESSION_EXPIRED", async () => {
+    const calls = failing(10, () => HttpResponse.json({ errorCode: "SESSION_EXPIRED", source: "proxy" }, { status: 401 }))
+    const { result } = renderHook(() => useMyself(), { wrapper })
+    await waitFor(() => expect(result.current.error).toBeDefined())
+    await act(() => new Promise((resolve) => setTimeout(resolve, 100)))
+    expect(calls()).toBe(1)
+    expect(result.current.error?.response.statusCode).toBe(401)
+  })
+
+  it("does not retry while the tab is hidden: the error shows at once", async () => {
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true })
+    try {
+      const calls = failing(10)
+      const { result } = renderHook(() => useMyself(), { wrapper })
+      await waitFor(() => expect(result.current.error).toBeDefined())
+      await act(() => new Promise((resolve) => setTimeout(resolve, 100)))
+      expect(calls()).toBe(1)
+    } finally {
+      // Back to jsdom's own (prototype) "visible".
+      delete (document as unknown as Record<string, unknown>).visibilityState
+    }
+  })
+
+  it("a retry whose timer fired while unmounted never sticks: on remount the error and Retry show", async () => {
+    const calls = failing(100)
+    function Probe() {
+      const { error, isLoading } = useMyself()
+      return <p>{error ? "error" : isLoading ? "loading" : "ok"}</p>
+    }
+    // The remount keeps the cached error without a new request (revalidateOnMount: false),
+    // so only the mount-time check can end the stale pending retry.
+    function Host({ show, again = false }: { readonly show: boolean; readonly again?: boolean }) {
+      return (
+        <Providers interval={200} revalidateOnMount={again ? false : undefined}>
+          {show ? <Probe /> : null}
+        </Providers>
+      )
+    }
+    const view = render(<Host show />)
+    await waitFor(() => expect(calls()).toBe(1))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+    expect(screen.getByText("loading")).toBeTruthy()
+    view.rerender(<Host show={false} />)
+    // Let the backoff timer (≥ 200 ms) fire with no hook mounted.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 700)))
+    view.rerender(<Host show again />)
+    expect(await screen.findByText("error")).toBeTruthy()
+    expect(calls()).toBe(1)
   })
 
   it("leaves every other key without automatic retries (root shouldRetryOnError: false)", async () => {

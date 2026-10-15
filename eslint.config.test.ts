@@ -167,7 +167,7 @@ describe("lint guards ported from main (spec R5-2)", () => {
   }
 
   const FETCH = /no-restricted-syntax: Use callApi/
-  const SWR_KEY = /no-restricted-syntax: Build SWR keys with lib\/api\/keys\.ts/
+  const SWR_KEY = /pp\/inline-swr-key: Build SWR keys with lib\/api\/keys\.ts/
 
   it.each([
     ["bare fetch", 'export const f = () => fetch("/api/x")\n'],
@@ -206,15 +206,43 @@ describe("lint guards ported from main (spec R5-2)", () => {
     ["useSWRMutation array", 'import useSWRMutation from "swr/mutation"\nexport function useX() { return useSWRMutation(["pp"], () => 1) }\n'],
     ["useSWRSubscription string", 'import useSWRSubscription from "swr/subscription"\nexport function useX() { return useSWRSubscription("pp", () => () => {}) }\n'],
     ["mutate array", 'import { mutate } from "swr"\nexport const m = () => mutate(["pp","myself"])\n'],
-    ["x.mutate array", 'export const m = (cache: { mutate: (k: unknown) => void }) => cache.mutate(["pp","myself"])\n'],
     ["preload string", 'import { preload } from "swr"\nexport const p = () => preload("pp", () => 1)\n'],
     ["x.preload template", "export const p = (s: { preload: (k: unknown) => void }) => s.preload(`pp`)\n"],
+    // Review fix 4: wrapped, conditional and functional keys; the global mutate from useSWRConfig.
+    ["useSWR array as const", 'import useSWR from "swr"\nexport function useX() { return useSWR(["pp", "x"] as const, () => 1) }\n'],
+    ["useSWR array satisfies", 'import useSWR from "swr"\nexport function useX() { return useSWR(["pp"] satisfies unknown[], () => 1) }\n'],
+    ["useSWR conditional consequent", 'import useSWR from "swr"\ndeclare const ok: boolean\nexport function useX() { return useSWR(ok ? ["pp", "x"] : null, () => 1) }\n'],
+    ["useSWR conditional alternate", 'import useSWR from "swr"\nimport { keys } from "@/lib/api"\ndeclare const ok: boolean\nexport function useX() { return useSWR(ok ? keys.myself() : "pp", () => 1) }\n'],
+    ["useSWR && key", 'import useSWR from "swr"\ndeclare const ok: boolean\nexport function useX() { return useSWR(ok && ["pp"], () => 1) }\n'],
+    ["useSWR key function (expression body)", 'import useSWR from "swr"\nexport function useX() { return useSWR(() => ["pp", "x"], () => 1) }\n'],
+    ["useSWR key function (block body)", 'import useSWR from "swr"\ndeclare const ok: boolean\nexport function useX() { return useSWR(() => { if (ok) { return ["pp"] } return null }, () => 1) }\n'],
+    ["useSWRConfig().mutate", 'import { useSWRConfig } from "swr"\nexport function useX() { return () => useSWRConfig().mutate(["pp"]) }\n'],
+    ["mutate destructured from useSWRConfig()", 'import { useSWRConfig } from "swr"\nexport function useX() { const { mutate } = useSWRConfig(); return () => mutate(["pp", "myself"]) }\n'],
+    ["config.mutate with config = useSWRConfig()", 'import { useSWRConfig } from "swr"\nexport function useX() { const config = useSWRConfig(); return () => config.mutate(`pp`) }\n'],
+    ["mutate from swr/_internal", 'import { mutate } from "swr/_internal"\nexport const m = () => mutate(["pp"])\n'],
   ])("rejects an inline SWR key: %s", async (_name, code) => {
     expect((await fatalFree("features/demo/hook.ts", code)).join("\n")).toMatch(SWR_KEY)
   })
 
   it("rejects inline SWR keys outside features/ too", async () => {
     expect((await fatalFree("app/x.tsx", 'import { mutate } from "swr"\nexport const m = () => mutate(["pp"])\n')).join("\n")).toMatch(SWR_KEY)
+  })
+
+  it.each([
+    ["a bound mutate from useSWR (data, not a key)", 'import useSWR from "swr"\nimport { keys } from "@/lib/api"\nexport function useX() { const { mutate } = useSWR(keys.myself()); return () => mutate(["a", "b"]) }\n'],
+    ["a bound x.mutate on another object", 'export const m = (cache: { mutate: (k: unknown) => void }) => cache.mutate(["pp","myself"])\n'],
+    ["swr.mutate on a useSWR result", 'import useSWR from "swr"\nimport { keys } from "@/lib/api"\nexport function useX() { const swr = useSWR(keys.myself()); return () => swr.mutate(["a"]) }\n'],
+    ["a local function named mutate", 'function mutate(x: unknown) { return x }\nexport const m = () => mutate(["pp"])\n'],
+    ["react-dom preload(href, { as })", 'import { preload } from "react-dom"\nexport const p = () => preload("/font.woff2", { as: "font" })\n'],
+    ["a conditional key with keys.* and null", 'import useSWR from "swr"\nimport { keys } from "@/lib/api"\ndeclare const ok: boolean\nexport function useX() { return useSWR(ok ? keys.myself() : null) }\n'],
+    ["a key function returning keys.*", 'import useSWR from "swr"\nimport { keys } from "@/lib/api"\nexport function useX() { return useSWR(() => keys.myself()) }\n'],
+  ])("allows %s", async (_name, code) => {
+    expect((await fatalFree("features/demo/hook.ts", code)).join("\n")).not.toMatch(SWR_KEY)
+  })
+
+  it("allows inline keys only in lib/api/keys.ts", async () => {
+    const code = 'import { mutate } from "swr"\nexport const m = () => mutate(["pp"])\n'
+    expect((await fatalFree("lib/api/keys.ts", code)).join("\n")).not.toMatch(SWR_KEY)
   })
 
   it("allows keys built by keys.*", async () => {
