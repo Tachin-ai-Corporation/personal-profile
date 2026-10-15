@@ -2,10 +2,10 @@
 title: 'F5-1 Select (aria-disabled + helper), date input with calendar, popover and info-popover'
 type: 'feature'
 created: '2026-10-14'
-status: 'in-review'
+status: 'done'
 baseline_commit: 'a95a7ec689ba8d773395a48f8ae1871efa4156d4'
 route: 'dispatch'
-review_loop_iteration: 0
+review_loop_iteration: 1
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/shared-foundation-plan.md'
   - '{project-root}/_bmad-output/planning-artifacts/epics.md'
@@ -115,3 +115,10 @@ Implemented 2026-10-14.
 ## Spec Change Log
 
 ## Review Triage Log
+
+Three parallel reviewers (Blind Hunter, Edge Case Hunter, Verification Gap) on the diff vs `a95a7ec`.
+
+- **Patched (round 1, commit "fix: F5-1 review findings"):** DateInput `resetKey`, disabled/readOnly guards, Delete before a slash, 0001–0099 years, inverted bounds via `parseDateBounds`; Select key blocking limited to opening/typeahead keys, `loading` row and spinner, always-controlled Radix `open`, `unlistedValue` edge cases; InfoPopover `title | label` union, generic error copy (support-contact copy moved to `NPI_MESSAGES.practiceSupportLoadError`), press-away cancel, hover→focus promotion, tab-stop scan visibility and selectors, last-tab-stop escape; fixed-today fixture and exact calendar assertions; `PP_E2E_PORT` validation; fixture timer cleanup.
+- **Deferred:** Radix Select hides the page with `aria-hidden` without `aria-modal` (axe `aria-hidden-focus` while open) — library behaviour from the F3-1 port; e2e scans the listbox only in that state.
+- **Rejected:** none.
+- **Re-verified 2026-10-14 on `feat/NG-9019-epic-7` together with F4:** lint, typecheck, `vitest run --coverage` (114 files, 2382 tests), `test:e2e` (185 passed, 1 skipped desktop-only), build and `check-forbidden.sh` green.
