@@ -129,6 +129,7 @@ describe.each(TARGETS)("Story 7.3 Account handoff: $name", ({ target, href }) =>
 
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Still editing"))
     expect(screen.queryByRole("alertdialog")).toBeNull()
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Go to portal" })))
     expectFields(EDITED)
     expect(boundaries.assign).not.toHaveBeenCalled()
     expect(boundaries.persist).not.toHaveBeenCalled()

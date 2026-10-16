@@ -52,6 +52,7 @@ describe("/handoff/portal route", () => {
   it.each(Object.entries({ HEAD, OPTIONS, POST, PUT, PATCH, DELETE }))("explicit %s export returns 405 without redirect or cookies", async (method, handler) => {
     const response = await handler(new Request(`http://localhost:3000${PATH}?to=create-org`, { method }))
     await expectBffError(response, 405, "METHOD_NOT_ALLOWED")
+    expect(response.headers.get("Allow")).toBe("GET")
     expect(response.headers.has("Location")).toBe(false)
     expect(response.headers.has("Set-Cookie")).toBe(false)
   })

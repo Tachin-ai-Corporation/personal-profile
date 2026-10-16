@@ -7,26 +7,34 @@ import { jsonError, seeOther } from "@/lib/server/http/responses"
 import { isSwitchedOff } from "@/lib/server/kill-switch"
 import { logRequest, newRequestId } from "@/lib/server/log"
 import { ENVIRONMENT_COOKIE, parseEnvironmentCookie } from "@/lib/server/session/environment-cookie"
-import { readCookie, SESSION_COOKIE, unsealSession } from "@/lib/server/session/session"
+import { readCookie, SESSION_COOKIE, unsealSession, type SessionSecrets } from "@/lib/server/session/session"
 
 export type TenantHandoffShape = "root" | "ctx"
 
 /** OQ1 is unresolved: retain the approved portal-root fallback (R-A). */
 export const TENANT_HANDOFF_SHAPE: TenantHandoffShape = "root"
 
-/** D4: read-only environment resolution; an aged, still unsealable session counts. */
-export async function resolveHandoffEnvironment(
+async function resolveFromSession(
   request: Request,
-  configured: readonly Environment[] = serverEnv().configuredEnvironments,
+  configured: readonly Environment[],
+  secrets?: SessionSecrets,
 ): Promise<Environment> {
   const cookies = request.headers.get("cookie")
   let session = null
   try {
-    session = await unsealSession(readCookie(cookies, SESSION_COOKIE))
+    session = await unsealSession(readCookie(cookies, SESSION_COOKIE), secrets)
   } catch {
     // An unreadable seal cannot determine the destination; use remembered environment.
   }
   return session?.environment ?? parseEnvironmentCookie(readCookie(cookies, ENVIRONMENT_COOKIE), configured) ?? "prod"
+}
+
+/** D4: read-only environment resolution; an aged, still readable session counts. */
+export async function resolveHandoffEnvironment(
+  request: Request,
+  configured: readonly Environment[] = serverEnv().configuredEnvironments,
+): Promise<Environment> {
+  return resolveFromSession(request, configured)
 }
 
 function isTenantId(value: string): boolean {
@@ -42,7 +50,7 @@ export function buildTenantPortalUrl(environment: Environment, tenantId: string,
   return target.toString()
 }
 
-function handoffDestination(url: URL, environment: Environment): string {
+function handoffDestination(url: URL, environment: Environment, tenantShape: TenantHandoffShape): string {
   const portal = environmentConfig(environment).portalUrl
   const destinations = url.searchParams.getAll("to")
   if (destinations.length !== 1) return portal
@@ -51,18 +59,21 @@ function handoffDestination(url: URL, environment: Environment): string {
   // URLSearchParams alone accepts percent-encoded digits. The contract requires
   // the literal ASCII value too; decoded cardinality catches encoded duplicate keys.
   const tenantId = /(?:^|&)tenantId=(\d{1,19})(?:&|$)/.exec(url.search.slice(1))?.[1]
-  return tenantId === undefined ? portal : buildTenantPortalUrl(environment, tenantId)
+  return tenantId === undefined ? portal : buildTenantPortalUrl(environment, tenantId, tenantShape)
 }
 
 export interface HandoffDeps {
   readonly env?: () => ServerEnv
   readonly now?: () => number
+  /** Server-selected only; request parameters never change the approved default. */
+  readonly tenantShape?: TenantHandoffShape
 }
 
 /** AD-22: no session requirement, upstream work, cookie writes or query logging. */
 export function createHandoffHandler(deps: HandoffDeps = {}): (request: Request) => Promise<Response> {
   const getEnv = deps.env ?? serverEnv
   const now = deps.now ?? Date.now
+  const tenantShape = deps.tenantShape ?? TENANT_HANDOFF_SHAPE
   return async function handleHandoff(request: Request): Promise<Response> {
     const requestId = newRequestId()
     const started = now()
@@ -71,10 +82,13 @@ export function createHandoffHandler(deps: HandoffDeps = {}): (request: Request)
     if (isSwitchedOff("account", env)) {
       response = jsonError(503, "SERVICE_DISABLED")
     } else if (request.method !== "GET") {
-      response = jsonError(405, "METHOD_NOT_ALLOWED")
+      response = jsonError(405, "METHOD_NOT_ALLOWED", new Headers({ Allow: "GET" }))
     } else {
-      const environment = await resolveHandoffEnvironment(request, env.configuredEnvironments)
-      response = seeOther(handoffDestination(new URL(request.url), environment))
+      const environment = await resolveFromSession(request, env.configuredEnvironments, {
+        current: env.SESSION_SECRET,
+        previous: env.SESSION_SECRET_PREVIOUS,
+      })
+      response = seeOther(handoffDestination(new URL(request.url), environment, tenantShape))
     }
     logRequest({ requestId, method: request.method, routeTemplate: BFF_PATHS.handoffPortal, status: response.status, durationMs: now() - started })
     return response

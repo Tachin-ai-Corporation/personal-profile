@@ -7,7 +7,7 @@ import { makeSession, NOW } from "@/test/session-fixture"
 import { ENVIRONMENTS, environmentConfig } from "@/lib/shared/environments"
 import { BFF_PATHS } from "@/lib/shared/bff-contract"
 import { setLogSink } from "@/lib/server/log"
-import { ABSOLUTE_TIMEOUT_MS, IDLE_TIMEOUT_MS, sealSession, SESSION_COOKIE, unsealSession } from "@/lib/server/session/session"
+import { ABSOLUTE_TIMEOUT_MS, IDLE_TIMEOUT_MS, isSessionAged, sealSession, SESSION_COOKIE, unsealSession } from "@/lib/server/session/session"
 import { buildTenantPortalUrl, createHandoffHandler, resolveHandoffEnvironment, TENANT_HANDOFF_SHAPE } from "./handoff"
 
 const PATH = BFF_PATHS.handoffPortal
@@ -141,14 +141,51 @@ describe("createHandoffHandler", () => {
     await expectRedirect(await createHandoffHandler({ env: testEnv(TEST_DEV_ENV) })(request("onehealth_environment=dev", "?to=create-org&redirect=https://evil.example#secret")), `${environmentConfig("dev").portalUrl}/organizations/create`)
   })
 
+  it.each(["1", "0001", "9007199254740993", "9999999999999999999"])("parses valid %s through the real handler with server-selected ctx", async (tenantId) => {
+    await expectRedirect(
+      await createHandoffHandler({ tenantShape: "ctx" })(request("onehealth_environment=demo", `?to=tenant&tenantId=${tenantId}&shape=root&ctx=2&assume=1`)),
+      `${environmentConfig("demo").portalUrl}/?ctx=${tenantId}`,
+    )
+  })
+
+  it.each(["current", "previous"] as const)("unseals using the injected %s secret instead of global secrets", async (key) => {
+    const current = "injected-current-session-secret-0123456789"
+    const previous = "injected-previous-session-secret-0123456789"
+    const env = testEnv({ SESSION_SECRET: current, SESSION_SECRET_PREVIOUS: previous })
+    const seal = await sealSession(makeSession({ environment: "demo" }), { current: key === "current" ? current : previous })
+    await expectRedirect(
+      await createHandoffHandler({ env })(request(`${SESSION_COOKIE}=${seal}; onehealth_environment=prod`, "?to=create-org")),
+      `${environmentConfig("demo").portalUrl}/organizations/create`,
+    )
+  })
+
+  it("does not accept a globally sealed cookie when the injected secrets differ", async () => {
+    const seal = await sealSession(makeSession({ environment: "demo" }))
+    await expectRedirect(
+      await createHandoffHandler({ env: testEnv({ SESSION_SECRET: "isolated-handler-session-secret-0123456789" }) })(
+        request(`${SESSION_COOKIE}=${seal}; onehealth_environment=prod`, "?to=create-org"),
+      ),
+      `${environmentConfig("prod").portalUrl}/organizations/create`,
+    )
+  })
+
   it.each([
     "", "to=", "to=Tenant", "to=CREATE-ORG", "to=unknown", "to=tenant", "to=tenant&tenantId", "to=tenant&tenantId=",
     "to=tenant&to=create-org&tenantId=1", "to=create-org&to=create-org", "to=create-org&%74o=tenant", "to=tenant&%74o=tenant&tenantId=1",
     "to=tenant&tenantId=1&tenantId=2", "to=tenant&tenantId=1&tenant%49d=2", "to=tenant&tenant%49d=2&tenantId=1", "to=tenant&tenantId=1&tenantId=1",
     "to=tenant&tenantId=%31", "to=tenant&tenantId=1%32", "to=tenant&tenantId=%2531", "to=tenant&tenantId=%00", "to=tenant&tenantId=%0d%0aLocation:https://evil.example", "to=tenant&tenantId=%",
-    ...invalidIds.filter((id) => !/[\s\0]/.test(id)).map((id) => `to=tenant&tenantId=${id}`),
+    "to=tenant&tenantId=%201", "to=tenant&tenantId=1%20", "to=tenant&tenantId=1%0A", "to=tenant&tenantId=1%0D%0A",
+    ...invalidIds.map((id) => `to=tenant&tenantId=${encodeURIComponent(id)}`),
   ])("raw query %j safely falls back to portal root", async (query) => {
-    await expectRedirect(await createHandoffHandler()(request("onehealth_environment=demo", `?${query}`)), environmentConfig("demo").portalUrl)
+    // ctx makes invalid parsing distinguishable from a valid tenant redirect.
+    await expectRedirect(await createHandoffHandler({ tenantShape: "ctx" })(request("onehealth_environment=demo", `?${query}`)), environmentConfig("demo").portalUrl)
+  })
+
+  it("ignores extra query parameters and the URL fragment without treating them as tenant value bytes", async () => {
+    await expectRedirect(
+      await createHandoffHandler({ tenantShape: "ctx" })(request("onehealth_environment=demo", "?to=tenant&tenantId=1&ctx=2&assume=admin#fragment")),
+      `${environmentConfig("demo").portalUrl}/?ctx=1`,
+    )
   })
 
   it.each(["HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"])("%s returns 405 before reading cookies or URL", async (method) => {
@@ -157,6 +194,7 @@ describe("createHandoffHandler", () => {
     Object.defineProperty(req, "url", { get: () => { throw new Error("must not read URL") } })
     const response = await createHandoffHandler()(req)
     await expectBffError(response, 405, "METHOD_NOT_ALLOWED")
+    expect(response.headers.get("Allow")).toBe("GET")
     expect(response.headers.has("Location")).toBe(false)
     expect(response.headers.has("Set-Cookie")).toBe(false)
   })
@@ -175,7 +213,11 @@ describe("createHandoffHandler", () => {
   })
 
   it("leaves aged sealed data unchanged and logs only generated metadata", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(NOW)
     const session = makeSession({ lastSeen: NOW - IDLE_TIMEOUT_MS - 1, accessExpiresAt: NOW - 1 })
+    expect(Date.now() - session.lastSeen).toBeGreaterThan(IDLE_TIMEOUT_MS)
+    expect(isSessionAged(session, Date.now())).toBe(true)
     const seal = await sealSession(session)
     const req = request(`${SESSION_COOKIE}=${seal}; onehealth_environment=prod`, "?to=tenant&tenantId=1234567890123456789&name=PatientSecret&ssn=123-45-6789")
     req.headers.set("x-request-id", "PatientSecret")
