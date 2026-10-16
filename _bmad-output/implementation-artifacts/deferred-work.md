@@ -314,3 +314,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-f3-1-ui-primitives-and-toasts.md`
   summary: (Foundation) `e2e/primitives.spec.ts` "DisabledAction … Escape" is flaky on `mobile-360` (2/35 local runs): after a forced tap on the DisabledAction and Escape, the reason tooltip stays open (`toHaveCount(0)` gets 1). Likely an interaction between the tap toggle (`openAtPressRef`), `keepOpenOnPress` and the focus-open in `components/ui/tooltip.tsx`; diagnose with a Playwright trace before changing the component.
   evidence: `pnpm exec playwright test e2e/primitives.spec.ts --repeat-each=5 --workers=2` → 2 failed / 68 passed, both at the final `toHaveCount(0)` on mobile-360; desktop never fails.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-view-personal-information.md`
+  summary: (Foundation) Export the `#signature` loading anchor (`SignaturePlaceholder` in `features/shell/placeholders.tsx`, unexported) so Personal information can reuse it instead of its own `SignatureAnchor` copy.
+  evidence: Story 2.1 review finding 8: `features/personal/personal-section.tsx` re-creates the placeholder row (label + pulse bar) because the shell doesn't export it; story PRs can't edit `features/shell` (T2).
