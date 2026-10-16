@@ -106,3 +106,35 @@ describe("usePersonOptions", () => {
     expect(result.current.biologicalGender).toEqual(["Asked but not answered", "Male"])
   })
 })
+
+describe("usePersonOptions: offered (Story 2.2, ∩ the user/edit enums)", () => {
+  it("drops platform values the PUT would reject and keeps the preselects", async () => {
+    answerPerson(() =>
+      HttpResponse.json({
+        boKey: "Person",
+        attributes: [
+          valueList("race", ["White", "Martian", "Asian"]),
+          valueList("ethnicity", ["Hispanic or Latino", "Pending"]),
+          valueList("biologicalGender", ["Male", "Female", "Intersex"]),
+        ],
+      }),
+    )
+    const { result } = renderHook(() => usePersonOptions("Female"), { wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.race).toEqual(["Asian", "Martian", "White"])
+    expect(result.current.offered.race).toEqual(["Asian", "White", "Unknown"])
+    expect(result.current.offered.ethnicity).toEqual(["Hispanic or Latino", "Unknown"])
+    expect(result.current.offered.biologicalGender).toEqual(["Female", "Male", "Asked but not answered"])
+  })
+
+  it("an empty intersection offers the fallback's accepted values; a platform-only current value is never offered", async () => {
+    answerPerson(() =>
+      HttpResponse.json({ boKey: "Person", attributes: [valueList("race", ["Martian"]), valueList("biologicalGender", ["Intersex"])] }),
+    )
+    const { result } = renderHook(() => usePersonOptions("Intersex"), { wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.offered.race).toEqual(RACE_FALLBACK)
+    expect(result.current.offered.ethnicity).toEqual(ETHNICITY_FALLBACK)
+    expect(result.current.offered.biologicalGender).toEqual(["Asked but not answered"])
+  })
+})

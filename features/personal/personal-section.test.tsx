@@ -2,8 +2,8 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { useEffect } from "react"
 import { useSWRConfig, type ScopedMutator } from "swr"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { MyselfErrorClaimProvider, SectionCountProvider, useMyselfErrorClaimed, useSectionCounts } from "@/features/shell"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { MyselfErrorClaimProvider, SectionCountProvider, toastError, toastSuccess, useMyselfErrorClaimed, useSectionCounts } from "@/features/shell"
 import { keys } from "@/lib/api"
 import { axeViolations } from "@/test/axe"
 import { stubViewport } from "@/test/media"
@@ -11,10 +11,14 @@ import { myselfWire } from "@/test/myself-fixture"
 import { renderInPage } from "@/test/providers"
 import { PersonalSection } from "."
 
+// The Section's own toasts, observed (the shell's toast API; nothing renders a Toaster here).
+vi.mock("@/features/shell/toasts", () => ({ toastSuccess: vi.fn(), toastError: vi.fn(() => ({ id: "t", dismiss: vi.fn() })), toastPartial: vi.fn() }))
+
 /**
- * Story 2.1 (NG-9022): the Personal information read view on `/`, rendered
- * the way `PageFrame` hosts it (`renderInPage`, MSW at `/api`). Covers every
- * I/O matrix row of `spec-2-1-view-personal-information.md`.
+ * Stories 2.1–2.2 (NG-9022): the Personal information read and edit views on
+ * `/`, rendered the way `PageFrame` hosts it (`renderInPage`, MSW at `/api`).
+ * Covers every I/O matrix row of `spec-2-1-view-personal-information.md` and
+ * `spec-2-2-edit-and-save-personal-information.md`.
  */
 
 const MYSELF = "/api/1h/v2/user/myself"
@@ -81,8 +85,14 @@ async function renderLoaded(myself: Record<string, unknown> = FULL) {
 
 beforeEach(() => {
   stubViewport(360)
+  // An earlier test's unmount may still write its draft (the registry flushes it): start clean.
+  window.localStorage.clear()
 })
-afterEach(() => document.documentElement.classList.remove("dark"))
+afterEach(() => {
+  document.documentElement.classList.remove("dark")
+  vi.mocked(toastSuccess).mockClear()
+  vi.mocked(toastError).mockClear()
+})
 
 describe("PersonalSection: loading", () => {
   it("renders the landmark and h2 from the first render, a kv skeleton in the real container and the #signature anchor", async () => {
@@ -210,9 +220,11 @@ describe("PersonalSection: loaded", () => {
     expect(counts.personal).toBeUndefined()
   })
 
-  it("has no Edit button (Story 2.2 adds it with its wiring)", async () => {
+  it("has one action: the outline Edit button (Story 2.2)", async () => {
     await renderLoaded()
-    expect(within(section()).queryByRole("button")).toBeNull()
+    const buttons = within(section()).getAllByRole("button")
+    expect(buttons.map((button) => button.textContent)).toEqual(["Edit"])
+    expect(buttons[0].id).toBe("personal-edit")
   })
 })
 
@@ -413,6 +425,495 @@ describe("PersonalSection: accessibility", () => {
   it("has no axe violations with the load error", async () => {
     renderInPage(<PersonalSection />, { page: "profile", handlers: [http.get(MYSELF, () => HttpResponse.json({}, { status: 500 }))] })
     await screen.findByText("Couldn't load personal information")
+    expect(await axeViolations()).toEqual([])
+  })
+})
+
+// --- Story 2.2: edit and save -------------------------------------------------------------------
+
+const EDIT = "/api/1h/v2/user/edit"
+const DRAFT_KEY = "pp:draft:v1:demo:42:personal"
+
+/** The optional fields' labels (muted "(optional)" suffix). */
+const OPTIONAL_LABELS = ["Name prefix", "Middle name", "Name suffix", "Other names", "Titles", "City of birth", "Sexual orientation", "SSN", "Signature"]
+
+/** Records each `PUT v2/user/edit` body, answering with `answer()` (default: 200 with the user). */
+function recordPuts(answer: () => Response | Promise<Response> = () => HttpResponse.json(FULL)) {
+  const bodies: Record<string, unknown>[] = []
+  const handler = http.put(EDIT, async ({ request }) => {
+    bodies.push((await request.json()) as Record<string, unknown>)
+    return answer()
+  })
+  return { bodies, handler }
+}
+
+async function renderEditing(myself: Record<string, unknown> = FULL, handlers: Parameters<typeof renderInPage>[1]["handlers"] = []) {
+  const result = renderInPage(<PersonalSection />, { page: "profile", myself, handlers })
+  await screen.findByRole("table", { name: "Personal information" })
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Edit" })))
+  return result
+}
+
+/** The control labelled `label` (with or without the "(optional)" suffix); an open combobox listbox shares its name. */
+function control(label: string): HTMLElement {
+  const matches = screen.getAllByLabelText(new RegExp(`^${label}( \\(optional\\))?$`)).filter((el) => el.getAttribute("role") !== "listbox")
+  if (matches.length !== 1) throw new Error(`expected one control labelled ${label}, found ${matches.length}`)
+  return matches[0]
+}
+
+async function type(label: string, value: string) {
+  await act(async () => fireEvent.change(control(label), { target: { value } }))
+}
+
+async function blur(label: string) {
+  await act(async () => fireEvent.blur(control(label)))
+}
+
+async function save() {
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save" })))
+}
+
+const heading = () => screen.getByRole("heading", { level: 2, name: "Personal information" })
+const isReadView = () => screen.queryByRole("table", { name: "Personal information" }) !== null && screen.queryByRole("button", { name: "Save" }) === null
+
+describe("PersonalSection: edit view (Story 2.2)", () => {
+  it("Edit switches in place: Editing in the header, the editing container, focus on Name prefix, the F1 order", async () => {
+    await renderEditing()
+    expect(section().id).toBe("personal")
+    expect(within(section()).getByText("Editing")).toBeTruthy()
+    expect(section().querySelector('[data-slot="section-container"]')?.getAttribute("data-editing")).toBe("true")
+    expect(document.activeElement).toBe(control("Name prefix"))
+    const labels = [...section().querySelectorAll("label")].map((label) => label.textContent?.replace(/ \(optional\)$/, ""))
+    expect(labels).toEqual(LABELS)
+    expect(within(section()).queryByRole("button", { name: "Edit" })).toBeNull()
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy()
+  })
+
+  it("optional fields read \"(optional)\"; required fields carry no marker but aria-required", async () => {
+    await renderEditing()
+    for (const label of LABELS) {
+      const text = [...section().querySelectorAll("label")].find((el) => el.textContent?.startsWith(label))?.textContent
+      expect(text, label).toBe(OPTIONAL_LABELS.includes(label) ? `${label} (optional)` : label)
+    }
+    for (const label of ["First name", "Last name", "Birth date", "Race", "Ethnicity", "Biological gender", "Gender identity"]) {
+      expect(control(label).getAttribute("aria-required"), label).toBe("true")
+    }
+    expect(control("Middle name").getAttribute("aria-required")).toBeNull()
+  })
+
+  it("shows the help: Other names, Gender identity, Sexual orientation and the age rule", async () => {
+    await renderEditing()
+    const help = (label: string) => {
+      const ids = control(label).getAttribute("aria-describedby")?.split(" ") ?? []
+      return ids.map((id) => document.getElementById(id)?.textContent).join(" ")
+    }
+    expect(help("Other names")).toBe("Former or other legal names.")
+    expect(help("Gender identity")).toBe("Choose from the list or type your own.")
+    expect(help("Sexual orientation")).toBe("Up to 128 characters.")
+    expect(help("Birth date")).toBe("You must be between 18 and 120 years old")
+  })
+
+  it("Proctor: the age help says 21", async () => {
+    await renderEditing(myselfWire({ roles: ["Proctor"] }))
+    expect(screen.getByText("You must be between 21 and 120 years old")).toBeTruthy()
+  })
+
+  it("shows the saved values; SSN and Signature stay read-only (Signature keeps #signature)", async () => {
+    await renderEditing()
+    expect((control("First name") as HTMLInputElement).value).toBe("Ann")
+    expect((control("Birth date") as HTMLInputElement).value).toBe("03/09/1987")
+    expect(control("Race").textContent).toBe("Asian")
+    expect(control("Biological gender").textContent).toBe("Female")
+    expect((control("Gender identity") as HTMLInputElement).value).toBe("Woman")
+    expect(control("SSN").textContent).toBe("***-**-1234")
+    expect(within(control("Signature")).getByRole("img", { name: "Your signature" })).toBeTruthy()
+    expect(document.getElementById("signature")?.textContent).toContain("Signature")
+    expect(section().querySelectorAll("input").length).toBe(11)
+  })
+
+  it("lays out a 240 px key column from 768 px", async () => {
+    stubViewport(1024)
+    await renderEditing()
+    const table = section().querySelector('[data-slot="key-value-edit-table"]')
+    expect(table?.tagName).toBe("TABLE")
+    expect(within(table as HTMLElement).getAllByRole("rowheader")).toHaveLength(16)
+    expect(document.getElementById("signature")?.tagName).toBe("TH")
+  })
+
+  it("Enter in a field does not save, and Escape does not cancel", async () => {
+    const { bodies, handler } = recordPuts()
+    await renderEditing(FULL, [handler])
+    await type("First name", "Anna")
+    await act(async () => fireEvent.keyDown(control("First name"), { key: "Enter" }))
+    await act(async () => fireEvent.keyDown(control("First name"), { key: "Escape" }))
+    expect(bodies).toEqual([])
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy()
+    expect(screen.getByText("Unsaved changes")).toBeTruthy()
+  })
+
+  it("Cancel reverts only this Section, returns to read view and focuses the h2", async () => {
+    const { bodies, handler } = recordPuts()
+    const { registry } = await renderEditing(FULL, [handler])
+    await type("First name", "Anna")
+    expect(registry.get("personal")?.isDirty).toBe(true)
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Cancel" })))
+    expect(isReadView()).toBe(true)
+    expect(valueOf("First name").textContent).toBe("Ann")
+    expect(document.activeElement).toBe(heading())
+    expect(registry.get("personal")?.isDirty).toBe(false)
+    expect(bodies).toEqual([])
+  })
+
+  it("registers as personal, \"Personal information\", display order 1", async () => {
+    const { registry } = await renderLoaded()
+    expect(registry.get("personal")).toMatchObject({ id: "personal", label: "Personal information", displayOrder: 1, draftFields: [
+      "namePrefix",
+      "firstName",
+      "middleName",
+      "lastName",
+      "nameSuffix",
+      "otherNames",
+      "titles",
+      "birthDate",
+      "cityOfBirth",
+      "race",
+      "ethnicity",
+      "biologicalGender",
+      "genderIdentity",
+      "sexualOrientation",
+    ] })
+  })
+})
+
+describe("PersonalSection: save (Story 2.2)", () => {
+  it("sends only the changed field, trimmed; read view, toast, h2 focus, draft cleared", async () => {
+    const { bodies, handler } = recordPuts()
+    await renderEditing(myselfWire({ birthDate: "1987-03-09", firstName: "Ann " }), [handler])
+    await type("First name", "Anna ")
+    await waitFor(() => expect(window.localStorage.getItem(DRAFT_KEY)).not.toBeNull(), { timeout: 2000 })
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(bodies).toEqual([{ firstName: "Anna" }])
+    expect(toastSuccess).toHaveBeenCalledWith("Personal information saved.")
+    expect(document.activeElement).toBe(heading())
+    expect(window.localStorage.getItem(DRAFT_KEY)).toBeNull()
+  })
+
+  it("a cleared optional field is sent as n/a", async () => {
+    const { bodies, handler } = recordPuts()
+    await renderEditing(FULL, [handler])
+    await type("Middle name", "")
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(bodies).toEqual([{ middleName: "n/a" }])
+  })
+
+  it("a changed birth date goes out as YYYY-MM-DD", async () => {
+    const { bodies, handler } = recordPuts()
+    await renderEditing(FULL, [handler])
+    await type("Birth date", "04151990")
+    expect((control("Birth date") as HTMLInputElement).value).toBe("04/15/1990")
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(bodies).toEqual([{ birthDate: "1990-04-15" }])
+  })
+
+  it("unset Race, Ethnicity, Biological gender and Gender identity are preselected and sent, but write no draft", async () => {
+    const { bodies, handler } = recordPuts()
+    await renderEditing(myselfWire({ race: null, ethnicity: "n/a", biologicalGender: "", genderIdentity: null }), [handler])
+    expect(control("Race").textContent).toBe("Unknown")
+    expect(control("Ethnicity").textContent).toBe("Unknown")
+    expect(control("Biological gender").textContent).toBe("Asked but not answered")
+    expect((control("Gender identity") as HTMLInputElement).value).toBe("Asked but not answered")
+    expect(screen.getByText("Unsaved changes")).toBeTruthy()
+    // Presets alone are not the user's change: no draft after the debounce.
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 700)))
+    expect(window.localStorage.getItem(DRAFT_KEY)).toBeNull()
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(bodies).toEqual([{ race: "Unknown", ethnicity: "Unknown", biologicalGender: "Asked but not answered", genderIdentity: "Asked but not answered" }])
+  })
+
+  it("no changes: Save sends nothing, returns to read view without a toast and focuses the h2", async () => {
+    const { bodies, handler } = recordPuts()
+    await renderEditing(FULL, [handler])
+    await save()
+    expect(isReadView()).toBe(true)
+    expect(bodies).toEqual([])
+    expect(toastSuccess).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(heading())
+  })
+
+  it("a whitespace-only edit sends nothing and still reads saved (accepted)", async () => {
+    const { bodies, handler } = recordPuts()
+    await renderEditing(FULL, [handler])
+    await type("First name", "Ann  ")
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(bodies).toEqual([])
+    expect(toastSuccess).toHaveBeenCalledWith("Personal information saved.")
+  })
+
+  it("invalid: nothing is sent, the first invalid field (First name) is focused, every error sits under its field", async () => {
+    const { bodies, handler } = recordPuts()
+    await renderEditing(FULL, [handler])
+    await type("First name", "a".repeat(25))
+    await type("Birth date", "")
+    await save()
+    expect(bodies).toEqual([])
+    expect(document.activeElement).toBe(control("First name"))
+    for (const [label, message] of [
+      ["First name", "First name can be up to 24 characters"],
+      ["Birth date", "Birth date is required"],
+    ]) {
+      const field = control(label)
+      expect(field.getAttribute("aria-invalid"), label).toBe("true")
+      const described = field.getAttribute("aria-describedby")?.split(" ").map((id) => document.getElementById(id)?.textContent)
+      expect(described, label).toContain(message)
+    }
+    // The age help hides while the Birth date shows its error.
+    expect(screen.queryByText("You must be between 18 and 120 years old")).toBeNull()
+  })
+
+  /** Save with `label` the only invalid field: nothing is sent, that control has focus, no Section error. */
+  async function expectFocusedInvalid(label: string, bodies: unknown[]) {
+    await save()
+    expect(bodies).toEqual([])
+    expect(document.activeElement).toBe(control(label))
+    expect(control(label).getAttribute("aria-invalid")).toBe("true")
+    expect(document.querySelector("[data-slot~='inline-banner']")).toBeNull()
+  }
+
+  it("Birth date cleared alone: Save focuses the date input itself", async () => {
+    const { bodies, handler } = recordPuts()
+    await renderEditing(FULL, [handler])
+    await type("Birth date", "")
+    await expectFocusedInvalid("Birth date", bodies)
+  })
+
+  it("Gender identity cleared alone: Save focuses the combobox input", async () => {
+    const { bodies, handler } = recordPuts()
+    await renderEditing(FULL, [handler])
+    await type("Gender identity", "")
+    await expectFocusedInvalid("Gender identity", bodies)
+    expect(screen.getByText("Choose a value")).toBeTruthy()
+  })
+
+  it("Race empty (a draft restored while editing): Save focuses the Race trigger and reads \"Choose a value\"", async () => {
+    const { bodies, handler } = recordPuts()
+    const { registry } = await renderEditing(FULL, [handler])
+    await act(async () => {
+      registry.get("personal")?.applyDraft?.({ race: "" })
+    })
+    await expectFocusedInvalid("Race", bodies)
+    expect(screen.getByText("Choose a value")).toBeTruthy()
+  })
+
+  it("while the save is in flight the non-native controls are inert", async () => {
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { bodies, handler } = recordPuts(async () => {
+      await gate
+      return HttpResponse.json(FULL)
+    })
+    await renderEditing(FULL, [handler])
+    await type("First name", "Anna")
+    await save()
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    const race = control("Race")
+    expect(race.getAttribute("aria-readonly")).toBe("true")
+    await act(async () => {
+      fireEvent.keyDown(race, { key: "Enter" })
+      fireEvent.keyDown(race, { key: "ArrowDown" })
+    })
+    expect(screen.queryByRole("listbox")).toBeNull()
+    expect(race.getAttribute("aria-expanded")).toBe("false")
+    await type("Gender identity", "Typed while saving")
+    expect((control("Gender identity") as HTMLInputElement).value).toBe("Woman")
+
+    await act(async () => release())
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(bodies).toEqual([{ firstName: "Anna" }])
+  })
+
+  it("validates on blur: a 129-character City of birth, a non-printable Sexual orientation", async () => {
+    await renderEditing()
+    await type("City of birth", "c".repeat(129))
+    await blur("City of birth")
+    await type("Sexual orientation", "\u0007")
+    await blur("Sexual orientation")
+    await waitFor(() => expect(screen.getByText("Up to 128 characters")).toBeTruthy())
+    expect(screen.getByText("Use letters, spaces and standard punctuation only")).toBeTruthy()
+  })
+
+  it("a birth date one day short of 18 shows the age error", async () => {
+    await renderEditing()
+    const today = new Date()
+    const short = new Date(today.getFullYear() - 18, today.getMonth(), today.getDate() + 1)
+    const text = [short.getMonth() + 1, short.getDate()].map((n) => String(n).padStart(2, "0")).join("/") + `/${short.getFullYear()}`
+    await type("Birth date", text.replaceAll("/", ""))
+    await blur("Birth date")
+    await waitFor(() => expect(control("Birth date").getAttribute("aria-invalid")).toBe("true"))
+    expect(screen.getByText("You must be between 18 and 120 years old").closest('[data-slot="field-error"], [id$="-error"]')).toBeTruthy()
+  })
+
+  it("a saved value the picker doesn't offer shows on the trigger and is not sent while unchanged", async () => {
+    const { bodies, handler } = recordPuts()
+    await renderEditing(myselfWire({ biologicalGender: "Intersex" }), [handler])
+    expect(control("Biological gender").textContent).toBe("Intersex")
+    await type("First name", "Anna")
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(bodies).toEqual([{ firstName: "Anna" }])
+  })
+
+  it("Gender identity takes free text", async () => {
+    const { bodies, handler } = recordPuts()
+    await renderEditing(FULL, [handler])
+    await type("Gender identity", "Nonbinary")
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(bodies).toEqual([{ genderIdentity: "Nonbinary" }])
+  })
+
+  it("a full diff never carries email, phoneNumber or phoneNumberRegion although myself has them (AD-9)", async () => {
+    const { bodies, handler } = recordPuts()
+    await renderEditing(
+      myselfWire({ email: "ann.lee@example.com", phoneNumber: "+14155552671", race: null, ethnicity: null, biologicalGender: null, genderIdentity: null }),
+      [handler],
+    )
+    const edits: [string, string][] = [
+      ["Name prefix", "Ms."],
+      ["First name", "Anna"],
+      ["Middle name", "May"],
+      ["Last name", "Lim"],
+      ["Name suffix", "II"],
+      ["Other names", "Anna Smith"],
+      ["Titles", "PhD"],
+      ["Birth date", "01021980"],
+      ["City of birth", "Shelbyville"],
+      ["Gender identity", "Female"],
+      ["Sexual orientation", "Bisexual"],
+    ]
+    for (const [label, value] of edits) await type(label, value)
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(Object.keys(bodies[0]).toSorted()).toEqual([...PERSONAL_FIELDS].toSorted())
+    for (const field of ["email", "phoneNumber", "phoneNumberRegion", "socialSecurityNumber"]) expect(bodies[0]).not.toHaveProperty(field)
+  })
+})
+
+/** The 14 fields a Personal-information body may carry (Story 2.3 adds the SSN). */
+const PERSONAL_FIELDS = [
+  "namePrefix",
+  "firstName",
+  "middleName",
+  "lastName",
+  "nameSuffix",
+  "otherNames",
+  "titles",
+  "birthDate",
+  "cityOfBirth",
+  "race",
+  "ethnicity",
+  "biologicalGender",
+  "genderIdentity",
+  "sexualOrientation",
+]
+
+describe("PersonalSection: save failures (Story 2.2)", () => {
+  it("a 400 SSN taken shows at Section level until Story 2.3 adds the SSN field; stays in edit with the values", async () => {
+    const { handler } = recordPuts(() =>
+      HttpResponse.json({ message: "The Social Security Number {123-45-6789} already belongs to another person." }, { status: 400 }),
+    )
+    await renderEditing(FULL, [handler])
+    await type("First name", "Anna")
+    await save()
+    await screen.findByText("This SSN belongs to another person")
+    expect((control("First name") as HTMLInputElement).value).toBe("Anna")
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy()
+  })
+
+  it("a 400 INVALID_ENUM_VALUE (an unknown code) shows \"Couldn't save personal information.\" with Retry; stays in edit", async () => {
+    const { handler } = recordPuts(() => HttpResponse.json({ message: "Invalid enum value", code: "INVALID_ENUM_VALUE" }, { status: 400 }))
+    await renderEditing(FULL, [handler])
+    await type("First name", "Anna")
+    await save()
+    const banner = await screen.findByText("Couldn't save personal information.")
+    expect(within(banner.closest('[data-slot~="inline-banner"]') as HTMLElement).getByRole("button", { name: "Retry" })).toBeTruthy()
+    expect(screen.queryByText("Invalid enum value")).toBeNull()
+    expect((control("First name") as HTMLInputElement).value).toBe("Anna")
+    expect(toastError).not.toHaveBeenCalled()
+  })
+
+  it("a network failure or 5xx shows the connection error; Retry resends the same diff", async () => {
+    let fail = true
+    const { bodies, handler } = recordPuts(() =>
+      fail ? HttpResponse.json({ errorCode: "SERVICE_DISABLED", source: "proxy" }, { status: 503 }) : HttpResponse.json(FULL),
+    )
+    await renderEditing(FULL, [handler])
+    await type("First name", "Anna")
+    await type("Middle name", "")
+    await save()
+    const banner = await screen.findByText("Couldn't save personal information. Check your connection.")
+    expect(toastError).toHaveBeenCalledWith("Couldn't save personal information. Check your connection.", expect.anything())
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy()
+
+    fail = false
+    await act(async () => fireEvent.click(within(banner.closest('[data-slot~="inline-banner"]') as HTMLElement).getByRole("button", { name: "Retry" })))
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(bodies).toEqual([
+      { firstName: "Anna", middleName: "n/a" },
+      { firstName: "Anna", middleName: "n/a" },
+    ])
+  })
+
+  it("the registered save (Save all) resolves a result without throwing", async () => {
+    const { bodies, handler } = recordPuts(() => HttpResponse.error())
+    const { registry } = await renderEditing(FULL, [handler])
+    await type("First name", "Anna")
+    let result: unknown
+    await act(async () => {
+      result = await registry.get("personal")?.save?.()
+    })
+    expect(result).toEqual({ ok: false, error: { code: "NETWORK_ERROR", mapped: { kind: "network" } } })
+    expect(bodies).toHaveLength(1)
+  })
+})
+
+describe("PersonalSection: drafts (Story 2.2)", () => {
+  it("a user change writes the 14 fields only: never the SSN or Signature", async () => {
+    await renderEditing()
+    await type("First name", "Anna")
+    await waitFor(() => expect(window.localStorage.getItem(DRAFT_KEY)).not.toBeNull(), { timeout: 2000 })
+    const stored = JSON.parse(window.localStorage.getItem(DRAFT_KEY) ?? "{}") as { values: Record<string, unknown> }
+    expect(Object.keys(stored.values).toSorted()).toEqual([...PERSONAL_FIELDS].toSorted())
+    expect(stored.values.firstName).toBe("Anna")
+    const raw = window.localStorage.getItem(DRAFT_KEY) ?? ""
+    expect(raw).not.toMatch(/socialSecurityNumber|signature|\*\*\*-\*\*-1234|501/i)
+  })
+})
+
+describe("PersonalSection: edit view accessibility (Story 2.2)", () => {
+  it.each([
+    ["light", 360],
+    ["dark", 360],
+    ["light", 1024],
+    ["dark", 1024],
+  ] as const)("has no axe violations in %s mode at %i px", async (theme, width) => {
+    stubViewport(width)
+    if (theme === "dark") document.documentElement.classList.add("dark")
+    await renderEditing()
+    expect(await axeViolations()).toEqual([])
+  })
+
+  it("has no axe violations with field errors shown", async () => {
+    await renderEditing()
+    await type("First name", "")
+    await type("Birth date", "")
+    await save()
     expect(await axeViolations()).toEqual([])
   })
 })

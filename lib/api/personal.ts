@@ -6,15 +6,20 @@
  * Endpoints this module will own (each allowlist entry lands with its story in
  * `lib/server/proxy/allowlist/personal.ts`):
  * - `PUT v2/user/edit` (entry exists; shared with `account.ts`: import
- *   `userEditPath` from `./user-edit-path.internal`, never re-export it);
+ *   `userEditPath` from `./user-edit-path.internal`, never re-export it):
+ *   `savePersonalInformation` (Story 2.2);
  * - `GET v2/type/key/Person` (entry exists; read through `type-keys.ts`);
  * - `GET v2/person/{personId}/ssn/expose` (Story 2.3);
  * - Signature upload / new version / `DELETE v2/file/{id}` (Story 2.4).
  * Reads `myself` through `myself.ts`; never re-map it here.
  */
 
+import { callApi } from "./client"
 import { proxyPath } from "./config"
+import { mapApiError, mappedErrorCode, type MappedError } from "./errors"
+import { mutateMyself } from "./keys"
 import type { TypeKey } from "./type-keys"
+import { userEditPath } from "./user-edit-path.internal"
 
 /** The type whose value lists Personal information reads (`keys.typeKey(PERSON_TYPE_KEY)`). */
 export const PERSON_TYPE_KEY = "Person" satisfies TypeKey
@@ -58,3 +63,33 @@ export interface PersonalInformationPayload {
 
 /** The fields a Personal-information save may send. */
 export type PersonalInformationField = keyof PersonalInformationPayload
+
+/**
+ * A Personal-information save outcome, in the shape of the shell's
+ * `SaveResult` (`useSectionForm`'s `save()` returns it as is): ok, or the
+ * mapped failure with its PHI-free code.
+ */
+export type PersonalSaveResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly error: { readonly code: ReturnType<typeof mappedErrorCode>; readonly mapped: MappedError } }
+
+/**
+ * Story 2.2: `PUT /api/1h/v2/user/edit` with the changed fields only (`diff`,
+ * built by the Section; a cleared optional field is already `"n/a"`). An
+ * empty diff sends nothing and resolves ok. On success `myself` is
+ * revalidated (the header name, both pages) before it resolves; a failure is
+ * mapped with `mapApiError("personal", …)`. Never throws. The D-A save
+ * safeguard inside `callApi` re-reads `myself` before the PUT.
+ */
+export async function savePersonalInformation(diff: PersonalInformationPayload): Promise<PersonalSaveResult> {
+  if (Object.keys(diff).length === 0) return { ok: true }
+  const res = await callApi<unknown>("personal/savePersonalInformation", userEditPath(), { method: "PUT", body: JSON.stringify(diff) })
+  // A 2xx whose body can't be read still saved (as `uploadProfilePicture` counts it).
+  const saved = res.success || (res.statusCode !== undefined && res.statusCode >= 200 && res.statusCode < 300)
+  if (!saved) {
+    const mapped = mapApiError("personal", res)
+    return { ok: false, error: { code: mappedErrorCode(mapped), mapped } }
+  }
+  await mutateMyself()
+  return { ok: true }
+}

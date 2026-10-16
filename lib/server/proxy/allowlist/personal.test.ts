@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { PERSON_BIOLOGICAL_GENDER_VALUES, PERSON_ETHNICITY_VALUES, PERSON_RACE_VALUES } from "@/lib/shared/person-options"
 import { nameIssue } from "@/lib/shared/person-rules"
 import { buildUpstreamQuery, matchEntry } from "../match"
 import { BIOLOGICAL_GENDERS, entries, ETHNICITIES, RACES, SIGNATURE_MAX_BYTES, userEditBodySchema } from "./personal"
@@ -14,6 +15,14 @@ describe("PUT v2/user/edit entry", () => {
       "GET v2/type/key/Person",
     ])
     expect(entries.every((e) => e.profile === undefined)).toBe(true)
+  })
+})
+
+describe("Person enums: the client's accepted-value copies (Story 2.2)", () => {
+  it("lib/shared/person-options equals RACES, ETHNICITIES and BIOLOGICAL_GENDERS, so no picker value is a 400", () => {
+    expect(PERSON_RACE_VALUES).toEqual(RACES)
+    expect(PERSON_ETHNICITY_VALUES).toEqual(ETHNICITIES)
+    expect(PERSON_BIOLOGICAL_GENDER_VALUES).toEqual(BIOLOGICAL_GENDERS)
   })
 })
 
