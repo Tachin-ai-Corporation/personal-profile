@@ -70,3 +70,11 @@ Blind Hunter (one pass, 13 findings):
 - reject (low) — extra unknown-hash encodings: `useHashAnchors` matches exact ids only (foundation tests).
 - reject (low) — 44 px check covers only page-level controls: Sections are stubs; feature stories check their own controls.
 
+## Administrative closure — 2026-10-16
+
+The user requested reconciling Story 7.1's remaining `review` sprint entry. The spec was already `done`; the implementation log and review triage above record the completed fixes, and `epics.md` already records the built route and acceptance coverage. The original page-switch/shared-cache deferred items are resolved. No unapplied review patch or implementation blocker remains for this story's scope.
+
+The full integrated validation on `feat/NG-9031-account-hardening`, completed for Story 7.2 before this documentation-only change, passed **164 unit files / 3,585 tests** with **100% enforced coverage**, and **442 browser tests / 6 viewport-specific skips**, without failures or retries. This included `app/account.test.tsx`, `e2e/account-page.spec.ts` on both viewports, and the shared shell journeys. Production build, lint, typecheck and forbidden/token gates passed. No redundant test run is required for this tracking correction.
+
+Synchronized only Story 7.1's sprint line from `review` to **`done`**, preserving sprint headers, `last_updated` and other story entries under T8. The existing nonblocking URL-hygiene suggestion and real-read journeys assigned to Stories 7.4/8.1/9.1/10.1 remain deferred; Story 7.2 additionally covers page-level `myself` failures and Retry recovery. This is local BMAD closure of NG-9030, not an external Jira transition or remote publication.
+
