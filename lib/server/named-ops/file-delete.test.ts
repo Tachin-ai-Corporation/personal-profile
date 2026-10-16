@@ -1,11 +1,13 @@
-import { http, HttpResponse } from "msw"
-import { beforeEach, describe, expect, it } from "vitest"
+import { channel } from "node:diagnostics_channel"
+import { getResponse, http, HttpResponse } from "msw"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { stubServerEnv, testEnv } from "@/test/env-fixture"
 import { server, trackAllRequests } from "@/test/msw-server"
 import { callOp, expectBffError, expectNoStore } from "@/test/named-op-fixture"
 import { makeSession, NOW } from "@/test/session-fixture"
 import { DEMO } from "@/test/upstream-fixture"
 import { createFileDeleteHandler, INSURANCE_MAX_PAGES, parseFileIdParam, SIGNATURE_FILES_QUERY, signatureFileIds } from "./file-delete"
+import { PROFILE_PICTURE_QUERY } from "./profile-picture-id"
 
 const MYSELF = `${DEMO.apiBase}/v2/user/myself`
 const GRAPHQL = `${DEMO.apiBase}/graphql`
@@ -53,6 +55,7 @@ function upstream({
         seen.signatureGraphql += 1
         return HttpResponse.json(signatures(signatureRelations))
       }
+      expect(body.query).toBe(PROFILE_PICTURE_QUERY)
       seen.graphql += 1
       return HttpResponse.json(picture(pictures))
     }),
@@ -74,14 +77,48 @@ function signatureGraphql(answer: () => Response): void {
   server.use(
     http.post(GRAPHQL, async ({ request }) => {
       const body = (await request.json()) as { query?: string }
-      return body.query === SIGNATURE_FILES_QUERY ? answer() : HttpResponse.json(picture([]))
+      if (body.query === SIGNATURE_FILES_QUERY) return answer()
+      expect(body.query).toBe(PROFILE_PICTURE_QUERY)
+      return HttpResponse.json(picture([]))
     }),
   )
 }
 
-beforeEach(() => stubServerEnv())
+beforeEach(() => {
+  stubServerEnv()
+  // MSW 3's Node Fetch interceptor delegates to Undici and mocks sockets.
+  // Resolve these handlers at Fetch instead: asynchronous GraphQL body reads
+  // must never depend on pooled TLS sockets or fall through to the network.
+  // Vitest's unstubGlobals restores the intercepted Fetch before the next test.
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    const handlers = server.listHandlers().filter((handler) => handler.kind === "request")
+    const response = await getResponse(handlers, request)
+    if (!response) throw new Error(`Unhandled file-delete test request: ${request.method} ${request.url}`)
+    if (response.type === "error") throw new TypeError("Failed to fetch")
+    return response
+  })
+})
 
 describe("DELETE /api/pp/file/[fileId] (spec F7-2)", () => {
+  it("rejects an unmocked request without falling through to native Fetch", async () => {
+    await expect(fetch(MYSELF)).rejects.toThrow(`Unhandled file-delete test request: GET ${MYSELF}`)
+  })
+
+  it("resolves both GraphQL documents without dispatching a native Undici request", async () => {
+    const requests = channel("undici:request:create")
+    const dispatched = vi.fn()
+    requests.subscribe(dispatched)
+    try {
+      const seen = upstream()
+      await expectBffError(await del("999"), 404, "NO_FILE")
+      expect(seen).toEqual({ myself: 1, graphql: 1, signatureGraphql: 1, insurance: ["page=0&size=100"], deletes: [] })
+      expect(dispatched).not.toHaveBeenCalled()
+    } finally {
+      requests.unsubscribe(dispatched)
+    }
+  })
+
   it("deletes the caller's Signature after only the myself read, forcing hardDelete=true", async () => {
     const seen = upstream({ signature: { id: 42, name: "sig.png" } })
     const response = await del("42")
@@ -122,7 +159,11 @@ describe("DELETE /api/pp/file/[fileId] (spec F7-2)", () => {
     server.use(
       http.post(GRAPHQL, async ({ request }) => {
         const body = (await request.json()) as { query?: string; variables?: { filter?: unknown } }
-        if (body.query !== SIGNATURE_FILES_QUERY) return HttpResponse.json(picture([]))
+        if (body.query !== SIGNATURE_FILES_QUERY) {
+          expect(body.query).toBe(PROFILE_PICTURE_QUERY)
+          seen.graphql += 1
+          return HttpResponse.json(picture([]))
+        }
         seen.signatureGraphql += 1
         filter = body.variables?.filter
         return HttpResponse.json(signatures([57, 41]))
@@ -133,6 +174,7 @@ describe("DELETE /api/pp/file/[fileId] (spec F7-2)", () => {
     expect(response.status).toBe(204)
     expect(filter).toEqual({ userId: { equal: session.userId } })
     expect(seen.myself).toBe(1)
+    expect(seen.graphql).toBe(1)
     expect(seen.insurance).toEqual(["page=0&size=100"])
     expect(seen.signatureGraphql).toBe(1)
     expect(seen.deletes).toEqual(["/api/v2/file/41?hardDelete=true"])
@@ -199,6 +241,11 @@ describe("DELETE /api/pp/file/[fileId] (spec F7-2)", () => {
       const seen = upstream({ pages: Array.from({ length: INSURANCE_MAX_PAGES + 2 }, () => page([policy(1, 2)], false)) })
       await expectBffError(await del("5"), 502, "UPSTREAM_ERROR")
       expect(seen.insurance).toHaveLength(INSURANCE_MAX_PAGES)
+      expect(seen.insurance).toEqual(Array.from({ length: INSURANCE_MAX_PAGES }, (_, page) => `page=${page}&size=100`))
+      expect(seen.myself).toBe(1)
+      expect(seen.graphql).toBe(1)
+      expect(seen.signatureGraphql).toBe(0)
+      expect(seen.deletes).toEqual([])
     })
   })
 
