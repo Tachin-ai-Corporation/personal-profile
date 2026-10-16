@@ -1,5 +1,14 @@
-import { describe, expect, it } from "vitest"
+import { http, HttpResponse } from "msw"
+import { beforeEach, describe, expect, it } from "vitest"
+import { setLogSink } from "@/lib/server/log"
+import { SESSION_COOKIE, sealSession } from "@/lib/server/session/session"
+import { PERSON_BIOLOGICAL_GENDER_VALUES, PERSON_ETHNICITY_VALUES, PERSON_RACE_VALUES } from "@/lib/shared/person-options"
 import { nameIssue } from "@/lib/shared/person-rules"
+import { stubServerEnv, testEnv } from "@/test/env-fixture"
+import { server, trackAllRequests } from "@/test/msw-server"
+import { makeSession, NOW } from "@/test/session-fixture"
+import { DEMO } from "@/test/upstream-fixture"
+import { createProxyHandler } from "../handler"
 import { buildUpstreamQuery, matchEntry } from "../match"
 import { BIOLOGICAL_GENDERS, entries, ETHNICITIES, RACES, SIGNATURE_MAX_BYTES, userEditBodySchema } from "./personal"
 
@@ -10,10 +19,18 @@ describe("PUT v2/user/edit entry", () => {
     expect(entries.map((e) => `${e.method} ${e.template}`)).toEqual([
       "PUT v2/user/edit",
       "POST v2/health/type/Person/{personId}/relation/PersonHasSignatureFile/file/upload",
-      "POST v2/file/{fileId}/version",
       "GET v2/type/key/Person",
+      "GET v2/person/{personId}/ssn/expose",
     ])
     expect(entries.every((e) => e.profile === undefined)).toBe(true)
+  })
+})
+
+describe("Person enums: the client's accepted-value copies (Story 2.2)", () => {
+  it("lib/shared/person-options equals RACES, ETHNICITIES and BIOLOGICAL_GENDERS, so no picker value is a 400", () => {
+    expect(PERSON_RACE_VALUES).toEqual(RACES)
+    expect(PERSON_ETHNICITY_VALUES).toEqual(ETHNICITIES)
+    expect(PERSON_BIOLOGICAL_GENDER_VALUES).toEqual(BIOLOGICAL_GENDERS)
   })
 })
 
@@ -25,19 +42,135 @@ describe("Signature upload entries (Story 2.4, AD-13)", () => {
     const match = matchEntry(entries, "POST", seg("v2/health/type/Person/me/relation/PersonHasSignatureFile/file/upload"))
     if (match.kind !== "matched") throw new Error("expected a match")
     expect(match.entry).toMatchObject({ upload: { part: "file", types: ["png"] }, maxBytes: SIGNATURE_MAX_BYTES })
+    // Pinned to the client's re-encode limit: `SIGNATURE_MAX_BYTES` in features/personal/signature-file.ts (its test pins 1024 * 1024 too).
     expect(SIGNATURE_MAX_BYTES).toBe(1024 * 1024)
     expect(buildUpstreamQuery(match.entry, q("isPublic=true"))?.toString()).toBe("isPublic=false")
     expect(buildUpstreamQuery(match.entry, q("fileName=x.png"))).toBeNull()
     expect(matchEntry(entries, "POST", seg("v2/health/type/Person/4242/relation/PersonHasSignatureFile/file/upload")).kind).toBe("not-allowed")
   })
 
-  it("new version: numeric id, current=true forced, no client query, one PNG `fileNewVersion` part, 1 MB", () => {
-    const match = matchEntry(entries, "POST", seg("v2/file/77/version"))
+  it("no new-version entry: POST v2/file/{fileId}/version is not allowlisted (human decision 2026-10-16)", () => {
+    expect(entries.some((e) => e.template === "v2/file/{fileId}/version")).toBe(false)
+    expect(entries.some((e) => e.upload?.part === "fileNewVersion")).toBe(false)
+    expect(matchEntry(entries, "POST", seg("v2/file/41/version")).kind).toBe("not-allowed")
+  })
+})
+
+describe("SSN expose entry (Story 2.3)", () => {
+  const seg = (path: string) => path.split("/")
+  const q = (query: string) => new URLSearchParams(query)
+
+  it("owner me only, GET only, no query, no body, nothing forced", () => {
+    const match = matchEntry(entries, "GET", seg("v2/person/me/ssn/expose"))
     if (match.kind !== "matched") throw new Error("expected a match")
-    expect(match.entry).toMatchObject({ upload: { part: "fileNewVersion", types: ["png"] }, maxBytes: SIGNATURE_MAX_BYTES })
-    expect(buildUpstreamQuery(match.entry, q("current=false"))?.toString()).toBe("current=true")
-    expect(buildUpstreamQuery(match.entry, q("versionName=x"))).toBeNull()
-    expect(matchEntry(entries, "POST", seg("v2/file/me/version")).kind).toBe("not-allowed")
+    expect(match.entry).toEqual({ method: "GET", template: "v2/person/{personId}/ssn/expose" })
+    expect(buildUpstreamQuery(match.entry, q(""))?.toString()).toBe("")
+    expect(buildUpstreamQuery(match.entry, q("x=1"))).toBeNull()
+    expect(matchEntry(entries, "GET", seg("v2/person/4242/ssn/expose")).kind).toBe("not-allowed")
+    expect(matchEntry(entries, "POST", seg("v2/person/me/ssn/expose")).kind).toBe("method-not-allowed")
+  })
+})
+
+/**
+ * The real expose entry through the real proxy handler (shipped allowlist):
+ * own person id upstream, no-store on every answer (human, 2026-10-16) and
+ * an AD-15 log line (method, template, status, duration, request id only).
+ */
+describe("SSN expose through the proxy (Story 2.3)", () => {
+  const SSN = "123456789"
+  const PERSON_ID = 98765
+  const proxy = createProxyHandler({ env: testEnv(), now: () => NOW })
+
+  async function get(path: string): Promise<Response> {
+    const cookie = `${SESSION_COOKIE}=${await sealSession(makeSession({ personId: PERSON_ID }))}`
+    return proxy(new Request(`http://localhost:3000/api/1h/${path}`, { headers: { cookie } }))
+  }
+
+  /** Runs `run`, returning the log lines written meanwhile. */
+  async function captureLog(run: () => Promise<void>): Promise<string[]> {
+    const lines: string[] = []
+    const push = (line: string) => void lines.push(line)
+    const restore = setLogSink({ info: push, warn: push, error: push })
+    try {
+      await run()
+    } finally {
+      restore()
+    }
+    return lines
+  }
+
+  function expectNoStore(response: Response): void {
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0")
+    expect(response.headers.get("Pragma")).toBe("no-cache")
+  }
+
+  beforeEach(() => stubServerEnv())
+
+  it("me → upstream /v2/person/{session personId}/ssn/expose; the 200 with the SSN is no-store; the log line has no id, body or SSN", async () => {
+    let upstreamPath = ""
+    server.use(
+      http.get(`${DEMO.apiBase}/v2/person/:id/ssn/expose`, ({ request }) => {
+        upstreamPath = new URL(request.url).pathname
+        return HttpResponse.json({ id: PERSON_ID, socialSecurityNumber: SSN })
+      }),
+    )
+    let response: Response | undefined
+    const lines = await captureLog(async () => {
+      response = await get("v2/person/me/ssn/expose")
+    })
+    if (!response) throw new Error("no response")
+    expect(upstreamPath).toBe(`/api/v2/person/${PERSON_ID}/ssn/expose`)
+    expect(response.status).toBe(200)
+    expectNoStore(response)
+    expect(await response.json()).toEqual({ id: PERSON_ID, socialSecurityNumber: SSN })
+
+    expect(lines).toHaveLength(1)
+    const line = JSON.parse(lines[0]) as Record<string, unknown>
+    expect(Object.keys(line).toSorted()).toEqual(["durationMs", "kind", "method", "requestId", "routeTemplate", "status"])
+    expect(line).toMatchObject({ kind: "request", method: "GET", routeTemplate: "/v2/person/{personId}/ssn/expose", status: 200 })
+    // The random request id (a UUID) can hold an SSN-shaped run of digits: check the line without it.
+    const withoutRequestId = lines[0].replace(String(line.requestId), "")
+    expect(withoutRequestId).not.toContain(String(PERSON_ID))
+    expect(withoutRequestId).not.toContain(SSN)
+    expect(withoutRequestId).not.toMatch(/socialSecurityNumber|\d{3}-?\d{2}-?\d{4}/)
+  })
+
+  it.each([
+    ["a numeric person id", "v2/person/4242/ssn/expose", 403, "NOT_ALLOWED"],
+    ["a query", "v2/person/me/ssn/expose?x=1", 400, "BAD_QUERY"],
+  ])("%s is refused before upstream (%i %s), no-store", async (_name, path, status, errorCode) => {
+    const upstreamCalls = trackAllRequests()
+    let response: Response | undefined
+    const lines = await captureLog(async () => {
+      response = await get(path)
+    })
+    if (!response) throw new Error("no response")
+    expect(response.status).toBe(status)
+    expect(await response.json()).toEqual({ errorCode, source: "proxy" })
+    expectNoStore(response)
+    expect(upstreamCalls()).toBe(0)
+    for (const line of lines) {
+      expect(line).not.toContain("4242")
+      expect(line).not.toContain(String(PERSON_ID))
+    }
+  })
+})
+
+/** Story 2.4: a Signature replace is upload + ownership-checked delete; the version endpoint is gone (human, 2026-10-16). */
+describe("POST v2/file/{fileId}/version through the proxy (Story 2.4)", () => {
+  const proxy = createProxyHandler({ env: testEnv(), now: () => NOW })
+
+  beforeEach(() => stubServerEnv())
+
+  it("is refused before upstream: 403 NOT_ALLOWED", async () => {
+    const upstreamCalls = trackAllRequests()
+    const cookie = `${SESSION_COOKIE}=${await sealSession(makeSession())}`
+    const body = new FormData()
+    body.append("fileNewVersion", new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], { type: "image/png" }), "signature.png")
+    const response = await proxy(new Request("http://localhost:3000/api/1h/v2/file/41/version", { method: "POST", headers: { cookie }, body }))
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({ errorCode: "NOT_ALLOWED", source: "proxy" })
+    expect(upstreamCalls()).toBe(0)
   })
 })
 
