@@ -76,6 +76,10 @@
   summary: (Foundation follow-up from Team B validation) The previously recorded DisabledAction Escape tooltip flake also occurred on desktop during the complete 7.2 e2e run; diagnose independently in a foundation PR.
   evidence: `corepack pnpm exec playwright test --workers=4` → 411 passed, 6 skipped, 1 failed in e2e/primitives.spec.ts:75 on desktop; after Escape, getByRole('tooltip') had count 1 instead of 0. The trace was retained by Playwright. Story 7.2 changes neither the primitive test nor Tooltip/DisabledAction; the focused rerun of primitives plus Account passed (53 passed, 3 mobile-only skips on desktop).
 
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-2-account-hardening.md`
+  summary: (Blocking foundation dependency for Team B) Integrate `feat/NG-9031-foundation-tab-focus` before closing 7.2: keyboard-focused tabs stay clipped until activation on a 360 px strip.
+  evidence: Approved review action R6 reproduces failures in both mobile themes on the unchanged story branch. The isolated main-based foundation commit `0602f9e41d54d643030814a561ae95f490444ca1` reuses strip-local scrolling on focus capture, with a red/green regression for Profile and Account. With the current story consumer test temporarily overlaid, 180 Account/shell e2e passed (4 viewport skips); the foundation branch's full unit suite passed 3,564 tests with 100% enforced coverage. Per T2, review/merge that separate foundation PR first; no story runtime edits or remote push/merge were made.
+
 ## Foundation (shared or cross-team)
 
 - source_spec: none (D18 optional dev environment, 2026-10-15)

@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright"
-import { expect, type APIResponse, type Locator, type Page } from "@playwright/test"
+import { expect, type APIRequestContext, type APIResponse, type Locator, type Page } from "@playwright/test"
 import { computeCacheBustingSearchParam } from "next/dist/shared/lib/router/utils/cache-busting-search-param"
 import { ACCOUNT_DISABLED_URL } from "./server-env"
 import { expectHeaderTabOrder, mockAccountDefaults, mockContacts, mockMyself, PORTAL_URL, setTheme, signIn, test } from "./fixtures"
@@ -56,7 +56,10 @@ async function expectFocusRing(target: Locator): Promise<void> {
     const outline = parseFloat(style.outlineWidth) >= 2 && style.outlineStyle !== "none" && !transparent.test(style.outlineColor)
     // Split at commas outside color functions. Transparent Tailwind shadow
     // placeholders and a decorative shadow do not prove a visible 2 px ring.
-    const ring = style.boxShadow.split(/,(?![^(]*\))/).some((shadow) => shadow.includes("2px") && !transparent.test(shadow))
+    const ring = style.boxShadow.split(/,(?![^(]*\))/).some((shadow) => {
+      const lengths = shadow.match(/-?\d*\.?\d+px/g)?.map(parseFloat)
+      return lengths?.length === 4 && lengths[0] === 0 && lengths[1] === 0 && lengths[2] === 0 && lengths[3] >= 2 && !transparent.test(shadow)
+    })
     return element.matches(":focus-visible") && (outline || ring)
   }), "visible keyboard focus ring").toBe(true)
 }
@@ -69,6 +72,43 @@ async function expectTabRevealed(tab: Locator): Promise<void> {
     const visible = Math.min(target.right, viewport.right) - Math.max(target.left, viewport.left)
     return visible >= Math.min(target.width, viewport.width) - 1
   }), { message: "selected tab uses all available visible width inside its strip" }).toBe(true)
+}
+
+/** Match Next's RSC discriminator to a valid Flight state on every request. */
+async function requestRsc(request: APIRequestContext, path: string, prefetch: "1" | undefined, extraHeaders: Record<string, string> = {}): Promise<APIResponse> {
+  const tree = encodeURIComponent(JSON.stringify(["", {}]))
+  const rsc = await computeCacheBustingSearchParam(prefetch, undefined, tree, undefined)
+  return request.get(`${path}?_rsc=${rsc}`, {
+    headers: { ...extraHeaders, RSC: "1", "Next-Router-State-Tree": tree, ...(prefetch ? { "Next-Router-Prefetch": prefetch } : {}) },
+    maxRedirects: 0,
+  })
+}
+
+function expectNoFlightFailure(payload: string): void {
+  expect(payload).not.toContain("NEXT_REDIRECT")
+  expect(payload).not.toMatch(/(?:^|\n)[\da-f]+:E\{/)
+}
+
+/** Without a loading boundary, dynamic prefetch stops at route metadata. */
+function expectRoutePrefetch(payload: string, path: string): void {
+  expectNoFlightFailure(payload)
+  expect(payload).toContain('"s":"__PAGE__"')
+  if (path === "/account") expect(payload).toContain('"s":"account"')
+  expect(payload).not.toContain('"page":"account"')
+  expect(payload).not.toContain('"page":"profile"')
+  expect(payload).not.toContain('"portalUrl":')
+  expect(payload).not.toContain('"idle":')
+}
+
+async function expectRscAuthRedirect(response: APIResponse): Promise<void> {
+  expect(response.status()).toBe(200)
+  expectHardened(response.headers())
+  expect(response.headers()["content-type"]).toContain("text/x-component")
+  const payload = await response.text()
+  expect(payload).toContain('"digest":"NEXT_REDIRECT;replace;/auth;307;"')
+  expect(payload).not.toContain('"page":"account"')
+  expect(payload).not.toContain('"page":"profile"')
+  expect(payload).not.toContain('"portalUrl":')
 }
 
 test.describe("Account security and caching (Story 7.2)", () => {
@@ -91,7 +131,7 @@ test.describe("Account security and caching (Story 7.2)", () => {
       maxRedirects: 0,
     })
     expect(response.status()).toBe(307)
-    expect(new URL(response.headers().location, response.url()).pathname).toBe("/auth")
+    expect(new URL(response.headers().location, response.url()).href).toBe(new URL("/auth", response.url()).href)
     expectHardened(response.headers())
     expect(response.headers().vary).toMatch(/(^|,\s*)Cookie(,|$)/i)
   })
@@ -127,12 +167,7 @@ test.describe("Account security and caching (Story 7.2)", () => {
     for (const prefetch of [undefined, "1"] as const) {
       test(`${path}: signed-in RSC ${prefetch ? "prefetch" : "navigation"} is private and never cached`, async ({ page }) => {
         await signIn(page)
-        const tree = encodeURIComponent(JSON.stringify(["", {}]))
-        const rsc = await computeCacheBustingSearchParam(prefetch, undefined, tree, undefined)
-        const response = await page.request.get(`${path}?_rsc=${rsc}`, {
-          headers: { RSC: "1", "Next-Router-State-Tree": tree, ...(prefetch ? { "Next-Router-Prefetch": prefetch } : {}) },
-          maxRedirects: 0,
-        })
+        const response = await requestRsc(page.request, path, prefetch)
         // The enduring handoff contract also accepts 7.3's safe fallback 303;
         // until that route lands, Next's missing-route RSC is a hardened 404.
         if (path === "/handoff/portal") expect([303, 404]).toContain(response.status())
@@ -143,8 +178,41 @@ test.describe("Account security and caching (Story 7.2)", () => {
         } else {
           expect(response.headers()["content-type"]).toContain("text/x-component")
           expect(response.headers().vary.toLowerCase()).toContain("rsc")
+          const payload = await response.text()
+          if (path !== "/handoff/portal") {
+            if (prefetch) {
+              expectRoutePrefetch(payload, path)
+            } else {
+              expectNoFlightFailure(payload)
+              expect(payload).toContain(`"page":"${path === "/account" ? "account" : "profile"}"`)
+              expect(payload).toContain(`"defaultTab":"${path === "/account" ? "personal" : "contacts"}"`)
+              expect(payload).toContain(`"label":"${path === "/account" ? "Personal Account" : "Contacts"}"`)
+            }
+          }
         }
       })
+    }
+  }
+
+  for (const path of ["/", "/account"]) {
+    for (const session of ["absent", "invalid"] as const) {
+      for (const prefetch of [undefined, "1"] as const) {
+        test(`${path}: ${session} session on RSC ${prefetch ? "prefetch then navigation" : "navigation"} stays private and requires auth`, async ({ request }) => {
+          const headers: Record<string, string> = session === "invalid" ? { cookie: "__Host-pp_s=expired" } : {}
+          const response = await requestRsc(request, path, prefetch, headers)
+          if (prefetch) {
+            expect(response.status()).toBe(200)
+            expectHardened(response.headers())
+            expect(response.headers()["content-type"]).toContain("text/x-component")
+            expectRoutePrefetch(await response.text(), path)
+            // Prefetch skips the dynamic page; the actual navigation must
+            // still execute requirePageSession and return its auth redirect.
+            await expectRscAuthRedirect(await requestRsc(request, path, undefined, headers))
+          } else {
+            await expectRscAuthRedirect(response)
+          }
+        })
+      }
     }
   }
 })
@@ -162,6 +230,21 @@ test.describe("Account emergency switch (Story 7.2)", () => {
       expect(await response.text()).toContain("Personal Profile is unavailable right now")
     }
   })
+
+  for (const path of ["/account", "/handoff/portal"]) {
+    for (const prefetch of [undefined, "1"] as const) {
+      test(`${path}: Account-disabled RSC ${prefetch ? "prefetch" : "navigation"} answers a hardened 503 before auth`, async ({ request }) => {
+        const response = await requestRsc(request, path, prefetch)
+        expect(response.status()).toBe(503)
+        expectHardened(response.headers())
+        expect(response.headers()["content-type"]).toContain("text/html")
+        expect(response.headers()["retry-after"]).toBe("300")
+        expect(response.headers().vary).toMatch(/(^|,\s*)Cookie(,|$)/i)
+        expect(response.headers().location).toBeUndefined()
+        expect(await response.text()).toContain("Personal Profile is unavailable right now")
+      })
+    }
+  }
 })
 
 test.describe("Account mobile and keyboard (Story 7.2)", () => {
@@ -224,6 +307,7 @@ test.describe("Account mobile and keyboard (Story 7.2)", () => {
         await page.keyboard.press(key)
         const focused = page.getByRole("tab", { name: label, exact: true })
         await expectFocusRing(focused)
+        await expectTabRevealed(focused)
         expect(page.url()).toBe(before)
         await page.keyboard.press(activation)
         await expect(page).toHaveURL(new RegExp(`/account\\?tab=${tab}$`))
@@ -264,10 +348,13 @@ test.describe("Account read failures (Story 7.2)", () => {
         await expect(retry).toHaveCount(0)
       } else {
         await expectTouchTarget(retry)
-        await retry.focus()
-        await page.keyboard.press("Tab")
-        await page.keyboard.press("Shift+Tab")
-        await expectFocusRing(retry)
+        for (const theme of ["light", "dark"] as const) {
+          await setTheme(page, theme)
+          await retry.focus()
+          await page.keyboard.press("Tab")
+          await page.keyboard.press("Shift+Tab")
+          await expectFocusRing(retry)
+        }
         const recovered = await mockMyself(page)
         await page.keyboard.press("Enter")
         await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()

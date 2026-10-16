@@ -2,7 +2,7 @@
 title: 'Story 7.2 Account hardening — proxy contracts, headers, mobile and accessibility'
 type: 'chore'
 created: '2026-10-16'
-status: 'done'
+status: 'in-progress'
 route: 'oneshot'
 baseline_commit: '3cddb3c1c92fadfe6da391802eff143f8e133c8e'
 story_key: '7-2-account-page-hardening-denies-kill-switch-headers-mobile-and-a'
@@ -67,3 +67,57 @@ Blind hunter ran context-free using the inherited model; its finding floor was s
 | Missing proxy-originated 403 distinction | medium: proxy denial must show generic Retry, not no-access | Patched with proxy 403 → generic error → keyboard Retry → successful identity read, with axe in both themes. |
 | Inherited 1.5 s first-tab target is not measured | low, pre-existing: 7.2 acceptance contains no timing clause and real content is still absent | Deferred explicitly to real-read work starting 7.4; no hollow skeleton timing assertion. |
 | Handoff test would freeze the not-yet-built route at 404 | low: a legitimate 7.3 303 would break the consumer | Patched: preserve hardened RSC 404 today and allow only a safe environment portal-root 303 when the route lands. |
+
+### Review Findings — bmad-code-review (2026-10-16)
+
+Full review of the Story 7.2 branch against `baseline_commit`, including all six changed files (453 insertions, 31 deletions). All four configured layers completed at the inherited model capability: blind-hunter, edge-case-hunter, verification-gap and acceptance-auditor. Verification Gap reported no gaps under its evidence rules; Acceptance Auditor reported no actionable acceptance violations. The other two layers filed twelve findings, triaged individually below before grouping. No production defect was identified by this review; the actionable findings strengthen the new tests.
+
+Summary: **0 decision-needed, 7 patch groups, 0 deferred, 3 rejected individual findings**. Two pairs of surviving findings share a root cause. The user subsequently chose **Apply every patch**. All seven test changes are implemented; R6 exposed the shared keyboard-focus bug documented below. Prior build/test results above remain historical validation of the original commit.
+
+#### Patch actions
+
+- [x] [Review][Patch][P2] R1 — Reject streamed redirects/errors and assert expected route content in signed-in RSC payloads. `e2e/account-hardening.spec.ts:139` (B5 + E3). Current status/MIME/header checks accept an authentication Flight response. Reproduced against the built app with dummy test env: absent and invalid sessions both returned 200, `text/x-component`, private/no-store, and a `NEXT_REDIRECT` digest pointing to `/auth`. Read the payload and verify authenticated route content in addition to headers.
+- [x] [Review][Patch][P2] R2 — Verify actual focus-ring geometry rather than any opaque shadow containing `2px`. `e2e/account-hardening.spec.ts:59` (B1 + E1). The current expression accepts `rgb(0, 0, 0) 0px 2px 4px 0px`, an offset decorative drop shadow, as a ring. Require zero-offset/zero-blur surrounding geometry and positive opacity for the shadow branch. Preserve the intentionally inset tab ring; do not impose an outer offset on that control.
+- [x] [Review][Patch][P2] R3 — Cover missing-cookie and invalid-session RSC navigation/prefetch security and cache responses. `e2e/account-hardening.spec.ts:125` (B6). The existing malformed-cookie test exercises the HTML navigation interceptor; the RSC test matrix always signs in. Reproduction confirms the actual RSC authentication response is a streamed 200, so add precise redirect-payload assertions with AD-18/AD-21 checks rather than assuming an HTTP 307.
+- [x] [Review][Patch][P2] R4 — Exercise Account's independent emergency flag on valid RSC navigation and prefetch to Account and handoff. `e2e/account-hardening.spec.ts:155` (B7). Existing e2e RSC switch rows are under `PP_DISABLED`; Account-flag rows and new all-tab rows send HTML requests. Add Account-flag RSC/prefetch requests with the valid Flight tuple and assert hardened 503 responses before authentication. Existing foundation code stays unchanged.
+- [x] [Review][Patch][P2] R5 — Check Retry keyboard focus in both themes. `e2e/account-hardening.spec.ts:261` (B4). `expectAxeAndLayout` ends in dark mode and only then focuses Retry. Light mode gets axe coverage but no Retry focus-indicator assertion. Exercise the existing Retry focus check in light and dark without changing the mapper or UI.
+- [x] [Review][Patch][P3] R6 — Assert focused tab visibility before Enter/Space as well as after activation. `e2e/account-hardening.spec.ts:225` (B3). Current focus/ring assertions do not measure clipping inside the strip until after selection changes. Reuse `expectTabRevealed` immediately after each focus-moving key; no new helper or runtime behavior is necessary.
+- [x] [Review][Patch][P3] R7 — Compare the complete same-origin authentication redirect URL. `e2e/account-hardening.spec.ts:94` (E2). The pathname-only assertion also accepts `https://example.invalid/auth` (reproduced with the exact predicate). Compare the resolved href to the response origin's `/auth`, including query/fragment expectations. This is a test false positive, not an observed open redirect in the app.
+
+#### Individual verdicts and evidence
+
+| ID | Source | Verdict | Evidence / disposition |
+|---|---|---|---|
+| B1 | blind-hunter | medium | Decorative shadow predicate reproduced true; patch R2. The suggested universal outer offset is inapplicable to the documented inset tab ring. |
+| B2 | blind-hunter | false | The alleged independent tab/panel activation cannot occur with the reviewed composition: `PageTabs.current` derives from URL search params and controls `<Tabs value={current}>`; the visible panel and `aria-selected` have no independent active state. Rejected rather than adding a speculative implementation guard. |
+| B3 | blind-hunter | low | Focused strip visibility is asserted only after activation; the direct existing-helper assertion closes it. Patch R6. |
+| B4 | blind-hunter | medium | `expectAxeAndLayout` leaves dark selected, so subsequent Retry focus runs only in dark. Patch R5. |
+| B5 | blind-hunter | medium | Built-app reproduction returned a 200 RSC auth-redirect payload satisfying the current structural checks. Patch R1. |
+| B6 | blind-hunter | medium | RSC matrix always calls `signIn`; malformed-cookie coverage sends navigation fetch mode rather than RSC. Patch R3. |
+| B7 | blind-hunter | medium | Browser RSC switch coverage is under PP_DISABLED, while Account-disabled requests lack RSC/prefetch headers. Root unit tests do not replace that end-to-end response check. Patch R4. |
+| B8 | blind-hunter | low | Disable rules are covered in `deny-list.test.ts`; handler deny-before-allowlist precedence is exercised by the shared handler suite and six new consumer rows. Original 7.2's specified deny matrix has no disable rows. Adding another cross-product is a low-value expansion, not worth extra cases for this review. Rejected. |
+| E1 | edge-case-hunter | medium | Same reproduced decorative-shadow false positive as B1; grouped in R2, individual verdict retained. |
+| E2 | edge-case-hunter | low | Complete external URL with `/auth` pathname passes the current assertion. One direct comparison corrects it; patch R7. |
+| E3 | edge-case-hunter | medium | Same reproduced streamed RSC auth redirect as B5; grouped in R1, individual verdict retained. |
+| E4 | edge-case-hunter | false | Same controlled URL-derived selected value and panel as B2; no independent activation state exists in the reviewed page. Rejected. |
+
+#### Rejected
+
+- B2 — false: selected tab and visible panel are controlled by the same URL-derived `current`; the proposed independently activated state is not present in this code.
+- E4 — false: same controlled-state evidence as B2, independently checked against `features/shell/page-tabs.tsx` and `components/ui/tabs.tsx`.
+- B8 — low: explicit disable rules already have foundation coverage; adding additional consumer deny variants beyond Story 7.2's matrix is not worth expanding this patch set.
+
+
+#### Approved patch implementation and integration dependency
+
+- The user approved all seven patches. Changes remain in Team B's `e2e/account-hardening.spec.ts`; previously rejected findings and existing deferred items are unchanged.
+- R1/R3: production inspection showed that Next 16 dynamic prefetch, without a loading boundary, returns only route metadata and never executes `requirePageSession`. Signed-in navigation now asserts page/default-tab/label content and rejects Flight errors/redirects; prefetch asserts route-only metadata without protected page props. Missing/invalid-cookie prefetch is followed by navigation that must emit the exact `/auth` redirect digest, with security/cache headers on both responses. This verifies actual framework behavior rather than inventing a prefetch auth redirect.
+- R2/R5/R7: the focus helper now requires zero x/y offsets, zero blur, at least 2 px spread and visible color; Retry keyboard focus is checked in both themes; the HTML auth redirect compares the entire resolved same-origin URL.
+- R4: valid Account-disabled RSC navigation/prefetch cases cover `/account` and `/handoff/portal`, asserting hardened HTML 503, Retry-After, Cookie variability and no redirect.
+- R6: focused-strip visibility is asserted immediately after each focus-moving key, before activation. On the unchanged foundation, the new suite has **61 passed, 3 viewport skips, 2 failed**, both mobile keyboard tests. The test remains strict; it was not skipped or weakened.
+- New integration blocker: shared `PageTabs` only scrolls its selected trigger. Radix focus movement uses preventScroll, so a newly focused tab can remain clipped until activation. A standalone foundation fix and two-preset regression are prepared on `feat/NG-9031-foundation-tab-focus`, based on main, in `.claude/worktrees/foundation-tab-focus`. Its proposal is `_bmad-output/implementation-artifacts/spec-ng-9031-foundation-tab-focus.md` in that worktree. The regression was red on both pages before the fix and the 57 related unit tests passed afterward; independent review found no actionable issue.
+- Under FOUNDATION §1 T2, the shared fix must be reviewed and merged separately before 7.2 consumes it. Story 7.2 therefore remains **in-progress** until that dependency is integrated; checking off an applied review action does not claim the current story branch is green. No runtime foundation edit was added to the story branch.
+- Final combined browser validation in the isolated foundation worktree: `PP_E2E_PORT=3133 corepack pnpm exec playwright test e2e/account-hardening.spec.ts e2e/account-page.spec.ts e2e/shell.spec.ts --workers=2` → **180 passed, 4 viewport skips**, no retries. The temporarily copied story consumer test was removed before the foundation commit. Thus all approved test assertions pass with the proposed dependency; the original story branch still correctly fails the two R6 cases until integration.
+- Foundation full-unit validation: **164 files / 3,564 tests passed**, all four enforced server/API/shared coverage metrics **100%**; this main-based branch excludes the 21 new Story 7.2 proxy cases. The targeted shell regression and composition run passed **57 tests**. Lint, typecheck, forbidden/token and whitespace gates passed. These results are not mislabeled as a green standalone story run.
+- Foundation fix is saved in commit `0602f9e41d54d643030814a561ae95f490444ca1` on `feat/NG-9031-foundation-tab-focus`; its worktree is clean. Independent review confirmed strip-local scrolling, unchanged manual selection/navigation/public API, and regression coverage for both presets.
+- Review outcome after the user's action choice: **7 patches applied**, **3 original findings rejected**, **1 new foundation integration blocker** (focused-tab clipping, discovered by the stronger R6 test). The new blocker is recorded in Team B deferred work. No patch/defer decisions are being silently overridden; shared code remains in a standalone foundation branch. No push or merge has been performed.
