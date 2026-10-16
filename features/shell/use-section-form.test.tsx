@@ -7,7 +7,7 @@ import { stubViewport } from "@/test/media"
 import { FIXTURE_BASELINE, FixtureSection, type FixtureSectionProps } from "./__fixtures__/fixture-section"
 import { fixtureSectionSchema, type FixtureSectionValues } from "./__fixtures__/schema"
 import { z } from "zod"
-import { CONTACT_MESSAGES } from "@/lib/shared/messages"
+import { CONTACT_MESSAGES, PERSON_MESSAGES } from "@/lib/shared/messages"
 import type { SaveResult } from "./nav-types"
 import { SectionFooter } from "./section-footer"
 import { SectionHeader } from "./section-header"
@@ -800,5 +800,143 @@ describe("F4 draft signals", () => {
     await act(async () => fireEvent.click(button("Save")))
     expect(observed).toEqual(["discarded", "discarded", "saved"])
     expect(section()).toMatchObject({ isDirty: false, userChanged: false })
+  })
+})
+
+describe("control(name): non-native controls", () => {
+  const choiceSchema = z.object({ note: z.string(), choice: z.string().min(1, { message: CONTACT_MESSAGES.phoneTenDigits }) })
+  type ChoiceValues = z.infer<typeof choiceSchema>
+  const CHOICE_BASELINE: ChoiceValues = { note: "", choice: "a" }
+
+  /** A Section whose `choice` is a native `<select>` driven only through `control()` (no `register`). */
+  function ChoiceSection({ save = async () => OK, showChoice = true }: { readonly save?: (values: ChoiceValues) => Promise<SaveResult>; readonly showChoice?: boolean }) {
+    const current = useSectionRegistry()
+    const section = useSectionForm<ChoiceValues>({
+      id: "phone",
+      label: "Phone",
+      displayOrder: 2,
+      schema: choiceSchema,
+      baseline: CHOICE_BASELINE,
+      save,
+      errorFields: { ssn: "choice" },
+      draftFields: ["note", "choice"],
+      describeDraftDiff: () => [],
+    })
+    useEffect(() => {
+      registry = current
+    })
+    const { ref: choiceRef, ...choice } = section.control("choice")
+    return (
+      <>
+        <button type="button" onClick={() => section.startEdit()}>
+          Edit
+        </button>
+        <button type="button" onClick={() => section.form.setValue("choice", "b", { shouldDirty: true })}>
+          Preset
+        </button>
+        {section.isEditing ? (
+          <>
+            <input aria-label="Note" {...section.field("note")} />
+            {showChoice ? (
+              <select
+                aria-label="Choice"
+                name={choice.name}
+                ref={choiceRef}
+                value={choice.value}
+                data-readonly={choice.readOnly ? "true" : undefined}
+                onChange={(event) => choice.onChange(event.target.value)}
+                onBlur={choice.onBlur}
+              >
+                <option value="">None</option>
+                <option value="a">A</option>
+                <option value="b">B</option>
+              </select>
+            ) : null}
+            <p data-testid="choice-error">{section.errorFor("choice") ?? ""}</p>
+            <SectionFooter {...section.footerProps} />
+          </>
+        ) : null}
+      </>
+    )
+  }
+
+  function renderChoice(props: Parameters<typeof ChoiceSection>[0] = {}) {
+    const view = render(
+      <SectionRegistryProvider>
+        <ChoiceSection {...props} />
+      </SectionRegistryProvider>,
+    )
+    return {
+      ...view,
+      rerender: (next: Parameters<typeof ChoiceSection>[0]) =>
+        view.rerender(
+          <SectionRegistryProvider>
+            <ChoiceSection {...next} />
+          </SectionRegistryProvider>,
+        ),
+    }
+  }
+  const choice = () => screen.getByRole("combobox", { name: "Choice" }) as HTMLSelectElement
+  const entry = () => registry?.getAll()[0]
+
+  it("shows the form value; onChange is the user's change (dirty, drafted); a setValue preset is not; Cancel resets it", async () => {
+    renderChoice()
+    await edit()
+    expect(choice().value).toBe("a")
+    await act(async () => fireEvent.click(button("Preset")))
+    expect(choice().value).toBe("b")
+    expect(entry()).toMatchObject({ isDirty: true, userChanged: false })
+    await act(async () => fireEvent.change(choice(), { target: { value: "a" } }))
+    await act(async () => fireEvent.change(choice(), { target: { value: "" } }))
+    expect(entry()).toMatchObject({ isDirty: true, userChanged: true })
+    expect(entry()?.getDraftValues?.()).toEqual({ note: "", choice: "" })
+    await act(async () => fireEvent.click(button("Cancel")))
+    await edit()
+    expect(choice().value).toBe("a")
+  })
+
+  it("onBlur validates (onBlur mode, like field()): the error shows and clears on blur", async () => {
+    renderChoice()
+    await edit()
+    await act(async () => fireEvent.change(choice(), { target: { value: "" } }))
+    expect(screen.getByTestId("choice-error").textContent).toBe("")
+    await act(async () => fireEvent.blur(choice()))
+    await waitFor(() => expect(screen.getByTestId("choice-error").textContent).toBe(CONTACT_MESSAGES.phoneTenDigits))
+    await act(async () => fireEvent.change(choice(), { target: { value: "b" } }))
+    await act(async () => fireEvent.blur(choice()))
+    await waitFor(() => expect(screen.getByTestId("choice-error").textContent).toBe(""))
+  })
+
+  it("Save with the control invalid sends nothing and focuses the control itself, not a Section error", async () => {
+    const send = vi.fn(async () => OK)
+    renderChoice({ save: send })
+    await edit()
+    await act(async () => fireEvent.change(choice(), { target: { value: "" } }))
+    await save()
+    expect(send).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(choice())
+    expect(document.querySelector("[data-slot~='inline-banner']")).toBeNull()
+  })
+
+  it("is readOnly while saving; a mapped server field error lands on the control and focuses it", async () => {
+    let resolve: (result: SaveResult) => void = () => undefined
+    renderChoice({ save: () => new Promise<SaveResult>((done) => (resolve = done)) })
+    await edit()
+    await act(async () => fireEvent.change(choice(), { target: { value: "b" } }))
+    await save()
+    expect(choice().dataset.readonly).toBe("true")
+    await act(async () => resolve({ ok: false, error: { code: "FIELD", mapped: { kind: "field", field: "ssn", messageKey: "person.ssnTaken" } } }))
+    expect(choice().dataset.readonly).toBeUndefined()
+    expect(screen.getByTestId("choice-error").textContent).toBe(PERSON_MESSAGES.ssnTaken)
+    expect(document.activeElement).toBe(choice())
+  })
+
+  it("an unmounted control leaves the focus map: its error then shows at Section level", async () => {
+    const { rerender } = renderChoice()
+    await edit()
+    await act(async () => fireEvent.change(choice(), { target: { value: "" } }))
+    rerender({ showChoice: false })
+    await save()
+    expect(document.activeElement?.closest("[data-slot~='inline-banner']")).not.toBeNull()
   })
 })

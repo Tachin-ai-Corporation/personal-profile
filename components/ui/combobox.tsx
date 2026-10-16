@@ -3,7 +3,7 @@
 import * as React from "react"
 import { AlertCircle, Check, Loader2, Search, X } from "lucide-react"
 
-import { FormField, type FormFieldProps } from "@/components/ui/form-field"
+import { FormField, type FieldControlProps, type FormFieldProps } from "@/components/ui/form-field"
 import { tabbables } from "@/components/ui/focus"
 import { LinkTextButton } from "@/components/ui/link-text-button"
 import { INPUT_STYLES } from "@/components/ui/input"
@@ -48,6 +48,20 @@ export interface ComboboxProps<T> extends UseComboboxOptions<T>, Pick<FormFieldP
    * so the form can focus the field (first invalid field, mapped errors).
    */
   readonly inputRef?: React.Ref<HTMLInputElement>
+  /**
+   * The wiring of a field whose label, help and error something else renders
+   * (e.g. a `KeyValueEditTable` row's `render(control)`). When set, the
+   * combobox renders only its input and popup with this wiring, and its own
+   * `help`, `error`, `optional`, `required`, `id`, `labelAddon` and
+   * `className` are ignored; `label` still names the listbox and the clear button.
+   */
+  readonly control?: FieldControlProps
+}
+
+/** The combobox's `FormField`, or none when the caller supplies the field wiring (`control`). */
+function ComboboxField({ control, children, ...field }: FormFieldProps & { readonly control: FieldControlProps | undefined }): React.JSX.Element {
+  if (control) return <>{children(control)}</>
+  return <FormField {...field}>{children}</FormField>
 }
 
 /** Sets a callback or object ref. */
@@ -123,6 +137,7 @@ export function Combobox<T>(props: ComboboxProps<T>): React.JSX.Element {
     highlightMatch = false,
     onBlur,
     inputRef: externalInputRef,
+    control: externalControl,
   } = props
   // A disabled input searches nothing either (pending work is cancelled, the popup closes).
   const combobox = useCombobox({ ...props, searchDisabled: props.searchDisabled === true || disabled })
@@ -210,7 +225,17 @@ export function Combobox<T>(props: ComboboxProps<T>): React.JSX.Element {
   const rowHeight = optionLayout === "two-line" ? "min-h-[52px] py-1.5" : "min-h-11 py-2"
 
   return (
-    <FormField label={label} help={help} error={error} optional={optional} required={required} id={id} labelAddon={labelAddon} className={className}>
+    <ComboboxField
+      control={externalControl}
+      label={label}
+      help={help}
+      error={error}
+      optional={optional}
+      required={required}
+      id={id}
+      labelAddon={labelAddon}
+      className={className}
+    >
       {(control) => (
         <Popover open={expanded} onOpenChange={(open) => (open ? undefined : combobox.close())}>
           <PopoverAnchor asChild>
@@ -382,6 +407,6 @@ export function Combobox<T>(props: ComboboxProps<T>): React.JSX.Element {
           </PopoverContent>
         </Popover>
       )}
-    </FormField>
+    </ComboboxField>
   )
 }

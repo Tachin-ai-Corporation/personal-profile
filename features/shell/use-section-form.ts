@@ -99,6 +99,26 @@ export interface StartEditOptions<T extends FieldValues> {
   readonly focus?: Path<T>
 }
 
+/**
+ * `control(name)`: the wiring of a non-native control (Select, DateInput,
+ * Combobox), which `field()`'s `register` can't drive: the value, a user
+ * `onChange(value)` (counts as a change for drafts), `onBlur` (validates in
+ * `onBlur` mode), and a `ref` that registers the element for focus (first
+ * invalid field, mapped errors, `startEdit({ focus })`). RHF never holds the
+ * element, so it never writes a raw value into it. Destructure the ref
+ * (`const { ref: raceRef, ...race } = section.control("race")`): the React
+ * compiler lint treats an object whose `.ref` reaches JSX as a ref.
+ */
+export interface SectionControl<V> {
+  readonly name: string
+  readonly value: V
+  readonly onChange: (value: V) => void
+  readonly onBlur: () => void
+  readonly ref: (element: HTMLElement | null) => void
+  /** `true` while saving (controls are never `disabled`). */
+  readonly readOnly: boolean
+}
+
 /** The footer wiring, spread onto `SectionFooter` (the ref lets the hook focus the Section error). */
 export type SectionFooterBindings = Omit<SectionFooterProps, "addRow" | "className"> & { readonly ref: Ref<HTMLDivElement> }
 
@@ -122,6 +142,8 @@ export interface SectionForm<T extends FieldValues> {
   readonly rebase: (next: T) => void
   /** `register(name)` plus `readOnly` while saving (inputs are never `disabled`). */
   readonly field: <N extends Path<T>>(name: N) => UseFormRegisterReturn<N> & { readonly readOnly: boolean }
+  /** The wiring of a non-native control (Select, DateInput, Combobox); see `SectionControl`. */
+  readonly control: <N extends Path<T>>(name: N) => SectionControl<PathValue<T, N>>
   /** The field's error message (catalog copy), if any. */
   readonly errorFor: (name: Path<T>) => string | undefined
   /** Spread onto the read view's "Edit" button (its id is the `edit` cancel-focus target). */
@@ -584,6 +606,21 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
           if (element) controls.current.set(name, element)
           else controls.current.delete(name)
           registered.ref(element)
+        },
+        readOnly: isSaving,
+      }
+    },
+    control: (name) => {
+      form.register(name)
+      return {
+        name,
+        value: form.getValues(name),
+        // The same synthetic events `useController` sends: a `change` is the user's (drafts), a `blur` validates.
+        onChange: (value) => void form.register(name).onChange({ target: { name, value }, type: "change" }),
+        onBlur: () => void form.register(name).onBlur({ target: { name, value: form.getValues(name) }, type: "blur" }),
+        ref: (element) => {
+          if (element) controls.current.set(name, element)
+          else controls.current.delete(name)
         },
         readOnly: isSaving,
       }
