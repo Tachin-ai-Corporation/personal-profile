@@ -4,7 +4,7 @@
 - **Branch:** `feat/NG-9027-epic1-foundation`. It was cut from `6974a8f`, which is our branch rebased onto `main` at `0819446`, after PR #3.
 - **Mode:** batch.
 - **Status:** approved by the user on 2026-10-14. Q1: (a) R1 covers 1.1 + 1.2. Q2: staged bans, each rework story bans what it removes.
-- **Scope:** moderate (backlog reorganisation, implemented by the developer). D5 point 3 still awaits the epic owner's confirmation.
+- **Scope:** moderate (backlog reorganisation, implemented by the developer). D5 point 3: the save safeguard was approved by the epic owner on 2026-10-14 (see §4.3 and the 2026-10-15 addendum, D-A).
 
 ## 1. Issue summary
 
@@ -135,6 +135,8 @@ There are no CSRF or session-binding checks: no `Sec-Fetch-Site`/`Origin` check,
 
 **Owner action:** confirm acceptance of point 3's write consequence. If it isn't acceptable, a narrow alternative is to compare the page's rendered `userId` with `/myself` before any save. That would be a separate decision; this proposal does not implement it.
 
+**Resolved (D-A, approved by the epic owner on 2026-10-14; recorded 2026-10-15):** the stale-tab write consequence is **not** accepted. The narrow save safeguard is approved. Before any save, compare the page's rendered user with a fresh `/myself`, and stop the save on a mismatch. Points 1 and 2 stay accepted under D5. Assignment and scope are in the 2026-10-15 addendum, decision D-A.
+
 ### 4.4 Stories and PRD
 
 No story text changes. The amended Epic 1 text is the source for every rework spec, and the PRD is unchanged.
@@ -165,3 +167,118 @@ No story text changes. The amended Epic 1 text is the source for every rework sp
 ## Addendum (2026-10-14): Epic 7 foundation rebased onto main
 
 `feat/NG-9019-epic-7` was rebuilt on top of this proposal's R1 (PR #4). Its specs 7.0a, 7.0b-1 and 7.0b-2 already implement what R2 (1.3–1.6 transport/proxy), R3 (1.7 logout/session) and R4 (1.8 app bar/shell) planned, under D1–D13, so those reworks are marked done in `sprint-status.yaml` and must not be built again. Where both sides had code, the Epic 7 implementation was kept (no CSRF/`X-PP-Session`/session-changed, `{errorCode, source}` bodies, exact deny list, `profile: true` + `ACCOUNT_DISABLED`, all-devices logout, `navigate()` + leave guard + Section registry, `mapApiError`, D13 tokens incl. `primary-text`). Pieces only main had — Story 1.6 idle logoff/activity, Story 1.8B Section menu/Jump to/`SectionFrame`/`select.tsx`, the disabled screen and their copy — are ported in spec 7.0c. §3's note that "7.0b waits for R3/R4" no longer applies. The prior branch is kept as `backup/NG-9019-epic-7-pre-rebase`.
+
+## Addendum (2026-10-15): replan on the standardized foundation (`main` 78647d6)
+
+- **Branch:** `feat/NG-9027-epic1-continue`, cut from `origin/main` at `78647d6`, after PRs #4–#6: foundation 7.0a–7.0c-1 and F1–F7, main-parity specs R5-1/R5-2, Story 7.1.
+- **Inputs reviewed:**
+  - `CLAUDE.md` and `AGENTS.md`;
+  - `docs/FOUNDATION.md` (team ownership T1–T8, rules R1–R11, catalog, story → foundation map);
+  - `epics.md`: D14–D17, "Foundation F6 and path corrections", and the per-story Foundation lines;
+  - the spine's open-questions update;
+  - `deferred-work.md`;
+  - the saved R2 work on `wip/NG-9027-r2-transport` (`9986a51`, on top of R1 `935f46d`).
+- **Status:** proposed. It awaits the user's review and the epic owner's answers to the decisions below. Nothing is implemented yet.
+
+### Plan item status against main
+
+| Plan item | On main | Reuse instead |
+|---|---|---|
+| R1 (1.1 + 1.2) | **Done.** Merged in PR #4, superseded by spec 7.0a; parity verified by R5-1/R5-2. `1-1r` moved from review to done. | — |
+| R2 (1.3–1.6), WIP `9986a51` | **Done; the WIP is obsolete.** Every WIP item exists on main in a different layout. Don't rebase or merge the WIP; keep the branch only as an archive. | See the R2 mapping below. |
+| R3 (1.7) | **Done** (7.0a + 7.0b-2). | `/api/session/logout` (`createLogoutHandler`, all-devices revoke), `features/shell/{navigate,leave,exit-hooks}.ts`, `SessionDialog`, `lib/shared/login-intent.ts` |
+| R4 (1.8) | **Done** (7.0b-1, 7.0b-2, F3-3, F6-1). | `AppBar`, `PageNav`, `ReturnLink`, `PageTabs` + presets, `primary-text`, AD-26 navigation lint |
+| 1.11 | **Done** (F3-2, F6-1, F6-2). | `useSectionForm`, Section chrome, `RowActions`, `RowRemoval`, `SectionTable`, `DisabledAction` |
+| 1.12 | **Partly done (code complete).** The only gap is the Playwright mapped-400 case. | `mapApiError`, `lib/api/errors/<area>.ts`, `toasts.ts`, `StateFrame`, `e2e/section.spec.ts` (foundation-owned) |
+| 1.13 | **Partly done (code complete).** Scoped `requestLeave({ scope })` was built in F7-2 with unit tests. The Playwright scoped-close and two-guard-only cases are missing. | `LeaveGuard`, `requestLeave`, `app/test-fixtures/leave-guard`, `e2e/shell.spec.ts` (foundation-owned) |
+| 1.9 | **Partly done.** The preview entry, `profilePicturePreviewPath`, `FallbackImage`, the named op and the e2e mocks are built. | `features/header`, `lib/api/profile-picture.ts`, `keys.profilePictureId`, `FallbackImage`, `initials`, `mockHeaderPicture` |
+| 1.10 | **Partly done.** The upload entry and mechanism, the delete named op, the upload-rejected codes and the Dialog are built. | `profilePictureUploadPath`, `fileDeletePath`, `isUploadRejected`, `Dialog`, busy `Button`, `toastSuccess`/`toastError` |
+| 1.14 | **Partly done.** The runner, `SAVE_ORDER` and the `SaveAllBar` stub are wired in `app/page.tsx`, and the `/account` no-Save-all tests exist. | `runSaveAll`, `saveAllSummary`, `useDirtyCount`, `toastPartial`, `--toast-bottom-offset` |
+| 1.15 | **Done** (F4). | drafts kit |
+| 1.16 | **Partly done.** The environment map, kill switches, disabled screen, `.env.example` and CI are built. | `lib/shared/environments.ts`, `lib/server/kill-switch.ts`, `app/disabled/route.ts` |
+
+**R2 WIP → main mapping (nothing to salvage):**
+- `csrf.ts` / `session-binding.ts` / `session-changed`: gone, and `check-forbidden.sh` bans them.
+- `lib/server/page-config.ts` → `lib/server/page-session.ts#requirePageSession` (`{ portalUrl, idle }`).
+- `components/swr-provider.tsx` → `features/shell/swr-provider.tsx`.
+- `lib/api/log-api-call.ts` → the same file on main.
+- `lib/api/errors.ts` stub → `lib/api/errors/{index,core,<area>}.ts`.
+- `lib/server/proxy-allowlist.ts` → `lib/server/proxy/allowlist/<area>.ts`.
+- `ping` / `refresh` / `logout` → `lib/server/session/session-routes.ts`.
+- `preview=true` and `encodeURIComponent` → `asImage` + `buildUpstreamUrl`.
+- The replay rule → `lib/api/refresh-coordinator.ts` + `client.ts`.
+- `/account` navigation activity → the root `proxy.ts` re-seal.
+
+**The WIP's two open questions:**
+- **"Same-site writes" is covered by D5.** `SameSite=Lax` and the 415 JSON check are the only protection, recorded in FOUNDATION §6. No action unless the owner reopens D5.
+- **"Upstream message in ApiError" is resolved by main's design.** `platformMessage` is read only inside the mapper (lint, R5). It is surfaced only for upstream **4xx** as `generic.message`; 5xx text is never shown (`lib/api/errors/core.ts#classifyTransport`).
+
+### Revised sequence (replaces §3.1 steps 2–6 and the §5 developer order)
+
+Each story goes through `bmad-build` from its amended text, its *Foundation* lines and FOUNDATION §5. The PR edits only Team A paths (T1, T2) and is not pushed until the user has reviewed it.
+
+1. **1.9 Header picture: DONE (review).** The spec is `spec-1-9-header-profile-picture.md`; commits `32d3372` and `43f1b8e` are pushed on `feat/NG-9027-epic1-continue`. It adds the loader in `lib/api/profile-picture.ts` and the avatar on `FallbackImage`.
+2. **The Epic 1 foundation PR** (Team A developer; both teams review; merged first). It contains:
+   - the D-A save safeguard;
+   - every test the 1.12 and 1.13 ACs still lack (D-B);
+   - a fixture page that mounts `SaveAllBar` for 1.14's e2e.
+
+   1.12 and 1.13 move to done when it merges.
+3. **1.10 Change picture**, which can run alongside step 2:
+   - a new `components/ui/image-reencode.ts`;
+   - the dialog in `features/header`;
+   - the avatar button only on `/`, decided with `useCurrentPage()`;
+   - upload, then `fileDeletePath`, best-effort;
+   - copy in `messages/header.ts`.
+
+   EXIF is decided (D-C): always re-encode, never upload the original bytes. Avoid the initials flash after the change by preloading the new image (1.9 review note).
+4. **1.14 Save all**, after the foundation PR: the `SaveAllBar` body, focus after the run, and `e2e/profile-save-all.spec.ts`.
+5. **1.16** belongs to the epic owner (D-D) and is not in the Team A sequence.
+
+### Decisions for the epic owner (Daniel Garcia) / integrator (D-A to D-D answered by 2026-10-15)
+
+- **D-A, save safeguard: APPROVED** by the epic owner on 2026-10-14 (recorded 2026-10-15; main had no record of it). User A's stale tab must not save into user B's profile after B launches in the same browser.
+  - **Rule:** before any save, compare the page's rendered user (the `myself.id` it loaded) with a fresh `GET /myself`. On a mismatch, send nothing, end the page the way an expired session does, and keep A's edits on the device.
+  - **Scope:** every save path. That means a Section's own Save, the Save-all run and the leave-guard Save. It is not limited to Save all.
+  - **Delivery (owner answer, 2026-10-15):** it ships in the **Epic 1 foundation PR**, together with the 1.12/1.13 tests (D-B) and the Save-all test page. The Team A developer builds that PR; both teams review it, and it merges before 1.14. The shared save path is foundation code: `features/shell` (`useSectionForm`, `runSaveAll`, `LeaveGuard`) and `lib/api`. T2 bars a Team A story PR from editing it.
+  - **Open design point for that PR's spec:** the 1.10 picture upload doesn't go through `useSectionForm`. Placing the check at the shared write path, for example `callApi` writes, would cover it and every later write too.
+  - **Design limits:** D5 still applies, so there is no session binding. The check must not reintroduce `X-PP-Session`, `sessionBinding` or `SESSION_CHANGED` / `session-changed`; `check-forbidden.sh` bans all of them. It runs in the client against `/myself` only. The copy for the mismatch outcome is a `// DRAFT COPY` entry, kept until PM reviews it.
+  - **For the integrator:** add the approval next to D5 in `epics.md` and in FOUNDATION §6, which still lists point 3 as an accepted risk.
+- **D-B, Story 1.12/1.13 tests: ANSWERED 2026-10-15.** Add every test that can still cover the Story 1.12 and 1.13 ACs, in the Epic 1 foundation PR. The files are foundation-owned (`e2e/section.spec.ts`, `e2e/shell.spec.ts`, `app/test-fixtures/**`, `features/shell/__fixtures__/**`; T2). Coverage includes:
+  - **1.12:** fixture-Section Playwright cases for Save success, a mocked 400 with a mapped `errorCode`, and network failure → Retry → success, with exact copy, polite toasts and axe.
+  - **1.13:** Vitest and Playwright cases for:
+    - a tab switch with each dirty combination;
+    - the app-bar switch to Account;
+    - Return to 1health → Discard, with drafts purged;
+    - a hand-off target, with drafts kept and no logout;
+    - the scoped close;
+    - Save with an invalid participant;
+    - two guard-only fixtures (with and without `save`);
+    - keyboard operation, focus return and axe.
+
+  1.12 and 1.13 move to done when the PR merges.
+- **D-C, Story 1.10 EXIF/GPS: ANSWERED 2026-10-15, accepted risk.** Pictures uploaded outside this app may keep EXIF metadata, including GPS, because the BFF only sniffs magic bytes. There is no server-side strip, and `lib/server/proxy/upload.ts` is unchanged. In-app uploads are protected: 1.10 always re-encodes through `reencodeImage`, a canvas re-encode that drops the metadata, and never uploads the original bytes. This closes the AD-13 EXIF item in the Team A section of `deferred-work.md`.
+- **D-D, Story 1.16: ANSWERED 2026-10-15. The epic owner owns Story 1.16 entirely.** That covers:
+  - the Vercel project and scopes;
+  - the `promote` workflow;
+  - `docs/ops/*` runbooks;
+  - the External Application registrations and preview secrets;
+  - the rollback and kill-switch rehearsal;
+  - the PM copy review.
+
+  Team A does no 1.16 work, and it leaves the Team A sequence.
+- **D-E, stale planning text for the integrator** (`epics.md` is shared; this branch doesn't edit it):
+  - The "Not built" list in "Foundation F6 and path corrections" still says:
+    - 1.10 adds a `DELETE v2/file/{id}` entry; F7-2 denies it, and deletes use the named op;
+    - 1.13 builds scoped `requestLeave`; F7-2 built it;
+    - the re-encode helper goes in `features/shell/image-reencode.ts`; FOUNDATION §3.5 says `components/ui/image-reencode.ts`, and `features/shell` is foundation.
+  - Story 1.10's `pictureEditable` prop note differs from FOUNDATION R11, which uses `useCurrentPage()`.
+
+### Artifacts updated on this branch
+
+- `epic-1-context.md`, recompiled from main.
+- `sprint-status.yaml`, Epic 1 story lines only. The header and `last_updated` are untouched (T8). Changes:
+  - `1-1r` moves from review to done;
+  - dated 2026-10-15 notes are added to `1-3r`, `1-9`, `1-10`, `1-12`, `1-13`, `1-14` and `1-16`.
+- This addendum.
+- 2026-10-15 (later): the owner's answers to D-B, D-C and D-D, and the D-A delivery, are recorded in this addendum, `epic-1-context.md` and the Epic 1 lines of `sprint-status.yaml`.

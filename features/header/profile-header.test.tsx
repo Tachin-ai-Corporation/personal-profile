@@ -1,9 +1,9 @@
-import { act, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import axe from "axe-core"
 import { http, HttpResponse } from "msw"
 import { useEffect } from "react"
 import { useSWRConfig, type ScopedMutator } from "swr"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { CurrentPageProvider, type PageId } from "@/features/shell"
 import { keys } from "@/lib/api"
 import { stubViewport } from "@/test/media"
@@ -13,6 +13,8 @@ import { displayName, ProfileHeader } from "."
 
 const MYSELF = "/api/1h/v2/user/myself"
 const LIST = "/api/1h/v2/user/contact-point/list"
+const PICTURE_ID = "/api/pp/profile-picture-id"
+const PREVIEW = "/api/1h/v2/user/profile-picture/preview"
 
 type Rows = Record<string, unknown>[]
 
@@ -57,6 +59,26 @@ function setup(page: PageId = "profile") {
   )
 }
 
+/** Answers the header's picture id (Story 1.9); a function answers with a response. Returns the request count. */
+function pictureId(answer: Record<string, unknown> | (() => Response | Promise<Response>)): () => number {
+  let count = 0
+  server.use(
+    http.get(PICTURE_ID, () => {
+      count += 1
+      return typeof answer === "function" ? answer() : HttpResponse.json(answer)
+    }),
+  )
+  return () => count
+}
+
+/** The header's `<img>` (decorative, so not in the accessibility tree), if any. */
+const avatarImage = (container: HTMLElement): HTMLImageElement | null => container.querySelector("img")
+
+// TestProviders installs no handlers: every header test answers "no picture" unless it says otherwise.
+beforeEach(() => {
+  pictureId({ fileId: null })
+})
+
 afterEach(() => document.documentElement.classList.remove("dark"))
 
 describe("names", () => {
@@ -94,7 +116,7 @@ describe("ProfileHeader", () => {
     myself({ id: 1, firstName: "", lastName: null, username: "ann.lee" })
     const { container } = setup()
     expect(await screen.findByRole("heading", { level: 1, name: "ann.lee" })).toBeTruthy()
-    expect(container.querySelector("span[aria-hidden='true'] svg")).not.toBeNull()
+    expect(container.querySelector("span[aria-hidden='true']:not([data-slot]) > svg")).not.toBeNull()
   })
 
   it.each<[PageId, string]>([
@@ -238,6 +260,123 @@ describe("ProfileHeader", () => {
     })
     await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Ann Smith"))
     expect(await screen.findByText("new@example.com")).toBeTruthy()
+  })
+
+  describe("Profile Picture (Story 1.9)", () => {
+    it("shows the picture as a decorative 40 px circle, the initials until it has loaded; one id request", async () => {
+      stubViewport(360)
+      myself()
+      const requests = pictureId({ fileId: 9001 })
+      const { container } = setup()
+      await screen.findByRole("heading", { level: 1, name: "Ann Lee" })
+      await waitFor(() => expect(avatarImage(container)).not.toBeNull())
+      const img = avatarImage(container) as HTMLImageElement
+      expect(img.getAttribute("src")).toBe(`${PREVIEW}?v=9001`)
+      expect(img.getAttribute("alt")).toBe("")
+      for (const name of ["size-10", "rounded-full", "object-cover", "bg-card"]) expect(img.classList.contains(name)).toBe(true)
+      // Loading: the initials show and the image is hidden (no broken-image box).
+      expect(img.hidden).toBe(true)
+      expect(screen.getByText("AL")).toBeTruthy()
+      fireEvent.load(img)
+      expect(screen.queryByText("AL")).toBeNull()
+      expect((avatarImage(container) as HTMLImageElement).hidden).toBe(false)
+      expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1)
+      expect(requests()).toBe(1)
+    })
+
+    it("shows the initials and requests no image without a picture", async () => {
+      stubViewport(360)
+      myself()
+      const previews: string[] = []
+      server.use(http.get(PREVIEW, ({ request }) => (previews.push(request.url), new HttpResponse(null, { status: 404 }))))
+      const requests = pictureId({ fileId: null })
+      const { container } = setup()
+      await screen.findByRole("heading", { level: 1, name: "Ann Lee" })
+      await waitFor(() => expect(requests()).toBe(1))
+      expect(screen.getByText("AL")).toBeTruthy()
+      expect(avatarImage(container)).toBeNull()
+      expect(previews).toEqual([])
+    })
+
+    it("shows the user icon without a name while the picture id is pending, then the picture", async () => {
+      stubViewport(360)
+      myself({ id: 1, firstName: "", lastName: null, username: "ann.lee" })
+      let release: () => void = () => undefined
+      const gate = new Promise<void>((resolve) => (release = resolve))
+      pictureId(async () => {
+        await gate
+        return HttpResponse.json({ fileId: 9001 })
+      })
+      const { container } = setup()
+      await screen.findByRole("heading", { level: 1, name: "ann.lee" })
+      expect(container.querySelector("span[aria-hidden='true']:not([data-slot]) > svg")).not.toBeNull()
+      expect(avatarImage(container)).toBeNull()
+      release()
+      await waitFor(() => expect(avatarImage(container)?.getAttribute("src")).toBe(`${PREVIEW}?v=9001`))
+      fireEvent.error(avatarImage(container) as HTMLImageElement)
+      expect(container.querySelector("span[aria-hidden='true']:not([data-slot]) > svg")).not.toBeNull()
+    })
+
+    it("falls back to the initials when the image fails, with no error text", async () => {
+      stubViewport(360)
+      myself()
+      pictureId({ fileId: 9001 })
+      const { container } = setup()
+      await waitFor(() => expect(avatarImage(container)).not.toBeNull())
+      fireEvent.error(avatarImage(container) as HTMLImageElement)
+      expect(avatarImage(container)).toBeNull()
+      expect(screen.getByText("AL")).toBeTruthy()
+      expect(screen.queryByRole("alert")).toBeNull()
+    })
+
+    it.each<[string, () => Response]>([
+      ["a 502", () => HttpResponse.json({ errorCode: "UPSTREAM_ERROR", source: "proxy" }, { status: 502 })],
+      ["a network error", () => HttpResponse.error()],
+      ["a malformed body", () => HttpResponse.json({ fileId: "9001" })],
+    ])("shows the initials and no alert when the id read fails (%s)", async (_label, answer) => {
+      stubViewport(360)
+      myself()
+      const requests = pictureId(answer)
+      const { container } = setup()
+      await screen.findByRole("heading", { level: 1, name: "Ann Lee" })
+      await waitFor(() => expect(requests()).toBe(1))
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 20)))
+      expect(screen.getByText("AL")).toBeTruthy()
+      expect(avatarImage(container)).toBeNull()
+      expect(screen.queryByRole("alert")).toBeNull()
+    })
+
+    it("loads the new picture when keys.profilePictureId() is mutated (no reload)", async () => {
+      stubViewport(360)
+      myself()
+      pictureId({ fileId: 9001 })
+      const { container } = setup()
+      await waitFor(() => expect(avatarImage(container)?.getAttribute("src")).toBe(`${PREVIEW}?v=9001`))
+      fireEvent.load(avatarImage(container) as HTMLImageElement)
+      pictureId({ fileId: 9002 })
+      await act(async () => {
+        await mutate(keys.profilePictureId())
+      })
+      await waitFor(() => expect(avatarImage(container)?.getAttribute("src")).toBe(`${PREVIEW}?v=9002`))
+      // The new image loads behind the initials, then replaces them.
+      expect(screen.getByText("AL")).toBeTruthy()
+      fireEvent.load(avatarImage(container) as HTMLImageElement)
+      expect(screen.queryByText("AL")).toBeNull()
+    })
+
+    it.each(["light", "dark"])("has no axe violations with a picture in %s mode", async (theme) => {
+      if (theme === "dark") document.documentElement.classList.add("dark")
+      stubViewport(1280)
+      myself()
+      pictureId({ fileId: 9001 })
+      contacts({ Email: [{ id: 3, value: "ann@example.com", label: "Primary" }] })
+      const { container } = setup()
+      await screen.findByText("ann@example.com")
+      await waitFor(() => expect(avatarImage(container)).not.toBeNull())
+      fireEvent.load(avatarImage(container) as HTMLImageElement)
+      const results = await axe.run(document.body, { rules: { "color-contrast": { enabled: false } } })
+      expect(results.violations).toEqual([])
+    })
   })
 
   it.each(["light", "dark"])("has no axe violations in %s mode", async (theme) => {
