@@ -66,6 +66,16 @@
   summary: (Team B, Story 7.2) e2e no-store assertion for RSC and prefetch requests to `/`, `/account` and `/handoff/**`; and whether pages need `Vary: Cookie` (Next 16 replaces `Vary` on rendered pages with its RSC list).
   evidence: `proxy.ts#isNoStorePath` + `proxy.test.ts` (unit matrix covers navigation, RSC and prefetch); `e2e/headers.spec.ts` asserts navigations only. F6-1 Review Triage Log "Deferred".
 
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-2-account-hardening.md`
+  summary: (Integrator documentation) 7.2 verified HTML, RSC navigation and prefetch remain private/no-store with zero max-age; keep Next's rendered-page RSC Vary values rather than forcing a deployment header, and document that rendered responses do not retain the literal Cookie token.
+  evidence: Next 16 local CDN-caching guide explains RSC variants; real-page tests in e2e/account-hardening.spec.ts assert AD-18/AD-21, with Cookie additionally asserted on the interceptor's 307 and the disabled 503. This is the technical cache-isolation choice for 7.2; no deployment configuration changed.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-2-account-hardening.md`
+  summary: (Team B, real-read stories starting 7.4) Measure the inherited first-tab meaningful-content target of 1.5 seconds once Account renders real content; placeholder readiness is not a valid performance measurement.
+  evidence: Epic 7 context retains the PNFR target; 7.2 tests security, cache and accessibility, while Account business sections are still loading stubs. Define the timing environment and readiness signal when 7.4 adds its read view.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-2-account-hardening.md`
+  summary: (Foundation follow-up from Team B validation) The previously recorded DisabledAction Escape tooltip flake also occurred on desktop during the complete 7.2 e2e run; diagnose independently in a foundation PR.
+  evidence: `corepack pnpm exec playwright test --workers=4` → 411 passed, 6 skipped, 1 failed in e2e/primitives.spec.ts:75 on desktop; after Escape, getByRole('tooltip') had count 1 instead of 0. The trace was retained by Playwright. Story 7.2 changes neither the primitive test nor Tooltip/DisabledAction; the focused rerun of primitives plus Account passed (53 passed, 3 mobile-only skips on desktop).
+
 ## Foundation (shared or cross-team)
 
 - source_spec: none (D18 optional dev environment, 2026-10-15)
