@@ -1,8 +1,10 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useSWRConfig } from "swr"
 import { Button } from "@/components/ui/button"
 import { Combobox } from "@/components/ui/combobox"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { DateInput } from "@/components/ui/date-input"
 import type { FieldControlProps } from "@/components/ui/form-field"
 import { Input } from "@/components/ui/input"
@@ -27,7 +29,7 @@ import {
   type SectionDataStatus,
   type SectionForm,
 } from "@/features/shell"
-import { mapFetchError, savePersonalInformation, type Myself } from "@/lib/api"
+import { fileDownloadPath, keys, mapFetchError, type Myself } from "@/lib/api"
 import { displayToWireDate, formatWireDate, localCalendarDate, wireToDisplayDate } from "@/lib/shared/dates"
 import { COMBOBOX_MESSAGES, COMMON_MESSAGES, FIELD_MESSAGES, PERSON_MESSAGES, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 import { birthDateBounds, normalizeName, type BirthDateBounds } from "@/lib/shared/person-rules"
@@ -37,13 +39,17 @@ import {
   PERSONAL_FIELD_ORDER,
   PERSONAL_LABELS,
   PERSONAL_OPTIONAL_FIELDS,
-  personalDiff,
+  newSignatureKey,
+  newSignatureToken,
   personalDraftDiff,
   personalSchema,
+  signatureBaseline,
   toPersonalValues,
   type PersonalField,
   type PersonalValues,
 } from "./schema"
+import { EMPTY_SIGNATURE_PAD_MEMORY, SignaturePadField, type SignaturePadChange, type SignaturePadHandle, type SignaturePadMemory } from "./signature-pad"
+import { savePersonal, type PendingSignature, type PersonalSavePart } from "./signature-save"
 import { isMaskedSsn, toSsnFormValue } from "./ssn"
 import { SSN_CONTROL_ID, SsnInput, SsnValue } from "./ssn-field"
 import { PERSON_PRESELECTS, usePersonOptions } from "./use-person-options"
@@ -105,19 +111,6 @@ function SignatureAnchor({ loading }: { readonly loading: boolean }) {
 type PersonalSectionForm = SectionForm<PersonalValues>
 /** `section.control(name)`: the wiring of a non-native control. */
 type Binding = ReturnType<PersonalSectionForm["control"]>
-
-/**
- * A read-only value in the edit view (Signature until Story 2.4 adds its
- * control): an `<output>` (labelable, so the row's label names it), not a
- * live region.
- */
-function ReadOnlyValue({ wiring, children }: { readonly wiring: FieldControlProps; readonly children: ReactNode }) {
-  return (
-    <output id={wiring.id} aria-live="off" data-slot="personal-read-only" className="text-foreground text-body-sm flex min-h-11 items-center font-medium">
-      {children ?? <span className="text-muted-foreground font-normal">{COMMON_MESSAGES.notProvided}</span>}
-    </output>
-  )
-}
 
 interface ChoiceControlProps {
   readonly wiring: FieldControlProps
@@ -228,7 +221,6 @@ const AUTOCOMPLETE: Partial<Record<PersonalField, string>> = {
 
 interface EditRowsInput {
   readonly section: PersonalSectionForm
-  readonly myself: Myself
   readonly offered: ReturnType<typeof usePersonOptions>["offered"]
   readonly genderIdentityOptions: readonly string[]
   readonly bounds: BirthDateBounds
@@ -237,8 +229,17 @@ interface EditRowsInput {
   readonly ssnMask: string
 }
 
-/** The edit view's rows in the F1 order; the SSN input (Story 2.3); Signature stays read-only (Story 2.4 adds its control). */
-function personalEditRows({ section, myself, offered, genderIdentityOptions, bounds, ageRange, ssnMask }: EditRowsInput): KeyValueEditRow[] {
+interface SignatureRowInput {
+  /** A callback ref the pad hands its handle to (the Section exports the drawing at Save). */
+  readonly handleRef: (handle: SignaturePadHandle | null) => void
+  readonly onChange: (change: SignaturePadChange) => void
+  /** The pad's content in this edit, handed back when the pad remounts (the 768 px layout swap). */
+  readonly memory: SignaturePadMemory
+  readonly onRemember: (memory: SignaturePadMemory) => void
+}
+
+/** The edit view's rows in the F1 order up to the SSN input (Story 2.3); the Signature row (Story 2.4) follows them. */
+function personalEditRows({ section, offered, genderIdentityOptions, bounds, ageRange, ssnMask }: EditRowsInput): KeyValueEditRow[] {
   const base = (field: PersonalField, render: KeyValueEditRow["render"], help?: ReactNode): KeyValueEditRow => ({
     key: field,
     label: PERSONAL_LABELS[field],
@@ -284,18 +285,35 @@ function personalEditRows({ section, myself, offered, genderIdentityOptions, bou
       error: section.errorFor("socialSecurityNumber"),
       render: (wiring) => <SsnInput wiring={wiring} binding={section.control("socialSecurityNumber")} savedMask={ssnMask} />,
     },
-    {
-      key: "signature",
-      label: SHELL_MESSAGES.signature,
-      optional: true,
-      rowId: SIGNATURE_ANCHOR,
-      render: (wiring) => <ReadOnlyValue wiring={wiring}>{signatureThumb(myself)}</ReadOnlyValue>,
-    },
   ]
 }
 
+interface SignatureControlProps extends SignatureRowInput {
+  readonly wiring: FieldControlProps
+  readonly section: PersonalSectionForm
+  readonly myself: Myself
+}
+
+/** The Signature row's pad, loaded with the saved Signature (by its id in `myself` only). */
+function SignatureControl({ wiring, section, myself, handleRef, onChange, memory, onRemember }: SignatureControlProps) {
+  const { ref: controlRef, readOnly } = section.control("signature")
+  const savedId = signatureBaseline(myself) === "saved" ? myself.signature?.id : undefined
+  return (
+    <SignaturePadField
+      wiring={wiring}
+      savedSrc={savedId === undefined ? null : fileDownloadPath(savedId)}
+      readOnly={readOnly}
+      onChange={onChange}
+      handleRef={handleRef}
+      controlRef={controlRef}
+      initialMemory={memory}
+      onRemember={onRemember}
+    />
+  )
+}
+
 /**
- * Personal information (Stories 2.1–2.3, FR11–FR13, NG-9022): the user's
+ * Personal information (Stories 2.1–2.4, FR11–FR14, NG-9022): the user's
  * legal name, birth details, demographics, Masked SSN and Signature from the
  * shared `myself` read, viewed in one key/value table and edited in place
  * on `useSectionForm` (registered as `personal`, first in Save all, drafts
@@ -310,14 +328,23 @@ function personalEditRows({ section, myself, offered, genderIdentityOptions, bou
  * Biological gender or Gender identity "Asked but not answered" (sent on
  * Save, never drafted on their own). The pickers offer only values the
  * `PUT v2/user/edit` accepts; a saved value that isn't offered shows on the
- * trigger until changed. Save sends only the changed fields
- * (`savePersonalInformation`), which revalidates `myself`.
+ * trigger until changed. Save (`savePersonal`, steps run by `runSaveSteps`)
+ * sends only the changed fields in the `PUT v2/user/edit`, then the
+ * Signature step, and revalidates `myself`.
  *
  * SSN (Story 2.3): Reveal shows the full SSN for 30 s in both views, held
  * only by the SSN component (`ssn-field.tsx`). The form holds the saved mask,
  * `""` or a typed entry; a clear is sent as `"n/a"`, the mask never. On the
  * way back to read view the baseline is rebased onto `myself`, so a typed SSN
  * leaves the form state and the hook's saved-values override.
+ *
+ * Signature (Story 2.4): the edit view's pad (`signature-pad.tsx`). The form
+ * holds only a state token (`SignatureToken`); a pending PNG lives in a ref
+ * keyed by its `new:<n>`, never in the form, a draft or the URL. Save runs
+ * the PUT, then the Signature step (`savePersonal`): an upload, a replace
+ * (upload, then the old file's ownership-checked delete) or, after "Remove
+ * your signature?", a removal. A failed Signature step after the PUT keeps
+ * the edit with the pad, rebased so a Retry sends only the Signature.
  */
 export function PersonalSection() {
   const { myself, error, retry } = useMyself()
@@ -344,6 +371,18 @@ export function PersonalSection() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `today` is keyed by its local day (`dayKey`)
   const schema = useMemo(() => personalSchema(roles, today, ssnMask), [roles, dayKey, ssnMask])
   const dataStatus: SectionDataStatus = myself ? "loaded" : error ? "error" : "loading"
+  const { mutate } = useSWRConfig()
+  /** The pending Signatures of this edit, by the `<n>` of their `new:<n>` token. */
+  const pending = useRef(new Map<number, PendingSignature>())
+  const nextPending = useRef(0)
+  const padHandle = useRef<SignaturePadHandle | null>(null)
+  /** The parts the last save didn't save (`describeError`). */
+  const failedParts = useRef<readonly PersonalSavePart[]>([])
+  const rebaseRef = useRef<(fresh: PersonalValues) => void>(() => undefined)
+  /** What the pad shows in this edit (so a remount of the pad keeps it). */
+  const [padMemory, setPadMemory] = useState<SignaturePadMemory>(EMPTY_SIGNATURE_PAD_MEMORY)
+  /** The open "Remove your signature?" confirm's answer. */
+  const [confirmRemove, setConfirmRemove] = useState<((confirmed: boolean) => void) | null>(null)
 
   const section = useSectionForm<PersonalValues>({
     id: "personal",
@@ -351,16 +390,72 @@ export function PersonalSection() {
     displayOrder: 1,
     schema,
     baseline: toPersonalValues(myself),
-    save: (values, baseline) => savePersonalInformation(personalDiff(values, baseline)),
+    save: async (values, baseline) => {
+      const { result, failedParts: unsaved } = await savePersonal({
+        values,
+        baseline,
+        myself,
+        pendingSignature: (key) => pending.current.get(key),
+        exportDrawing: () => padHandle.current?.exportPng() ?? Promise.resolve(null),
+        refreshMyself: () => mutate<Myself>(keys.myself()),
+        rebase: (fresh) => rebaseRef.current(fresh),
+      })
+      failedParts.current = unsaved
+      return result
+    },
     onNoChanges: "close",
     fieldOrder: PERSONAL_FIELD_ORDER,
     // SSN taken (`errors/personal.ts`) marks the SSN input only.
     errorFields: { ssn: "socialSecurityNumber" },
+    // Only the Signature step failed (the other fields saved, or had nothing to send); a network
+    // failure keeps the connection copy.
+    describeError: (error) =>
+      error.mapped?.kind !== "network" && failedParts.current.includes("signature") && !failedParts.current.includes("user-edit")
+        ? PERSON_MESSAGES.signatureSaveFailed
+        : undefined,
+    // Clearing a saved Signature asks first; Cancel or Escape makes the save CANCELLED.
+    confirmBeforeSave: (values) =>
+      values.signature === "cleared" && signatureBaseline(myself) === "saved"
+        ? new Promise<boolean>((resolve) => setConfirmRemove(() => resolve))
+        : Promise.resolve(true),
     draftFields: PERSONAL_DRAFT_FIELDS,
     describeDraftDiff: personalDraftDiff,
     dataStatus,
   })
   const { form, isEditing, rebase } = section
+  useEffect(() => {
+    rebaseRef.current = rebase
+  })
+  const setPadHandle = useCallback((handle: SignaturePadHandle | null) => {
+    padHandle.current = handle
+  }, [])
+
+  // A confirm still open when the Section unmounts is a Cancel (unmount only, over a ref).
+  const openConfirm = useRef<((confirmed: boolean) => void) | null>(null)
+  useEffect(() => {
+    openConfirm.current = confirmRemove
+  })
+  useEffect(() => () => openConfirm.current?.(false), [])
+
+  function answerRemove(confirmed: boolean): void {
+    confirmRemove?.(confirmed)
+    setConfirmRemove(null)
+  }
+
+  /** A pad change → the Signature token: a Clear (`cleared` over a saved one), or a new drawing or upload (`new:<n>`). */
+  function onSignatureChange(change: SignaturePadChange): void {
+    const { onChange } = section.control("signature")
+    if (change.kind === "cleared") {
+      onChange(section.baseline.signature === "saved" ? "cleared" : "none")
+      return
+    }
+    const key = newSignatureKey(form.getValues("signature"))
+    // More strokes on the same drawing: it is exported at Save.
+    if (change.kind === "drawn" && key !== null && pending.current.get(key)?.kind === "drawing") return
+    nextPending.current += 1
+    pending.current.set(nextPending.current, change.kind === "drawn" ? { kind: "drawing" } : { kind: "upload", blob: change.blob })
+    onChange(newSignatureToken(nextPending.current))
+  }
 
   // Back in read view (saved or cancelled): rebase onto `myself`, so a typed SSN leaves the form
   // values and the hook's saved-values override (the read view shows `myself`, with the new mask).
@@ -368,7 +463,12 @@ export function PersonalSection() {
   useEffect(() => {
     const leftEdit = wasEditing.current && !isEditing
     wasEditing.current = isEditing
-    if (leftEdit) rebase(toPersonalValues(myself))
+    if (leftEdit) {
+      rebase(toPersonalValues(myself))
+      // A pending Signature never outlives its edit.
+      pending.current.clear()
+      setPadMemory(EMPTY_SIGNATURE_PAD_MEMORY)
+    }
   }, [isEditing, myself, rebase])
 
   // Opening edit fills the unset pickers. `setValue` presets count as changes (sent on Save) but are not the user's, so they write no draft.
@@ -418,12 +518,28 @@ export function PersonalSection() {
                   labelledBy={headingId}
                   rows={personalEditRows({
                     section,
-                    myself,
                     offered: options.offered,
                     genderIdentityOptions: options.genderIdentity,
                     bounds: birthDateBounds(roles, today),
                     ageRange: ageRangeMessage(roles),
                     ssnMask,
+                  }).concat({
+                    key: "signature",
+                    label: SHELL_MESSAGES.signature,
+                    optional: true,
+                    rowId: SIGNATURE_ANCHOR,
+                    help: PERSON_MESSAGES.signatureHelp,
+                    render: (wiring) => (
+                      <SignatureControl
+                        wiring={wiring}
+                        section={section}
+                        myself={myself}
+                        handleRef={setPadHandle}
+                        onChange={onSignatureChange}
+                        memory={padMemory}
+                        onRemember={setPadMemory}
+                      />
+                    ),
                   })}
                 />
                 <SectionFooter {...section.footerProps} />
@@ -434,6 +550,15 @@ export function PersonalSection() {
           </SectionContainer>
         )}
       </StateFrame>
+      <ConfirmDialog
+        open={confirmRemove !== null}
+        variant="destructive"
+        title={PERSON_MESSAGES.signatureRemoveTitle}
+        body={PERSON_MESSAGES.signatureRemoveBody}
+        confirmLabel={PERSON_MESSAGES.signatureRemoveConfirm}
+        onConfirm={() => answerRemove(true)}
+        onCancel={() => answerRemove(false)}
+      />
     </section>
   )
 }

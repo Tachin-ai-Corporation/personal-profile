@@ -99,20 +99,18 @@ export const SIGNATURE_MAX_BYTES = 1024 * 1024
 
 export const entries: readonly AllowlistEntry[] = [
   { method: "PUT", template: "v2/user/edit", body: userEditBodySchema },
-  /** First Signature (Story 2.4): private, one `file` part, PNG only. */
+  /**
+   * A Signature upload (Story 2.4): private, one `file` part, PNG only. A
+   * replace is this upload then the ownership-checked delete of the old file
+   * (`DELETE /api/pp/file/{fileId}`); there is no `v2/file/{fileId}/version`
+   * entry, because the backend checks only the tenant there, not the owner
+   * (human decision 2026-10-16).
+   */
   {
     method: "POST",
     template: "v2/health/type/Person/{personId}/relation/PersonHasSignatureFile/file/upload",
     fixedQuery: { isPublic: "false" },
     upload: { part: "file", types: ["png"] },
-    maxBytes: SIGNATURE_MAX_BYTES,
-  },
-  /** A new Signature version (Story 2.4): made current, one `fileNewVersion` part, PNG only. */
-  {
-    method: "POST",
-    template: "v2/file/{fileId}/version",
-    fixedQuery: { current: "true" },
-    upload: { part: "fileNewVersion", types: ["png"] },
     maxBytes: SIGNATURE_MAX_BYTES,
   },
   /** Person value lists (Story 2.1: race, ethnicity, biological gender), read by the shared `type-key` loader (spec F6-3). */

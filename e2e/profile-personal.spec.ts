@@ -3,20 +3,26 @@ import { expect, type Locator, type Page } from "@playwright/test"
 import {
   mockFileDownload,
   mockMyself,
+  mockPersonalFileDelete,
+  mockPersonalMyselfFrom,
+  mockPersonalSignatureUpload,
   mockPersonalSsnExpose,
+  PERSONAL_SIGNATURE_JPEG,
   mockProfileDefaults,
   mockTypeKey,
   mockUserEdit,
   PERSONAL_FULL_MYSELF,
   PERSONAL_SIGNATURE_FILE_ID,
   PERSONAL_SSN_SHOWN,
+  PNG_1X1,
   setTheme,
+  type PersonalSignatureRelations,
   signIn,
   test,
 } from "./fixtures"
 
 /**
- * Stories 2.1–2.3 (Team A, NG-9022): the Personal information read and edit
+ * Stories 2.1–2.4 (Team A, NG-9022): the Personal information read and edit
  * views on the real `/`. Every test runs under the fail-fast `test`, starts from
  * `mockProfileDefaults` and overrides `myself` (frozen `ANN` + the fields
  * under test) and the Signature image.
@@ -271,7 +277,8 @@ test.describe("Personal information edit and save (Story 2.2)", () => {
 
   test("axe passes on the edit view in light and dark, with errors shown", async ({ page }) => {
     await openEdit(page)
-    await expect.poll(() => section(page).locator('[data-slot="personal-read-only"] [data-state="loaded"]').count()).toBe(1)
+    // The saved Signature is loaded into the pad (Story 2.4).
+    await expect(section(page).locator('canvas[role="img"]')).not.toHaveAttribute("data-empty", "true")
     for (const theme of ["light", "dark"] as const) {
       await setTheme(page, theme)
       const results = await new AxeBuilder({ page }).include("#personal").withTags(WCAG).analyze()
@@ -478,6 +485,265 @@ test.describe("SSN entry and Reveal (Story 2.3)", () => {
       const { scrollWidth, clientWidth } = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }))
       expect(scrollWidth).toBeLessThanOrEqual(clientWidth)
       await hideButton(page).click()
+    }
+  })
+})
+
+// --- Story 2.4: Signature -----------------------------------------------------------------------
+
+const pad = (page: Page): Locator => section(page).getByRole("img", { name: "Draw your signature" })
+const confirmDialog = (page: Page): Locator => page.getByRole("alertdialog", { name: "Remove your signature?" })
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+const MB = 1024 * 1024
+
+/** One stroke across the pad with the mouse (pointer events, as a finger or pen sends them). */
+async function drawOnPad(page: Page): Promise<void> {
+  // The mouse doesn't scroll: bring the pad into view first.
+  await pad(page).scrollIntoViewIfNeeded()
+  const box = await pad(page).boundingBox()
+  if (!box) throw new Error("no pad")
+  await page.mouse.move(box.x + 30, box.y + 100)
+  await page.mouse.down()
+  await page.mouse.move(box.x + 90, box.y + 50, { steps: 8 })
+  await page.mouse.move(box.x + 160, box.y + 110, { steps: 8 })
+  await page.mouse.move(box.x + 230, box.y + 60, { steps: 8 })
+  await page.mouse.up()
+}
+
+/**
+ * The server: Ann's `PersonHasSignatureFile` relations (oldest first;
+ * `myself.signature` is the newest) and first name, changed mid-test by the
+ * upload mock (adds 57) and the ownership-checked delete mock.
+ */
+function signatureServer(initial: number | null) {
+  const state = { firstName: "Ann" }
+  const relations: PersonalSignatureRelations = { ids: initial === null ? [] : [initial] }
+  const body = () => {
+    const newest = relations.ids.at(-1)
+    return { ...PERSONAL_FULL_MYSELF, firstName: state.firstName, signature: newest === undefined ? null : { id: newest, name: "signature.png" } }
+  }
+  /** The upload answer that adds relation 57. */
+  const uploaded = () => {
+    relations.ids.push(57)
+    return { body: { id: 57 } }
+  }
+  return { state, relations, body, uploaded }
+}
+
+async function openSignature(page: Page, initial: number | null): Promise<ReturnType<typeof signatureServer>> {
+  const server = signatureServer(initial)
+  await mockProfileDefaults(page)
+  await mockPersonalMyselfFrom(page, server.body)
+  await mockFileDownload(page)
+  await page.goto("/?tab=contacts#signature")
+  await expect(personalTable(page)).toBeVisible()
+  return server
+}
+
+async function editSignature(page: Page): Promise<void> {
+  await section(page).getByRole("button", { name: "Edit" }).click()
+  await expect(section(page).getByText("Editing")).toBeVisible()
+  await expect(pad(page)).toBeVisible()
+}
+
+function expectSignaturePng(upload: { part: string; fileName: string; parts: number; search: string; bytes: Buffer }): void {
+  expect(upload.parts).toBe(1)
+  expect(upload.part).toBe("file")
+  expect(upload.fileName).toBe("signature.png")
+  expect(upload.search).toBe("")
+  expect([...upload.bytes.subarray(0, 8)]).toEqual(PNG_MAGIC)
+  expect(upload.bytes.length).toBeLessThanOrEqual(MB)
+}
+
+test.describe("Signature (Story 2.4)", () => {
+  test("UJ-3: #signature → Edit → draw → Save uploads one PNG; toast; the read view shows the new thumbnail; h2 focused", async ({ page }) => {
+    const server = await openSignature(page, null)
+    await expect(page.locator("#signature")).toBeInViewport()
+    const puts = await mockUserEdit(page)
+    const deletes = await mockPersonalFileDelete(page, server.relations)
+    const uploads = await mockPersonalSignatureUpload(page, server.uploaded)
+    await editSignature(page)
+    // The paper pad: up to 480 px wide, 160 px tall, the cue while empty, 44 px Clear and Upload.
+    const box = await section(page).locator('[data-slot="signature-pad"]').boundingBox()
+    expect(box && box.width <= 480 && box.height === 160).toBe(true)
+    await expect(section(page).getByText("Draw your signature", { exact: true })).toBeVisible()
+    await expect(pad(page)).toHaveAccessibleDescription(/Draw with a mouse, finger or pen, or upload a PNG or JPEG\. Drawing needs a mouse, finger or pen\. To add your signature with a keyboard, use Upload image instead\./)
+    await expect(pad(page)).toHaveCSS("touch-action", "none")
+    for (const name of ["Clear", "Upload image instead"]) expect((await section(page).getByRole("button", { name, exact: true }).boundingBox())?.height, name).toBe(44)
+    await expect(section(page).getByText("Unsaved changes")).toHaveCount(0)
+
+    await drawOnPad(page)
+    await expect(section(page).getByText("Unsaved changes")).toBeVisible()
+    await expect(section(page).getByText("Draw your signature", { exact: true })).toHaveCount(0)
+    await section(page).getByRole("button", { name: "Save" }).click()
+
+    await expectReadView(page)
+    expect(puts()).toEqual([])
+    expect(uploads()).toHaveLength(1)
+    expectSignaturePng(uploads()[0])
+    expect(deletes()).toEqual([])
+    const img = (await valueCell(page, "Signature")).getByRole("img", { name: "Your signature" })
+    await expect(img).toHaveAttribute("src", "/api/1h/v2/file/57/download")
+    await expect(await valueCell(page, "Signature")).not.toContainText("Added")
+    await expect(toastWith(page, "Personal information saved.")).toBeVisible()
+    await expect(section(page).getByRole("heading", { level: 2, name: "Personal information" })).toBeFocused()
+  })
+
+  test("Edit with a saved Signature: the pad shows it, the Section stays clean and Save sends nothing", async ({ page }) => {
+    await openSignature(page, PERSONAL_SIGNATURE_FILE_ID)
+    const uploads = await mockPersonalSignatureUpload(page)
+    const puts = await mockUserEdit(page)
+    await editSignature(page)
+    await expect(pad(page)).not.toHaveAttribute("data-empty", "true")
+    await expect(section(page).getByText("Draw your signature", { exact: true })).toHaveCount(0)
+    await expect(section(page).getByText("Unsaved changes")).toHaveCount(0)
+    await section(page).getByRole("button", { name: "Save" }).click()
+    await expectReadView(page)
+    expect(uploads()).toEqual([])
+    expect(puts()).toEqual([])
+  })
+
+  test("Clear → Save → confirm: Cancel and Escape send nothing; Remove signature deletes the saved file; the read view says Not provided", async ({ page }) => {
+    const server = await openSignature(page, PERSONAL_SIGNATURE_FILE_ID)
+    const deletes = await mockPersonalFileDelete(page, server.relations)
+    const uploads = await mockPersonalSignatureUpload(page)
+    await editSignature(page)
+    await section(page).getByRole("button", { name: "Clear", exact: true }).click()
+    await expect(pad(page)).toHaveAttribute("data-empty", "true")
+    await expect(section(page).getByText("Unsaved changes")).toBeVisible()
+    const save = section(page).getByRole("button", { name: "Save" })
+
+    await save.click()
+    await expect(confirmDialog(page)).toBeVisible()
+    await expect(confirmDialog(page)).toContainText("Documents you sign will no longer carry it.")
+    await expect(confirmDialog(page).getByRole("button", { name: "Cancel" })).toBeFocused()
+    const results = await new AxeBuilder({ page }).include('[role="alertdialog"]').withTags(WCAG).analyze()
+    expect(results.violations, "Remove confirm").toEqual([])
+    await confirmDialog(page).getByRole("button", { name: "Cancel" }).click()
+    await expect(confirmDialog(page)).toHaveCount(0)
+    await expect(save).toBeFocused()
+    await expect(section(page).getByText("Editing")).toBeVisible()
+    await expect(pad(page)).toHaveAttribute("data-empty", "true")
+
+    await save.click()
+    await expect(confirmDialog(page)).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(confirmDialog(page)).toHaveCount(0)
+    await expect(section(page).getByText("Editing")).toBeVisible()
+    expect(deletes()).toEqual([])
+
+    await save.click()
+    await confirmDialog(page).getByRole("button", { name: "Remove signature" }).click()
+    await expectReadView(page)
+    expect(deletes()).toEqual([{ id: String(PERSONAL_SIGNATURE_FILE_ID), status: 204 }])
+    expect(server.relations.ids).toEqual([])
+    expect(uploads()).toEqual([])
+    await expect(await valueCell(page, "Signature")).toHaveText("Not provided")
+  })
+
+  test("Upload image instead: a PNG replaces the saved Signature (upload, then the old file's delete)", async ({ page }) => {
+    const server = await openSignature(page, PERSONAL_SIGNATURE_FILE_ID)
+    const deletes = await mockPersonalFileDelete(page, server.relations)
+    const uploads = await mockPersonalSignatureUpload(page, server.uploaded)
+    await editSignature(page)
+    await section(page).getByTestId("signature-file-input").setInputFiles({ name: "my-signature.png", mimeType: "image/png", buffer: PNG_1X1 })
+    await expect(section(page).getByText("Unsaved changes")).toBeVisible()
+    await section(page).getByRole("button", { name: "Save" }).click()
+    await expectReadView(page)
+    expect(uploads()).toHaveLength(1)
+    expectSignaturePng(uploads()[0])
+    expect(uploads()[0].bytes.equals(PNG_1X1)).toBe(false)
+    // The named op owns the replaced old relation: it is deleted (204) and gone afterwards.
+    expect(deletes()).toEqual([{ id: String(PERSONAL_SIGNATURE_FILE_ID), status: 204 }])
+    expect(server.relations.ids).toEqual([57])
+    await expect((await valueCell(page, "Signature")).getByRole("img")).toHaveAttribute("src", "/api/1h/v2/file/57/download")
+  })
+
+  test("Upload image instead: a real JPEG is decoded and re-encoded in the browser; the upload is a PNG ≤ 1 MB without its EXIF", async ({ page }) => {
+    const server = await openSignature(page, null)
+    const uploads = await mockPersonalSignatureUpload(page, server.uploaded)
+    await editSignature(page)
+    await section(page).getByTestId("signature-file-input").setInputFiles({ name: "scan.jpg", mimeType: "image/jpeg", buffer: PERSONAL_SIGNATURE_JPEG })
+    await expect(section(page).getByText("Unsaved changes")).toBeVisible()
+    await expect(section(page).getByText("Choose a PNG or JPEG image.")).toHaveCount(0)
+    await section(page).getByRole("button", { name: "Save" }).click()
+    await expectReadView(page)
+    expect(uploads()).toHaveLength(1)
+    expectSignaturePng(uploads()[0])
+    expect(uploads()[0].bytes.includes(Buffer.from("Exif", "ascii"))).toBe(false)
+    expect(server.relations.ids).toEqual([57])
+  })
+
+  test("a GIF or a renamed text file is refused under the pad; the pad is unchanged", async ({ page }) => {
+    await openSignature(page, null)
+    await editSignature(page)
+    const input = section(page).getByTestId("signature-file-input")
+    await input.setInputFiles({ name: "sig.gif", mimeType: "image/gif", buffer: Buffer.from("GIF89a") })
+    await expect(section(page).getByText("Choose a PNG or JPEG image.")).toBeVisible()
+    await input.setInputFiles({ name: "notes.png", mimeType: "image/png", buffer: Buffer.from("just some text") })
+    await expect(section(page).getByText("Choose a PNG or JPEG image.")).toBeVisible()
+    await expect(pad(page)).toHaveAttribute("data-empty", "true")
+    await expect(section(page).getByText("Unsaved changes")).toHaveCount(0)
+  })
+
+  test("the PUT saves but the upload fails: the name is saved, the Signature error shows, Retry sends only the upload", async ({ page }) => {
+    const server = await openSignature(page, null)
+    const puts = await mockUserEdit(page, (request) => {
+      server.state.firstName = (request.postDataJSON() as { firstName: string }).firstName
+      return { status: 200, body: server.body() }
+    })
+    const uploads = await mockPersonalSignatureUpload(page, (attempt) => (attempt === 1 ? { status: 500, body: { message: "boom" } } : server.uploaded()))
+    await editSignature(page)
+    await control(page, "First name").fill("Anna")
+    await drawOnPad(page)
+    await section(page).getByRole("button", { name: "Save" }).click()
+    await expect(section(page).getByText("Couldn't save your signature. Try again.")).toBeVisible()
+    await expect(section(page).getByText("Editing")).toBeVisible()
+    await expect(pad(page)).not.toHaveAttribute("data-empty", "true")
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Anna Lee")
+    expect(puts()).toEqual([{ firstName: "Anna" }])
+
+    await section(page).getByRole("button", { name: "Retry" }).click()
+    await expectReadView(page)
+    expect(puts()).toEqual([{ firstName: "Anna" }])
+    expect(uploads()).toHaveLength(2)
+    expectSignaturePng(uploads()[1])
+    await expect((await valueCell(page, "Signature")).getByRole("img")).toHaveAttribute("src", "/api/1h/v2/file/57/download")
+  })
+
+  test("a rotation across 768 px keeps the drawing (the pad remounts with its strokes) and Save uploads it", async ({ page }) => {
+    await page.setViewportSize({ width: 740, height: 1000 })
+    const server = await openSignature(page, null)
+    const uploads = await mockPersonalSignatureUpload(page, server.uploaded)
+    await editSignature(page)
+    await drawOnPad(page)
+    await page.setViewportSize({ width: 1000, height: 740 })
+    await expect(section(page).locator("table")).toBeVisible()
+    await expect(pad(page)).not.toHaveAttribute("data-empty", "true")
+    await expect(section(page).getByText("Unsaved changes")).toBeVisible()
+    await section(page).getByRole("button", { name: "Save" }).click()
+    await expectReadView(page)
+    expect(uploads()).toHaveLength(1)
+    expectSignaturePng(uploads()[0])
+  })
+
+  test("the pad at 360 px: full width, no horizontal scroll; axe passes on the pad in light and dark", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 })
+    await openSignature(page, PERSONAL_SIGNATURE_FILE_ID)
+    await editSignature(page)
+    await expect(pad(page)).not.toHaveAttribute("data-empty", "true")
+    const { scrollWidth, clientWidth } = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }))
+    expect(scrollWidth).toBeLessThanOrEqual(clientWidth)
+    const first = await control(page, "First name").boundingBox()
+    const padBox = await section(page).locator('[data-slot="signature-pad"]').boundingBox()
+    expect(Math.abs((padBox?.width ?? 0) - (first?.width ?? -10))).toBeLessThanOrEqual(1)
+    await drawOnPad(page)
+    await section(page).getByTestId("signature-file-input").setInputFiles({ name: "sig.gif", mimeType: "image/gif", buffer: Buffer.from("GIF89a") })
+    await expect(section(page).getByText("Choose a PNG or JPEG image.")).toBeVisible()
+    for (const theme of ["light", "dark"] as const) {
+      await setTheme(page, theme)
+      const results = await new AxeBuilder({ page }).include("#personal").withTags(WCAG).analyze()
+      expect(results.violations, `Signature pad (${theme})`).toEqual([])
     }
   })
 })

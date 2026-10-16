@@ -3,7 +3,8 @@ import { http, HttpResponse } from "msw"
 import { useEffect } from "react"
 import { useSWRConfig, type ScopedMutator } from "swr"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { MyselfErrorClaimProvider, SectionCountProvider, toastError, toastSuccess, useMyselfErrorClaimed, useSectionCounts } from "@/features/shell"
+import { reencodeImage } from "@/components/ui/image-reencode"
+import { MyselfErrorClaimProvider, runSaveAll, SectionCountProvider, toastError, toastSuccess, useMyselfErrorClaimed, useSectionCounts } from "@/features/shell"
 import { keys, sessionEvents } from "@/lib/api"
 import { axeViolations } from "@/test/axe"
 import { stubViewport } from "@/test/media"
@@ -14,6 +15,44 @@ import { PersonalSection } from "."
 
 // The Section's own toasts, observed (the shell's toast API; nothing renders a Toaster here).
 vi.mock("@/features/shell/toasts", () => ({ toastSuccess: vi.fn(), toastError: vi.fn(() => ({ id: "t", dismiss: vi.fn() })), toastPartial: vi.fn() }))
+
+// Story 2.4: jsdom has no canvas, so `signature_pad` is a fake that reports strokes on demand
+// (the real pad is `e2e/profile-personal.spec.ts`), and `reencodeImage` is stubbed.
+const { FakePad, pads } = vi.hoisted(() => {
+  const pads: InstanceType<typeof FakePad>[] = []
+  class FakePad {
+    readonly listeners = new Set<() => void>()
+    data: unknown[] = []
+    on = vi.fn()
+    off = vi.fn()
+    constructor() {
+      pads.push(this)
+    }
+    addEventListener(_type: string, listener: () => void): void {
+      this.listeners.add(listener)
+    }
+    removeEventListener(_type: string, listener: () => void): void {
+      this.listeners.delete(listener)
+    }
+    clear(): void {
+      this.data = []
+    }
+    toData(): unknown[] {
+      return this.data
+    }
+    fromData(data: unknown[]): void {
+      this.data = this.data.concat(data)
+    }
+    /** One finished stroke. */
+    stroke(): void {
+      this.data.push({ points: [] })
+      for (const listener of this.listeners) listener()
+    }
+  }
+  return { FakePad, pads }
+})
+vi.mock("signature_pad", () => ({ default: FakePad }))
+vi.mock("@/components/ui/image-reencode", () => ({ reencodeImage: vi.fn() }))
 
 /**
  * Stories 2.1–2.2 (NG-9022): the Personal information read and edit views on
@@ -84,10 +123,31 @@ async function renderLoaded(myself: Record<string, unknown> = FULL) {
   return result
 }
 
+/** The images the pad loaded (the saved Signature, upload previews), in order. */
+let images: { src: string; onload: (() => void) | null }[]
+
 beforeEach(() => {
   stubViewport(360)
   // An earlier test's unmount may still write its draft (the registry flushes it): start clean.
   window.localStorage.clear()
+  pads.length = 0
+  images = []
+  vi.stubGlobal(
+    "Image",
+    class {
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+      naturalWidth = 0
+      naturalHeight = 0
+      src = ""
+      constructor() {
+        images.push(this)
+      }
+    },
+  )
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => ({ setTransform: vi.fn(), drawImage: vi.fn() }) as unknown as CanvasRenderingContext2D)
+  vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation((callback) => callback(new Blob([new Uint8Array([1])], { type: "image/png" })))
+  vi.mocked(reencodeImage).mockResolvedValue({ ok: true, blob: new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" }), width: 960, height: 320 })
 })
 afterEach(() => {
   document.documentElement.classList.remove("dark")
@@ -527,7 +587,7 @@ describe("PersonalSection: edit view (Story 2.2)", () => {
     expect(screen.getByText("You must be between 21 and 120 years old")).toBeTruthy()
   })
 
-  it("shows the saved values; the SSN input holds the mask; Signature stays read-only (keeps #signature)", async () => {
+  it("shows the saved values; the SSN input holds the mask; the Signature row holds the pad (keeps #signature)", async () => {
     await renderEditing()
     expect((control("First name") as HTMLInputElement).value).toBe("Ann")
     expect((control("Birth date") as HTMLInputElement).value).toBe("03/09/1987")
@@ -535,9 +595,12 @@ describe("PersonalSection: edit view (Story 2.2)", () => {
     expect(control("Biological gender").textContent).toBe("Female")
     expect((control("Gender identity") as HTMLInputElement).value).toBe("Woman")
     expect((control("SSN") as HTMLInputElement).value).toBe("***-**-1234")
-    expect(within(control("Signature")).getByRole("img", { name: "Your signature" })).toBeTruthy()
+    // The row's label points at the canvas (an img named "Draw your signature").
+    const label = [...section().querySelectorAll("label")].find((element) => element.textContent?.startsWith("Signature"))
+    expect(document.getElementById(label?.htmlFor ?? "")).toBe(screen.getByRole("img", { name: "Draw your signature" }))
     expect(document.getElementById("signature")?.textContent).toContain("Signature")
-    expect(section().querySelectorAll("input").length).toBe(12)
+    // 12 text-like inputs and the pad's hidden file input.
+    expect(section().querySelectorAll("input").length).toBe(13)
   })
 
   it("lays out a 240 px key column from 768 px", async () => {
@@ -1048,6 +1111,310 @@ describe("PersonalSection: edit view accessibility (Story 2.2)", () => {
     await type("First name", "")
     await type("Birth date", "")
     await save()
+    expect(await axeViolations()).toEqual([])
+  })
+})
+
+// --- Story 2.4: Signature -----------------------------------------------------------------------
+
+const UPLOAD = "/api/1h/v2/health/type/Person/me/relation/PersonHasSignatureFile/file/upload"
+const FILE_DELETE = "/api/pp/file/:fileId"
+const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0])
+
+/**
+ * A server for the Signature tests: the caller's `PersonHasSignatureFile`
+ * relations (oldest first; `myself.signature` is the newest) and
+ * `state.firstName`. The upload adds relation 57. The delete is the named
+ * op's ownership rule: it owns every listed relation (the replaced old one
+ * included; 204, removed) and answers 404 `NO_FILE` for anything else. Every
+ * write is logged as `METHOD path` (deletes with their status).
+ */
+function signatureServer(initial: number | null, { upload = () => HttpResponse.json({ id: 57 }) }: { upload?: (attempt: number) => Response | Promise<Response> } = {}) {
+  const state = { relations: initial === null ? [] : [initial], firstName: "Ann" }
+  const writes: string[] = []
+  const newest = () => state.relations.at(-1) ?? null
+  const wire = () => myselfWire({ birthDate: "1987-03-09", firstName: state.firstName, signature: newest() === null ? null : { id: newest(), name: "signature.png" } })
+  let uploads = 0
+  const handlers = [
+    http.get(MYSELF, () => HttpResponse.json(wire())),
+    http.put(EDIT, async ({ request }) => {
+      const body = (await request.json()) as { firstName?: string }
+      writes.push(`PUT ${JSON.stringify(body)}`)
+      if (body.firstName) state.firstName = body.firstName
+      return HttpResponse.json(wire())
+    }),
+    http.post(UPLOAD, async ({ request }) => {
+      uploads += 1
+      writes.push(`POST upload${new URL(request.url).search}`)
+      const response = await upload(uploads)
+      if (response.ok) state.relations.push(57)
+      return response
+    }),
+    http.delete(FILE_DELETE, ({ request, params }) => {
+      const id = Number(params.fileId)
+      const owned = state.relations.includes(id)
+      writes.push(`DELETE ${id}${new URL(request.url).search} ${owned ? 204 : 404}`)
+      if (!owned) return HttpResponse.json({ errorCode: "NO_FILE", source: "proxy" }, { status: 404 })
+      state.relations = state.relations.filter((relation) => relation !== id)
+      return new HttpResponse(null, { status: 204 })
+    }),
+  ]
+  return { state, writes, handlers, wire }
+}
+
+async function renderSignatureEdit(initial: number | null, options: Parameters<typeof signatureServer>[1] = {}) {
+  const server = signatureServer(initial, options)
+  const result = await renderEditing(server.wire(), server.handlers)
+  return { ...result, ...server }
+}
+
+const pad = () => {
+  const last = pads.at(-1)
+  if (!last) throw new Error("no pad")
+  return last
+}
+const removeDialog = () => screen.queryByRole("alertdialog", { name: "Remove your signature?" })
+const isDirty = () => within(section()).queryByText("Unsaved changes") !== null
+const signatureImg = () => within(valueOf("Signature")).queryByRole("img", { name: "Your signature" })
+
+describe("PersonalSection: Signature (Story 2.4)", () => {
+  it("the edit row holds the pad: #signature on the row, the help line, the canvas described by it", async () => {
+    await renderSignatureEdit(501)
+    expect(document.getElementById("signature")?.textContent).toContain("Signature")
+    const canvas = screen.getByRole("img", { name: "Draw your signature" })
+    const described = (canvas.getAttribute("aria-describedby") ?? "").split(" ").map((id) => document.getElementById(id)?.textContent)
+    expect(described[0]).toBe("Draw with a mouse, finger or pen, or upload a PNG or JPEG.")
+    expect(within(section()).getByRole("button", { name: "Upload image instead" })).toBeTruthy()
+    expect(section().textContent).not.toMatch(/Saved \d|Added/)
+  })
+
+  it("clean open: the saved Signature is loaded into the pad from myself's id; not dirty; Save sends nothing", async () => {
+    const { writes } = await renderSignatureEdit(501)
+    expect(images.map((image) => image.src)).toEqual(["/api/1h/v2/file/501/download"])
+    await act(async () => images[0]?.onload?.())
+    expect(isDirty()).toBe(false)
+    await save()
+    expect(isReadView()).toBe(true)
+    expect(writes).toEqual([])
+    expect(toastSuccess).not.toHaveBeenCalled()
+  })
+
+  it("no saved Signature: nothing is loaded; a stroke makes it dirty; Save uploads it, refetches myself, shows the new thumbnail, toasts and focuses the h2", async () => {
+    const { writes } = await renderSignatureEdit(null)
+    expect(images).toEqual([])
+    expect(isDirty()).toBe(false)
+    act(() => pad().stroke())
+    expect(isDirty()).toBe(true)
+    act(() => pad().stroke())
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(writes).toEqual(["POST upload"])
+    await waitFor(() => expect(signatureImg()?.getAttribute("src")).toBe("/api/1h/v2/file/57/download"))
+    expect(toastSuccess).toHaveBeenCalledWith("Personal information saved.")
+    expect(document.activeElement).toBe(heading())
+  })
+
+  it("the drawing survives the 768 px layout swap (the pad remounts with its strokes); Save still uploads it", async () => {
+    const setWidth = stubViewport(360)
+    const { writes } = await renderSignatureEdit(null)
+    act(() => pad().stroke())
+    const before = pad()
+    act(() => setWidth(1024))
+    await waitFor(() => expect(pad()).not.toBe(before))
+    expect(pad().toData()).toHaveLength(1)
+    expect(document.querySelector('[data-slot="signature-cue"]')).toBeNull()
+    expect(isDirty()).toBe(true)
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(writes).toEqual(["POST upload"])
+  })
+
+  it("replace: an uploaded PNG is re-encoded, uploaded, then the old file is deleted through the named op", async () => {
+    const { writes, state } = await renderSignatureEdit(501)
+    const file = new File([PNG_BYTES], "mine.png", { type: "image/png" })
+    await act(async () => fireEvent.change(screen.getByTestId("signature-file-input"), { target: { files: [file] } }))
+    await waitFor(() => expect(isDirty()).toBe(true))
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(writes).toEqual(["POST upload", "DELETE 501 204"])
+    // The old relation is gone; only the new Signature is left.
+    expect(state.relations).toEqual([57])
+    await waitFor(() => expect(signatureImg()?.getAttribute("src")).toBe("/api/1h/v2/file/57/download"))
+  })
+
+  it("remove: Clear → Save asks \"Remove your signature?\" (Cancel focused); Remove signature deletes it; the read view says Not provided", async () => {
+    const { writes } = await renderSignatureEdit(501)
+    fireEvent.click(within(section()).getByRole("button", { name: "Clear" }))
+    expect(isDirty()).toBe(true)
+    await save()
+    const dialog = removeDialog()
+    if (!dialog) throw new Error("no confirm")
+    expect(dialog.textContent).toContain("Documents you sign will no longer carry it.")
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Cancel" }))
+    expect(within(dialog).getByRole("button", { name: "Remove signature" }).className).toMatch(/destructive/)
+    expect(await axeViolations()).toEqual([])
+    expect(writes).toEqual([])
+    await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Remove signature" })))
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(writes).toEqual(["DELETE 501 204"])
+    await waitFor(() => expect(valueOf("Signature").textContent).toBe("Not provided"))
+  })
+
+  it.each(["Cancel", "Escape"])("remove cancelled (%s): nothing is sent; still editing with the pad empty; no error; focus back on Save", async (how) => {
+    const { writes } = await renderSignatureEdit(501)
+    fireEvent.click(within(section()).getByRole("button", { name: "Clear" }))
+    const saveButton = screen.getByRole("button", { name: "Save" })
+    saveButton.focus()
+    await save()
+    const dialog = removeDialog()
+    if (!dialog) throw new Error("no confirm")
+    await act(async () => {
+      if (how === "Cancel") fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }))
+      else fireEvent.keyDown(dialog, { key: "Escape" })
+    })
+    await waitFor(() => expect(removeDialog()).toBeNull())
+    expect(writes).toEqual([])
+    expect(within(section()).getByText("Editing")).toBeTruthy()
+    expect(document.querySelector('[data-slot="signature-cue"]')?.textContent).toBe("Draw your signature")
+    expect(isDirty()).toBe(true)
+    expect(within(section()).queryByRole("alert")).toBeNull()
+    await waitFor(() => expect(document.activeElement).toBe(saveButton))
+  })
+
+  it("Save all counts a declined remove as cancelled, never failed", async () => {
+    const { registry, writes } = await renderSignatureEdit(501)
+    fireEvent.click(within(section()).getByRole("button", { name: "Clear" }))
+    let outcome: Awaited<ReturnType<typeof runSaveAll>> | undefined
+    let running: Promise<void> = Promise.resolve()
+    await act(async () => {
+      running = runSaveAll(registry).then((result) => {
+        outcome = result
+      })
+    })
+    const dialog = removeDialog()
+    if (!dialog) throw new Error("no confirm")
+    await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" })))
+    await act(async () => running)
+    expect(outcome).toMatchObject({ kind: "done", saved: [], failed: [] })
+    expect(outcome && "cancelled" in outcome ? outcome.cancelled.map((section) => section.id) : []).toEqual(["personal"])
+    expect(writes).toEqual([])
+  })
+
+  it("the PUT saves but the upload fails: First name saved and clean; \"Couldn't save your signature. Try again.\"; Retry sends only the upload", async () => {
+    const { writes } = await renderSignatureEdit(null, { upload: (attempt) => (attempt === 1 ? HttpResponse.json({ message: "boom" }, { status: 500 }) : HttpResponse.json({ id: 57 })) })
+    await type("First name", "Anna")
+    act(() => pad().stroke())
+    await save()
+    await waitFor(() => expect(within(section()).getByText("Couldn't save your signature. Try again.")).toBeTruthy())
+    expect(writes).toEqual(['PUT {"firstName":"Anna"}', "POST upload"])
+    expect(within(section()).getByText("Editing")).toBeTruthy()
+    expect((control("First name") as HTMLInputElement).value).toBe("Anna")
+    expect(isDirty()).toBe(true)
+    await act(async () => fireEvent.click(within(section()).getByRole("button", { name: "Retry" })))
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(writes).toEqual(['PUT {"firstName":"Anna"}', "POST upload", "POST upload"])
+    await waitFor(() => expect(valueOf("First name").textContent).toBe("Anna"))
+  })
+
+  it("a network failure in the Signature step keeps the connection copy", async () => {
+    const { writes } = await renderSignatureEdit(null, { upload: () => HttpResponse.json({ errorCode: "UPSTREAM_ERROR", source: "proxy" }, { status: 502 }) })
+    act(() => pad().stroke())
+    await save()
+    await waitFor(() => expect(within(section()).getByText("Couldn't save personal information. Check your connection.")).toBeTruthy())
+    expect(within(section()).queryByText("Couldn't save your signature. Try again.")).toBeNull()
+    expect(writes).toEqual(["POST upload"])
+  })
+
+  it("while the save is in flight the pad is read-only: off, Clear and Upload inert; exactly one upload of the original drawing", async () => {
+    const { writes } = await renderSignatureEdit(null)
+    const drawn = new Blob([new Uint8Array([9, 9])], { type: "image/png" })
+    vi.mocked(HTMLCanvasElement.prototype.toBlob).mockImplementation((callback) => callback(drawn))
+    // Hold the save at the drawing's re-encode (an MSW handler that waits breaks the multipart stream here).
+    let release: () => void = () => undefined
+    const encoded = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" })
+    vi.mocked(reencodeImage).mockReturnValueOnce(
+      new Promise((resolve) => (release = () => resolve({ ok: true, blob: encoded, width: 2, height: 2 }))),
+    )
+    act(() => pad().stroke())
+    await save()
+    expect(within(section()).getAllByText("Saving…").length).toBeGreaterThan(0)
+    expect(pad().off).toHaveBeenCalled()
+    const clear = within(section()).getByRole("button", { name: "Clear" })
+    const upload = within(section()).getByRole("button", { name: "Upload image instead" })
+    expect(clear.getAttribute("aria-disabled")).toBe("true")
+    expect(upload.getAttribute("aria-disabled")).toBe("true")
+    const pick = vi.spyOn(screen.getByTestId("signature-file-input"), "click").mockImplementation(() => undefined)
+    fireEvent.click(clear)
+    fireEvent.click(upload)
+    await act(async () =>
+      fireEvent.change(screen.getByTestId("signature-file-input"), { target: { files: [new File([PNG_BYTES], "other.png", { type: "image/png" })] } }),
+    )
+    expect(pick).not.toHaveBeenCalled()
+    expect(document.querySelector('[data-slot="signature-cue"]')).toBeNull()
+    expect(writes).toEqual([])
+    await act(async () => release())
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(writes).toEqual(["POST upload"])
+    expect(vi.mocked(reencodeImage).mock.calls.map(([blob]) => blob)).toEqual([drawn])
+  })
+
+  it("a failed PUT keeps the Section's own error copy, not the Signature's", async () => {
+    const server = signatureServer(null)
+    // The first matching handler wins: the failing PUT goes first.
+    await renderEditing(server.wire(), [http.put(EDIT, () => HttpResponse.json({ message: "Invalid value", code: "INVALID_ENUM_VALUE" }, { status: 400 })), ...server.handlers])
+    await type("First name", "Anna")
+    act(() => pad().stroke())
+    await save()
+    await waitFor(() => expect(within(section()).getByRole("button", { name: "Retry" })).toBeTruthy())
+    expect(within(section()).queryByText("Couldn't save your signature. Try again.")).toBeNull()
+    expect(server.writes).toEqual([])
+  })
+
+  it("never sends isPublic, current or hardDelete", async () => {
+    const { writes } = await renderSignatureEdit(501)
+    act(() => pad().stroke())
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(writes).toEqual(["POST upload", "DELETE 501 204"])
+    for (const write of writes) expect(write).not.toMatch(/isPublic|current|hardDelete/)
+  })
+
+  it("drafts: a drawing is never drafted; a restore shows the saved Signature and sends no Signature step", async () => {
+    const server = signatureServer(501)
+    const first = await renderEditing(server.wire(), server.handlers)
+    await type("First name", "Anna")
+    act(() => pad().stroke())
+    await act(async () => sessionEvents.publish("session-expired"))
+    await waitFor(() => expect(window.localStorage.getItem(DRAFT_KEY)).not.toBeNull())
+    const raw = window.localStorage.getItem(DRAFT_KEY) ?? ""
+    const stored = JSON.parse(raw) as { values: Record<string, unknown> }
+    expect(Object.keys(stored.values)).not.toContain("signature")
+    expect(raw).not.toMatch(/signature|data:|blob:|new:\d/i)
+    first.unmount()
+    sessionEvents.reset()
+
+    images = []
+    renderInPage(<PersonalSection />, { page: "profile", myself: server.wire(), handlers: server.handlers })
+    await screen.findByRole("table", { name: "Personal information" })
+    await act(async () => fireEvent.click(await screen.findByRole("button", { name: "Restore" })))
+    await waitFor(() => expect((control("First name") as HTMLInputElement).value).toBe("Anna"))
+    expect(images.map((image) => image.src)).toEqual(["/api/1h/v2/file/501/download"])
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(server.writes).toEqual(['PUT {"firstName":"Anna"}'])
+  })
+
+  it.each([
+    ["light", 360],
+    ["dark", 1024],
+  ] as const)("has no axe violations with the pad and an upload error (%s, %i px)", async (theme, width) => {
+    stubViewport(width)
+    if (theme === "dark") document.documentElement.classList.add("dark")
+    await renderSignatureEdit(501)
+    await act(async () =>
+      fireEvent.change(screen.getByTestId("signature-file-input"), { target: { files: [new File([new Uint8Array([0x47, 0x49, 0x46])], "a.gif", { type: "image/gif" })] } }),
+    )
+    await waitFor(() => expect(within(section()).getByText("Choose a PNG or JPEG image.")).toBeTruthy())
     expect(await axeViolations()).toEqual([])
   })
 })

@@ -7,18 +7,25 @@
  * `lib/server/proxy/allowlist/personal.ts`):
  * - `PUT v2/user/edit` (entry exists; shared with `account.ts`: import
  *   `userEditPath` from `./user-edit-path.internal`, never re-export it):
- *   `savePersonalInformation` (Story 2.2);
+ *   `sendPersonalInformation` (Stories 2.2–2.4: one step of the Section's
+ *   `runSaveSteps` save in `features/personal/signature-save.ts`);
  * - `GET v2/type/key/Person` (entry exists; read through `type-keys.ts`);
  * - `GET v2/person/{personId}/ssn/expose`: `revealSsn` (Story 2.3);
- * - Signature upload / new version / `DELETE v2/file/{id}` (Story 2.4).
+ * - the Signature upload
+ *   `POST v2/health/type/Person/{personId}/relation/PersonHasSignatureFile/file/upload`
+ *   (`uploadSignature`, Story 2.4) and the old Signature's delete through the
+ *   ownership-checked named op `DELETE /api/pp/file/{fileId}`
+ *   (`deleteSignatureFile`); there is no `v2/file/{id}/version` call (human
+ *   decision 2026-10-16: the backend checks only the tenant there).
  * Reads `myself` through `myself.ts`; never re-map it here.
  */
 
 import { callApi } from "./client"
 import { proxyPath } from "./config"
-import { mapApiError, mappedErrorCode, type MappedError } from "./errors"
-import { mutateMyself } from "./keys"
+import { mapApiError, type MappedError } from "./errors"
+import { fileDeletePath } from "./files"
 import type { TypeKey } from "./type-keys"
+import type { ApiResponse } from "./types"
 import { userEditPath } from "./user-edit-path.internal"
 
 /** The type whose value lists Personal information reads (`keys.typeKey(PERSON_TYPE_KEY)`). */
@@ -93,32 +100,66 @@ export interface PersonalInformationPayload {
 /** The fields a Personal-information save may send. */
 export type PersonalInformationField = keyof PersonalInformationPayload
 
-/**
- * A Personal-information save outcome, in the shape of the shell's
- * `SaveResult` (`useSectionForm`'s `save()` returns it as is): ok, or the
- * mapped failure with its PHI-free code.
- */
-export type PersonalSaveResult =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly error: { readonly code: ReturnType<typeof mappedErrorCode>; readonly mapped: MappedError } }
+/** `true` for an answer that saved: a success, or a 2xx whose body can't be read (as `uploadProfilePicture` counts it). */
+function isSaved(res: ApiResponse<unknown>): boolean {
+  return res.success || (res.statusCode !== undefined && res.statusCode >= 200 && res.statusCode < 300)
+}
 
 /**
- * Story 2.2: `PUT /api/1h/v2/user/edit` with the changed fields only (`diff`,
- * built by the Section; a cleared optional field is already `"n/a"`). An
- * empty diff sends nothing and resolves ok. On success `myself` is
- * revalidated (the header name, both pages) before it resolves; a failure is
- * mapped with `mapApiError("personal", …)`. Never throws. The D-A save
- * safeguard inside `callApi` re-reads `myself` before the PUT.
+ * The Personal-information `PUT /api/1h/v2/user/edit` with `diff` as is
+ * (Stories 2.2–2.4): the raw answer, for a `runSaveSteps` step. A 2xx whose
+ * body can't be read counts as a success. Never throws; revalidates nothing.
  */
-export async function savePersonalInformation(diff: PersonalInformationPayload): Promise<PersonalSaveResult> {
-  if (Object.keys(diff).length === 0) return { ok: true }
-  const res = await callApi<unknown>("personal/savePersonalInformation", userEditPath(), { method: "PUT", body: JSON.stringify(diff) })
-  // A 2xx whose body can't be read still saved (as `uploadProfilePicture` counts it).
-  const saved = res.success || (res.statusCode !== undefined && res.statusCode >= 200 && res.statusCode < 300)
-  if (!saved) {
-    const mapped = mapApiError("personal", res)
-    return { ok: false, error: { code: mappedErrorCode(mapped), mapped } }
-  }
-  await mutateMyself()
-  return { ok: true }
+export async function sendPersonalInformation(diff: PersonalInformationPayload): Promise<ApiResponse<unknown>> {
+  const res = await callApi<unknown>("personal/sendPersonalInformation", userEditPath(), { method: "PUT", body: JSON.stringify(diff) })
+  return !res.success && isSaved(res) ? { success: true, statusCode: res.statusCode } : res
+}
+
+/**
+ * `POST /api/1h/v2/health/type/Person/me/relation/PersonHasSignatureFile/file/upload`
+ * (Story 2.4): the caller's own person (`me`), no query (the proxy forces
+ * `isPublic=false`).
+ */
+export function signatureUploadPath(): string {
+  return proxyPath("v2/health/type/Person/me/relation/PersonHasSignatureFile/file/upload")
+}
+
+/** The upload's `file` part name: every Signature is a re-encoded PNG. */
+export const SIGNATURE_UPLOAD_NAME = "signature.png"
+
+/**
+ * Story 2.4: `POST` the re-encoded Signature PNG as `multipart/form-data`
+ * with exactly one part, `file`, named `signature.png`, to
+ * `signatureUploadPath()`. `callApi` sets no JSON `Content-Type` for a
+ * `FormData` body, so the browser adds the boundary. The body isn't used
+ * (the caller re-reads `myself` for the new id), so a 2xx whose body isn't
+ * JSON is still a success. Never sends `isPublic`, `current` or `hardDelete`.
+ */
+export async function uploadSignature(blob: Blob): Promise<ApiResponse<unknown>> {
+  const body = new FormData()
+  body.append("file", blob, SIGNATURE_UPLOAD_NAME)
+  const res = await callApi<unknown>("personal/uploadSignature", signatureUploadPath(), { method: "POST", body })
+  return !res.success && isSaved(res) ? { success: true, statusCode: res.statusCode } : res
+}
+
+/**
+ * Story 2.4: deletes one of the caller's Signature files through the
+ * ownership-checked named op `DELETE /api/pp/file/{fileId}` (`fileDeletePath`;
+ * the server hard-deletes it and answers 404 `NO_FILE` for a file that isn't
+ * the caller's). Take `fileId` only from `myself.signature.id`. A non-id
+ * sends nothing and fails.
+ */
+export async function deleteSignatureFile(fileId: number): Promise<ApiResponse<unknown>> {
+  const path = fileDeletePath(fileId)
+  if (path === null) return { success: false, error: "personal/deleteSignatureFile: not a file id" }
+  return callApi<unknown>("personal/deleteSignatureFile", path, { method: "DELETE" })
+}
+
+/**
+ * A `deleteSignatureFile` answer for a file that is already gone (or never
+ * was the caller's): the named op's 404 `NO_FILE`, its only 404 (BFF
+ * contract). A removal treats it as deleted and lets the re-read decide.
+ */
+export function isSignatureFileGone(res: ApiResponse<unknown>): boolean {
+  return !res.success && res.statusCode === 404
 }

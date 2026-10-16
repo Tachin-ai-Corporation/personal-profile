@@ -63,4 +63,23 @@ export const PERSON_MESSAGES = {
   ssnRevealFailed: "Couldn't show your SSN. Try again.", // DRAFT COPY (Story 2.3 spec)
   /** A partial SSN on blur or Save. */
   ssnIncomplete: "Enter all 9 digits of your SSN", // DRAFT COPY (Story 2.3 spec)
+  // Signature (Team A, Story 2.4). The row label is SHELL_MESSAGES.signature; "Clear" and "Cancel" are COMMON_MESSAGES.
+  /** The pad's cue while empty, and the canvas's accessible name. */
+  signatureCue: "Draw your signature",
+  /** The ghost button that opens the file picker. */
+  signatureUpload: "Upload image instead",
+  /** The help line under the pad ("Saved {date}." is left out: no file date exists). */
+  signatureHelp: "Draw with a mouse, finger or pen, or upload a PNG or JPEG.", // DRAFT COPY (EXPERIENCE.md V&T "Signature help (edit)" without "Saved {date}.")
+  /** Visually hidden, part of the canvas's description. */
+  signatureKeyboard: "Drawing needs a mouse, finger or pen. To add your signature with a keyboard, use Upload image instead.", // DRAFT COPY (epics Story 2.4)
+  /** An upload that isn't a PNG or JPEG (MIME type and leading bytes). */
+  signatureWrongType: "Choose a PNG or JPEG image.", // DRAFT COPY (epics Story 2.4)
+  /** An upload the re-encode can't bring to 1 MB or decode. */
+  signatureTooLarge: "This image is too large. Choose a smaller one.", // DRAFT COPY (epics Story 2.4)
+  /** The Remove confirm (EXPERIENCE.md V&T "Remove Signature confirm"). */
+  signatureRemoveTitle: "Remove your signature?",
+  signatureRemoveBody: "Documents you sign will no longer carry it.",
+  signatureRemoveConfirm: "Remove signature",
+  /** The Signature step failed (after the other fields saved, or alone). */
+  signatureSaveFailed: "Couldn't save your signature. Try again.", // DRAFT COPY (epics Story 2.4)
 } as const

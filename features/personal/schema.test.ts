@@ -8,7 +8,10 @@ import {
   PERSONAL_LABELS,
   personalDiff,
   personalDraftDiff,
+  newSignatureKey,
+  newSignatureToken,
   personalSchema,
+  signatureBaseline,
   toPersonalValues,
   type PersonalValues,
 } from "./schema"
@@ -34,6 +37,7 @@ const VALID: PersonalValues = {
   genderIdentity: "Woman",
   sexualOrientation: "Straight",
   socialSecurityNumber: "***-**-1234",
+  signature: "saved",
 }
 
 /** The saved mask of `VALID` (the schema's untouched baseline). */
@@ -173,14 +177,15 @@ describe("personalSchema: birth date", () => {
 })
 
 describe("toPersonalValues", () => {
-  it("maps myself to the 15 form fields, the birth date as MM/DD/YYYY, the SSN as its mask", () => {
+  it("maps myself to the 16 form fields, the birth date as MM/DD/YYYY, the SSN as its mask, the Signature as a token", () => {
     expect(toPersonalValues(toMyself(myselfWire()))).toEqual({ ...VALID, birthDate: "04/15/1990" })
   })
 
   it("not provided (null, blank, n/a) is empty; before myself loads every field is empty", () => {
     const values = toPersonalValues(toMyself(myselfWire({ middleName: "n/a", titles: "  ", race: null, birthDate: "n/a" })))
     expect(values).toMatchObject({ middleName: "", titles: "", race: "", birthDate: "" })
-    expect(toPersonalValues(undefined)).toEqual(Object.fromEntries(PERSONAL_FIELD_ORDER.map((field) => [field, ""])))
+    expect(toPersonalValues(undefined)).toEqual({ ...Object.fromEntries(PERSONAL_FIELD_ORDER.map((field) => [field, ""])), signature: "none" })
+    expect(PERSONAL_FIELD_ORDER).not.toContain("signature")
   })
 
   it("keeps text as sent (the diff trims)", () => {
@@ -272,8 +277,33 @@ describe("SSN (Story 2.3)", () => {
     expect(personalDiff({ ...VALID, socialSecurityNumber: "***-**-9999" }, VALID)).toEqual({})
   })
 
-  it("the field order puts the SSN last, after the 14 draft fields", () => {
+  it("the field order puts the SSN last, after the 14 draft fields (the Signature token is never invalid)", () => {
     expect(PERSONAL_FIELD_ORDER).toEqual([...PERSONAL_DRAFT_FIELDS, "socialSecurityNumber"])
+  })
+})
+
+describe("Signature token (Story 2.4)", () => {
+  it("the baseline is saved with a Signature file id in myself, none without one (or with a malformed id)", () => {
+    expect(signatureBaseline(toMyself(myselfWire()))).toBe("saved")
+    expect(signatureBaseline(toMyself(myselfWire({ signature: null })))).toBe("none")
+    expect(signatureBaseline(toMyself(myselfWire({ signature: { id: 0, name: "x.png" } })))).toBe("none")
+    expect(signatureBaseline(undefined)).toBe("none")
+    expect(toPersonalValues(toMyself(myselfWire({ signature: null }))).signature).toBe("none")
+  })
+
+  it("new:<n> tokens round-trip; anything else has no key", () => {
+    expect(newSignatureToken(3)).toBe("new:3")
+    expect(newSignatureKey("new:3")).toBe(3)
+    for (const value of ["saved", "none", "cleared", "new:", "new:x", "data:image/png;base64,AAAA"]) expect(newSignatureKey(value), value).toBeNull()
+  })
+
+  it("the schema never blocks a Save on the token (set only by code)", () => {
+    for (const signature of ["saved", "none", "cleared", "new:1", "new:42"]) expect(errors({ signature }), signature).toEqual({})
+  })
+
+  it("the Signature token is never in the PUT diff", () => {
+    expect(personalDiff({ ...VALID, signature: "new:1" }, VALID)).toEqual({})
+    expect(personalDiff({ ...VALID, signature: "cleared" }, VALID)).toEqual({})
   })
 })
 
@@ -298,6 +328,7 @@ describe("drafts", () => {
     expect(Object.keys(PERSONAL_LABELS)).toEqual([...PERSONAL_DRAFT_FIELDS])
     expect(PERSONAL_DRAFT_FIELDS).toHaveLength(14)
     expect(PERSONAL_DRAFT_FIELDS).not.toContain("socialSecurityNumber")
+    expect(PERSONAL_DRAFT_FIELDS).not.toContain("signature")
   })
 
   it("personalDraftDiff lists the changed fields with their labels", () => {

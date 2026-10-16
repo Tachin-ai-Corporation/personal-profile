@@ -19,7 +19,6 @@ describe("PUT v2/user/edit entry", () => {
     expect(entries.map((e) => `${e.method} ${e.template}`)).toEqual([
       "PUT v2/user/edit",
       "POST v2/health/type/Person/{personId}/relation/PersonHasSignatureFile/file/upload",
-      "POST v2/file/{fileId}/version",
       "GET v2/type/key/Person",
       "GET v2/person/{personId}/ssn/expose",
     ])
@@ -43,19 +42,17 @@ describe("Signature upload entries (Story 2.4, AD-13)", () => {
     const match = matchEntry(entries, "POST", seg("v2/health/type/Person/me/relation/PersonHasSignatureFile/file/upload"))
     if (match.kind !== "matched") throw new Error("expected a match")
     expect(match.entry).toMatchObject({ upload: { part: "file", types: ["png"] }, maxBytes: SIGNATURE_MAX_BYTES })
+    // Pinned to the client's re-encode limit: `SIGNATURE_MAX_BYTES` in features/personal/signature-file.ts (its test pins 1024 * 1024 too).
     expect(SIGNATURE_MAX_BYTES).toBe(1024 * 1024)
     expect(buildUpstreamQuery(match.entry, q("isPublic=true"))?.toString()).toBe("isPublic=false")
     expect(buildUpstreamQuery(match.entry, q("fileName=x.png"))).toBeNull()
     expect(matchEntry(entries, "POST", seg("v2/health/type/Person/4242/relation/PersonHasSignatureFile/file/upload")).kind).toBe("not-allowed")
   })
 
-  it("new version: numeric id, current=true forced, no client query, one PNG `fileNewVersion` part, 1 MB", () => {
-    const match = matchEntry(entries, "POST", seg("v2/file/77/version"))
-    if (match.kind !== "matched") throw new Error("expected a match")
-    expect(match.entry).toMatchObject({ upload: { part: "fileNewVersion", types: ["png"] }, maxBytes: SIGNATURE_MAX_BYTES })
-    expect(buildUpstreamQuery(match.entry, q("current=false"))?.toString()).toBe("current=true")
-    expect(buildUpstreamQuery(match.entry, q("versionName=x"))).toBeNull()
-    expect(matchEntry(entries, "POST", seg("v2/file/me/version")).kind).toBe("not-allowed")
+  it("no new-version entry: POST v2/file/{fileId}/version is not allowlisted (human decision 2026-10-16)", () => {
+    expect(entries.some((e) => e.template === "v2/file/{fileId}/version")).toBe(false)
+    expect(entries.some((e) => e.upload?.part === "fileNewVersion")).toBe(false)
+    expect(matchEntry(entries, "POST", seg("v2/file/41/version")).kind).toBe("not-allowed")
   })
 })
 
@@ -131,9 +128,11 @@ describe("SSN expose through the proxy (Story 2.3)", () => {
     const line = JSON.parse(lines[0]) as Record<string, unknown>
     expect(Object.keys(line).toSorted()).toEqual(["durationMs", "kind", "method", "requestId", "routeTemplate", "status"])
     expect(line).toMatchObject({ kind: "request", method: "GET", routeTemplate: "/v2/person/{personId}/ssn/expose", status: 200 })
-    expect(lines[0]).not.toContain(String(PERSON_ID))
-    expect(lines[0]).not.toContain(SSN)
-    expect(lines[0]).not.toMatch(/socialSecurityNumber|\d{3}-?\d{2}-?\d{4}/)
+    // The random request id (a UUID) can hold an SSN-shaped run of digits: check the line without it.
+    const withoutRequestId = lines[0].replace(String(line.requestId), "")
+    expect(withoutRequestId).not.toContain(String(PERSON_ID))
+    expect(withoutRequestId).not.toContain(SSN)
+    expect(withoutRequestId).not.toMatch(/socialSecurityNumber|\d{3}-?\d{2}-?\d{4}/)
   })
 
   it.each([
@@ -154,6 +153,24 @@ describe("SSN expose through the proxy (Story 2.3)", () => {
       expect(line).not.toContain("4242")
       expect(line).not.toContain(String(PERSON_ID))
     }
+  })
+})
+
+/** Story 2.4: a Signature replace is upload + ownership-checked delete; the version endpoint is gone (human, 2026-10-16). */
+describe("POST v2/file/{fileId}/version through the proxy (Story 2.4)", () => {
+  const proxy = createProxyHandler({ env: testEnv(), now: () => NOW })
+
+  beforeEach(() => stubServerEnv())
+
+  it("is refused before upstream: 403 NOT_ALLOWED", async () => {
+    const upstreamCalls = trackAllRequests()
+    const cookie = `${SESSION_COOKIE}=${await sealSession(makeSession())}`
+    const body = new FormData()
+    body.append("fileNewVersion", new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], { type: "image/png" }), "signature.png")
+    const response = await proxy(new Request("http://localhost:3000/api/1h/v2/file/41/version", { method: "POST", headers: { cookie }, body }))
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({ errorCode: "NOT_ALLOWED", source: "proxy" })
+    expect(upstreamCalls()).toBe(0)
   })
 })
 

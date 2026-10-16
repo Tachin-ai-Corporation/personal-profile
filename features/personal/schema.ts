@@ -1,6 +1,6 @@
 import { z } from "zod"
 import type { DraftDiffRow, DraftValues } from "@/features/shell"
-import type { Myself, PersonalInformationPayload } from "@/lib/api"
+import { isFileId, type Myself, type PersonalInformationPayload } from "@/lib/api"
 import { displayToWireDate, wireToDisplayDate } from "@/lib/shared/dates"
 import { isNotProvided } from "@/lib/shared/display-value"
 import { FIELD_MESSAGES, formatMessage, PERSON_MESSAGES } from "@/lib/shared/messages"
@@ -22,7 +22,8 @@ import { isCompleteSsn, toSsnFormValue } from "./ssn"
  * their rules (on the shared `person-rules.ts`; copy from `PERSON_MESSAGES`),
  * the changed-fields diff the save sends and the draft wiring. The SSN
  * (Story 2.3) is the 15th form value but never a draft field; Signature
- * (2.4) is not a form value here. Neither can ever be drafted.
+ * (2.4) is the 16th, a state token only (`SignatureToken`). Neither can ever
+ * be drafted, and neither is a `PUT v2/user/edit` field of the Signature.
  */
 
 /** The 14 edited fields in the F1 order: the form values, the draft fields and the first-invalid focus order. */
@@ -48,8 +49,37 @@ export type PersonalField = (typeof PERSONAL_DRAFT_FIELDS)[number]
 /** The SSN form field (Story 2.3): never a draft field (`DRAFT_DENYLIST`). */
 export const SSN_FIELD = "socialSecurityNumber"
 
-/** Every form field in reading order (first-invalid focus): the 14 draft fields, then the SSN. */
+/** The Signature form field (Story 2.4): a state token, never a draft field (`DRAFT_DENYLIST`). */
+export const SIGNATURE_FIELD = "signature"
+
+/** Every validated form field in reading order (first-invalid focus): the 14 draft fields, then the SSN (the Signature token is never invalid). */
 export const PERSONAL_FIELD_ORDER = [...PERSONAL_DRAFT_FIELDS, SSN_FIELD] as const
+
+/**
+ * The Signature's form value (Story 2.4): only a state token, never image
+ * data. `saved`: the saved Signature, untouched (the baseline with one);
+ * `none`: no Signature (the baseline without one, or a Clear of an unsaved
+ * drawing); `cleared`: a saved Signature cleared (Save removes it after the
+ * confirm); `new:<n>`: a new drawing or upload, whose pending PNG the Section
+ * keeps by `<n>` (Save uploads it).
+ */
+export type SignatureToken = "saved" | "none" | "cleared" | `new:${number}`
+
+/** A new drawing's or upload's token. */
+export function newSignatureToken(n: number): SignatureToken {
+  return `new:${n}`
+}
+
+/** The `<n>` of a `new:<n>` token; `null` for any other value. */
+export function newSignatureKey(value: string): number | null {
+  const match = /^new:(\d+)$/.exec(value)
+  return match ? Number(match[1]) : null
+}
+
+/** The baseline token: `saved` when `myself` has a Signature file, else `none`. */
+export function signatureBaseline(myself: Myself | null | undefined): SignatureToken {
+  return isFileId(myself?.signature?.id) ? "saved" : "none"
+}
 
 /**
  * The form values: text as typed, `""` when not provided. `birthDate` is the
@@ -57,9 +87,9 @@ export const PERSONAL_FIELD_ORDER = [...PERSONAL_DRAFT_FIELDS, SSN_FIELD] as con
  * schema can tell "required" from "Enter a date as MM/DD/YYYY"; the diff
  * sends it as `YYYY-MM-DD`. `socialSecurityNumber` is the saved mask
  * (untouched), `""` (none, or cleared) or the typed `XXX-XX-XXXX` text; a
- * revealed SSN never enters it.
+ * revealed SSN never enters it. `signature` is a `SignatureToken`.
  */
-export type PersonalValues = Record<PersonalField | typeof SSN_FIELD, string>
+export type PersonalValues = Record<PersonalField | typeof SSN_FIELD | typeof SIGNATURE_FIELD, string>
 
 /** The fields that may be left empty (muted "(optional)"); a cleared one is sent as `"n/a"`. */
 export const PERSONAL_OPTIONAL_FIELDS: ReadonlySet<PersonalField> = new Set<PersonalField>([
@@ -175,6 +205,8 @@ export function personalSchema(roles: readonly string[] | null | undefined, toda
     socialSecurityNumber: z
       .string()
       .refine((value) => value === "" || (ssnMask !== "" && value === ssnMask) || isCompleteSsn(value), { message: PERSON_MESSAGES.ssnIncomplete }),
+    // A state token set only by code (the pad's changes), never typed: nothing to validate.
+    signature: z.string(),
   }) satisfies z.ZodType<PersonalValues, PersonalValues>
 }
 
@@ -201,6 +233,7 @@ export function toPersonalValues(myself: Myself | null | undefined): PersonalVal
     genderIdentity: formText(myself?.genderIdentity),
     sexualOrientation: formText(myself?.sexualOrientation),
     socialSecurityNumber: toSsnFormValue(myself?.socialSecurityNumber),
+    signature: signatureBaseline(myself),
   }
 }
 
@@ -226,7 +259,8 @@ function ssnChange(value: string, saved: string): string | undefined {
  * The changed fields only, compared after trimming (Story 2.2): strings, the
  * birth date as `YYYY-MM-DD`, and a cleared optional field as `"n/a"`. Only
  * these 14 fields and the SSN (Story 2.3, `ssnChange`) can appear: never
- * `email`, `phoneNumber` or `phoneNumberRegion` (AD-9), and never Signature.
+ * `email`, `phoneNumber` or `phoneNumberRegion` (AD-9), and never the
+ * Signature token (Story 2.4 saves it in its own step).
  */
 export function personalDiff(values: PersonalValues, baseline: PersonalValues): PersonalInformationPayload {
   const diff: Partial<Record<PersonalField | typeof SSN_FIELD, string>> = {}
