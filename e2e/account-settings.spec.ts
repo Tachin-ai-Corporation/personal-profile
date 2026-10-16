@@ -49,8 +49,8 @@ async function expectNoOverflow(page: Page): Promise<void> {
 }
 
 /** Hold the real read at the browser boundary; release falls through to mockMyself. */
-async function holdAccountMyself(page: Page): Promise<() => void> {
-  await mockMyself(page, { body: ACCOUNT_SETTINGS_MYSELF })
+async function holdAccountMyself(page: Page, answer: { status?: number; body?: unknown } = { body: ACCOUNT_SETTINGS_MYSELF }): Promise<() => void> {
+  await mockMyself(page, answer)
   let release!: () => void
   const pending = new Promise<void>((resolve) => { release = resolve })
   await page.route("**/api/1h/v2/user/myself", async (route) => {
@@ -384,8 +384,11 @@ test.describe("Personal account settings read view (Story 7.4)", () => {
         // read to settle before recording requests caused by Retry.
         await page.waitForLoadState("networkidle")
         requests.length = 0
-        await retry.click()
+        await retry.focus()
+        await expect(retry).toBeFocused()
+        await page.keyboard.press("Enter")
         await expectFields(page, FILLED_VALUES)
+        await expect(section(page).getByRole("heading", { level: 2, name: TITLE, exact: true })).toBeFocused()
         await expect(page.getByText(LOAD_ERROR, { exact: true })).toHaveCount(0)
         expect(recovered()).toBe(1)
         expect(requests).toEqual(["/api/1h/v2/user/myself"])
@@ -394,4 +397,106 @@ test.describe("Personal account settings read view (Story 7.4)", () => {
       }
     })
   }
+
+  for (const interaction of ["no further interaction", "another control", "outside heading then body", "nonfocusable text"] as const) {
+    test(`held keyboard Retry ${interaction === "no further interaction" ? "focuses its heading with" : "does not steal focus after"} ${interaction}`, async ({ page }) => {
+      await mockMyself(page, { status: 400, body: { code: 400, message: "Private diagnostic" } })
+      await page.goto("/account?tab=personal")
+      const retry = section(page).getByRole("button", { name: "Retry", exact: true })
+      await expect(section(page).getByText(LOAD_ERROR, { exact: true })).toBeVisible()
+      const release = await holdAccountMyself(page)
+      try {
+        await retry.focus()
+        await expect(retry).toBeFocused()
+        await Promise.all([
+          page.waitForRequest("**/api/1h/v2/user/myself"),
+          page.keyboard.press("Enter"),
+        ])
+        await expect(retry).toBeFocused()
+        // The request is still held: leaving and later blurring to body must
+        // cancel recovery focus just as surely as keeping another control focused.
+        const otherTab = page.getByRole("tab", { name: "Individual Provider Registration", exact: true })
+        const panel = page.getByRole("tabpanel", { name: "Personal Account", exact: true })
+        if (interaction === "another control") {
+          await otherTab.focus()
+          await expect(otherTab).toBeFocused()
+        } else if (interaction === "outside heading then body") {
+          const heading = authenticator(page).getByRole("heading", { level: 2, name: "Authenticator app", exact: true })
+          await heading.focus()
+          await expect(heading).toBeFocused()
+          await heading.evaluate((element) => element.blur())
+          await expect(page.locator("body")).toBeFocused()
+        } else if (interaction === "nonfocusable text") {
+          // A real pointer action on a paragraph also revokes Retry's focus
+          // intent. Chromium focuses the containing focusable tab panel.
+          await section(page).getByText(LOAD_ERROR, { exact: true }).click()
+          await expect(panel).toBeFocused()
+        }
+        await expect(table(page)).toHaveCount(0)
+        release()
+        await expectFields(page, FILLED_VALUES)
+        const expectedFocus = interaction === "no further interaction"
+          ? section(page).getByRole("heading", { level: 2, name: TITLE, exact: true })
+          : interaction === "another control" ? otherTab : interaction === "nonfocusable text" ? panel : page.locator("body")
+        await expect(expectedFocus).toBeFocused()
+        await expect(page).toHaveURL(/\/account\?tab=personal$/)
+      } finally {
+        release()
+      }
+    })
+  }
+
+  test("background identity refresh after Retry recovery does not reclaim focus from body", async ({ page }) => {
+    await mockMyself(page, { status: 400, body: { code: 400, message: "Private diagnostic" } })
+    await page.goto("/account?tab=personal")
+    const retry = section(page).getByRole("button", { name: "Retry", exact: true })
+    await expect(retry).toBeVisible()
+    await mockMyself(page, { body: ACCOUNT_SETTINGS_MYSELF })
+    await retry.focus()
+    await page.keyboard.press("Enter")
+    await expectFields(page, FILLED_VALUES)
+    await expect(section(page).getByRole("heading", { level: 2, name: TITLE, exact: true })).toBeFocused()
+    const heading = authenticator(page).getByRole("heading", { level: 2, name: "Authenticator app", exact: true })
+    await heading.focus()
+    await expect(heading).toBeFocused()
+    await heading.evaluate((element) => element.blur())
+    await expect(page.locator("body")).toBeFocused()
+    await mockMyself(page, { body: { ...ACCOUNT_SETTINGS_MYSELF, firstName: "Beth" } })
+    // Reconnect revalidates the real shared identity cache once SWR's
+    // in-flight dedupe window ends; no owned hook or cache is mocked.
+    const firstName = await valueCell(page, "First name")
+    await expect.poll(async () => {
+      await page.evaluate(() => window.dispatchEvent(new Event("online")))
+      return firstName.textContent()
+    }).toBe("Beth")
+    await expect(page.locator("body")).toBeFocused()
+  })
+
+  test("held keyboard Retry ending in session expiry leaves focus in the session dialog", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    await mockMyself(page, { status: 400, body: { code: 400, message: "Private diagnostic" } })
+    await page.goto("/account?tab=personal")
+    const retry = section(page).getByRole("button", { name: "Retry", exact: true })
+    await expect(retry).toBeVisible()
+    const release = await holdAccountMyself(page, { status: 401, body: { errorCode: "SESSION_EXPIRED", source: "proxy" } })
+    try {
+      await retry.focus()
+      await expect(retry).toBeFocused()
+      await Promise.all([
+        page.waitForRequest("**/api/1h/v2/user/myself"),
+        page.keyboard.press("Enter"),
+      ])
+      release()
+      const dialog = page.getByRole("alertdialog", { name: "Your session ended" })
+      await expect(dialog).toBeVisible()
+      await expect(dialog.getByRole("button", { name: "Return to 1health" })).toBeFocused()
+      await expect(section(page).getByText(LOAD_ERROR, { exact: true })).toHaveCount(0)
+      await expect(retry).toHaveCount(0)
+      await expect(table(page)).toHaveCount(0)
+      await page.keyboard.press("Escape")
+      await expect(dialog.getByRole("button", { name: "Return to 1health" })).toBeFocused()
+    } finally {
+      release()
+    }
+  })
 })

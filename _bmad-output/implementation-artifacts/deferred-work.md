@@ -90,6 +90,15 @@
   summary: (Resolved 2026-10-16, Team B) Keyboard-focused tabs are revealed before activation on a 360 px strip; Story 7.2's foundation integration dependency is closed locally.
   evidence: Approved review action R6 exposed clipping in both mobile themes. The user explicitly directed completing local integration before closing the ticket, instead of publishing the prerequisite PR (exception to T2's sequence). Cherry-picked independently reviewed foundation commit `0602f9e41d54d643030814a561ae95f490444ca1` as `aac40e8c2a64877804ddc71a55d3090c977bcce9` onto the story branch. Strict R6 cases and Profile/Account regressions pass; full integrated validation passed 3,585 unit tests (100% enforced coverage) and 442 e2e tests (6 viewport skips), without failures or retries. No remote push, PR or main merge was performed.
 
+### Deferred from: code review of spec-7-4-account-settings-view (2026-10-16)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-4-account-settings-view.md`
+  summary: (R5, medium; Team B coordinates with Team A/Foundation) Existing Profile onReady-only consumers must report failure layouts when they can move a later deep-link target; keep this pre-existing integration repair separate from Account Story 7.4.
+  evidence: `features/personal/personal-section.tsx:509` still uses onReady, and the caller/guidance are unchanged from the baseline. A production-browser held myself 400 at `/?tab=contacts#phone` moves the desktop Phone heading from y=10 to y=-150; mobile remains y=10. Account already uses onSettled and has success/error/forbidden deep-link coverage. Close with owner-approved integration and a Profile failure-anchor regression.
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-4-account-settings-view.md`
+  summary: (R10, inherited PNFR acceptance; owner Team B QA/integrator) Complete the existing 1.5-second first-tab demo-broadband measurement before release acceptance; the 7.4 local response-to-ready test is not that measurement.
+  evidence: The earlier Team B 7.2 deferred item assigned this check to real-read stories starting 7.4. Use a synthetic demo account, document the broadband profile, measure navigation/tab activation through a ready ten-field table including request latency/hydration, and record <=1,500 ms acceptance evidence. No real-demo latency failure has been established; the spec explicitly marks this environment check pending.
+
 ## Foundation (shared or cross-team)
 
 - source_spec: none (D18 optional dev environment, 2026-10-15)

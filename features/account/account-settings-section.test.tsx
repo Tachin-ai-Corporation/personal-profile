@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { http, HttpResponse } from "msw"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { SWRConfig, unstable_serialize, useSWRConfig } from "swr"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AccountSectionPlaceholder, MyselfErrorClaimProvider, useMyself, useMyselfErrorClaimed } from "@/features/shell"
@@ -176,6 +176,7 @@ describe("AccountSettingsSection (Story 7.4)", () => {
     expect(frameReady).toHaveBeenCalledWith("account")
     await user.click(within(section()).getByRole("button", { name: "Retry" }))
     await screen.findByRole("table", { name: TITLE })
+    expect(document.activeElement).toBe(within(section()).getByRole("heading", { name: TITLE }))
     expect(calls).toBe(2)
     // Clicking Retry also records user activity through the shell's real ping boundary.
     expect(requests.filter((path) => path !== "/api/session/ping")).toEqual([MYSELF, MYSELF])
@@ -220,6 +221,107 @@ describe("AccountSettingsSection (Story 7.4)", () => {
       lastAlert = within(section()).getByRole("alert")
       expect(lastAlert.textContent).toBe("Something went wrong while loading profile information")
     }
+  })
+
+  it.each(["another control", "another control then body", "nonfocusable content"])("does not steal recovery focus after moving to %s", async (destination) => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let calls = 0
+    const user = userEvent.setup()
+    renderInPage(<><AccountSettingsSection /><button>Elsewhere</button><p>Other content</p></>, {
+      page: "account",
+      handlers: [http.get(MYSELF, async () => {
+        calls += 1
+        if (calls === 1) return HttpResponse.json({}, { status: 400 })
+        await gate
+        return HttpResponse.json(myselfWire())
+      })],
+    })
+    await within(section()).findByRole("alert")
+    await user.click(within(section()).getByRole("button", { name: "Retry" }))
+    await waitFor(() => expect(calls).toBe(2))
+    const outside = screen.getByRole("button", { name: "Elsewhere" })
+    if (destination === "nonfocusable content") await user.click(screen.getByText("Other content"))
+    else act(() => {
+      outside.focus()
+      if (destination === "another control then body") outside.blur()
+    })
+    const chosen = document.activeElement
+    await act(async () => { release() })
+    await screen.findByRole("table", { name: TITLE })
+    expect(document.activeElement).toBe(chosen)
+    expect(document.activeElement).not.toBe(within(section()).getByRole("heading", { name: TITLE }))
+  })
+
+  it("clears a failed Retry's focus ownership before a later background recovery", async () => {
+    let replaceIdentity!: () => Promise<void>
+    function BackgroundIdentity() {
+      const { mutate } = useSWRConfig()
+      useEffect(() => {
+        replaceIdentity = async () => { await mutate(keys.myself(), toMyself(myselfWire()), false) }
+      }, [mutate])
+      return null
+    }
+    let calls = 0
+    const user = userEvent.setup()
+    renderInPage(<><AccountSettingsSection /><BackgroundIdentity /></>, {
+      page: "account",
+      handlers: [http.get(MYSELF, () => {
+        calls += 1
+        return HttpResponse.json({}, { status: 400 })
+      })],
+    })
+    const firstError = await within(section()).findByRole("alert")
+    const retry = within(section()).getByRole("button", { name: "Retry" })
+    await user.click(retry)
+    await waitFor(() => expect(within(section()).getByRole("alert")).not.toBe(firstError))
+    expect(calls).toBe(2)
+    expect(document.activeElement).toBe(retry)
+    await act(replaceIdentity)
+    await screen.findByRole("table", { name: TITLE })
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it("does not claim focus for a virtual Retry activation while another control is focused", async () => {
+    let calls = 0
+    renderInPage(<><AccountSettingsSection /><button>Elsewhere</button></>, {
+      page: "account", handlers: [http.get(MYSELF, () => {
+        calls += 1
+        return calls === 1 ? HttpResponse.json({}, { status: 400 }) : HttpResponse.json(myselfWire())
+      })],
+    })
+    await within(section()).findByRole("alert")
+    const outside = screen.getByRole("button", { name: "Elsewhere" })
+    act(() => {
+      outside.focus()
+      // Assistive/virtual activation need not transfer DOM focus first.
+      within(section()).getByRole("button", { name: "Retry" }).click()
+    })
+    await screen.findByRole("table", { name: TITLE })
+    expect(document.activeElement).toBe(outside)
+  })
+
+  it("keeps recovery focus when Retry is pressed again while a request is pending", async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let calls = 0
+    const user = userEvent.setup()
+    renderInPage(<AccountSettingsSection />, {
+      page: "account", handlers: [http.get(MYSELF, async () => {
+        calls += 1
+        if (calls === 1) return HttpResponse.json({}, { status: 400 })
+        await gate
+        return HttpResponse.json(myselfWire())
+      })],
+    })
+    await within(section()).findByRole("alert")
+    const retry = within(section()).getByRole("button", { name: "Retry" })
+    await user.click(retry)
+    await waitFor(() => expect(calls).toBe(2))
+    await user.click(retry)
+    await act(async () => { release() })
+    await screen.findByRole("table", { name: TITLE })
+    expect(document.activeElement).toBe(within(section()).getByRole("heading", { name: TITLE }))
   })
 
   it("reads already cached Primary Mobile region and subscribes to cache updates without a contacts fetch", async () => {
