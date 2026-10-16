@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { COMBOBOX_MESSAGES, formatMessage } from "@/lib/shared/messages"
 import { axeViolations } from "@/test/axe"
 import { FakeIntersectionObserver, reportIntersections, stubLayoutApis } from "@/test/dom-stubs"
+import { FormField } from "./form-field"
 import { Combobox, ComboboxOptionText, HighlightMatch, type ComboboxLoadResult, type ComboboxProps, type ComboboxSelection } from "./combobox"
 
 interface Npi {
@@ -621,6 +622,43 @@ describe("Combobox: variants", () => {
     expect(input.getAttribute("aria-expanded")).toBe("false")
     fireEvent.blur(input, { relatedTarget: screen.getByRole("button", { name: "After" }) })
     expect(screen.getByTestId("value").textContent).toBe("Nonbinary")
+  })
+
+  it("control: renders only the input and popup with the caller's field wiring (one label, the caller's help and error)", async () => {
+    vi.useRealTimers()
+    render(
+      <FormField label="Gender identity" required help={COMBOBOX_MESSAGES.genderIdentityHelp} error="Choose a value">
+        {(control) => (
+          <Combobox<string>
+            control={control}
+            label="Gender identity"
+            help="Ignored help"
+            error="Ignored error"
+            optional
+            id="ignored-id"
+            className="ignored-class"
+            staticOptions={["Female", "Male"]}
+            getKey={(item) => item}
+            getLabel={(item) => item}
+            mode="free-text"
+            defaultText=""
+          />
+        )}
+      </FormField>,
+    )
+    const input = screen.getByRole("combobox", { name: "Gender identity" })
+    expect(document.querySelectorAll("label")).toHaveLength(1)
+    expect(document.querySelectorAll("[data-slot='form-field']")).toHaveLength(1)
+    expect(document.querySelector(".ignored-class")).toBeNull()
+    expect(screen.queryByText("Ignored help")).toBeNull()
+    expect(screen.queryByText("Ignored error")).toBeNull()
+    expect(input.id).not.toBe("ignored-id")
+    expect(input.getAttribute("aria-describedby")).toBe(`${input.id}-help ${input.id}-error`)
+    expect(input.getAttribute("aria-invalid")).toBe("true")
+    expect(input.getAttribute("aria-required")).toBe("true")
+    key(input, "ArrowDown")
+    expect(screen.getByRole("listbox", { name: "Gender identity" })).toBeTruthy()
+    expect(await axeViolations()).toEqual([])
   })
 
   it("a disabled input has no clear button", () => {
