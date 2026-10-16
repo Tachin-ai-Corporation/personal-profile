@@ -20,4 +20,16 @@ The user reported a CI failure in file-delete ownership pagination: the expected
 
 ## Review and Validation
 
-Independent read-only review found no actionable bugs: real handler authentication, lookup order, exact page cap and fail-closed behavior remain intact, with no native Fetch fallback. Clarified the cleanup comment to match Vitest’s before-next-test restoration. Parent integrated focused run passed all 114 tests across Account route/view and file-delete coverage. Full-suite validation is recorded in the accompanying Story 7.4 spec.
+Independent read-only review found no actionable bugs: real handler authentication, lookup order, exact page cap and fail-closed behavior remain intact, with no native Fetch fallback. Clarified the cleanup comment to match Vitest’s before-next-test restoration. Parent integrated focused run passed all 114 tests across Account route/view and file-delete coverage. Integrated validation before the final review corrections: 182 test files / 4,559 tests passed, with 100% statements, branches, functions and lines. Following blind-review feedback, cancellation and unexpected mock-failure tracking were added; their final checks are recorded below.
+
+## Review Triage Log
+
+- medium / patch: the boundary did not honor AbortSignal. It now rejects already-aborted and in-flight aborted requests, removes its listener and leaves the mock-resolution promise handled. A held-handler regression covers both cases.
+- medium / patch: a rejected resolver or unmatched request could be swallowed by runtime error mapping. Track setup failures separately and fail afterEach unless a test explicitly verifies and consumes that expected failure. A regression proves an upstream 502 cannot hide a broken resolver.
+- low / patch: the evidence link referred to planned results. Record the observed integrated counts directly here and distinguish subsequent checks.
+
+### Final Validation
+
+- Final full unit suite: 183 files / 4,578 tests passed, no unhandled errors; enforced server/API/shared coverage is 100% in all four metrics.
+- Final file-delete regression: all 41 tests passed with `--repeats=20 --maxWorkers=1`, including cancellation, unexpected resolver failure, zero native Undici dispatch and the exact five-page cap with nothing deleted.
+- Independent blind-review follow-up confirms the transport findings are resolved. The exact original CI TLS exception was not reproduced locally; no TLS bypass or runtime deletion change was introduced.

@@ -1,6 +1,6 @@
 import { channel } from "node:diagnostics_channel"
 import { getResponse, http, HttpResponse } from "msw"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { stubServerEnv, testEnv } from "@/test/env-fixture"
 import { server, trackAllRequests } from "@/test/msw-server"
 import { callOp, expectBffError, expectNoStore } from "@/test/named-op-fixture"
@@ -84,7 +84,10 @@ function signatureGraphql(answer: () => Response): void {
   )
 }
 
+const mockFailures: unknown[] = []
+
 beforeEach(() => {
+  mockFailures.length = 0
   stubServerEnv()
   // MSW 3's Node Fetch interceptor delegates to Undici and mocks sockets.
   // Resolve these handlers at Fetch instead: asynchronous GraphQL body reads
@@ -92,17 +95,64 @@ beforeEach(() => {
   // Vitest's unstubGlobals restores the intercepted Fetch before the next test.
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init)
+    request.signal.throwIfAborted()
     const handlers = server.listHandlers().filter((handler) => handler.kind === "request")
-    const response = await getResponse(handlers, request)
-    if (!response) throw new Error(`Unhandled file-delete test request: ${request.method} ${request.url}`)
-    if (response.type === "error") throw new TypeError("Failed to fetch")
-    return response
+    let abort!: () => void
+    const aborted = new Promise<never>((_resolve, reject) => {
+      abort = () => reject(request.signal.reason)
+      request.signal.addEventListener("abort", abort, { once: true })
+    })
+    const resolved = getResponse(handlers, request).then((response) => {
+      if (!response) throw new Error(`Unhandled file-delete test request: ${request.method} ${request.url}`)
+      return response
+    }).catch((error: unknown) => {
+      mockFailures.push(error)
+      throw error
+    })
+    try {
+      const response = await Promise.race([resolved, aborted])
+      if (response.type === "error") throw new TypeError("Failed to fetch")
+      return response
+    } finally {
+      request.signal.removeEventListener("abort", abort)
+    }
   })
+})
+
+afterEach(() => {
+  // Runtime error mapping must never hide an invalid test setup behind a 502.
+  expect(mockFailures, "Unexpected request or MSW handler failure").toEqual([])
 })
 
 describe("DELETE /api/pp/file/[fileId] (spec F7-2)", () => {
   it("rejects an unmocked request without falling through to native Fetch", async () => {
     await expect(fetch(MYSELF)).rejects.toThrow(`Unhandled file-delete test request: GET ${MYSELF}`)
+    expect(mockFailures.splice(0)).toEqual([expect.objectContaining({ message: `Unhandled file-delete test request: GET ${MYSELF}` })])
+  })
+
+  it("preserves already-aborted and pending request cancellation", async () => {
+    let entered!: () => void
+    const inHandler = new Promise<void>((resolve) => { entered = resolve })
+    server.use(http.get(MYSELF, async ({ request }) => {
+      entered()
+      await new Promise<void>((resolve) => request.signal.addEventListener("abort", () => resolve(), { once: true }))
+      return HttpResponse.json({ id: 42 })
+    }))
+    const stopped = AbortSignal.abort(new DOMException("Stopped", "AbortError"))
+    await expect(fetch(MYSELF, { signal: stopped })).rejects.toBe(stopped.reason)
+    const controller = new AbortController()
+    const pending = fetch(MYSELF, { signal: controller.signal })
+    // Let MSW enter the held handler before aborting it.
+    await inHandler
+    controller.abort(new DOMException("Deadline", "TimeoutError"))
+    await expect(pending).rejects.toBe(controller.signal.reason)
+  })
+
+  it("records a broken handler even when runtime maps its rejection to UPSTREAM_ERROR", async () => {
+    const broken = new Error("Broken test resolver")
+    server.use(http.get(MYSELF, () => { throw broken }))
+    await expectBffError(await del("5"), 502, "UPSTREAM_ERROR")
+    expect(mockFailures.splice(0)).toEqual([broken])
   })
 
   it("resolves both GraphQL documents without dispatching a native Undici request", async () => {
