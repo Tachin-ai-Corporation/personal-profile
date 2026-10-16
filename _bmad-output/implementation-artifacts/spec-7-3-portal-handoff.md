@@ -2,7 +2,7 @@
 title: 'Story 7.3 Portal hand-off route'
 type: 'feature'
 created: '2026-10-16'
-status: 'done'
+status: 'in-progress'
 route: 'oneshot'
 baseline_commit: '384fd7a25ea14d41ff32551220ecc145ce7d4b66'
 story_key: '7-3-portal-hand-off-route'
@@ -71,3 +71,39 @@ Final verification and workflow outcome:
 - Full production-build browser run: `PP_E2E_PORT=3136 corepack pnpm exec playwright test --workers=2` → **543 passed, 8 viewport-specific skips, 1 failure** in the pre-existing `e2e/primitives.spec.ts:90` Tooltip Escape case on mobile. All Story 7.3 and Account regression cases passed. The unchanged tooltip rerun, three repetitions on each viewport, passed **6/6**. This does not relabel the full run as green; the historical foundation flake remains documented in deferred work.
 - Final lint (no warnings), typecheck, forbidden/token gates and whitespace checks passed. Production compilation passed in the browser runs. Heavy suites ran sequentially.
 - BMAD oneshot spec is done, and Story 7.3 sprint entry is review as required by the build workflow. Sprint headers and last_updated remain unchanged under T8. No new API passthrough entry, deployment configuration, existing shared runtime module or credentials changed. Tenant portal root is the approved OQ1 fallback, not a newly resolved tenant-context contract. No push, PR or Jira transition was performed.
+
+### Review Findings — bmad-code-review (2026-10-16)
+
+Full review of commit `e588491` against baseline `384fd7a25ea14d41ff32551220ecc145ce7d4b66`: 9 files, 779 insertions and 21 deletions. All four configured layers ran with inherited model capability. Edge Case Hunter returned no findings (`[]`); Verification Gap reported no verification gaps; Acceptance Auditor reported no acceptance violations and independently reran all **198 focused tests**, passing. Blind Hunter returned nine observations (finding floor 9 from 65.916 kB). No layer failed. The triage below verifies each observation before grouping.
+
+Summary: **0 decision-needed, 6 patch groups, 0 deferred, 2 rejected individual findings**. Seven surviving observations become six groups because B3/B7 share the root-only parser-test blind spot. The existing Tooltip Escape flake is unchanged historical follow-up; it was not introduced by this review. No runtime or test patch has been applied yet. Implementation remains saved, but the spec and sprint entry return to **in-progress** while approved handling of these actions is pending. Preserve sprint headers and last_updated under T8.
+
+#### Patch actions
+
+- [ ] [Review][Patch][P2] R1 — Include `Allow: GET` in the explicit 405 response and assert it through route/unit/HTTP method tests. `lib/server/handoff.ts:74` (B2). The current handler emits 405 with no Allow header, reproduced with the actual handler. RFC 9110 §15.5.6 requires the supported-method list; preserve the JSON envelope, no-store/security headers, and kill-switch precedence. This correction is local to the new handoff handler, not a change to the shared error builder.
+- [ ] [Review][Patch][P2] R2 — Make raw tenant-query validation observable independently of the root fallback, then cover encoded whitespace/control values. `lib/server/handoff.test.ts:144` (B3 + B7). Valid and invalid IDs both currently yield the same root target; the request matrix cannot fail solely because tenant validation was removed. Exercise the real parser with server-selected ctx behavior or an equivalent internal parser contract, retaining root as the production default and exposing no query override. Include `%201`, `1%20`, `1%0A`, `1%0D%0A`, duplicates and encoded duplicate keys, encoded digits, signed/decimal/long/all-zero IDs; valid 19-digit values must keep precision. Direct builder cases alone do not verify request parsing.
+- [ ] [Review][Patch][P3] R3 — Resolve session seals using the same effective configuration as the handler's injected environment. `lib/server/handoff.ts:76` (B4). Reproduced: a valid demo cookie sealed with `deps.env().SESSION_SECRET` falls back to remembered prod when the global secret differs. Production defaults use the same global configuration, so this is a developer-facing dependency-contract defect, not an observed deployment misroute. Reuse unsealSession's existing explicit-secret support through an internal resolver; keep the HTTP contract and existing exported resolver compatible, and test current/previous injected secrets.
+- [ ] [Review][Patch][P3] R4 — Freeze the real Date clock and explicitly establish age in the handler's aged-session/logging test. `lib/server/handoff.test.ts:177` (B5). `NOW` is 2027-01-15; at review time the fixture's lastSeen is in the future. Injected `now` changes log duration only and does not change session age. Existing direct resolver age tests do freeze Date; extend that discipline to this real-handler case.
+- [ ] [Review][Patch][P2] R5 — Add a production-HTTP request with a genuinely sealed aged session and conflicting remembered environment. `e2e/account-handoff.spec.ts:44` (B6). The literal `expired` tests an invalid seal, not idle/absolute age. Verify the interceptor and real route retain the aged seal's environment and send no Set-Cookie, auth redirect, renewal or logout. Keep the invalid-seal case and describe it precisely.
+- [ ] [Review][Patch][P3] R6 — Assert trigger-focus restoration after Keep editing in the Account consumer. `features/account/portal-handoff.test.tsx:126` (B8). This consumer test currently asserts values/navigation only. Add the direct keyboard-continuation assertion using the real guard, retaining the later guarded-attempt check; no UI or guard implementation change is indicated.
+
+#### Individual verdicts and evidence
+
+| ID | Layer | Verdict | Evidence and disposition |
+|---|---|---|---|
+| B1 | blind-hunter | low, rejected | Browser fragment inheritance is real (RFC 9110 §10.2.2), but the approved AC constrains the emitted Location header, which has no fragment. Existing handoffHref emits no fragment either. The cited no-follow HTTP tests correctly verify emitted-header behavior and do not establish a stronger browser-URL promise. Changing this behavior would require changing the approved header contract; reject the proposed spec/intent expansion. No new runtime fragment defect against the current AC was demonstrated. |
+| B2 | blind-hunter | medium | Actual handler reproduction confirms Allow is absent on 405. RFC 9110 requires it. Patch R1. |
+| B3 | blind-hunter | medium | All request-level tenant branches converge on root with the shipped constant, so those assertions cannot distinguish valid parsing from unconditional fallback. Direct ctx builder tests cover validation of a string, not extraction/cardinality from a request. Patch R2. |
+| B4 | blind-hunter | low | Actual handler reproduction with an injected alternate session secret returned prod creation instead of the valid seal's demo destination. Defaults remain consistent in production; the new injectable factory is inconsistent for developers. Patch R3. |
+| B5 | blind-hunter | low | Date inspection shows NOW = 2027-01-15T08:00:00Z; only the handler's logging clock is injected in this test. Its aged-state claim is false at the current real Date. Patch R4. |
+| B6 | blind-hunter | medium | E2E sends the string expired; sealedSessionCookie only builds a fresh session. Genuine age is covered directly at the resolver layer but not through the production interceptor/route. Patch R5. |
+| B7 | blind-hunter | low | The raw matrix filters whitespace values and omits encoded leading/trailing whitespace/control cases. Combined with the root-only parser assertion, it cannot establish raw request rejection. Same root cause as B3; patch R2. |
+| B8 | blind-hunter | low | Restored trigger focus is not asserted in the Account consumer after Keep editing, though foundation guard tests cover restoration generally. A direct assertion closes this local omission without duplicating the UI implementation. Patch R6. |
+| B9 | blind-hunter | false, rejected | The seven-test statement is historical implementation evidence before the documented failure/retry patch. The subsequent triage explicitly reports nine consumer tests and the final full-suite result includes them. It is not the final count being stated inconsistently. Changing only the reviewed spec is also excluded by triage rules. |
+
+#### Rejected
+
+- B1 — low: inherited browser fragments do not violate the emitted-Location contract; the proposed behavior change would expand approved intent. The existing client helper supplies no hash.
+- B9 — false: chronological seven-then-nine validation notes describe separate checkpoints; the final test count is already recorded correctly.
+
+Reference verification: [RFC 9110 §15.5.6](https://www.rfc-editor.org/rfc/rfc9110.html#section-15.5.6) (405/Allow), [§10.2.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.2) (Location/fragment inheritance). A temporary focused probe reproduced missing Allow and injected-secret mismatch using the real handler and sealed cookies; it passed and was removed. No production code or committed test was changed during verification.
