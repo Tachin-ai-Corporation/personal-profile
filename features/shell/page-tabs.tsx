@@ -43,9 +43,9 @@ export function assertPageTabsConfig(page: PageId, tabs: readonly PageTabDefinit
   if (unroutable !== undefined) fail(`tab "${unroutable}" is not routable`)
 }
 
-/** Scrolls the strip sideways (never the page) so the selected tab is in view. */
-function keepInView(list: HTMLElement | null): void {
-  const active = list?.querySelector<HTMLElement>("[data-state='active']")
+/** Scrolls only the strip so the focused tab (or current selection) is in view. */
+function keepInView(list: HTMLElement | null, focused?: HTMLElement): void {
+  const active = focused ?? list?.querySelector<HTMLElement>("[data-state='active']")
   if (!list || !active) return
   const start = active.offsetLeft
   const end = start + active.offsetWidth
@@ -100,7 +100,7 @@ export function PageTabs<T extends string>({ page, tabs, panels, defaultTab, "ar
         void navigate({ page, tab: next } as NavTarget)
       }}
     >
-      <TabsList ref={listRef} aria-label={ariaLabel} className="px-4 md:px-6">
+      <TabsList ref={listRef} aria-label={ariaLabel} className="px-4 md:px-6" onFocusCapture={(event) => keepInView(listRef.current, event.target)}>
         {tabs.map((tab) => (
           <TabsTrigger key={tab.id} value={tab.id}>
             {tab.comingSoon ? (
