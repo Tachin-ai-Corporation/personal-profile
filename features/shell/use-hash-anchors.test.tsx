@@ -122,6 +122,22 @@ describe("useHashAnchors", () => {
     expect(stubs.scrolls).toEqual([])
   })
 
+  it.each(["bare", "direct"] as const)("an already-ready %s frame needs no later re-scroll", (mode) => {
+    window.history.replaceState(null, "", "/#account")
+    render(<NonWrappedFrame mode={mode} />)
+    expect(scrolledIds()).toEqual(["account"])
+    act(() => anchors?.frameReady("account"))
+    expect(scrolledIds()).toEqual(["account"])
+  })
+
+  it("an existing sub-anchor without its owning frame is followed without arming a ready callback", () => {
+    window.history.replaceState(null, "", "/#account-row")
+    render(<NonWrappedFrame mode="missing" />)
+    expect(scrolledIds()).toEqual(["account-row"])
+    act(() => anchors?.frameReady("account"))
+    expect(scrolledIds()).toEqual(["account-row"])
+  })
+
   it("re-scrolls once, instantly, when the target frame becomes ready", () => {
     window.history.replaceState(null, "", "/#account-row")
     const { container } = render(<Page ids={ACCOUNT_ANCHORS} options={{ subAnchors: { "account-row": "account" } }} />)
@@ -131,6 +147,46 @@ describe("useHashAnchors", () => {
       ["account-row", { behavior: "auto", block: "start" }],
       ["account-row", { behavior: "auto", block: "start" }],
     ])
+  })
+
+  it.each(["loading", "ready"] as const)("re-follows a %s target when an earlier loading frame settles, then spends each frame once", (targetState) => {
+    window.history.replaceState(null, "", "/account#authenticator")
+    const { getByText } = render(<IndependentlyLoadingFrames targetState={targetState} />)
+    expect(scrolledIds()).toEqual(["authenticator"])
+    fireEvent.click(getByText("Account ready"))
+    expect(scrolledIds()).toEqual(["authenticator", "authenticator"])
+    fireEvent.click(getByText("Authenticator ready"))
+    expect(scrolledIds()).toHaveLength(targetState === "loading" ? 3 : 2)
+    fireEvent.click(getByText("Account loading"))
+    fireEvent.click(getByText("Account ready"))
+    expect(scrolledIds()).toHaveLength(targetState === "loading" ? 3 : 2)
+  })
+
+  it("a later frame's ready does not move an earlier target", () => {
+    window.history.replaceState(null, "", "/account#account")
+    const { getByText } = render(<IndependentlyLoadingFrames />)
+    fireEvent.click(getByText("Authenticator ready"))
+    expect(scrolledIds()).toEqual(["account"])
+    fireEvent.click(getByText("Account ready"))
+    expect(scrolledIds()).toEqual(["account", "account"])
+  })
+
+  it.each(["error", "forbidden"] as const)("re-follows a ready target when an earlier loading frame settles into %s", (failure) => {
+    window.history.replaceState(null, "", "/account#authenticator")
+    const { getByText } = render(<IndependentlyLoadingFrames targetState="ready" />)
+    fireEvent.click(getByText(`Account ${failure}`))
+    expect(scrolledIds()).toEqual(["authenticator", "authenticator"])
+    fireEvent.click(getByText("Account loading"))
+    fireEvent.click(getByText("Account ready"))
+    expect(scrolledIds()).toEqual(["authenticator", "authenticator"])
+  })
+
+  it("hand scrolling cancels pending earlier-frame layout corrections too", () => {
+    window.history.replaceState(null, "", "/account#authenticator")
+    const { getByText } = render(<IndependentlyLoadingFrames targetState="ready" />)
+    fireEvent.wheel(window)
+    fireEvent.click(getByText("Account ready"))
+    expect(scrolledIds()).toEqual(["authenticator"])
   })
 
   it("a hand scroll before the frame is ready cancels the re-scroll", () => {
@@ -235,4 +291,29 @@ describe("useHashAnchors", () => {
 function GhostOnly() {
   useHashAnchors(["ghost"])
   return null
+}
+
+function NonWrappedFrame({ mode }: { readonly mode: "bare" | "direct" | "missing" }) {
+  const hashAnchors = useHashAnchors(ACCOUNT_ANCHORS, { subAnchors: { "account-row": "account" } })
+  useEffect(() => { anchors = hashAnchors })
+  if (mode === "missing") return <div id="account-row" />
+  return <div id="account" data-slot={mode === "direct" ? "state-frame" : undefined} data-state="ready" />
+}
+
+function IndependentlyLoadingFrames({ targetState = "loading" }: { readonly targetState?: FrameState }) {
+  const { frameReady } = useHashAnchors(ACCOUNT_ANCHORS, { focusHeading: true })
+  const [account, setAccount] = useState<FrameState>("loading")
+  const [authenticator, setAuthenticator] = useState<FrameState>(targetState)
+  return <>
+    <button onClick={() => setAccount("ready")}>Account ready</button>
+    <button onClick={() => setAccount("loading")}>Account loading</button>
+    <button onClick={() => setAccount({ error: { kind: "network" } })}>Account error</button>
+    <button onClick={() => setAccount({ error: { kind: "forbidden" } })}>Account forbidden</button>
+    <button onClick={() => setAuthenticator("ready")}>Authenticator ready</button>
+    {([["account", account], ["authenticator", authenticator]] as const).map(([id, state]) => (
+      <SectionLandmark key={id} id={id} title={id}>
+        <StateFrame state={state} skeleton="kv" loadError={{ kind: "page" }} level="section" onRetry={vi.fn()} onSettled={() => frameReady(id)}>Content</StateFrame>
+      </SectionLandmark>
+    ))}
+  </>
 }

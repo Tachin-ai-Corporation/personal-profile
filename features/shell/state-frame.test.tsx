@@ -263,6 +263,26 @@ describe("ready, anchors and onReady", () => {
     expect(latest).toHaveBeenCalledTimes(2)
     expect(first).not.toHaveBeenCalled()
   })
+
+  it("onSettled reports success and failure layouts once, without reporting loading or sessions", () => {
+    const first = vi.fn()
+    const latest = vi.fn()
+    const onReady = vi.fn()
+    const { rerender } = render(frame({ onSettled: first, onReady }))
+    expect(first).not.toHaveBeenCalled()
+    for (const state of [{ error: { kind: "network" } }, { error: { kind: "forbidden" } }, "ready"] as const) {
+      rerender(frame({ state, onSettled: latest, onReady }))
+      const calls = latest.mock.calls.length
+      rerender(frame({ state, onSettled: latest, onReady }))
+      expect(latest).toHaveBeenCalledTimes(calls)
+    }
+    expect(latest).toHaveBeenCalledTimes(3)
+    expect(onReady).toHaveBeenCalledOnce()
+    rerender(frame({ state: "loading", onSettled: latest }))
+    rerender(frame({ state: { error: { kind: "session" } }, onSettled: latest }))
+    expect(latest).toHaveBeenCalledTimes(3)
+    expect(first).not.toHaveBeenCalled()
+  })
 })
 
 describe("accessibility", () => {

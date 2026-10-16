@@ -22,22 +22,22 @@ export interface HashAnchorsOptions {
 
 export interface HashAnchors {
   /**
-   * Tell the hook a frame became ready (`StateFrame` `onReady`). When it holds
-   * the followed target, the target is scrolled to once more, instantly, since
-   * the content that arrived may have moved it.
+   * Tell the hook a frame settled (`StateFrame` `onReady` / `onSettled`). The followed
+   * target is scrolled to instantly when its own frame or an earlier loading
+   * frame settles, since either can move it.
    */
   frameReady(frameId: string): void
   /** Drop a pending re-scroll (a Section menu or Jump to activation took over). */
   cancelPending(): void
 }
 
-/** Whether the frame `frameId` (or the `StateFrame` inside it) is already showing its content; no frame counts as ready. */
-function isFrameReady(frameId: string): boolean {
+/** Only a loading frame can cause a pending initial layout change. */
+function isFrameLoading(frameId: string): boolean {
   const element = document.getElementById(frameId)
-  if (!element) return true
+  if (!element) return false
   const selector = '[data-slot="state-frame"]'
   const frame = element.matches(selector) ? element : element.querySelector(selector)
-  return frame === null || frame.getAttribute("data-state") === "ready"
+  return frame?.getAttribute("data-state") === "loading"
 }
 
 /** The hash's anchor and its frame, or `null` for anything not listed (bad encodings included). */
@@ -59,17 +59,17 @@ function resolveHash(hash: string, ids: readonly string[], subAnchors: Readonly<
  * (or a sub-anchor) scrolls its element into view, optionally focusing the
  * frame's `h2`; any other hash is ignored and the page stays where it is.
  * A same-page `navigate()` with a hash is followed too (`HASH_NAVIGATE_EVENT`).
- * Mount it only on the tab that owns the anchors. The one re-scroll is armed
- * only while the target frame is not ready; it is spent by the frame's first
- * ready and cancelled by a hand scroll (`onHandScroll`) or `cancelPending()`.
+ * Mount it only on the tab that owns the anchors. Re-scrolls are armed only for frames
+ * loading at navigation, up to the target. Each is spent by its first completion;
+ * a hand scroll (`onHandScroll`) or `cancelPending()` cancels the pending work.
  */
 export function useHashAnchors(ids: readonly string[], options: HashAnchorsOptions = {}): HashAnchors {
   const latest = useRef({ ids, options })
   useEffect(() => {
     latest.current = { ids, options }
   })
-  /** The followed target awaiting its frame's ready state. */
-  const pending = useRef<{ target: string; frame: string } | null>(null)
+  /** Only frames still loading at navigation can later move this target. */
+  const pending = useRef<{ target: string; waiting: Set<string> } | null>(null)
 
   useEffect(() => {
     const follow = (behavior: ScrollBehavior): void => {
@@ -78,7 +78,13 @@ export function useHashAnchors(ids: readonly string[], options: HashAnchorsOptio
       if (!resolved) return
       const element = document.getElementById(resolved.target)
       if (!element) return
-      pending.current = isFrameReady(resolved.frame) ? null : resolved
+      const frame = document.getElementById(resolved.frame)
+      const waiting = new Set(anchors.filter((id) => {
+        const candidate = document.getElementById(id)
+        const precedes = frame && candidate && Boolean(candidate.compareDocumentPosition(frame) & Node.DOCUMENT_POSITION_FOLLOWING)
+        return (id === resolved.frame || precedes) && isFrameLoading(id)
+      }))
+      pending.current = waiting.size ? { target: resolved.target, waiting } : null
       opts.onFollow?.(resolved.frame)
       element.scrollIntoView({ behavior, block: "start" })
       if (opts.focusHeading) document.getElementById(sectionHeadingId(resolved.frame))?.focus({ preventScroll: true })
@@ -100,8 +106,16 @@ export function useHashAnchors(ids: readonly string[], options: HashAnchorsOptio
 
   const frameReady = useCallback((frameId: string) => {
     const target = pending.current
-    if (!target || target.frame !== frameId) return
-    pending.current = null
+    if (!target || !target.waiting.has(frameId)) return
+    // The caller's settled signal is authoritative, even if its frame marker
+    // has not updated yet.
+    target.waiting.delete(frameId)
+    // Several frames can settle in one React commit. Spend that layout only
+    // once, and keep waiting only for the frames that are still loading.
+    for (const id of target.waiting) {
+      if (!isFrameLoading(id)) target.waiting.delete(id)
+    }
+    if (!target.waiting.size) pending.current = null
     document.getElementById(target.target)?.scrollIntoView({ behavior: "auto", block: "start" })
   }, [])
 
