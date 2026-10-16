@@ -5,7 +5,7 @@ import { server, trackAllRequests } from "@/test/msw-server"
 import { callOp, expectBffError, expectNoStore } from "@/test/named-op-fixture"
 import { makeSession, NOW } from "@/test/session-fixture"
 import { DEMO } from "@/test/upstream-fixture"
-import { createFileDeleteHandler, INSURANCE_MAX_PAGES, parseFileIdParam } from "./file-delete"
+import { createFileDeleteHandler, INSURANCE_MAX_PAGES, parseFileIdParam, SIGNATURE_FILES_QUERY, signatureFileIds } from "./file-delete"
 
 const MYSELF = `${DEMO.apiBase}/v2/user/myself`
 const GRAPHQL = `${DEMO.apiBase}/graphql`
@@ -15,6 +15,7 @@ const FILE = (id: number | string) => `${DEMO.apiBase}/v2/file/${id}`
 const handler = createFileDeleteHandler({ env: testEnv(), now: () => NOW })
 const del = (fileId: string, extra: object = {}) => callOp(handler, { method: "DELETE", path: `/api/pp/file/${fileId}`, params: { fileId }, ...extra })
 
+const signatures = (ids: (number | string)[]) => ({ data: { Person: { records: [{ PersonHasSignatureFile: { relations: ids.map((id) => ({ record: { id } })) } }] } } })
 const picture = (ids: number[]) => ({ data: { Person: { records: [{ PersonHasProfilePictureFile: { relations: ids.map((id) => ({ record: { id } })) } }] } } })
 const policy = (front: number | null, back: number | null) => ({
   id: 1,
@@ -26,19 +27,32 @@ const page = (content: unknown[], last = true) => ({ content, last, number: 0 })
 interface Seen {
   myself: number
   graphql: number
+  /** The Signature-relations GraphQL reads (counted apart from the picture reads). */
+  signatureGraphql: number
   insurance: string[]
   deletes: string[]
 }
 
 /** Mocks the three ownership reads and the delete; returns what was called. */
-function upstream({ signature = null as unknown, pictures = [] as number[], pages = [page([])] as unknown[], deleteStatus = 200 } = {}): Seen {
-  const seen: Seen = { myself: 0, graphql: 0, insurance: [], deletes: [] }
+function upstream({
+  signature = null as unknown,
+  pictures = [] as number[],
+  signatureRelations = [] as number[],
+  pages = [page([])] as unknown[],
+  deleteStatus = 200,
+} = {}): Seen {
+  const seen: Seen = { myself: 0, graphql: 0, signatureGraphql: 0, insurance: [], deletes: [] }
   server.use(
     http.get(MYSELF, () => {
       seen.myself += 1
       return HttpResponse.json({ id: 1, signature })
     }),
-    http.post(GRAPHQL, () => {
+    http.post(GRAPHQL, async ({ request }) => {
+      const body = (await request.json()) as { query?: string }
+      if (body.query === SIGNATURE_FILES_QUERY) {
+        seen.signatureGraphql += 1
+        return HttpResponse.json(signatures(signatureRelations))
+      }
       seen.graphql += 1
       return HttpResponse.json(picture(pictures))
     }),
@@ -55,6 +69,16 @@ function upstream({ signature = null as unknown, pictures = [] as number[], page
   return seen
 }
 
+/** Replaces only the Signature-relations GraphQL answer (the picture read still answers "no picture"). */
+function signatureGraphql(answer: () => Response): void {
+  server.use(
+    http.post(GRAPHQL, async ({ request }) => {
+      const body = (await request.json()) as { query?: string }
+      return body.query === SIGNATURE_FILES_QUERY ? answer() : HttpResponse.json(picture([]))
+    }),
+  )
+}
+
 beforeEach(() => stubServerEnv())
 
 describe("DELETE /api/pp/file/[fileId] (spec F7-2)", () => {
@@ -63,7 +87,7 @@ describe("DELETE /api/pp/file/[fileId] (spec F7-2)", () => {
     const response = await del("42")
     expect(response.status).toBe(204)
     expectNoStore(response)
-    expect(seen).toEqual({ myself: 1, graphql: 0, insurance: [], deletes: ["/api/v2/file/42?hardDelete=true"] })
+    expect(seen).toEqual({ myself: 1, graphql: 0, signatureGraphql: 0, insurance: [], deletes: ["/api/v2/file/42?hardDelete=true"] })
   })
 
   it("deletes the caller's profile picture (any of its relations) with the session's token", async () => {
@@ -92,8 +116,40 @@ describe("DELETE /api/pp/file/[fileId] (spec F7-2)", () => {
     expect(seen.deletes).toEqual(["/api/v2/file/77?hardDelete=true"])
   })
 
+  it("deletes an older Signature of the caller (a replaced one) found in its Signature relations, read last", async () => {
+    let filter: unknown = null
+    const seen = upstream({ signature: { id: 57, name: "signature.png" }, signatureRelations: [57, 41] })
+    server.use(
+      http.post(GRAPHQL, async ({ request }) => {
+        const body = (await request.json()) as { query?: string; variables?: { filter?: unknown } }
+        if (body.query !== SIGNATURE_FILES_QUERY) return HttpResponse.json(picture([]))
+        seen.signatureGraphql += 1
+        filter = body.variables?.filter
+        return HttpResponse.json(signatures([57, 41]))
+      }),
+    )
+    const session = makeSession()
+    const response = await del("41", { session })
+    expect(response.status).toBe(204)
+    expect(filter).toEqual({ userId: { equal: session.userId } })
+    expect(seen.myself).toBe(1)
+    expect(seen.insurance).toEqual(["page=0&size=100"])
+    expect(seen.signatureGraphql).toBe(1)
+    expect(seen.deletes).toEqual(["/api/v2/file/41?hardDelete=true"])
+  })
+
+  it("signatureFileIds reads every relation id (number or decimal string) and rejects an unusable answer", () => {
+    expect(signatureFileIds(signatures([41, "57"]))).toEqual([41, 57])
+    expect(signatureFileIds({ data: { Person: { records: [] } } })).toEqual([])
+    expect(signatureFileIds({ data: { Person: { records: [{ PersonHasSignatureFile: null }] } } })).toEqual([])
+    expect(signatureFileIds({ errors: [{ message: "x" }], data: signatures([41]).data })).toBeUndefined()
+    expect(signatureFileIds({ data: { Person: { records: [{ PersonHasSignatureFile: { relations: [{ record: { id: 0 } }] } }] } } })).toBeUndefined()
+    expect(signatureFileIds([1])).toBeUndefined()
+  })
+
   it.each([
     ["a foreign id", "999", {}],
+    ["an id that is only another person's Signature (not in the caller's relations)", "41", { signatureRelations: [57] }],
     ["a foreign id while the user has no picture, signature or policy", "5", { pages: [{ content: [] , last: false }] }],
     ["a string signature id that isn't the one asked", "8", { signature: { id: "9" } }],
     ["a signature without an id", "8", { signature: { name: "x" } }],
@@ -128,6 +184,10 @@ describe("DELETE /api/pp/file/[fileId] (spec F7-2)", () => {
       ["insurance 500", () => server.use(http.get(INSURANCE, () => new HttpResponse(null, { status: 500 }))), 502, "UPSTREAM_ERROR"],
       ["insurance not a page", () => server.use(http.get(INSURANCE, () => HttpResponse.json([policy(5, 5)]))), 502, "UPSTREAM_ERROR"],
       ["more insurance pages than the cap", () => server.use(http.get(INSURANCE, () => HttpResponse.json(page([policy(1, 2)], false)))), 502, "UPSTREAM_ERROR"],
+      ["Signature relations GraphQL errors", () => signatureGraphql(() => HttpResponse.json({ errors: [{ message: "x" }] })), 502, "UPSTREAM_ERROR"],
+      ["Signature relations 400", () => signatureGraphql(() => HttpResponse.json({ message: "x" }, { status: 400 })), 502, "UPSTREAM_ERROR"],
+      ["Signature relations 500", () => signatureGraphql(() => new HttpResponse(null, { status: 500 })), 502, "UPSTREAM_ERROR"],
+      ["Signature relations 401", () => signatureGraphql(() => new HttpResponse(null, { status: 401 })), 401, "TOKEN_EXPIRED"],
     ] as const)("%s → %i %s", async (_label, fail, status, code) => {
       const seen = upstream()
       fail()
