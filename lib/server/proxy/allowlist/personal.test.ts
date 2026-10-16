@@ -84,7 +84,8 @@ describe("PUT v2/user/edit body (PersonalInformationDTO)", () => {
     expect(valid({ [field]: "x" })).toBe(true)
     expect(valid({ [field]: "x".repeat(max) })).toBe(true)
     expect(valid({ [field]: `  ${"x".repeat(max)}  ` })).toBe(true)
-    expect(valid({ [field]: "😀".repeat(max) })).toBe(true)
+    expect(valid({ [field]: "\u{1D49C}".repeat(max) })).toBe(true)
+    expect(valid({ [field]: "\u{1F600}" })).toBe(false)
     expect(valid({ [field]: "x".repeat(max + 1) })).toBe(false)
     expect(valid({ [field]: "" })).toBe(false)
     expect(valid({ [field]: "   " })).toBe(false)
@@ -92,7 +93,7 @@ describe("PUT v2/user/edit body (PersonalInformationDTO)", () => {
     expect(valid({ [field]: 5 })).toBe(false)
   })
 
-  it.each(["Ann", "  Ann  ", "x".repeat(24), ` ${"x".repeat(24)} `, "😀".repeat(24), "😀".repeat(25), "x".repeat(25), "", " ", "A\u0000n", "A​n", "A‮n", "An", "José-María O'Neil"])(
+  it.each(["Ann", "  Ann  ", "x".repeat(24), ` ${"x".repeat(24)} `, "😀".repeat(24), "😀".repeat(25), "\u{1D49C}".repeat(24), "\u{1D49C}".repeat(25), "Ann\u{1F600}", "x".repeat(25), "", " ", "A\u0000n", "A​n", "A‮n", "An", "José-María O'Neil"])(
     "agrees with the client name rule for %j",
     (value) => {
       expect(valid({ firstName: value })).toBe(nameIssue(value) === null)
