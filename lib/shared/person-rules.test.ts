@@ -7,7 +7,10 @@ describe("nameIssue", () => {
     ["  Ann  ", null],
     ["x".repeat(NAME_MAX_LENGTH), null],
     [` ${"x".repeat(NAME_MAX_LENGTH)} `, null],
-    ["😀".repeat(NAME_MAX_LENGTH), null],
+    // Length counts code points: an astral letter is one character.
+    ["\u{1D49C}".repeat(NAME_MAX_LENGTH), null],
+    ["\u{1D49C}".repeat(NAME_MAX_LENGTH + 1), "tooLong"],
+    ["Jose\u0301", null],
     ["José-María O'Neil", null],
     ["x".repeat(NAME_MAX_LENGTH + 1), "tooLong"],
     ["", "required"],
@@ -19,6 +22,12 @@ describe("nameIssue", () => {
     ["Ann", "notPrintable"],
     ["An​n", "notPrintable"],
     ["An‮n", "notPrintable"],
+    // Emoji (Story 2.2 AC): a pictograph, with a skin tone, a flag, a keycap, a text-style symbol made emoji.
+    ["Ann\u{1F600}", "notPrintable"],
+    ["\u{1F44D}\u{1F3FD}", "notPrintable"],
+    ["\u{1F1FA}\u{1F1F8}", "notPrintable"],
+    ["1\u{FE0F}\u{20E3}", "notPrintable"],
+    ["\u2764\u{FE0F}", "notPrintable"],
   ] as const)("%j → %j", (value, issue) => {
     expect(nameIssue(value)).toBe(issue)
   })

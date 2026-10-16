@@ -18,8 +18,13 @@ export const SHORT_TEXT_MAX_LENGTH = 128
 /** The role with the stricter age rule. */
 export const PROCTOR_ROLE = "Proctor"
 
-/** Control, format (zero-width, bidi overrides), surrogate, private-use and unassigned code points are not printable. */
-const NON_PRINTABLE = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}]/u
+/**
+ * Not accepted in a person text field: control, format (zero-width, bidi
+ * overrides), surrogate, private-use and unassigned code points, and emoji
+ * (Story 2.2 AC: pictographs, skin-tone modifiers, flag letters, the emoji
+ * variation selector and the keycap mark). Combining accents stay allowed.
+ */
+const NON_PRINTABLE = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\u{FE0F}\u{20E3}]/u
 
 export type NameIssue = "required" | "tooLong" | "notPrintable"
 
