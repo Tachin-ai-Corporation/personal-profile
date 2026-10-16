@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Combobox } from "@/components/ui/combobox"
 import { DateInput } from "@/components/ui/date-input"
@@ -34,6 +34,7 @@ import { birthDateBounds, normalizeName, type BirthDateBounds } from "@/lib/shar
 import {
   ageRangeMessage,
   PERSONAL_DRAFT_FIELDS,
+  PERSONAL_FIELD_ORDER,
   PERSONAL_LABELS,
   PERSONAL_OPTIONAL_FIELDS,
   personalDiff,
@@ -43,29 +44,14 @@ import {
   type PersonalField,
   type PersonalValues,
 } from "./schema"
+import { isMaskedSsn, toSsnFormValue } from "./ssn"
+import { SSN_CONTROL_ID, SsnInput, SsnValue } from "./ssn-field"
 import { PERSON_PRESELECTS, usePersonOptions } from "./use-person-options"
 
-/** At most this many digits may show in a Masked SSN (the last four). */
-const MASKED_SSN_MAX_DIGITS = 4
-
-/**
- * `true` only for a backend mask such as `***-**-1234`: asterisks, digits,
- * dashes and spaces, at least one `*`, and at most four digits. Anything
- * else (a full SSN sent by mistake, free text) is never shown.
- */
-function isMaskedSsn(value: string | null): value is string {
-  if (value === null || !/^[*\d\s-]+$/.test(value) || !value.includes("*")) return false
-  return (value.match(/\d/g)?.length ?? 0) <= MASKED_SSN_MAX_DIGITS
-}
-
-/** The Masked SSN in `mono-value`, or `null` (read as "Not provided") when there is no safe mask. */
+/** The Masked SSN with Reveal (Story 2.3), or `null` (read as "Not provided") when there is no safe mask. */
 function maskedSsn(myself: Myself): ReactNode {
   const ssn = myself.socialSecurityNumber
-  return isMaskedSsn(ssn) ? (
-    <span data-slot="masked-ssn" className="mono-value">
-      {ssn}
-    </span>
-  ) : null
+  return isMaskedSsn(ssn) ? <SsnValue mask={ssn} /> : null
 }
 
 /** The Signature thumbnail ("Not provided" without one or when the image fails). */
@@ -121,9 +107,9 @@ type PersonalSectionForm = SectionForm<PersonalValues>
 type Binding = ReturnType<PersonalSectionForm["control"]>
 
 /**
- * A read-only value in the edit view (SSN, Signature until Stories 2.3 / 2.4
- * add their controls): an `<output>` (labelable, so the row's label names
- * it), not a live region.
+ * A read-only value in the edit view (Signature until Story 2.4 adds its
+ * control): an `<output>` (labelable, so the row's label names it), not a
+ * live region.
  */
 function ReadOnlyValue({ wiring, children }: { readonly wiring: FieldControlProps; readonly children: ReactNode }) {
   return (
@@ -247,10 +233,12 @@ interface EditRowsInput {
   readonly genderIdentityOptions: readonly string[]
   readonly bounds: BirthDateBounds
   readonly ageRange: string
+  /** The saved SSN mask (`""` without one): what the schema and the input treat as untouched. */
+  readonly ssnMask: string
 }
 
-/** The edit view's rows in the F1 order; SSN and Signature stay read-only (Stories 2.3, 2.4 add their controls). */
-function personalEditRows({ section, myself, offered, genderIdentityOptions, bounds, ageRange }: EditRowsInput): KeyValueEditRow[] {
+/** The edit view's rows in the F1 order; the SSN input (Story 2.3); Signature stays read-only (Story 2.4 adds its control). */
+function personalEditRows({ section, myself, offered, genderIdentityOptions, bounds, ageRange, ssnMask }: EditRowsInput): KeyValueEditRow[] {
   const base = (field: PersonalField, render: KeyValueEditRow["render"], help?: ReactNode): KeyValueEditRow => ({
     key: field,
     label: PERSONAL_LABELS[field],
@@ -287,7 +275,15 @@ function personalEditRows({ section, myself, offered, genderIdentityOptions, bou
     ),
     // Its help is also its length error: hidden while the field shows an error.
     text("sexualOrientation", section.errorFor("sexualOrientation") ? undefined : PERSON_MESSAGES.sexualOrientationHelp),
-    { key: "ssn", label: PERSON_MESSAGES.ssn, optional: true, render: (wiring) => <ReadOnlyValue wiring={wiring}>{maskedSsn(myself)}</ReadOnlyValue> },
+    {
+      key: "ssn",
+      label: PERSON_MESSAGES.ssn,
+      optional: true,
+      // No "ssn" or "social" in the id or name: password managers and autofill leave it alone.
+      controlId: SSN_CONTROL_ID,
+      error: section.errorFor("socialSecurityNumber"),
+      render: (wiring) => <SsnInput wiring={wiring} binding={section.control("socialSecurityNumber")} savedMask={ssnMask} />,
+    },
     {
       key: "signature",
       label: SHELL_MESSAGES.signature,
@@ -299,7 +295,7 @@ function personalEditRows({ section, myself, offered, genderIdentityOptions, bou
 }
 
 /**
- * Personal information (Stories 2.1–2.2, FR11–FR12, NG-9022): the user's
+ * Personal information (Stories 2.1–2.3, FR11–FR13, NG-9022): the user's
  * legal name, birth details, demographics, Masked SSN and Signature from the
  * shared `myself` read, viewed in one key/value table and edited in place
  * on `useSectionForm` (registered as `personal`, first in Save all, drafts
@@ -316,6 +312,12 @@ function personalEditRows({ section, myself, offered, genderIdentityOptions, bou
  * `PUT v2/user/edit` accepts; a saved value that isn't offered shows on the
  * trigger until changed. Save sends only the changed fields
  * (`savePersonalInformation`), which revalidates `myself`.
+ *
+ * SSN (Story 2.3): Reveal shows the full SSN for 30 s in both views, held
+ * only by the SSN component (`ssn-field.tsx`). The form holds the saved mask,
+ * `""` or a typed entry; a clear is sent as `"n/a"`, the mask never. On the
+ * way back to read view the baseline is rebased onto `myself`, so a typed SSN
+ * leaves the form state and the hook's saved-values override.
  */
 export function PersonalSection() {
   const { myself, error, retry } = useMyself()
@@ -336,8 +338,11 @@ export function PersonalSection() {
   // One "today" per render for the schema and the calendar bounds; the schema is rebuilt when the local day changes.
   const today = new Date()
   const dayKey = formatWireDate(localCalendarDate(today))
+  // The saved mask (`toPersonalValues(myself).socialSecurityNumber`, the form baseline's SSN): the schema's
+  // untouched value and the input's, from one place.
+  const ssnMask = toSsnFormValue(myself?.socialSecurityNumber)
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `today` is keyed by its local day (`dayKey`)
-  const schema = useMemo(() => personalSchema(roles, today), [roles, dayKey])
+  const schema = useMemo(() => personalSchema(roles, today, ssnMask), [roles, dayKey, ssnMask])
   const dataStatus: SectionDataStatus = myself ? "loaded" : error ? "error" : "loading"
 
   const section = useSectionForm<PersonalValues>({
@@ -348,12 +353,23 @@ export function PersonalSection() {
     baseline: toPersonalValues(myself),
     save: (values, baseline) => savePersonalInformation(personalDiff(values, baseline)),
     onNoChanges: "close",
-    fieldOrder: PERSONAL_DRAFT_FIELDS,
+    fieldOrder: PERSONAL_FIELD_ORDER,
+    // SSN taken (`errors/personal.ts`) marks the SSN input only.
+    errorFields: { ssn: "socialSecurityNumber" },
     draftFields: PERSONAL_DRAFT_FIELDS,
     describeDraftDiff: personalDraftDiff,
     dataStatus,
   })
-  const { form, isEditing } = section
+  const { form, isEditing, rebase } = section
+
+  // Back in read view (saved or cancelled): rebase onto `myself`, so a typed SSN leaves the form
+  // values and the hook's saved-values override (the read view shows `myself`, with the new mask).
+  const wasEditing = useRef(false)
+  useEffect(() => {
+    const leftEdit = wasEditing.current && !isEditing
+    wasEditing.current = isEditing
+    if (leftEdit) rebase(toPersonalValues(myself))
+  }, [isEditing, myself, rebase])
 
   // Opening edit fills the unset pickers. `setValue` presets count as changes (sent on Save) but are not the user's, so they write no draft.
   useEffect(() => {
@@ -407,6 +423,7 @@ export function PersonalSection() {
                     genderIdentityOptions: options.genderIdentity,
                     bounds: birthDateBounds(roles, today),
                     ageRange: ageRangeMessage(roles),
+                    ssnMask,
                   })}
                 />
                 <SectionFooter {...section.footerProps} />

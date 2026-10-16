@@ -9,7 +9,7 @@
  *   `userEditPath` from `./user-edit-path.internal`, never re-export it):
  *   `savePersonalInformation` (Story 2.2);
  * - `GET v2/type/key/Person` (entry exists; read through `type-keys.ts`);
- * - `GET v2/person/{personId}/ssn/expose` (Story 2.3);
+ * - `GET v2/person/{personId}/ssn/expose`: `revealSsn` (Story 2.3);
  * - Signature upload / new version / `DELETE v2/file/{id}` (Story 2.4).
  * Reads `myself` through `myself.ts`; never re-map it here.
  */
@@ -27,9 +27,38 @@ export const PERSON_TYPE_KEY = "Person" satisfies TypeKey
 /** The Person VALUE_LIST attributes the Section offers (`valueListOptions(info, attrKey)`). */
 export const PERSON_VALUE_LISTS = ["race", "ethnicity", "biologicalGender"] as const
 
-/** `GET /api/1h/v2/person/me/ssn/expose` (Story 2.3 adds the allowlist entry). */
+/** `GET /api/1h/v2/person/me/ssn/expose` (Story 2.3: entry in `allowlist/personal.ts`). */
 export function ssnExposePath(): string {
   return proxyPath("v2/person/me/ssn/expose")
+}
+
+/**
+ * A Reveal outcome (Story 2.3): the full SSN as `XXX-XX-XXXX`, or not ok
+ * (`mapped` for a failed request; none for an answer without a 9-digit SSN).
+ */
+export type SsnRevealResult =
+  | { readonly ok: true; readonly ssn: string }
+  | { readonly ok: false; readonly mapped?: MappedError }
+
+/** The backend's full SSN: exactly nine digits (`"n/a"` when cleared). */
+const NINE_DIGITS = /^\d{9}$/
+
+/**
+ * Story 2.3 (FR13): `GET /api/1h/v2/person/me/ssn/expose` straight through
+ * `callApi`, never through SWR (no key, no loader, no `mutate`), so the full
+ * SSN is held only by the caller (the SSN component's state, while
+ * revealed). Only a 9-digit `socialSecurityNumber` counts, returned as
+ * `XXX-XX-XXXX`; `"n/a"`, null or any other shape is `{ ok: false }`. A
+ * failed request is `{ ok: false, mapped }` (`mapApiError("personal", …)`).
+ * Never throws and logs nothing itself (`callApi`'s dev-only `logApiCall`
+ * redacts the body by key and by shape).
+ */
+export async function revealSsn(): Promise<SsnRevealResult> {
+  const res = await callApi<unknown>("personal/revealSsn", ssnExposePath())
+  if (!res.success) return { ok: false, mapped: mapApiError("personal", res) }
+  const value = typeof res.data === "object" && res.data !== null ? (res.data as { readonly socialSecurityNumber?: unknown }).socialSecurityNumber : undefined
+  if (typeof value !== "string" || !NINE_DIGITS.test(value)) return { ok: false }
+  return { ok: true, ssn: `${value.slice(0, 3)}-${value.slice(3, 5)}-${value.slice(5)}` }
 }
 
 /**

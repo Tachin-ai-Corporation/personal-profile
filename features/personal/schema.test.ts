@@ -4,12 +4,12 @@ import { myselfWire } from "@/test/myself-fixture"
 import {
   ageRangeMessage,
   PERSONAL_DRAFT_FIELDS,
+  PERSONAL_FIELD_ORDER,
   PERSONAL_LABELS,
   personalDiff,
   personalDraftDiff,
   personalSchema,
   toPersonalValues,
-  type PersonalField,
   type PersonalValues,
 } from "./schema"
 
@@ -33,11 +33,15 @@ const VALID: PersonalValues = {
   biologicalGender: "Female",
   genderIdentity: "Woman",
   sexualOrientation: "Straight",
+  socialSecurityNumber: "***-**-1234",
 }
 
+/** The saved mask of `VALID` (the schema's untouched baseline). */
+const MASK = "***-**-1234"
+
 /** The message per field for `values` (merged into `VALID`), or `{}` when valid. */
-function errors(values: Partial<PersonalValues>, roles: readonly string[] | null = ["Patient"]): Partial<Record<PersonalField, string>> {
-  const result = personalSchema(roles, TODAY).safeParse({ ...VALID, ...values })
+function errors(values: Partial<PersonalValues>, roles: readonly string[] | null = ["Patient"]): Partial<Record<keyof PersonalValues, string>> {
+  const result = personalSchema(roles, TODAY, MASK).safeParse({ ...VALID, ...values })
   if (result.success) return {}
   return Object.fromEntries(result.error.issues.map((issue) => [String(issue.path[0]), issue.message]))
 }
@@ -162,20 +166,21 @@ describe("personalSchema: birth date", () => {
     expect(ageRangeMessage(undefined)).toBe("You must be between 18 and 120 years old")
   })
 
-  it("defaults today to now", () => {
-    expect(personalSchema(null).safeParse(VALID).success).toBe(true)
+  it("takes today and the saved SSN mask explicitly (no default turns a saved mask invalid)", () => {
+    expect(personalSchema(null, new Date(), MASK).safeParse(VALID).success).toBe(true)
+    expect(personalSchema(null, new Date(), "").safeParse(VALID).success).toBe(false)
   })
 })
 
 describe("toPersonalValues", () => {
-  it("maps myself to the 14 fields, the birth date as MM/DD/YYYY", () => {
+  it("maps myself to the 15 form fields, the birth date as MM/DD/YYYY, the SSN as its mask", () => {
     expect(toPersonalValues(toMyself(myselfWire()))).toEqual({ ...VALID, birthDate: "04/15/1990" })
   })
 
   it("not provided (null, blank, n/a) is empty; before myself loads every field is empty", () => {
     const values = toPersonalValues(toMyself(myselfWire({ middleName: "n/a", titles: "  ", race: null, birthDate: "n/a" })))
     expect(values).toMatchObject({ middleName: "", titles: "", race: "", birthDate: "" })
-    expect(toPersonalValues(undefined)).toEqual(Object.fromEntries(PERSONAL_DRAFT_FIELDS.map((field) => [field, ""])))
+    expect(toPersonalValues(undefined)).toEqual(Object.fromEntries(PERSONAL_FIELD_ORDER.map((field) => [field, ""])))
   })
 
   it("keeps text as sent (the diff trims)", () => {
@@ -216,11 +221,59 @@ describe("personalDiff", () => {
     expect(personalDiff({ ...saved, firstName: "Anna" }, saved)).toEqual({ firstName: "Anna" })
   })
 
-  it("a full diff holds exactly the 14 fields: never email, phoneNumber, phoneNumberRegion, SSN or Signature (AD-9)", () => {
+  it("a full diff holds exactly the 14 fields: never email, phoneNumber, phoneNumberRegion, Signature, or an SSN mask (AD-9)", () => {
     const empty = toPersonalValues(undefined)
     const diff = personalDiff(VALID, empty)
     expect(Object.keys(diff).toSorted()).toEqual([...PERSONAL_DRAFT_FIELDS].toSorted())
     for (const field of ["email", "phoneNumber", "phoneNumberRegion", "socialSecurityNumber", "signature"]) expect(diff).not.toHaveProperty(field)
+  })
+})
+
+describe("SSN (Story 2.3)", () => {
+  it("toPersonalValues holds only a safe mask, else \"\" (n/a, null, a full SSN by mistake)", () => {
+    expect(toPersonalValues(toMyself(myselfWire())).socialSecurityNumber).toBe("***-**-1234")
+    for (const socialSecurityNumber of ["n/a", null, "", "123-45-6789", "123456789"]) {
+      expect(toPersonalValues(toMyself(myselfWire({ socialSecurityNumber }))).socialSecurityNumber, String(socialSecurityNumber)).toBe("")
+    }
+  })
+
+  it("valid: the untouched saved mask, a complete XXX-XX-XXXX, or empty", () => {
+    expect(errors({ socialSecurityNumber: MASK })).toEqual({})
+    expect(errors({ socialSecurityNumber: "123-45-6789" })).toEqual({})
+    expect(errors({ socialSecurityNumber: "" })).toEqual({})
+  })
+
+  it.each(["123-45", "123-45-678", "1", "123456789", "***-**-9999", "***-**-1234 ", "abc"])("%j reads \"Enter all 9 digits of your SSN\"", (socialSecurityNumber) => {
+    expect(errors({ socialSecurityNumber })).toEqual({ socialSecurityNumber: "Enter all 9 digits of your SSN" })
+  })
+
+  it("without a saved SSN no mask is valid", () => {
+    const result = personalSchema(null, TODAY, "").safeParse({ ...VALID, socialSecurityNumber: MASK })
+    expect(result.success).toBe(false)
+    expect(personalSchema(null, TODAY, "").safeParse({ ...VALID, socialSecurityNumber: "" }).success).toBe(true)
+  })
+
+  it("a new complete SSN is sent as XXX-XX-XXXX", () => {
+    expect(personalDiff({ ...VALID, socialSecurityNumber: "123-45-6789" }, VALID)).toEqual({ socialSecurityNumber: "123-45-6789" })
+    expect(personalDiff({ ...VALID, socialSecurityNumber: "123-45-6789" }, { ...VALID, socialSecurityNumber: "" })).toEqual({
+      socialSecurityNumber: "123-45-6789",
+    })
+  })
+
+  it("clearing a saved SSN sends exactly \"n/a\", never \"\"", () => {
+    expect(personalDiff({ ...VALID, socialSecurityNumber: "" }, VALID)).toEqual({ socialSecurityNumber: "n/a" })
+  })
+
+  it("the untouched mask, an unchanged value, an empty field without a saved SSN and an incomplete value are never sent", () => {
+    expect(personalDiff(VALID, VALID)).toEqual({})
+    expect(personalDiff({ ...VALID, socialSecurityNumber: "" }, { ...VALID, socialSecurityNumber: "" })).toEqual({})
+    expect(personalDiff({ ...VALID, socialSecurityNumber: "123-45-6789" }, { ...VALID, socialSecurityNumber: "123-45-6789" })).toEqual({})
+    expect(personalDiff({ ...VALID, socialSecurityNumber: "123-45" }, VALID)).toEqual({})
+    expect(personalDiff({ ...VALID, socialSecurityNumber: "***-**-9999" }, VALID)).toEqual({})
+  })
+
+  it("the field order puts the SSN last, after the 14 draft fields", () => {
+    expect(PERSONAL_FIELD_ORDER).toEqual([...PERSONAL_DRAFT_FIELDS, "socialSecurityNumber"])
   })
 })
 
@@ -243,6 +296,8 @@ describe("drafts", () => {
       "sexualOrientation",
     ])
     expect(Object.keys(PERSONAL_LABELS)).toEqual([...PERSONAL_DRAFT_FIELDS])
+    expect(PERSONAL_DRAFT_FIELDS).toHaveLength(14)
+    expect(PERSONAL_DRAFT_FIELDS).not.toContain("socialSecurityNumber")
   })
 
   it("personalDraftDiff lists the changed fields with their labels", () => {

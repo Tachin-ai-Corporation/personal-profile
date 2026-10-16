@@ -117,4 +117,11 @@ export const entries: readonly AllowlistEntry[] = [
   },
   /** Person value lists (Story 2.1: race, ethnicity, biological gender), read by the shared `type-key` loader (spec F6-3). */
   { method: "GET", template: "v2/type/key/Person" },
+  /**
+   * SSN Reveal (Story 2.3, FR13): the caller's own full SSN. Owner `me` only
+   * (a numeric id is 403 `NOT_ALLOWED`), no query (400 `BAD_QUERY`), no body,
+   * nothing forced; every proxy response is no-store and the log line holds
+   * only the template (AD-15).
+   */
+  { method: "GET", template: "v2/person/{personId}/ssn/expose" },
 ]

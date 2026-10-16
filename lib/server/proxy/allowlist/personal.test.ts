@@ -1,6 +1,14 @@
-import { describe, expect, it } from "vitest"
+import { http, HttpResponse } from "msw"
+import { beforeEach, describe, expect, it } from "vitest"
+import { setLogSink } from "@/lib/server/log"
+import { SESSION_COOKIE, sealSession } from "@/lib/server/session/session"
 import { PERSON_BIOLOGICAL_GENDER_VALUES, PERSON_ETHNICITY_VALUES, PERSON_RACE_VALUES } from "@/lib/shared/person-options"
 import { nameIssue } from "@/lib/shared/person-rules"
+import { stubServerEnv, testEnv } from "@/test/env-fixture"
+import { server, trackAllRequests } from "@/test/msw-server"
+import { makeSession, NOW } from "@/test/session-fixture"
+import { DEMO } from "@/test/upstream-fixture"
+import { createProxyHandler } from "../handler"
 import { buildUpstreamQuery, matchEntry } from "../match"
 import { BIOLOGICAL_GENDERS, entries, ETHNICITIES, RACES, SIGNATURE_MAX_BYTES, userEditBodySchema } from "./personal"
 
@@ -13,6 +21,7 @@ describe("PUT v2/user/edit entry", () => {
       "POST v2/health/type/Person/{personId}/relation/PersonHasSignatureFile/file/upload",
       "POST v2/file/{fileId}/version",
       "GET v2/type/key/Person",
+      "GET v2/person/{personId}/ssn/expose",
     ])
     expect(entries.every((e) => e.profile === undefined)).toBe(true)
   })
@@ -47,6 +56,104 @@ describe("Signature upload entries (Story 2.4, AD-13)", () => {
     expect(buildUpstreamQuery(match.entry, q("current=false"))?.toString()).toBe("current=true")
     expect(buildUpstreamQuery(match.entry, q("versionName=x"))).toBeNull()
     expect(matchEntry(entries, "POST", seg("v2/file/me/version")).kind).toBe("not-allowed")
+  })
+})
+
+describe("SSN expose entry (Story 2.3)", () => {
+  const seg = (path: string) => path.split("/")
+  const q = (query: string) => new URLSearchParams(query)
+
+  it("owner me only, GET only, no query, no body, nothing forced", () => {
+    const match = matchEntry(entries, "GET", seg("v2/person/me/ssn/expose"))
+    if (match.kind !== "matched") throw new Error("expected a match")
+    expect(match.entry).toEqual({ method: "GET", template: "v2/person/{personId}/ssn/expose" })
+    expect(buildUpstreamQuery(match.entry, q(""))?.toString()).toBe("")
+    expect(buildUpstreamQuery(match.entry, q("x=1"))).toBeNull()
+    expect(matchEntry(entries, "GET", seg("v2/person/4242/ssn/expose")).kind).toBe("not-allowed")
+    expect(matchEntry(entries, "POST", seg("v2/person/me/ssn/expose")).kind).toBe("method-not-allowed")
+  })
+})
+
+/**
+ * The real expose entry through the real proxy handler (shipped allowlist):
+ * own person id upstream, no-store on every answer (human, 2026-10-16) and
+ * an AD-15 log line (method, template, status, duration, request id only).
+ */
+describe("SSN expose through the proxy (Story 2.3)", () => {
+  const SSN = "123456789"
+  const PERSON_ID = 98765
+  const proxy = createProxyHandler({ env: testEnv(), now: () => NOW })
+
+  async function get(path: string): Promise<Response> {
+    const cookie = `${SESSION_COOKIE}=${await sealSession(makeSession({ personId: PERSON_ID }))}`
+    return proxy(new Request(`http://localhost:3000/api/1h/${path}`, { headers: { cookie } }))
+  }
+
+  /** Runs `run`, returning the log lines written meanwhile. */
+  async function captureLog(run: () => Promise<void>): Promise<string[]> {
+    const lines: string[] = []
+    const push = (line: string) => void lines.push(line)
+    const restore = setLogSink({ info: push, warn: push, error: push })
+    try {
+      await run()
+    } finally {
+      restore()
+    }
+    return lines
+  }
+
+  function expectNoStore(response: Response): void {
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0")
+    expect(response.headers.get("Pragma")).toBe("no-cache")
+  }
+
+  beforeEach(() => stubServerEnv())
+
+  it("me → upstream /v2/person/{session personId}/ssn/expose; the 200 with the SSN is no-store; the log line has no id, body or SSN", async () => {
+    let upstreamPath = ""
+    server.use(
+      http.get(`${DEMO.apiBase}/v2/person/:id/ssn/expose`, ({ request }) => {
+        upstreamPath = new URL(request.url).pathname
+        return HttpResponse.json({ id: PERSON_ID, socialSecurityNumber: SSN })
+      }),
+    )
+    let response: Response | undefined
+    const lines = await captureLog(async () => {
+      response = await get("v2/person/me/ssn/expose")
+    })
+    if (!response) throw new Error("no response")
+    expect(upstreamPath).toBe(`/api/v2/person/${PERSON_ID}/ssn/expose`)
+    expect(response.status).toBe(200)
+    expectNoStore(response)
+    expect(await response.json()).toEqual({ id: PERSON_ID, socialSecurityNumber: SSN })
+
+    expect(lines).toHaveLength(1)
+    const line = JSON.parse(lines[0]) as Record<string, unknown>
+    expect(Object.keys(line).toSorted()).toEqual(["durationMs", "kind", "method", "requestId", "routeTemplate", "status"])
+    expect(line).toMatchObject({ kind: "request", method: "GET", routeTemplate: "/v2/person/{personId}/ssn/expose", status: 200 })
+    expect(lines[0]).not.toContain(String(PERSON_ID))
+    expect(lines[0]).not.toContain(SSN)
+    expect(lines[0]).not.toMatch(/socialSecurityNumber|\d{3}-?\d{2}-?\d{4}/)
+  })
+
+  it.each([
+    ["a numeric person id", "v2/person/4242/ssn/expose", 403, "NOT_ALLOWED"],
+    ["a query", "v2/person/me/ssn/expose?x=1", 400, "BAD_QUERY"],
+  ])("%s is refused before upstream (%i %s), no-store", async (_name, path, status, errorCode) => {
+    const upstreamCalls = trackAllRequests()
+    let response: Response | undefined
+    const lines = await captureLog(async () => {
+      response = await get(path)
+    })
+    if (!response) throw new Error("no response")
+    expect(response.status).toBe(status)
+    expect(await response.json()).toEqual({ errorCode, source: "proxy" })
+    expectNoStore(response)
+    expect(upstreamCalls()).toBe(0)
+    for (const line of lines) {
+      expect(line).not.toContain("4242")
+      expect(line).not.toContain(String(PERSON_ID))
+    }
   })
 })
 

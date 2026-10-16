@@ -1,8 +1,8 @@
 import { act, render, waitFor } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { createElement } from "react"
-import useSWR from "swr"
-import { beforeEach, describe, expect, expectTypeOf, it } from "vitest"
+import useSWR, { useSWRConfig, type Cache } from "swr"
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest"
 import { myselfWire } from "@/test/myself-fixture"
 import { server } from "@/test/msw-server"
 import {
@@ -10,11 +10,13 @@ import {
   keys,
   PERSON_TYPE_KEY,
   PERSON_VALUE_LISTS,
+  revealSsn,
   savePersonalInformation,
   ssnExposePath,
   type PersonalInformationField,
   type PersonalInformationPayload,
 } from "."
+import { redact } from "./log-api-call"
 
 /** Counts the loads of `keys.myself()` in the app's default SWR cache (the one `mutateMyself` revalidates). */
 async function watchMyself(): Promise<() => number> {
@@ -162,5 +164,98 @@ describe("savePersonalInformation (Story 2.2)", () => {
     server.use(http.put(EDIT, () => HttpResponse.error()))
     expect(await act(() => savePersonalInformation({ firstName: "Anna" }))).toEqual({ ok: false, error: { code: "NETWORK_ERROR", mapped: { kind: "network" } } })
     expect(revalidations()).toBe(0)
+  })
+})
+
+describe("revealSsn (Story 2.3)", () => {
+  const EXPOSE = "/api/1h/v2/person/me/ssn/expose"
+  /** Any 9-digit SSN, with or without hyphens (not part of a longer number such as a timestamp or an id). */
+  const SSN_SHAPE = /(?<!\d)\d{3}-?\d{2}-?\d{4}(?!\d)/
+
+  function answer(response: () => Response): () => number {
+    let calls = 0
+    server.use(
+      http.get(EXPOSE, () => {
+        calls += 1
+        return response()
+      }),
+    )
+    return () => calls
+  }
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
+
+  it("GETs the expose path once and returns the 9 digits as XXX-XX-XXXX", async () => {
+    const calls = answer(() => HttpResponse.json({ id: 4242, socialSecurityNumber: "123456789" }))
+    expect(await revealSsn()).toEqual({ ok: true, ssn: "123-45-6789" })
+    expect(calls()).toBe(1)
+  })
+
+  it.each([
+    ["n/a (cleared)", { id: 4242, socialSecurityNumber: "n/a" }],
+    ["null", { id: 4242, socialSecurityNumber: null }],
+    ["missing", { id: 4242 }],
+    ["8 digits", { id: 4242, socialSecurityNumber: "12345678" }],
+    ["10 digits", { id: 4242, socialSecurityNumber: "1234567890" }],
+    ["hyphenated", { id: 4242, socialSecurityNumber: "123-45-6789" }],
+    ["a number", { id: 4242, socialSecurityNumber: 123456789 }],
+    ["a bare string body", "123456789"],
+    ["a null body", null],
+    ["an array body", ["123456789"]],
+  ])("%s is not ok, with no mapped error", async (_name, body) => {
+    answer(() => HttpResponse.json(body))
+    expect(await revealSsn()).toEqual({ ok: false })
+  })
+
+  it.each([
+    ["403", () => HttpResponse.json({ message: "Forbidden" }, { status: 403 }), { kind: "forbidden" }],
+    ["400 (no SSN)", () => HttpResponse.json({ message: "Bad request" }, { status: 400 }), { kind: "generic", message: "Bad request" }],
+    ["a proxy 400", () => HttpResponse.json({ errorCode: "BAD_QUERY", source: "proxy" }, { status: 400 }), { kind: "generic" }],
+    ["500", () => HttpResponse.json({ message: "boom" }, { status: 500 }), { kind: "generic" }],
+    ["502", () => HttpResponse.json({ errorCode: "UPSTREAM_ERROR", source: "proxy" }, { status: 502 }), { kind: "network" }],
+    ["a network failure", () => HttpResponse.error(), { kind: "network" }],
+  ] as const)("%s is not ok with the mapped error; never throws", async (_name, response, mapped) => {
+    answer(response)
+    expect(await revealSsn()).toEqual({ ok: false, mapped })
+  })
+
+  it("an unreadable 2xx body is not ok", async () => {
+    answer(() => HttpResponse.text("not json", { status: 200 }))
+    expect(await revealSsn()).toMatchObject({ ok: false })
+  })
+
+  it("leaves nothing in the SWR cache", async () => {
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    let cache: Cache | undefined
+    function Probe() {
+      cache = useSWRConfig().cache
+      return null
+    }
+    render(createElement(Probe))
+    answer(() => HttpResponse.json({ id: 4242, socialSecurityNumber: "123456789" }))
+    expect(await revealSsn()).toMatchObject({ ok: true })
+    if (!cache) throw new Error("no SWR cache")
+    const entries = [...cache.keys()].map((key) => `${key} ${JSON.stringify(cache?.get(key) ?? null)}`)
+    for (const entry of entries) expect(entry).not.toMatch(SSN_SHAPE)
+  })
+
+  it("the dev logger (logApiCall) redacts the expose response body by key and by shape", async () => {
+    expect(redact({ id: 4242, socialSecurityNumber: "123456789" })).toEqual({ id: 4242, socialSecurityNumber: "[redacted]" })
+    expect(redact({ id: 4242, ssn: "123-45-6789" })).toEqual({ id: 4242, ssn: "[redacted]" })
+    expect(redact({ id: 4242, value: "123456789", text: "SSN 123-45-6789." })).toEqual({ id: 4242, value: "[redacted]", text: "SSN [redacted]." })
+
+    // In development `callApi` logs every call: the expose body reaches the console redacted.
+    vi.stubEnv("NODE_ENV", "development")
+    const spies = (["log", "info", "warn", "error", "debug", "groupCollapsed", "group"] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation(() => undefined),
+    )
+    answer(() => HttpResponse.json({ id: 4242, socialSecurityNumber: "123456789" }))
+    expect(await revealSsn()).toEqual({ ok: true, ssn: "123-45-6789" })
+    const logged = spies.flatMap((spy) => spy.mock.calls).map((args) => JSON.stringify(args))
+    expect(logged.some((line) => line.includes("[redacted]"))).toBe(true)
+    for (const line of logged) expect(line).not.toMatch(SSN_SHAPE)
   })
 })

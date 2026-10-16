@@ -1,4 +1,5 @@
-import { ANN } from "./core"
+import type { Page, Request } from "@playwright/test"
+import { ANN, mockProxy, type ProxyResponder } from "./core"
 
 /**
  * Personal information (Team A, Epic 2) mocks. Reads come from `myself`
@@ -32,3 +33,21 @@ export const PERSONAL_FULL_MYSELF = Object.freeze({
   email: "ann.lee@example.com",
   phoneNumber: "+14155552671",
 })
+
+/** The full SSN behind `PERSONAL_FULL_MYSELF`'s mask `***-**-1234`, as the expose call sends it (nine digits). */
+export const PERSONAL_SSN_DIGITS = "987651234"
+
+/** `PERSONAL_SSN_DIGITS` as the page shows it. */
+export const PERSONAL_SSN_SHOWN = "987-65-1234"
+
+/**
+ * Mocks `GET v2/person/me/ssn/expose` (Story 2.3, Reveal). Default answer:
+ * `{ id, socialSecurityNumber }` with `PERSONAL_SSN_DIGITS`. Returns the
+ * requests it answered.
+ */
+export async function mockPersonalSsnExpose(
+  page: Page,
+  answer: ProxyResponder = { body: { id: ANN.personId, socialSecurityNumber: PERSONAL_SSN_DIGITS } },
+): Promise<() => Request[]> {
+  return mockProxy(page, "v2/person/me/ssn/expose", answer)
+}

@@ -4,9 +4,10 @@ import { useEffect } from "react"
 import { useSWRConfig, type ScopedMutator } from "swr"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MyselfErrorClaimProvider, SectionCountProvider, toastError, toastSuccess, useMyselfErrorClaimed, useSectionCounts } from "@/features/shell"
-import { keys } from "@/lib/api"
+import { keys, sessionEvents } from "@/lib/api"
 import { axeViolations } from "@/test/axe"
 import { stubViewport } from "@/test/media"
+import { server } from "@/test/msw-server"
 import { myselfWire } from "@/test/myself-fixture"
 import { renderInPage } from "@/test/providers"
 import { PersonalSection } from "."
@@ -220,11 +221,13 @@ describe("PersonalSection: loaded", () => {
     expect(counts.personal).toBeUndefined()
   })
 
-  it("has one action: the outline Edit button (Story 2.2)", async () => {
+  it("has two actions: the outline Edit button (Story 2.2) and the SSN's Reveal (Story 2.3)", async () => {
     await renderLoaded()
     const buttons = within(section()).getAllByRole("button")
-    expect(buttons.map((button) => button.textContent)).toEqual(["Edit"])
+    expect(buttons.map((button) => button.textContent)).toEqual(["Edit", "Reveal"])
     expect(buttons[0].id).toBe("personal-edit")
+    expect(buttons[1].getAttribute("aria-label")).toBe("Reveal SSN")
+    expect(within(valueOf("SSN")).getByRole("button", { name: "Reveal SSN" })).toBe(buttons[1])
   })
 })
 
@@ -283,9 +286,15 @@ describe("PersonalSection: SSN shows only a mask", () => {
     expect(valueOf("SSN").querySelector(".mono-value")).toBeNull()
   })
 
-  it.each(["***-**-1234", "*****1234", "***-**-****"])("a mask (%s) shows as is", async (socialSecurityNumber) => {
+  it.each(["***-**-1234", "*****1234", "***-**-****"])("a mask (%s) shows as is, with Reveal", async (socialSecurityNumber) => {
     await renderLoaded(myselfWire({ socialSecurityNumber }))
-    expect(valueOf("SSN").textContent).toBe(socialSecurityNumber)
+    expect(valueOf("SSN").querySelector(".mono-value")?.textContent).toBe(socialSecurityNumber)
+    expect(within(valueOf("SSN")).getByRole("button", { name: "Reveal SSN" })).toBeTruthy()
+  })
+
+  it("no safe mask: \"Not provided\" and no Reveal (Story 2.3)", async () => {
+    await renderLoaded(myselfWire({ socialSecurityNumber: "n/a" }))
+    expect(within(valueOf("SSN")).queryByRole("button")).toBeNull()
   })
 })
 
@@ -518,17 +527,17 @@ describe("PersonalSection: edit view (Story 2.2)", () => {
     expect(screen.getByText("You must be between 21 and 120 years old")).toBeTruthy()
   })
 
-  it("shows the saved values; SSN and Signature stay read-only (Signature keeps #signature)", async () => {
+  it("shows the saved values; the SSN input holds the mask; Signature stays read-only (keeps #signature)", async () => {
     await renderEditing()
     expect((control("First name") as HTMLInputElement).value).toBe("Ann")
     expect((control("Birth date") as HTMLInputElement).value).toBe("03/09/1987")
     expect(control("Race").textContent).toBe("Asian")
     expect(control("Biological gender").textContent).toBe("Female")
     expect((control("Gender identity") as HTMLInputElement).value).toBe("Woman")
-    expect(control("SSN").textContent).toBe("***-**-1234")
+    expect((control("SSN") as HTMLInputElement).value).toBe("***-**-1234")
     expect(within(control("Signature")).getByRole("img", { name: "Your signature" })).toBeTruthy()
     expect(document.getElementById("signature")?.textContent).toContain("Signature")
-    expect(section().querySelectorAll("input").length).toBe(11)
+    expect(section().querySelectorAll("input").length).toBe(12)
   })
 
   it("lays out a 240 px key column from 768 px", async () => {
@@ -824,16 +833,57 @@ const PERSONAL_FIELDS = [
 ]
 
 describe("PersonalSection: save failures (Story 2.2)", () => {
-  it("a 400 SSN taken shows at Section level until Story 2.3 adds the SSN field; stays in edit with the values", async () => {
-    const { handler } = recordPuts(() =>
+  /** Console spies of a test, restored even when an assertion fails. */
+  const consoleSpies: { mockRestore: () => void }[] = []
+  afterEach(() => {
+    for (const spy of consoleSpies.splice(0)) spy.mockRestore()
+  })
+
+  it("a 400 SSN taken marks only the SSN field and focuses it; stays in edit with the values; no SSN leaks (Story 2.3, Q3)", async () => {
+    const spies = (["log", "info", "warn", "error", "debug", "group", "groupCollapsed"] as const).map((method) => vi.spyOn(console, method))
+    consoleSpies.push(...spies)
+    let cache: ReturnType<typeof useSWRConfig>["cache"] | undefined
+    function CacheProbe() {
+      cache = useSWRConfig().cache
+      return null
+    }
+    const { bodies, handler } = recordPuts(() =>
       HttpResponse.json({ message: "The Social Security Number {123-45-6789} already belongs to another person." }, { status: 400 }),
     )
-    await renderEditing(FULL, [handler])
+    renderInPage(
+      <>
+        <PersonalSection />
+        <CacheProbe />
+      </>,
+      { page: "profile", myself: FULL, handlers: [handler] },
+    )
+    await screen.findByRole("table", { name: "Personal information" })
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Edit" })))
     await type("First name", "Anna")
+    await type("SSN", "123456789")
     await save()
-    await screen.findByText("This SSN belongs to another person")
+    await waitFor(() => expect(control("SSN").getAttribute("aria-invalid")).toBe("true"))
+    expect(bodies).toEqual([{ firstName: "Anna", socialSecurityNumber: "123-45-6789" }])
+    const describedBy = control("SSN").getAttribute("aria-describedby")?.split(" ") ?? []
+    expect(describedBy.map((id) => document.getElementById(id)?.textContent)).toContain("This SSN belongs to another person")
+    expect(document.activeElement).toBe(control("SSN"))
+    expect(section().querySelectorAll('[aria-invalid="true"]')).toHaveLength(1)
+    expect(section().querySelector('[data-slot~="inline-banner"]')).toBeNull()
     expect((control("First name") as HTMLInputElement).value).toBe("Anna")
     expect(screen.getByRole("button", { name: "Save" })).toBeTruthy()
+    expect(toastError).not.toHaveBeenCalled()
+
+    // The backend's message holds the typed SSN: it is shown nowhere and kept nowhere.
+    const ssn = /(?<![\d-])\d{3}-?\d{2}-?\d{4}(?![\d-])/
+    expect(document.body.innerHTML).not.toMatch(ssn)
+    const logged = spies.flatMap((spy) => spy.mock.calls).map((args) => JSON.stringify(args))
+    for (const line of logged) expect(line).not.toMatch(ssn)
+    if (!cache) throw new Error("no SWR cache")
+    const swr = cache
+    for (const key of swr.keys()) expect(`${key} ${JSON.stringify(swr.get(key) ?? null)}`).not.toMatch(ssn)
+    for (const storage of [window.localStorage, window.sessionStorage]) {
+      for (let index = 0; index < storage.length; index += 1) expect(storage.getItem(storage.key(index) ?? "")).not.toMatch(ssn)
+    }
   })
 
   it("a 400 INVALID_ENUM_VALUE (an unknown code) shows \"Couldn't save personal information.\" with Retry; stays in edit", async () => {
@@ -880,6 +930,90 @@ describe("PersonalSection: save failures (Story 2.2)", () => {
     })
     expect(result).toEqual({ ok: false, error: { code: "NETWORK_ERROR", mapped: { kind: "network" } } })
     expect(bodies).toHaveLength(1)
+  })
+})
+
+describe("PersonalSection: SSN wiring (Story 2.3)", () => {
+  it("the SSN is the 15th field in the first-invalid order: alone it is focused; after First name it is not", async () => {
+    const { bodies, handler } = recordPuts()
+    await renderEditing(FULL, [handler])
+    await type("SSN", "12345")
+    await save()
+    expect(document.activeElement).toBe(control("SSN"))
+    await type("First name", "")
+    await save()
+    expect(document.activeElement).toBe(control("First name"))
+    expect(bodies).toEqual([])
+  })
+
+  it("a typed SSN is sent with the other changes; back in read view the form is rebased onto myself (no stale override)", async () => {
+    let current: Record<string, unknown> = FULL
+    const { bodies, handler } = recordPuts(() => HttpResponse.json(current))
+    let mutate: ScopedMutator | undefined
+    function MutateProbe() {
+      mutate = useSWRConfig().mutate
+      return null
+    }
+    renderInPage(
+      <>
+        <PersonalSection />
+        <MutateProbe />
+      </>,
+      { page: "profile", myself: FULL, handlers: [handler, http.get(MYSELF, () => HttpResponse.json(current))] },
+    )
+    await screen.findByRole("table", { name: "Personal information" })
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Edit" })))
+    await type("SSN", "987-65-4321")
+    current = { ...FULL, socialSecurityNumber: "***-**-4321" }
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(bodies).toEqual([{ socialSecurityNumber: "987-65-4321" }])
+    await act(async () => {
+      await mutate?.(keys.myself())
+    })
+    await waitFor(() => expect(valueOf("SSN").querySelector(".mono-value")?.textContent).toBe("***-**-4321"))
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Edit" })))
+    expect((control("SSN") as HTMLInputElement).value).toBe("***-**-4321")
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(bodies).toHaveLength(1)
+  })
+
+  it("a typed save with myself not refetched: Edit again shows the original mask with Reveal, and a second Save sends nothing", async () => {
+    const { bodies, handler } = recordPuts()
+    await renderEditing(FULL, [handler])
+    await type("SSN", "987654321")
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(bodies).toEqual([{ socialSecurityNumber: "987-65-4321" }])
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Edit" })))
+    expect((control("SSN") as HTMLInputElement).value).toBe("***-**-1234")
+    expect(within(section()).getAllByRole("button", { name: "Reveal SSN" })).toHaveLength(1)
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(bodies).toHaveLength(1)
+  })
+
+  it("Edit pressed while the read-view SSN is revealed: no full SSN anywhere, the edit input shows the mask", async () => {
+    server.use(http.get("/api/1h/v2/person/me/ssn/expose", () => HttpResponse.json({ id: 4242, socialSecurityNumber: "123451234" })))
+    await renderLoaded()
+    await act(async () => fireEvent.click(within(valueOf("SSN")).getByRole("button", { name: "Reveal SSN" })))
+    await waitFor(() => expect(within(valueOf("SSN")).getByText("123-45-1234")).toBeTruthy())
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Edit" })))
+    expect((control("SSN") as HTMLInputElement).value).toBe("***-**-1234")
+    expect(document.body.textContent).not.toMatch(/123-?45-?1234/)
+    expect(document.body.innerHTML).not.toMatch(/123-?45-?1234/)
+  })
+
+  it("no SSN in the draft after a session expiry flushes it", async () => {
+    await renderEditing()
+    await type("First name", "Anna")
+    await type("SSN", "123456789")
+    await act(async () => sessionEvents.publish("session-expired"))
+    await waitFor(() => expect(window.localStorage.getItem(DRAFT_KEY)).not.toBeNull())
+    const raw = window.localStorage.getItem(DRAFT_KEY) ?? ""
+    expect(raw).toContain("Anna")
+    expect(raw).not.toMatch(/socialSecurityNumber|ssn|123-?45-?6789|\*\*\*-\*\*-1234/i)
   })
 })
 

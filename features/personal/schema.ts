@@ -15,12 +15,14 @@ import {
   textIssue,
   type NameIssue,
 } from "@/lib/shared/person-rules"
+import { isCompleteSsn, toSsnFormValue } from "./ssn"
 
 /**
  * Personal information edit view (Story 2.2, FR12, NG-9022): the form values,
  * their rules (on the shared `person-rules.ts`; copy from `PERSON_MESSAGES`),
- * the changed-fields diff the save sends and the draft wiring. SSN (2.3) and
- * Signature (2.4) are not form values here, so they can never be drafted.
+ * the changed-fields diff the save sends and the draft wiring. The SSN
+ * (Story 2.3) is the 15th form value but never a draft field; Signature
+ * (2.4) is not a form value here. Neither can ever be drafted.
  */
 
 /** The 14 edited fields in the F1 order: the form values, the draft fields and the first-invalid focus order. */
@@ -43,13 +45,21 @@ export const PERSONAL_DRAFT_FIELDS = [
 
 export type PersonalField = (typeof PERSONAL_DRAFT_FIELDS)[number]
 
+/** The SSN form field (Story 2.3): never a draft field (`DRAFT_DENYLIST`). */
+export const SSN_FIELD = "socialSecurityNumber"
+
+/** Every form field in reading order (first-invalid focus): the 14 draft fields, then the SSN. */
+export const PERSONAL_FIELD_ORDER = [...PERSONAL_DRAFT_FIELDS, SSN_FIELD] as const
+
 /**
  * The form values: text as typed, `""` when not provided. `birthDate` is the
  * date input's shown text (`MM/DD/YYYY`, or partial while typing), so the
  * schema can tell "required" from "Enter a date as MM/DD/YYYY"; the diff
- * sends it as `YYYY-MM-DD`.
+ * sends it as `YYYY-MM-DD`. `socialSecurityNumber` is the saved mask
+ * (untouched), `""` (none, or cleared) or the typed `XXX-XX-XXXX` text; a
+ * revealed SSN never enters it.
  */
-export type PersonalValues = Record<PersonalField, string>
+export type PersonalValues = Record<PersonalField | typeof SSN_FIELD, string>
 
 /** The fields that may be left empty (muted "(optional)"); a cleared one is sent as `"n/a"`. */
 export const PERSONAL_OPTIONAL_FIELDS: ReadonlySet<PersonalField> = new Set<PersonalField>([
@@ -132,9 +142,11 @@ export function ageRangeMessage(roles: readonly string[] | null | undefined): st
  * and suffix optional ≤ 10; City of birth and Sexual orientation optional
  * ≤ 128; Gender identity required ≤ 128; printable characters only; Birth
  * date required, a real date, and inside the age range (future dates
- * included); Race, Ethnicity and Biological gender required.
+ * included); Race, Ethnicity and Biological gender required. SSN (Story
+ * 2.3): the untouched `ssnMask` (the saved mask, `""` without one; the
+ * same value the SSN input compares with), a complete `XXX-XX-XXXX`, or `""`.
  */
-export function personalSchema(roles: readonly string[] | null | undefined, today: Date = new Date()) {
+export function personalSchema(roles: readonly string[] | null | undefined, today: Date, ssnMask: string) {
   const name: IssueMessages = { tooLong: PERSON_MESSAGES.nameTooLong }
   const prefixSuffix: IssueMessages = { tooLong: PERSON_MESSAGES.prefixSuffixTooLong }
   return z.object({
@@ -160,6 +172,9 @@ export function personalSchema(roles: readonly string[] | null | undefined, toda
     biologicalGender: choiceField(),
     genderIdentity: textField(SHORT_TEXT_MAX_LENGTH, { required: PERSON_MESSAGES.chooseValue, tooLong: PERSON_MESSAGES.shortTextTooLong }, false),
     sexualOrientation: textField(SHORT_TEXT_MAX_LENGTH, { tooLong: PERSON_MESSAGES.sexualOrientationHelp }, true),
+    socialSecurityNumber: z
+      .string()
+      .refine((value) => value === "" || (ssnMask !== "" && value === ssnMask) || isCompleteSsn(value), { message: PERSON_MESSAGES.ssnIncomplete }),
   }) satisfies z.ZodType<PersonalValues, PersonalValues>
 }
 
@@ -168,7 +183,7 @@ function formText(value: string | null | undefined): string {
   return isNotProvided(value) ? "" : (value as string)
 }
 
-/** The form values of `myself` (all `""` before it loads); the birth date as `MM/DD/YYYY`. */
+/** The form values of `myself` (all `""` before it loads); the birth date as `MM/DD/YYYY`; the SSN as its safe mask or `""`. */
 export function toPersonalValues(myself: Myself | null | undefined): PersonalValues {
   return {
     namePrefix: formText(myself?.namePrefix),
@@ -185,6 +200,7 @@ export function toPersonalValues(myself: Myself | null | undefined): PersonalVal
     biologicalGender: formText(myself?.biologicalGender),
     genderIdentity: formText(myself?.genderIdentity),
     sexualOrientation: formText(myself?.sexualOrientation),
+    socialSecurityNumber: toSsnFormValue(myself?.socialSecurityNumber),
   }
 }
 
@@ -195,18 +211,32 @@ function wireValue(field: PersonalField, value: string): string {
 }
 
 /**
+ * The SSN part of the diff (Story 2.3): a changed complete value as
+ * `XXX-XX-XXXX`, a clear of a saved one (`""` over a mask) as exactly
+ * `"n/a"` (the platform rejects `""`). The untouched mask, an incomplete
+ * value and an unchanged one are never sent.
+ */
+function ssnChange(value: string, saved: string): string | undefined {
+  if (value === saved) return undefined
+  if (value === "") return saved === "" ? undefined : CLEARED
+  return isCompleteSsn(value) ? value : undefined
+}
+
+/**
  * The changed fields only, compared after trimming (Story 2.2): strings, the
  * birth date as `YYYY-MM-DD`, and a cleared optional field as `"n/a"`. Only
- * these 14 fields can appear: never `email`, `phoneNumber` or
- * `phoneNumberRegion` (AD-9), and never SSN or Signature.
+ * these 14 fields and the SSN (Story 2.3, `ssnChange`) can appear: never
+ * `email`, `phoneNumber` or `phoneNumberRegion` (AD-9), and never Signature.
  */
 export function personalDiff(values: PersonalValues, baseline: PersonalValues): PersonalInformationPayload {
-  const diff: Partial<Record<PersonalField, string>> = {}
+  const diff: Partial<Record<PersonalField | typeof SSN_FIELD, string>> = {}
   for (const field of PERSONAL_DRAFT_FIELDS) {
     const next = wireValue(field, values[field])
     if (next === wireValue(field, baseline[field])) continue
     diff[field] = next === "" && PERSONAL_OPTIONAL_FIELDS.has(field) ? CLEARED : next
   }
+  const ssn = ssnChange(values.socialSecurityNumber, baseline.socialSecurityNumber)
+  if (ssn !== undefined) diff.socialSecurityNumber = ssn
   return diff
 }
 

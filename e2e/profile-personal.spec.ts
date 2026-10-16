@@ -3,18 +3,20 @@ import { expect, type Locator, type Page } from "@playwright/test"
 import {
   mockFileDownload,
   mockMyself,
+  mockPersonalSsnExpose,
   mockProfileDefaults,
   mockTypeKey,
   mockUserEdit,
   PERSONAL_FULL_MYSELF,
   PERSONAL_SIGNATURE_FILE_ID,
+  PERSONAL_SSN_SHOWN,
   setTheme,
   signIn,
   test,
 } from "./fixtures"
 
 /**
- * Stories 2.1–2.2 (Team A, NG-9022): the Personal information read and edit
+ * Stories 2.1–2.3 (Team A, NG-9022): the Personal information read and edit
  * views on the real `/`. Every test runs under the fail-fast `test`, starts from
  * `mockProfileDefaults` and overrides `myself` (frozen `ANN` + the fields
  * under test) and the Signature image.
@@ -62,7 +64,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 test.describe("Personal information read view (Story 2.1)", () => {
-  test("shows the 16 rows in the F1 order with their values; no email or phone; one Edit action", async ({ page }) => {
+  test("shows the 16 rows in the F1 order with their values; no email or phone; Edit and the SSN's Reveal", async ({ page }) => {
     await openWithFullMyself(page)
     const section = page.getByRole("region", { name: "Personal information" })
     await expect(section.getByRole("heading", { level: 2, name: "Personal information" })).toBeVisible()
@@ -81,7 +83,7 @@ test.describe("Personal information read view (Story 2.1)", () => {
     expect(await thumb.evaluate((el) => [el.getBoundingClientRect().width, el.getBoundingClientRect().height])).toEqual([112, 32])
 
     await expect(personalTable(page)).not.toContainText("ann.lee@example.com")
-    await expect(section.getByRole("button")).toHaveText(["Edit"])
+    await expect(section.getByRole("button")).toHaveText(["Edit", "Reveal"])
   })
 
   test("a broken signature image reads \"Not provided\"", async ({ page }) => {
@@ -280,5 +282,202 @@ test.describe("Personal information edit and save (Story 2.2)", () => {
     await expect(control(page, "First name")).toBeFocused()
     const withErrors = await new AxeBuilder({ page }).include("#personal").withTags(WCAG).analyze()
     expect(withErrors.violations, "Personal information edit with errors").toEqual([])
+  })
+})
+
+// --- Story 2.3: SSN entry and Reveal ------------------------------------------------------------
+
+/** Any nine-digit SSN, with or without hyphens (not part of a longer number). */
+const SSN_SHAPE = /(?<![\d-])\d{3}-?\d{2}-?\d{4}(?![\d-])/
+
+const ssnInput = (page: Page): Locator => control(page, "SSN")
+const revealButton = (page: Page): Locator => section(page).getByRole("button", { name: "Reveal SSN" })
+const hideButton = (page: Page): Locator => section(page).getByRole("button", { name: "Hide SSN" })
+
+test.describe("SSN entry and Reveal (Story 2.3)", () => {
+  test("read view: Reveal shows the SSN with the ring, announces it and focuses Hide; Hide brings the mask back and focuses Reveal", async ({ page }) => {
+    await openWithFullMyself(page)
+    const exposes = await mockPersonalSsnExpose(page)
+    const cell = await valueCell(page, "SSN")
+    await expect(cell.locator(".mono-value")).toHaveText("***-**-1234")
+    const reveal = revealButton(page)
+    const box = await reveal.boundingBox()
+    expect(box && box.height >= 44 && box.width >= 44).toBe(true)
+    await expect(reveal).toHaveCSS("text-decoration-line", "underline")
+
+    await reveal.click()
+    await expect(cell.getByText(PERSONAL_SSN_SHOWN)).toBeVisible()
+    await expect(hideButton(page)).toBeFocused()
+    await expect(cell.locator('[data-slot="ssn-countdown-ring"]')).toBeVisible()
+    await expect(section(page).getByRole("status").filter({ hasText: "Social Security number shown, hides in 30 seconds" })).toHaveCount(1)
+    expect(exposes()).toHaveLength(1)
+    expect(page.url()).not.toMatch(SSN_SHAPE)
+
+    await hideButton(page).click()
+    await expect(cell.getByText(PERSONAL_SSN_SHOWN)).toHaveCount(0)
+    await expect(cell.locator(".mono-value")).toHaveText("***-**-1234")
+    await expect(revealButton(page)).toBeFocused()
+  })
+
+  test("the real 30 s auto-hide (page clock): the mask is back and no full SSN is on the page", async ({ page }) => {
+    await page.clock.install()
+    await openWithFullMyself(page)
+    await mockPersonalSsnExpose(page)
+    await revealButton(page).click()
+    const cell = await valueCell(page, "SSN")
+    await expect(cell.getByText(PERSONAL_SSN_SHOWN)).toBeVisible()
+    await page.clock.runFor(29_000)
+    await expect(cell.getByText(PERSONAL_SSN_SHOWN)).toBeVisible()
+    await page.clock.runFor(1_500)
+    await expect(cell.getByText(PERSONAL_SSN_SHOWN)).toHaveCount(0)
+    await expect(cell.locator(".mono-value")).toHaveText("***-**-1234")
+    expect(await page.locator("body").innerText()).not.toMatch(SSN_SHAPE)
+    expect(await page.content()).not.toMatch(SSN_SHAPE)
+  })
+
+  test("a hidden tab hides the SSN at once", async ({ page }) => {
+    await openWithFullMyself(page)
+    await mockPersonalSsnExpose(page)
+    await revealButton(page).click()
+    await expect(section(page).getByText(PERSONAL_SSN_SHOWN)).toBeVisible()
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" })
+      document.dispatchEvent(new Event("visibilitychange"))
+    })
+    await expect(section(page).getByText(PERSONAL_SSN_SHOWN)).toHaveCount(0)
+    await expect((await valueCell(page, "SSN")).locator(".mono-value")).toHaveText("***-**-1234")
+  })
+
+  test("reduced motion: \"Hides in 30 s\" instead of the ring", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    await openWithFullMyself(page)
+    await mockPersonalSsnExpose(page)
+    await revealButton(page).click()
+    const cell = await valueCell(page, "SSN")
+    await expect(cell.getByText("Hides in 30 s", { exact: true })).toBeVisible()
+    await expect(cell.locator('[data-slot="ssn-countdown-ring"]')).toBeHidden()
+  })
+
+  test("a failed Reveal keeps the mask and says \"Couldn't show your SSN. Try again.\"", async ({ page }) => {
+    await openWithFullMyself(page)
+    await mockPersonalSsnExpose(page, { status: 500, body: { message: "boom" } })
+    await revealButton(page).click()
+    await expect(section(page).getByText("Couldn't show your SSN. Try again.")).toBeVisible()
+    await expect((await valueCell(page, "SSN")).locator(".mono-value")).toHaveText("***-**-1234")
+  })
+
+  test("edit: Reveal shows the SSN in the input with the revealed help; the input is kept out of autofill", async ({ page }) => {
+    await openEdit(page)
+    await mockPersonalSsnExpose(page)
+    const input = ssnInput(page)
+    await expect(input).toHaveValue("***-**-1234")
+    await expect(input).toHaveAttribute("name", "pp-ref-number")
+    await expect(input).toHaveAttribute("id", "personal-ref-number")
+    await expect(input).toHaveAttribute("autocomplete", "off")
+    await expect(input).toHaveAttribute("data-lpignore", "true")
+    await expect(input).toHaveAccessibleDescription("Type a new number to replace it.")
+    await revealButton(page).click()
+    await expect(input).toHaveValue(PERSONAL_SSN_SHOWN)
+    await expect(input).toHaveAccessibleDescription("Format XXX-XX-XXXX. Hides in 30 s. Clear it to remove your SSN.")
+    await expect(hideButton(page)).toBeFocused()
+    expect(await input.getAttribute("value")).toBeNull()
+    // Not a change: Save sends nothing.
+    const puts = await mockUserEdit(page)
+    await section(page).getByRole("button", { name: "Save" }).click()
+    await expectReadView(page)
+    expect(puts()).toEqual([])
+    await expect(section(page).getByText(PERSONAL_SSN_SHOWN)).toHaveCount(0)
+  })
+
+  test("edit: typing over the mask formats as XXX-XX-XXXX and Save sends it; the read view shows the new mask", async ({ page }) => {
+    await openEdit(page)
+    const input = ssnInput(page)
+    await input.selectText()
+    await page.keyboard.type("123456789")
+    await expect(input).toHaveValue("123-45-6789")
+    const puts = await mockUserEdit(page)
+    await mockMyself(page, { body: { ...PERSONAL_FULL_MYSELF, socialSecurityNumber: "***-**-6789" } })
+    await section(page).getByRole("button", { name: "Save" }).click()
+    await expectReadView(page)
+    expect(puts()).toEqual([{ socialSecurityNumber: "123-45-6789" }])
+    await expect((await valueCell(page, "SSN")).locator(".mono-value")).toHaveText("***-**-6789")
+    await expect(section(page)).not.toContainText("123-45-6789")
+  })
+
+  test("edit: a paste of 123 45 6789 gives 123-45-6789; a partial SSN is refused; Backspace across the hyphen", async ({ page }) => {
+    await openEdit(page)
+    const input = ssnInput(page)
+    await input.selectText()
+    await page.keyboard.press("Backspace")
+    await expect(input).toHaveValue("")
+    await page.keyboard.insertText("123 45 6789")
+    await expect(input).toHaveValue("123-45-6789")
+    await input.fill("12345")
+    await expect(input).toHaveValue("123-45")
+    await input.press("ArrowLeft")
+    await input.press("ArrowLeft")
+    await input.press("Backspace")
+    await expect(input).toHaveValue("124-5")
+    const puts = await mockUserEdit(page)
+    await section(page).getByRole("button", { name: "Save" }).click()
+    await expect(input).toBeFocused()
+    await expect(input).toHaveAccessibleDescription("Enter all 9 digits of your SSN")
+    expect(puts()).toEqual([])
+  })
+
+  test("edit: clearing the SSN sends n/a; the read view then says \"Not provided\"", async ({ page }) => {
+    await openEdit(page)
+    await ssnInput(page).fill("")
+    const puts = await mockUserEdit(page)
+    await mockMyself(page, { body: { ...PERSONAL_FULL_MYSELF, socialSecurityNumber: "n/a" } })
+    await section(page).getByRole("button", { name: "Save" }).click()
+    await expectReadView(page)
+    expect(puts()).toEqual([{ socialSecurityNumber: "n/a" }])
+    await expect(await valueCell(page, "SSN")).toHaveText("Not provided")
+    await expect(revealButton(page)).toHaveCount(0)
+  })
+
+  test("edit: SSN taken marks only the SSN field and focuses it", async ({ page }) => {
+    await openEdit(page)
+    const puts = await mockUserEdit(page, {
+      status: 400,
+      body: { message: "The Social Security Number {123-45-6789} already belongs to another person." },
+    })
+    await ssnInput(page).fill("123456789")
+    await section(page).getByRole("button", { name: "Save" }).click()
+    await expect(ssnInput(page)).toBeFocused()
+    await expect(ssnInput(page)).toHaveAttribute("aria-invalid", "true")
+    await expect(ssnInput(page)).toHaveAccessibleDescription("This SSN belongs to another person")
+    await expect(section(page).locator('[aria-invalid="true"]')).toHaveCount(1)
+    expect(puts()).toEqual([{ socialSecurityNumber: "123-45-6789" }])
+    expect(await section(page).innerHTML()).not.toMatch(SSN_SHAPE)
+  })
+
+  test("axe passes with the SSN revealed, read and edit, light and dark; no horizontal scroll at 360 px", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 })
+    await openWithFullMyself(page)
+    await mockPersonalSsnExpose(page)
+    await expect.poll(async () => (await valueCell(page, "Signature")).locator('[data-state="loaded"]').count()).toBe(1)
+    for (const theme of ["light", "dark"] as const) {
+      await setTheme(page, theme)
+      await revealButton(page).click()
+      await expect(section(page).getByText(PERSONAL_SSN_SHOWN)).toBeVisible()
+      const results = await new AxeBuilder({ page }).include("#personal").withTags(WCAG).analyze()
+      expect(results.violations, `SSN revealed (${theme})`).toEqual([])
+      const { scrollWidth, clientWidth } = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }))
+      expect(scrollWidth).toBeLessThanOrEqual(clientWidth)
+      await hideButton(page).click()
+    }
+    await section(page).getByRole("button", { name: "Edit" }).click()
+    for (const theme of ["light", "dark"] as const) {
+      await setTheme(page, theme)
+      await revealButton(page).click()
+      await expect(ssnInput(page)).toHaveValue(PERSONAL_SSN_SHOWN)
+      const results = await new AxeBuilder({ page }).include("#personal").withTags(WCAG).analyze()
+      expect(results.violations, `SSN revealed in edit (${theme})`).toEqual([])
+      const { scrollWidth, clientWidth } = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }))
+      expect(scrollWidth).toBeLessThanOrEqual(clientWidth)
+      await hideButton(page).click()
+    }
   })
 })

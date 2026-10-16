@@ -42,4 +42,25 @@ export const PERSON_MESSAGES = {
   nameTooLong: "Up to 24 characters", // DRAFT COPY (Story 2.2 spec)
   /** Name prefix and Name suffix over 10 characters. */
   prefixSuffixTooLong: "Up to 10 characters", // DRAFT COPY (Story 2.2 spec)
+  // SSN entry and Reveal (Team A, Story 2.3). The label is `ssn`; SSN taken is `ssnTaken`.
+  /** The Reveal button's visible text (its accessible name is `ssnRevealName`). */
+  ssnReveal: "Reveal",
+  /** The Hide button's visible text (its accessible name is `ssnHideName`). */
+  ssnHide: "Hide",
+  /** Reduced motion: replaces the countdown ring. */
+  ssnHidesIn: "Hides in 30 s",
+  ssnRevealName: "Reveal SSN", // DRAFT COPY (Story 2.3 spec Q2: the AC's name)
+  ssnHideName: "Hide SSN", // DRAFT COPY (Story 2.3 spec Q2)
+  /** The polite announcement on Reveal. */
+  ssnShown: "Social Security number shown, hides in 30 seconds", // DRAFT COPY (verbatim from EXPERIENCE.md accessibility notes, not the V&T table)
+  /** Screen-reader text for the visible (aria-hidden) mask; `{last4}` is the mask's digits. */
+  ssnEndingIn: "SSN ending in {last4}", // DRAFT COPY (Story 2.3 spec Q1)
+  /** Edit help while the saved mask shows. */
+  ssnHelpMasked: "Type a new number to replace it.",
+  /** Edit help while the SSN is revealed. */
+  ssnHelpRevealed: "Format XXX-XX-XXXX. Hides in 30 s. Clear it to remove your SSN.",
+  /** A failed Reveal (polite, under the SSN; not a field error). */
+  ssnRevealFailed: "Couldn't show your SSN. Try again.", // DRAFT COPY (Story 2.3 spec)
+  /** A partial SSN on blur or Save. */
+  ssnIncomplete: "Enter all 9 digits of your SSN", // DRAFT COPY (Story 2.3 spec)
 } as const
