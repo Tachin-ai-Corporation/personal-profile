@@ -34,6 +34,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-f2-bff-extension-kit.md`
   summary: Signature-version (`v2/file/{fileId}/version`) and insurance uploads trust client-supplied ids, checked only as numeric ids; ownership is enforced only upstream (and the backend has no ownership check). File deletes are no longer in this item: since F7-2 they are ownership-checked on the server (`DELETE /api/pp/file/{fileId}`, 404 `NO_FILE`), and `DELETE v2/file/**` is denied in the proxy.
   evidence: allowlist/personal.ts, allowlist/insurance.ts; backend follow-up already recorded (OneHealthServiceImpl.java:4552-4562). Stories 2.4 / 5.3 should resolve ids from myself / the user's own insurance list, or a named op should verify ownership.
+  resolution: Signature part RESOLVED 2026-10-16 (spec-2-4-signature, human decision): the `POST v2/file/{fileId}/version` entry is removed (the proxy answers 403 `NOT_ALLOWED`); a Signature replace is the upload to the caller's own person (`me`) followed by the ownership-checked delete of the old file (`DELETE /api/pp/file/{fileId}`), with the old id taken only from `myself.signature`. The insurance uploads stay open for Story 5.3.
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-0a-bff-foundation-and-tooling.md` (code review, 2026-10-14)
   summary: CSP has no Google Maps hosts for `PLACES_ENABLED=1`; decide with the Places epic (AD-14 proxies Places through `/api/places`).
   evidence: moved from the spec-7-0a code-review list by spec F6-3; Story 4.3 decides.
@@ -49,6 +50,12 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-10-change-profile-picture.md`
   summary: (Cosmetic, accepted 2026-10-15) After a picture change the avatar may still show the initials briefly. The bounded preload of the new preview can't be reused by the `<img>`, because `v2/user/profile-picture/preview` is served `private, no-store`, so the browser may fetch it again. Caching stays unchanged (human decision).
   evidence: Story 1.10 implementation report; `asImage` responses are always no-store (F2). The spec's preload was kept; the flash was not confirmed in a real browser.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-signature.md`
+  summary: Backend follow-up — no file date exists for the Signature (`myself.signature` is `{id, name}`, no file metadata endpoint), so the edit help omits "Saved {date}." and the read view (UJ-3) omits "Added {today}". The backend could add `created` to the `myself` signature query cheaply; the help line and the thumbnail meta would then show it.
+  evidence: lib/api/myself.ts (`MyselfSignature`); spec-2-4-signature Design Notes.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-signature.md`
+  summary: Accepted — a replace normally leaves nothing behind: the named op owns every `PersonHasSignatureFile` relation of the caller (foundation a0c01dc), so the old file is deleted (204). Only when that best-effort delete itself fails (5xx, timeout, as in Story 1.10) does the older relation stay behind the newest one. `myself` shows the newest, and Remove deletes every leftover (up to 5 more rounds), so an older Signature is never shown; the file itself stays until then (and hard delete may still leave the private S3 object, item above).
+  evidence: features/personal/signature-save.ts (`uploadStep`, `removeStep`, `SIGNATURE_REMOVE_ROUNDS`); lib/server/named-ops/file-delete.ts (`signatureRelationIds`).
 
 ## Team B (`/account`, Epics 7-10)
 
@@ -323,3 +330,12 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-2-edit-and-save-personal-information.md`
   summary: Foundation — `Combobox` has no read-only mode: while the Personal information save is in flight the Gender identity list still opens and the input has no `aria-readonly` (changes are already ignored by the Section).
   evidence: components/ui/combobox.tsx has no `readOnly` prop; features/personal/personal-section.tsx `GenderIdentityControl` guards `onTextChange` only. Fix: an additive `readOnly` on Combobox (foundation PR).
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-signature.md`
+  summary: Foundation — the read-view `SignatureThumb` shows a Signature (dark ink on a transparent PNG, the paper-pad decision of 2026-10-16) on `bg-background`, which is graphite in dark mode, so the ink is hard to see there. Give the thumbnail a theme-constant paper background, and add a generic paper-surface token instead of the pad reusing `qr-surface`.
+  evidence: features/shell/signature-thumb.tsx (`bg-background`); features/personal/signature-pad.tsx (`bg-qr-surface`, `--graphite` ink, `--slate` cue and baseline); app/globals.css `--qr-surface`. Story 9.3 reuses the thumbnail.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-signature.md`
+  summary: Foundation — `SaveError.failedParts` is typed `readonly AccountSavePart[]` (`/account` parts only), so a `/` Section can't return its `runSaveSteps` `failedParts` from `save()` for `describeError`. Personal information keeps the last save's failed parts in a Section ref and reads it in `describeError`. Widen the type additively (e.g. `readonly string[]`, or a union with the Profile parts) in a foundation PR.
+  evidence: features/shell/nav-types.ts (`SaveError`); features/personal/personal-section.tsx (`failedParts` ref).
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-signature.md`
+  summary: (Integrator, T8) Update `docs/FOUNDATION.md` for Story 2.4 — remove the `POST v2/file/{fileId}/version` entry from §3.1 (Allowlist areas row: "signature upload + `v2/file/{fileId}/version`") and from the §5 Story 2.4 row ("signature upload + version entries", "take the version id only from `myself.signature`"); in §6 Team A drop "Signature-version … ids come from the client" (a replace is now upload to `me` + the ownership-checked delete); and in §3.1 Named ops note that `DELETE /api/pp/file/{fileId}` owns every `PersonHasSignatureFile` relation of the caller (the GraphQL relations lookup, foundation a0c01dc), not only `myself.signature`.
+  evidence: docs/FOUNDATION.md §3.1, §5, §6; lib/server/proxy/allowlist/personal.ts (no version entry); lib/server/named-ops/file-delete.ts (`signatureRelationIds`). Stories may not edit FOUNDATION (T8).
