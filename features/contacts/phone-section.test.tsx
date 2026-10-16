@@ -57,13 +57,18 @@ async function renderLoaded(answers: Partial<Record<string, Answer>> = { Mobile:
   return { ...result, counts: server.counts }
 }
 
-/** The desktop table's body rows, as their cells' text. */
+/** The desktop table's body rows, as their cells' text (without the actions cell). */
 function tableRows(): string[][] {
   const table = within(section()).getByRole("table", { name: "Phone" })
   return within(table)
     .getAllByRole("row")
     .slice(1)
-    .map((row) => within(row).getAllByRole("cell").map((cell) => cell.textContent ?? ""))
+    .map((row) =>
+      within(row)
+        .getAllByRole("cell")
+        .filter((cell) => cell.getAttribute("data-slot") !== "row-actions-cell")
+        .map((cell) => cell.textContent ?? ""),
+    )
 }
 
 beforeEach(() => {
@@ -132,7 +137,7 @@ describe("PhoneSection: read view", () => {
   it("shows the real column headers in a table named by the h2", async () => {
     await renderLoaded()
     const table = within(section()).getByRole("table", { name: "Phone" })
-    expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Number", "Label", "Type", "Status", "Notifications"])
+    expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Number", "Label", "Type", "Status", "Notifications", "Actions"])
     expect(table.getAttribute("aria-labelledby")).toBe("phone-heading")
   })
 
@@ -233,12 +238,6 @@ describe("PhoneSection: read view", () => {
     expect(tableRows().map((row) => row[0])).toEqual(["🇺🇸+1 (415) 555-2671", "🇬🇧+44 20 7183 8750"])
   })
 
-  it("has no row actions, kebab or Add phone (Story 3.2 adds the first action)", async () => {
-    await renderLoaded()
-    expect(within(section()).queryByRole("button")).toBeNull()
-    expect(within(section()).queryByRole("link")).toBeNull()
-  })
-
   it("reports ready to the Section frame and the saved count to the Section index", async () => {
     let counts: ReturnType<typeof useSectionCounts> = {}
     function CountsProbe() {
@@ -265,8 +264,8 @@ describe("PhoneSection: empty", () => {
     const table = within(section()).getByRole("table", { name: "Phone" })
     const empty = table.querySelector('[data-slot="empty-state"]')
     expect(empty?.getAttribute("data-variant")).toBe("row")
-    expect(empty?.textContent).toBe("No phones yet")
-    expect(empty?.querySelector("td")?.getAttribute("colspan")).toBe("5")
+    expect(empty?.textContent).toBe("No phones yet·Add phone")
+    expect(empty?.querySelector("td")?.getAttribute("colspan")).toBe("6")
     expect(meta()).toBe("0")
   })
 })
@@ -279,7 +278,7 @@ describe("PhoneSection: below 768 px", () => {
     const list = within(section()).getByRole("list", { name: "Phone" })
     const cards = within(list).getAllByRole("listitem")
     expect(cards).toHaveLength(3)
-    const [line1, line2] = [...cards[0].querySelectorAll(":scope > div > div")]
+    const [line1, line2] = [...cards[0].querySelectorAll(":scope > div:first-child > div")]
     expect([...line1.querySelectorAll("[data-column]")].map((cell) => cell.getAttribute("data-column"))).toEqual(["number", "status"])
     expect([...line2.querySelectorAll("[data-column]")].map((cell) => cell.getAttribute("data-column"))).toEqual(["label", "type", "notifications"])
     expect(line2.classList.contains("text-muted-foreground")).toBe(true)
@@ -290,7 +289,7 @@ describe("PhoneSection: below 768 px", () => {
   it("shows the empty line as a card", async () => {
     stubViewport(360)
     await renderLoaded({ Mobile: ok([]), Landline: ok([]) })
-    expect(within(within(section()).getByRole("list", { name: "Phone" })).getByRole("listitem").textContent).toBe("No phones yet")
+    expect(within(within(section()).getByRole("list", { name: "Phone" })).getByRole("listitem").textContent).toBe("No phones yet·Add phone")
   })
 })
 

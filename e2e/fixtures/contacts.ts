@@ -1,3 +1,6 @@
+import type { Page } from "@playwright/test"
+import { json, type ProxyResponder } from "./core"
+
 /**
  * Contacts (Team A, Epic 3, incl. Social Media) helpers. Write mocks for
  * Stories 3.2–3.7 go here (manage POST, verify) with `mockProxy`, prefixed
@@ -34,3 +37,28 @@ export const CONTACT_PHONES = Object.freeze({
   ],
   Landline: [contactPointRow({ id: 21, value: "+442071838750", type: "Landline", label: "Home", isVerified: false, phoneNumberRegion: "gb" })],
 })
+
+/** One `POST v2/health/contact-point` body (backend `ManageContactPointDTO`, Story 3.2). */
+export interface ContactManageBody {
+  readonly contactPointsToAdd: readonly Record<string, unknown>[]
+  readonly contactPointsToUpdate: readonly Record<string, unknown>[]
+  readonly contactPointsToRemove: readonly number[]
+}
+
+/**
+ * Mocks the one Contact Point manage call, `POST v2/health/contact-point`
+ * (Story 3.2): 200 with no body by default, as the backend answers. Returns
+ * the bodies it answered, in order. Pair it with a fresh `mockContacts` for
+ * the refetch that follows a save.
+ */
+export async function mockContactManage(page: Page, answer: ProxyResponder = {}): Promise<() => ContactManageBody[]> {
+  const bodies: ContactManageBody[] = []
+  await page.route("**/api/1h/v2/health/contact-point", (route) => {
+    const request = route.request()
+    if (request.method() !== "POST") return route.fallback()
+    bodies.push(request.postDataJSON() as ContactManageBody)
+    const { status = 200, body } = typeof answer === "function" ? answer(request) : answer
+    return body === undefined ? route.fulfill({ status }) : json(route, status, body)
+  })
+  return () => [...bodies]
+}
