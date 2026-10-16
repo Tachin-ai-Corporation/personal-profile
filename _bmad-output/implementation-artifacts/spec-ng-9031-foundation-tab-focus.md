@@ -2,7 +2,7 @@
 title: 'Foundation: reveal keyboard-focused tabs before manual activation'
 type: 'bugfix'
 created: '2026-10-16'
-status: 'in-review'
+status: 'done'
 baseline_commit: '3cddb3c1c92fadfe6da391802eff143f8e133c8e'
 context:
   - '{project-root}/CLAUDE.md'
@@ -34,3 +34,9 @@ FOUNDATION §1 T2 requires this shared fix to ship alone, before the story that 
 - Final full unit/coverage validation: `corepack pnpm exec vitest run --coverage --maxWorkers=2` → **164 files, 3,564 tests passed**, server/API/shared lines, functions, branches and statements all **100%**. This main-based foundation branch does not include Story 7.2's 21 additional proxy cases.
 - `corepack pnpm lint`, `corepack pnpm typecheck`, `corepack pnpm check:forbidden` (including tokens) and whitespace checks passed. Browser and full unit runs were executed sequentially for the final checks; an earlier concurrent run exhausted worker/startup time budgets without a reproducible code failure.
 - Integration still requires the separate foundation PR to be reviewed by both teams and merged before Story 7.2. No push or merge has been performed.
+
+## Local integration resolution — 2026-10-16
+
+The preceding integration requirement records the original T2 proposal. The user subsequently directed resolving all work locally before closing Story 7.2 instead of publishing the prerequisite PR. Under that explicit direction, cherry-picked the isolated, independently reviewed foundation commit `0602f9e41d54d643030814a561ae95f490444ca1` onto `feat/NG-9031-account-hardening` as `aac40e8c2a64877804ddc71a55d3090c977bcce9`. The change remains a separate commit; this is an exception to T2's separate-PR integration sequence, not a claim of cross-team PR approval or a main merge.
+
+On the actual integrated story branch, the full unit suite passed **164 files / 3,585 tests**, with all enforced coverage metrics **100%**; the production-build browser suite passed **442 tests, 6 viewport-specific skips**, with no failures or retries. Both formerly failing mobile focus cases pass. Lint, typecheck, forbidden/token and whitespace checks passed. Local implementation and integration are complete, and the Story 7.2 blocker is resolved. No remote push, PR or merge was performed.

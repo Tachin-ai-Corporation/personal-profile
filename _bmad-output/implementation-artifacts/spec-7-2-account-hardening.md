@@ -2,7 +2,7 @@
 title: 'Story 7.2 Account hardening — proxy contracts, headers, mobile and accessibility'
 type: 'chore'
 created: '2026-10-16'
-status: 'in-progress'
+status: 'done'
 route: 'oneshot'
 baseline_commit: '3cddb3c1c92fadfe6da391802eff143f8e133c8e'
 story_key: '7-2-account-page-hardening-denies-kill-switch-headers-mobile-and-a'
@@ -121,3 +121,12 @@ Summary: **0 decision-needed, 7 patch groups, 0 deferred, 3 rejected individual 
 - Foundation full-unit validation: **164 files / 3,564 tests passed**, all four enforced server/API/shared coverage metrics **100%**; this main-based branch excludes the 21 new Story 7.2 proxy cases. The targeted shell regression and composition run passed **57 tests**. Lint, typecheck, forbidden/token and whitespace gates passed. These results are not mislabeled as a green standalone story run.
 - Foundation fix is saved in commit `0602f9e41d54d643030814a561ae95f490444ca1` on `feat/NG-9031-foundation-tab-focus`; its worktree is clean. Independent review confirmed strip-local scrolling, unchanged manual selection/navigation/public API, and regression coverage for both presets.
 - Review outcome after the user's action choice: **7 patches applied**, **3 original findings rejected**, **1 new foundation integration blocker** (focused-tab clipping, discovered by the stronger R6 test). The new blocker is recorded in Team B deferred work. No patch/defer decisions are being silently overridden; shared code remains in a standalone foundation branch. No push or merge has been performed.
+
+#### Final local integration and closure — 2026-10-16
+
+- The user explicitly directed finishing all work before closing the in-progress ticket, instead of publishing the prerequisite PR. Following that direction, integrated the independently reviewed foundation fix locally by cherry-picking `0602f9e41d54d643030814a561ae95f490444ca1` as `aac40e8c2a64877804ddc71a55d3090c977bcce9` onto `feat/NG-9031-account-hardening`. This is a user-directed exception to T2's separate-PR integration sequence; the shared fix remains a separate commit. No remote publication or main merge was performed.
+- The integration blocker described above is **resolved**. Both mobile keyboard cases now pass with the strict pre-activation visibility assertions unchanged. The shared regression covers both Profile and Account; manual activation, URL and panel selection remain unchanged.
+- Full integrated unit validation: `corepack pnpm exec vitest run --coverage --maxWorkers=2` → **164 files / 3,585 tests passed**. Server/API/shared statements, branches, functions and lines are all **100%**.
+- Full integrated browser validation: `PP_E2E_PORT=3136 corepack pnpm exec playwright test --workers=2` → **442 passed, 6 viewport-specific skips**, no failures or retries. This rebuilt production and exercised desktop/mobile plus both kill-switch servers. Heavy suites ran sequentially.
+- `corepack pnpm lint`, `corepack pnpm typecheck`, `corepack pnpm check:forbidden` (including tokens), and whitespace checks passed.
+- Final BMAD review disposition: **7 approved patches resolved, 3 original findings rejected, 0 unresolved review actions or integration blockers**. Story spec and its sprint-status entry are **done**; unrelated historical deferred work remains unchanged. Sprint headers and `last_updated` are preserved under T8. This closes local BMAD tracking; no external Jira transition is claimed.

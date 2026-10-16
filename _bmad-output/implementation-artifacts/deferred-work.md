@@ -77,8 +77,8 @@
   evidence: `corepack pnpm exec playwright test --workers=4` → 411 passed, 6 skipped, 1 failed in e2e/primitives.spec.ts:75 on desktop; after Escape, getByRole('tooltip') had count 1 instead of 0. The trace was retained by Playwright. Story 7.2 changes neither the primitive test nor Tooltip/DisabledAction; the focused rerun of primitives plus Account passed (53 passed, 3 mobile-only skips on desktop).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-2-account-hardening.md`
-  summary: (Blocking foundation dependency for Team B) Integrate `feat/NG-9031-foundation-tab-focus` before closing 7.2: keyboard-focused tabs stay clipped until activation on a 360 px strip.
-  evidence: Approved review action R6 reproduces failures in both mobile themes on the unchanged story branch. The isolated main-based foundation commit `0602f9e41d54d643030814a561ae95f490444ca1` reuses strip-local scrolling on focus capture, with a red/green regression for Profile and Account. With the current story consumer test temporarily overlaid, 180 Account/shell e2e passed (4 viewport skips); the foundation branch's full unit suite passed 3,564 tests with 100% enforced coverage. Per T2, review/merge that separate foundation PR first; no story runtime edits or remote push/merge were made.
+  summary: (Resolved 2026-10-16, Team B) Keyboard-focused tabs are revealed before activation on a 360 px strip; Story 7.2's foundation integration dependency is closed locally.
+  evidence: Approved review action R6 exposed clipping in both mobile themes. The user explicitly directed completing local integration before closing the ticket, instead of publishing the prerequisite PR (exception to T2's sequence). Cherry-picked independently reviewed foundation commit `0602f9e41d54d643030814a561ae95f490444ca1` as `aac40e8c2a64877804ddc71a55d3090c977bcce9` onto the story branch. Strict R6 cases and Profile/Account regressions pass; full integrated validation passed 3,585 unit tests (100% enforced coverage) and 442 e2e tests (6 viewport skips), without failures or retries. No remote push, PR or main merge was performed.
 
 ## Foundation (shared or cross-team)
 
