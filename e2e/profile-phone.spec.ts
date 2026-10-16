@@ -1,9 +1,9 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, type Locator, type Page } from "@playwright/test"
-import { CONTACT_PHONES, contactPointRow, mockContacts, mockProfileDefaults, setTheme, signIn, test } from "./fixtures"
+import { CONTACT_PHONES, contactPointRow, mockContactManage, mockContacts, mockProfileDefaults, setTheme, signIn, test } from "./fixtures"
 
 /**
- * Story 3.1 (Team A, NG-9023): the Phone read view on the real `/`. Every
+ * Stories 3.1–3.2 (Team A, NG-9023): the Phone read and edit views on the real `/`. Every
  * test runs under the fail-fast `test`, starts from `mockProfileDefaults` and
  * overrides the Contact Point lists (`mockContacts`, the newest route wins).
  * Desktop asserts run at 1280 px; the stacked cards at 360 px.
@@ -37,31 +37,35 @@ test.describe("Phone read view (Story 3.1)", () => {
   test("shows Primary first, then the API order, with formatting, chips, statuses and notifications; count 3", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 })
     await openWith(page)
-    await expect(phoneTable(page).getByRole("columnheader")).toHaveText(["Number", "Label", "Type", "Status", "Notifications"])
+    await expect(phoneTable(page).getByRole("columnheader")).toHaveText(["Number", "Label", "Type", "Status", "Notifications", "Actions"])
     const rows = phoneTable(page).locator("tbody tr")
     await expect(rows).toHaveCount(3)
-    await expect(rows.nth(0).getByRole("cell")).toHaveText(["🇺🇸+1 (415) 551-2125", "Primary", "Mobile", "Verified", "On"])
-    await expect(rows.nth(1).getByRole("cell")).toHaveText(["🇺🇸+1 (415) 555-0111", "Work", "Mobile", "Not verified", "—Not applicable"])
-    await expect(rows.nth(2).getByRole("cell")).toHaveText(["🇬🇧+44 20 7183 8750", "Home", "Landline", "", "—Not applicable"])
+    // The value cells (the last cell holds the row's kebab).
+    const cells = (index: number) => rows.nth(index).locator("td:not([data-slot=row-actions-cell])")
+    await expect(cells(0)).toHaveText(["🇺🇸+1 (415) 551-2125", "Primary", "Mobile", "Verified", "On"])
+    await expect(cells(1)).toHaveText(["🇺🇸+1 (415) 555-0111", "Work", "Mobile", "Not verified", "—Not applicable"])
+    await expect(cells(2)).toHaveText(["🇬🇧+44 20 7183 8750", "Home", "Landline", "", "—Not applicable"])
     await expect(rows.nth(0).locator('[data-slot="chip"]')).toHaveAttribute("data-variant", "primary")
     await expect(rows.nth(1).locator('[data-slot="chip"]')).toHaveAttribute("data-variant", "label")
     // The flag is decoration: the number's accessible text is the formatted number alone.
     await expect(rows.nth(0).getByText("🇺🇸")).toHaveAttribute("aria-hidden", "true")
     await expect(sectionMeta(page)).toHaveText("3")
     await expect(page.getByRole("navigation", { name: "Sections" }).locator('a[href="#phone"] [data-slot="section-count"]')).toHaveText("3")
-    // No row actions yet (Story 3.2 adds Edit and Remove with the kebab).
-    await expect(section(page).getByRole("button")).toHaveCount(0)
+    // Story 3.2: the header's Edit and Add phone, and one kebab per row.
+    await expect(section(page).getByRole("button", { name: "Edit", exact: true })).toBeVisible()
+    await expect(section(page).getByRole("button", { name: "Add phone" })).toBeVisible()
+    await expect(section(page).getByRole("button", { name: /^More actions for / })).toHaveCount(3)
   })
 
   test("shows Off on a Primary with notifications off", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 })
     await openWith(page, { Mobile: [contactPointRow({ id: 12, label: "Primary", isNotificationEnabled: false })] })
-    await expect(phoneTable(page).locator("tbody tr").first().getByRole("cell").last()).toHaveText("Off")
+    await expect(phoneTable(page).locator("tbody tr").first().getByRole("cell").nth(4)).toHaveText("Off")
   })
 
-  test("empty: one \"No phones yet\" row and count 0", async ({ page }) => {
+  test("empty: one \"No phones yet · Add phone\" row and count 0", async ({ page }) => {
     await openWith(page, {})
-    await expect(section(page).locator('[data-slot="empty-state-line"]')).toHaveText("No phones yet")
+    await expect(section(page).locator('[data-slot="empty-state-line"]')).toHaveText("No phones yet·Add phone")
     await expect(sectionMeta(page)).toHaveText("0")
   })
 
@@ -124,11 +128,209 @@ test.describe("Phone read view (Story 3.1)", () => {
 
     await mockContacts(page, {})
     await page.reload()
-    await expect(section(page).locator('[data-slot="empty-state-line"]')).toHaveText("No phones yet")
+    await expect(section(page).locator('[data-slot="empty-state-line"]')).toHaveText("No phones yet·Add phone")
     for (const theme of ["light", "dark"] as const) {
       await setTheme(page, theme)
       const results = await new AxeBuilder({ page }).include("#phone").withTags(WCAG).analyze()
       expect(results.violations, `Phone empty (${theme})`).toEqual([])
     }
+  })
+})
+
+// --- Story 3.2: add, relabel and remove phones -------------------------------------------------
+
+const toastWith = (page: Page, text: string): Locator => page.getByRole("region", { name: /Notifications/ }).locator("li").filter({ hasText: text })
+const newRow = (page: Page): Locator => section(page).locator('[data-state="new"]').last()
+const numberInput = (row: Locator): Locator => row.getByRole("textbox", { name: "Number" })
+const labelSelect = (row: Locator): Locator => row.getByRole("combobox", { name: "Label" })
+const typeSelect = (row: Locator): Locator => row.getByRole("combobox", { name: "Type" })
+const footer = (page: Page): Locator => section(page).locator('[data-slot="section-footer"]')
+const saveButton = (page: Page): Locator => footer(page).getByRole("button", { name: "Save" })
+/** A row of the edit table (desktop) or its card (360 px), by its locked number. */
+const savedRow = (page: Page, number: string): Locator =>
+  section(page).locator("tbody tr, li[data-slot='section-table-card']").filter({ has: page.locator(`input[value="${number}"]`) })
+
+async function pick(page: Page, trigger: Locator, option: string): Promise<void> {
+  await trigger.click()
+  await page.getByRole("option", { name: option, exact: true }).click()
+  await expect(page.getByRole("listbox")).toHaveCount(0)
+}
+
+/** The new phone of the "Add US" row, as the list answers it after the save. */
+const ADDED = contactPointRow({ id: 13, value: "+14155550101", label: "Personal", isVerified: false })
+
+test.describe("Phone edit (Story 3.2)", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 })
+  })
+
+  test("Add phone → save → read: one POST with the DTO, the lists refetched, toast, h2 focused", async ({ page }) => {
+    await openWith(page)
+    const posts = await mockContactManage(page)
+    await section(page).getByRole("button", { name: "Add phone" }).click()
+    const row = newRow(page)
+    await expect(numberInput(row)).toBeFocused()
+    await expect(row.getByText("New · not saved")).toBeVisible()
+    await expect(row.getByText("Include the area code. Mobile numbers get a verification link by text after you save.")).toBeVisible()
+    await numberInput(row).fill("4155550101")
+    await pick(page, labelSelect(row), "Personal")
+    await pick(page, typeSelect(row), "Mobile")
+    await expect(footer(page).getByText("Unsaved changes")).toBeVisible()
+
+    await mockContacts(page, { ...CONTACT_PHONES, Mobile: [...CONTACT_PHONES.Mobile, ADDED] })
+    // Every data call from here on, in order: the reads that follow the POST are its refetch.
+    const calls: string[] = []
+    page.on("request", (request) => {
+      const url = new URL(request.url())
+      if (url.pathname.startsWith("/api/1h/")) calls.push(`${request.method()} ${url.pathname.slice("/api/1h/".length)}${url.search}`)
+    })
+    await saveButton(page).click()
+    await expect(footer(page)).toHaveCount(0)
+    expect(posts()).toEqual([
+      {
+        contactPointsToAdd: [{ value: "+14155550101", type: "Mobile", label: "Personal", isNotificationEnabled: false, phoneNumberRegion: "us" }],
+        contactPointsToUpdate: [],
+        contactPointsToRemove: [],
+      },
+    ])
+    await expect(toastWith(page, "Phone saved.")).toBeVisible()
+    await expect(page.getByRole("heading", { level: 2, name: "Phone" })).toBeFocused()
+    await expect(phoneTable(page).locator("tbody tr")).toHaveCount(4)
+    await expect(phoneTable(page).locator("tbody tr").nth(2).getByRole("cell").first()).toHaveText("🇺🇸+1 (415) 555-0101")
+    await expect(sectionMeta(page)).toHaveText("4")
+    const post = calls.indexOf("POST v2/health/contact-point")
+    expect(post).toBeGreaterThanOrEqual(0)
+    const after = calls.slice(post + 1)
+    for (const read of ["GET v2/user/contact-point/list?type=Mobile", "GET v2/user/contact-point/list?type=Landline", "GET v2/user/myself"]) expect(after, read).toContain(read)
+  })
+
+  test("relabel: Home → Work sends one update", async ({ page }) => {
+    await openWith(page)
+    const posts = await mockContactManage(page)
+    await section(page).getByRole("button", { name: "Edit", exact: true }).click()
+    const home = savedRow(page, "+44 20 7183 8750")
+    await expect(home.locator('[data-slot="input-locked"] input')).toHaveCount(2)
+    await expect(home.getByText("Saved numbers can't be changed. Remove it and add a new one.").first()).toBeVisible()
+    await pick(page, labelSelect(home), "Work")
+    await saveButton(page).click()
+    await expect(footer(page)).toHaveCount(0)
+    expect(posts()).toEqual([{ contactPointsToAdd: [], contactPointsToUpdate: [{ id: 21, type: "Landline", label: "Work", isNotificationEnabled: false }], contactPointsToRemove: [] }])
+  })
+
+  test("remove and restore: the kebab's Remove strikes the row through with Restore focused; Save sends the removal", async ({ page }) => {
+    await openWith(page)
+    const posts = await mockContactManage(page)
+    await section(page).getByRole("button", { name: "More actions for +1 (415) 555-0111" }).click()
+    await page.getByRole("menuitem", { name: "Remove" }).click()
+    const work = savedRow(page, "+1 (415) 555-0111")
+    await expect(work).toHaveAttribute("data-state", "removed")
+    await expect(work.getByText("Removed on save")).toBeVisible()
+    await expect(work.getByRole("button", { name: "Restore" })).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect(work).toHaveAttribute("data-state", "saved")
+    await expect(work.getByRole("button", { name: "Remove" })).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect(work).toHaveAttribute("data-state", "removed")
+    expect(posts()).toEqual([])
+    await saveButton(page).click()
+    await expect(footer(page)).toHaveCount(0)
+    expect(posts()).toEqual([{ contactPointsToAdd: [], contactPointsToUpdate: [], contactPointsToRemove: [11] }])
+  })
+
+  test("the last phone and the Primary can't be removed: aria-disabled with the reason", async ({ page }) => {
+    await openWith(page, { Mobile: [contactPointRow({ id: 5, value: "+14155550105", label: "Work" })] })
+    await section(page).getByRole("button", { name: "More actions for +1 (415) 555-0105" }).click()
+    const item = page.getByRole("menuitem", { name: /Remove/ })
+    await expect(item).toHaveAttribute("aria-disabled", "true")
+    await expect(item).toContainText("You need at least one phone")
+    await page.keyboard.press("Escape")
+    await section(page).getByRole("button", { name: "Edit", exact: true }).click()
+    const remove = section(page).getByRole("button", { name: "Remove" })
+    await expect(remove).toHaveAttribute("aria-disabled", "true")
+    await remove.focus()
+    await expect(page.getByRole("tooltip")).toContainText("You need at least one phone")
+    // Activation is a no-op.
+    await page.keyboard.press("Enter")
+    await expect(section(page).locator('[data-state="removed"]')).toHaveCount(0)
+    await footer(page).getByRole("button", { name: "Cancel" }).click()
+
+    await mockContacts(page, CONTACT_PHONES)
+    await page.reload()
+    await section(page).getByRole("button", { name: "Edit", exact: true }).click()
+    const primaryRemove = savedRow(page, "+1 (415) 551-2125").getByRole("button", { name: "Remove" })
+    await expect(primaryRemove).toHaveAttribute("aria-disabled", "true")
+    await primaryRemove.focus()
+    await expect(page.getByRole("tooltip")).toContainText("Make another phone primary first")
+  })
+
+  test("invalid: a short US number shows its error on blur; Save sends nothing and focuses it", async ({ page }) => {
+    await openWith(page)
+    const posts = await mockContactManage(page)
+    await section(page).getByRole("button", { name: "Add phone" }).click()
+    const row = newRow(page)
+    await numberInput(row).fill("41555")
+    await numberInput(row).blur()
+    await expect(row.getByText("Enter a 10-digit US number")).toBeVisible()
+    await expect(numberInput(row)).toHaveAttribute("aria-invalid", "true")
+    await saveButton(page).click()
+    await expect(row.locator('[data-slot="field-error"]')).toHaveText(["Enter a 10-digit US number", "Choose a label", "Choose Mobile or Landline"])
+    await expect(numberInput(row)).toBeFocused()
+    expect(posts()).toEqual([])
+  })
+
+  test("a duplicate 400 shows \"This number is already on your profile\" at the new number; stays in edit", async ({ page }) => {
+    await openWith(page)
+    const posts = await mockContactManage(page, {
+      status: 400,
+      body: { message: "Operation failed. Person with id '42' already has contact point with value '+14155550101'.", code: 400 },
+    })
+    await section(page).getByRole("button", { name: "Add phone" }).click()
+    const row = newRow(page)
+    await numberInput(row).fill("4155550101")
+    await pick(page, labelSelect(row), "Work")
+    await pick(page, typeSelect(row), "Mobile")
+    await saveButton(page).click()
+    await expect(row.getByText("This number is already on your profile")).toBeVisible()
+    await expect(numberInput(row)).toBeFocused()
+    await expect(saveButton(page)).toBeVisible()
+    expect(posts()).toHaveLength(1)
+  })
+
+  test("at 360 px: each card stacks its inputs full width in place, every control at least 44 px, no horizontal scroll", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 })
+    await openWith(page)
+    await section(page).getByRole("button", { name: "Add phone" }).click()
+    const card = newRow(page)
+    await expect(phoneTable(page)).toHaveCount(0)
+    const cardBox = await card.boundingBox()
+    for (const control of [numberInput(card), labelSelect(card), typeSelect(card), card.getByRole("button", { name: "Remove" })]) {
+      const box = await control.boundingBox()
+      expect(box && box.height >= 44).toBe(true)
+    }
+    for (const control of [labelSelect(card), typeSelect(card)]) {
+      const box = await control.boundingBox()
+      // Full width of the card's body (the Remove action sits beside it).
+      expect(box && cardBox && box.width > cardBox.width * 0.6).toBe(true)
+    }
+    const numberBox = await numberInput(card).boundingBox()
+    const labelBox = await labelSelect(card).boundingBox()
+    expect(numberBox && labelBox && labelBox.y > numberBox.y).toBe(true)
+    await expectNoHorizontalScroll(page)
+  })
+
+  test("axe passes in edit view in light and dark, with a new row, a struck row and errors", async ({ page }) => {
+    await openWith(page)
+    await section(page).getByRole("button", { name: "More actions for +1 (415) 555-0111" }).click()
+    await page.getByRole("menuitem", { name: "Remove" }).click()
+    await footer(page).getByRole("button", { name: "Add row" }).click()
+    await numberInput(newRow(page)).fill("415")
+    await saveButton(page).click()
+    await expect(numberInput(newRow(page))).toHaveAttribute("aria-invalid", "true")
+    for (const theme of ["light", "dark"] as const) {
+      await setTheme(page, theme)
+      const results = await new AxeBuilder({ page }).include("#phone").withTags(WCAG).analyze()
+      expect(results.violations, `Phone edit (${theme})`).toEqual([])
+    }
+    await expectNoHorizontalScroll(page)
   })
 })

@@ -19,14 +19,19 @@
  *
  * Story 3.1 builds the pure engine: `contactPointsDiffToManageDTO` (the one
  * manage body from a Section's saved rows and its edited rows) and
- * `newUnverifiedContactPoints` (what to verify after a save).
+ * `newUnverifiedContactPoints` (what to verify after a save). Story 3.2 adds
+ * the manage call itself: `contactPointManagePath` and `saveContactPoints`.
  *
  * Export names carry the `contact` prefix: FOUNDATION.md §1, rule T6.
  */
 
 import { CONTACT_LABEL_HOME, CONTACT_LABEL_OLD, CONTACT_PHONE_TYPES } from "@/lib/shared/contact-labels"
 import { normalizeRegion } from "@/lib/shared/phone"
+import type { TelemetryErrorCode } from "@/lib/shared/telemetry"
+import { callApi } from "./client"
+import { proxyPath } from "./config"
 import { PRIMARY_LABEL, type ContactPoint } from "./contact-points"
+import { mapApiError, mappedErrorCode, type ErrorScope, type MappedError } from "./errors"
 
 /** A row of a Section's edit view: a saved row (with its `id`), a new row (`id: null`), or a saved row struck through for removal. */
 export type ContactPointEditRow = ContactPoint & { readonly removed?: true }
@@ -49,11 +54,16 @@ export interface ContactPointUpdateDTO {
   readonly isNotificationEnabled: boolean
 }
 
-/** The body of `POST v2/health/contact-point` (backend `ManageContactPointDTO`); an empty list is left out. */
+/**
+ * The body of `POST v2/health/contact-point` (backend `ManageContactPointDTO`):
+ * always all three lists, empty ones included (Story 3.2: the backend's
+ * `validateContactPointsTypeSwap` iterates `contactPointsToUpdate` without a
+ * null guard, so a body without it is a 500).
+ */
 export interface ContactPointManageDTO {
-  readonly contactPointsToAdd?: readonly ContactPointAddDTO[]
-  readonly contactPointsToUpdate?: readonly ContactPointUpdateDTO[]
-  readonly contactPointsToRemove?: readonly number[]
+  readonly contactPointsToAdd: readonly ContactPointAddDTO[]
+  readonly contactPointsToUpdate: readonly ContactPointUpdateDTO[]
+  readonly contactPointsToRemove: readonly number[]
 }
 
 const PHONE_TYPES: ReadonlySet<string> = new Set(CONTACT_PHONE_TYPES)
@@ -95,7 +105,8 @@ function toUpdate(row: ContactPoint, id: number): ContactPointUpdateDTO {
 
 /**
  * The one manage body that turns `before` (the saved rows, as read) into
- * `after` (the Section's edited rows), or `null` when nothing changed:
+ * `after` (the Section's edited rows), or `null` when nothing changed. The
+ * body always holds all three lists, empty ones included (Story 3.2):
  *
  * - a row without an `id` → `contactPointsToAdd` (`phoneNumberRegion`,
  *   lower-case, for phones only);
@@ -169,11 +180,7 @@ export function contactPointsDiffToManageDTO(before: readonly ContactPoint[], af
   if (new Set(primaryTypes).size !== primaryTypes.length) throw programmerError("two rows of one type would be Primary")
 
   if (added.length === 0 && updated.length === 0 && toRemove.length === 0) return null
-  return {
-    ...(added.length > 0 ? { contactPointsToAdd: added } : {}),
-    ...(updated.length > 0 ? { contactPointsToUpdate: updated } : {}),
-    ...(toRemove.length > 0 ? { contactPointsToRemove: toRemove } : {}),
-  }
+  return { contactPointsToAdd: added, contactPointsToUpdate: updated, contactPointsToRemove: toRemove }
 }
 
 /**
@@ -189,4 +196,33 @@ export function newUnverifiedContactPoints(before: readonly ContactPoint[], afte
   return after.flatMap((row) =>
     row.id !== null && !known.has(row.id) && row.isVerified === false && VERIFIABLE_TYPES.has(row.type ?? "Mobile") && row.label !== CONTACT_LABEL_HOME ? [row.id] : [],
   )
+}
+
+/** `POST /api/1h/v2/health/contact-point` (Story 3.2: entry in `allowlist/contacts.ts`): the one manage call. */
+export function contactPointManagePath(): string {
+  return proxyPath("v2/health/contact-point")
+}
+
+/**
+ * A manage call's outcome, shaped like the Section's `SaveResult`: ok, or the
+ * mapped failure (`code` for `section_save` telemetry, `mapped` for what the
+ * Section shows).
+ */
+export type ContactPointSaveResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly error: { readonly code: TelemetryErrorCode; readonly mapped: MappedError } }
+
+/**
+ * Story 3.2 (FR16): sends `dto` (from `contactPointsDiffToManageDTO`, all
+ * three lists) in exactly one `POST /api/1h/v2/health/contact-point`. The
+ * backend answers 200 with no body, so any 2xx is a success (even one whose
+ * body can't be read). A failure is mapped with `mapApiError(scope, …)`
+ * (`phone` by default; the contacts table names the field). Never throws and
+ * revalidates nothing: the caller mutates its Contact Point keys and `myself`.
+ */
+export async function saveContactPoints(dto: ContactPointManageDTO, scope: ErrorScope = "phone"): Promise<ContactPointSaveResult> {
+  const res = await callApi<unknown>("contacts/saveContactPoints", contactPointManagePath(), { method: "POST", body: JSON.stringify(dto) })
+  if (res.success || (res.statusCode !== undefined && res.statusCode >= 200 && res.statusCode < 300)) return { ok: true }
+  const mapped = mapApiError(scope, res)
+  return { ok: false, error: { code: mappedErrorCode(mapped), mapped } }
 }
