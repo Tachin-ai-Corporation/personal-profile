@@ -4,4 +4,20 @@
  * their write mocks (`PUT v2/user/edit`, `POST v2/user/time-zone`,
  * `POST v2/user/locale`) here with `mockProxy`.
  */
-export {}
+import { ANN } from "./core"
+
+/** Synthetic Story 7.4 data; the shared ANN fixture stays frozen. */
+export const ACCOUNT_SETTINGS_MYSELF = Object.freeze({
+  ...ANN,
+  firstName: " Ann ",
+  lastName: " Lee ",
+  username: " ann.lee ",
+  email: " ann.lee@example.test ",
+  phoneNumber: "4155512125",
+  birthDate: "1987-03-09",
+  roles: ["Patient"],
+  preferredLanguage: "en",
+  timeZone: "America/Chicago",
+  locale: "en-US",
+  password: "must-never-be-rendered",
+})
