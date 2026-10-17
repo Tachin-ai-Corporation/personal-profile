@@ -4,10 +4,14 @@ import { server } from "@/test/msw-server"
 import { myselfWire } from "@/test/myself-fixture"
 import type { ContactPoint } from "./contact-points"
 import {
+  CONTACT_VERIFY_MAX_IDS,
   contactPointManagePath,
   contactPointsDiffToManageDTO,
+  contactPointVerifyPath,
   newUnverifiedContactPoints,
   saveContactPoints,
+  sendContactVerification,
+  verifyContactPoints,
   type ContactPointEditRow,
   type ContactPointManageDTO,
 } from "./contacts"
@@ -337,5 +341,125 @@ describe("saveContactPoints (Story 3.2)", () => {
   it("maps for the given scope", async () => {
     recordPosts(upstream(400, "Duplicate Contact Points specified."))
     expect(await saveContactPoints(DTO, "email")).toEqual({ ok: false, error: { code: "FIELD", mapped: { kind: "field", field: "value", messageKey: "contacts.duplicateEmail" } } })
+  })
+})
+
+describe("verifyContactPoints and sendContactVerification (Story 3.3)", () => {
+  const VERIFY = "/api/1h/v2/health/contact-point/verify"
+  const COOLDOWN = "There is already a pending verification for Contact '+14155550140' submitted within the last 60 minutes."
+  const ok = (contactPointIdsWithSendError: number[] = []) => HttpResponse.json({ success: contactPointIdsWithSendError.length === 0, contactPointIdsWithSendError })
+  const upstream = (status: number, message: string) => HttpResponse.json({ message, code: status }, { status })
+
+  /** Records each verify body, answering the n-th call with `answers[n]` (the last one repeats). */
+  function recordVerify(...answers: (() => Response)[]) {
+    const bodies: unknown[] = []
+    const searches: string[] = []
+    server.use(
+      http.post(VERIFY, async ({ request }) => {
+        bodies.push(await request.json())
+        searches.push(new URL(request.url).search)
+        return answers[Math.min(bodies.length, answers.length) - 1]()
+      }),
+    )
+    return { bodies, searches }
+  }
+
+  beforeEach(async () => {
+    // D-A: a write goes out only once the page user is pinned.
+    server.use(http.get("/api/1h/v2/user/myself", () => HttpResponse.json(myselfWire())))
+    expect((await fetchMyself()).success).toBe(true)
+  })
+
+  it("is the verify path; the backend limit is 10 ids", () => {
+    expect(contactPointVerifyPath()).toBe(VERIFY)
+    expect(CONTACT_VERIFY_MAX_IDS).toBe(10)
+  })
+
+  it("verifyContactPoints sends one POST with { contactPointIds } and no query, and returns the answer", async () => {
+    const { bodies, searches } = recordVerify(() => ok([41]))
+    const res = await verifyContactPoints([40, 41])
+    expect(res.success).toBe(true)
+    expect(res.data).toEqual({ success: false, contactPointIdsWithSendError: [41] })
+    expect(bodies).toEqual([{ contactPointIds: [40, 41] }])
+    expect(searches).toEqual([""])
+  })
+
+  it("verifyContactPoints with no ids sends nothing and resolves a success with no send errors", async () => {
+    const { bodies } = recordVerify(() => ok())
+    expect(await verifyContactPoints([])).toEqual({ success: true, data: { success: true, contactPointIdsWithSendError: [] } })
+    expect(bodies).toEqual([])
+  })
+
+  it("an empty list sends nothing and resolves an empty outcome", async () => {
+    const { bodies } = recordVerify(() => ok())
+    expect(await sendContactVerification([])).toEqual({ sent: [], failed: [], cooldown: [], network: false, session: false })
+    expect(bodies).toEqual([])
+  })
+
+  it("all sent: one call with the de-duplicated ids", async () => {
+    const { bodies } = recordVerify(() => ok())
+    expect(await sendContactVerification([40, 41, 40])).toEqual({ sent: [40, 41], failed: [], cooldown: [], network: false, session: false })
+    expect(bodies).toEqual([{ contactPointIds: [40, 41] }])
+  })
+
+  it("the listed send errors fail, the rest are sent", async () => {
+    recordVerify(() => ok([40]))
+    expect(await sendContactVerification([40, 41])).toEqual({ sent: [41], failed: [40], cooldown: [], network: false, session: false })
+  })
+
+  it("a 2xx body without a readable list counts every id as sent", async () => {
+    recordVerify(() => HttpResponse.json({ success: true }))
+    expect(await sendContactVerification([40])).toEqual({ sent: [40], failed: [], cooldown: [], network: false, session: false })
+    recordVerify(() => HttpResponse.json({ success: false, contactPointIdsWithSendError: ["40", 41] }))
+    expect(await sendContactVerification([40, 41])).toEqual({ sent: [40], failed: [41], cooldown: [], network: false, session: false })
+  })
+
+  it("a 2xx with no body counts every id as sent", async () => {
+    recordVerify(() => new HttpResponse(null, { status: 200 }))
+    expect(await sendContactVerification([40])).toEqual({ sent: [40], failed: [], cooldown: [], network: false, session: false })
+  })
+
+  it("12 ids go in two calls, 10 then 2, one after another", async () => {
+    const ids = Array.from({ length: 12 }, (_, index) => 40 + index)
+    const { bodies } = recordVerify(() => ok([45]), () => ok())
+    expect(await sendContactVerification(ids)).toEqual({ sent: ids.filter((id) => id !== 45), failed: [45], cooldown: [], network: false, session: false })
+    expect(bodies).toEqual([{ contactPointIds: ids.slice(0, 10) }, { contactPointIds: [50, 51] }])
+  })
+
+  it("a cooldown 400 puts the chunk's ids in cooldown", async () => {
+    recordVerify(() => upstream(400, COOLDOWN))
+    expect(await sendContactVerification([40, 41])).toEqual({ sent: [], failed: [], cooldown: [40, 41], network: false, session: false })
+  })
+
+  it("the cooldown rule is the phone scope's: another scope's chunk fails", async () => {
+    recordVerify(() => upstream(400, COOLDOWN))
+    expect(await sendContactVerification([40], "social")).toEqual({ sent: [], failed: [40], cooldown: [], network: false, session: false })
+  })
+
+  it.each<[string, () => Response]>([
+    ["an unknown 400", () => upstream(400, "Contact point is already verified.")],
+    ["a 500", () => upstream(500, "Boom")],
+    ["a proxy BAD_BODY", () => HttpResponse.json({ errorCode: "BAD_BODY", source: "proxy" }, { status: 400 })],
+    ["a 403", () => upstream(403, "Forbidden")],
+  ])("%s fails every id of its chunk", async (_case, answer) => {
+    recordVerify(answer)
+    expect(await sendContactVerification([40, 41])).toEqual({ sent: [], failed: [40, 41], cooldown: [], network: false, session: false })
+  })
+
+  it("a network failure sets network and fails the chunk's ids; the next chunk is still sent", async () => {
+    const ids = Array.from({ length: 11 }, (_, index) => 40 + index)
+    const { bodies } = recordVerify(() => HttpResponse.error(), () => ok())
+    expect(await sendContactVerification(ids)).toEqual({ sent: [50], failed: ids.slice(0, 10), cooldown: [], network: true, session: false })
+    expect(bodies).toHaveLength(2)
+  })
+
+  it("a session end sets session, lists the chunk nowhere and sends no later chunk", async () => {
+    const ids = Array.from({ length: 21 }, (_, index) => 40 + index)
+    const { bodies } = recordVerify(
+      () => ok(),
+      () => HttpResponse.json({ errorCode: "SESSION_EXPIRED", source: "proxy" }, { status: 401 }),
+    )
+    expect(await sendContactVerification(ids)).toEqual({ sent: ids.slice(0, 10), failed: [], cooldown: [], network: false, session: true })
+    expect(bodies).toHaveLength(2)
   })
 })

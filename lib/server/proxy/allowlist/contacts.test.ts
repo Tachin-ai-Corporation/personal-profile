@@ -8,7 +8,15 @@ import { DEMO } from "@/test/upstream-fixture"
 import { createProxyHandler } from "../handler"
 import { buildUpstreamQuery, matchEntry } from "../match"
 import { ALLOWLIST } from "."
-import { CONTACT_POINT_MANAGE_MAX_BYTES, CONTACT_POINT_MANAGE_MAX_ROWS, contactPointManageBodySchema, entries } from "./contacts"
+import {
+  CONTACT_POINT_MANAGE_MAX_BYTES,
+  CONTACT_POINT_MANAGE_MAX_ROWS,
+  CONTACT_POINT_VERIFY_MAX_BYTES,
+  CONTACT_POINT_VERIFY_MAX_IDS,
+  contactPointManageBodySchema,
+  contactPointVerifyBodySchema,
+  entries,
+} from "./contacts"
 
 const q = (s: string) => new URLSearchParams(s)
 const seg = (path: string) => path.split("/")
@@ -20,6 +28,7 @@ describe("contact-point list", () => {
       "GET v2/user/contact-point/list",
       "GET v2/type/key/ContactPoint",
       "POST v2/health/contact-point",
+      "POST v2/health/contact-point/verify",
     ])
     expect(entries.every((e) => e.profile === undefined)).toBe(true)
     for (const e of entries) expect(ALLOWLIST).toContain(e)
@@ -196,6 +205,109 @@ describe("POST v2/health/contact-point through the proxy (Story 3.2)", () => {
     ["a Primary Mobile in an add", { body: JSON.stringify({ ...BODY, contactPointsToAdd: [{ ...BODY.contactPointsToAdd[0], label: "Primary" }] }) }, 400, "BAD_BODY"],
     ["malformed JSON", { body: "{" }, 400, "BAD_BODY"],
     ["a body over 64 KB", { body: JSON.stringify({ ...BODY, pad: "x".repeat(CONTACT_POINT_MANAGE_MAX_BYTES) }) }, 413, "TOO_LARGE"],
+  ])("refuses %s before upstream", async (_name, options, status, errorCode) => {
+    const upstreamCalls = trackAllRequests()
+    const response = await post(options)
+    expect(response.status).toBe(status)
+    expect(await response.json()).toEqual({ errorCode, source: "proxy" })
+    expect(upstreamCalls()).toBe(0)
+  })
+})
+
+/** Story 3.3: the verify call (backend `RequestCPVerificationDTO`). */
+describe("POST v2/health/contact-point/verify entry", () => {
+  const valid = (value: unknown): boolean => contactPointVerifyBodySchema.safeParse(value).success
+  const ids = (count: number) => Array.from({ length: count }, (_, index) => index + 1)
+
+  it("POST only, no query, a JSON body capped at 1 KB, nothing forced, shared (not profile)", () => {
+    const match = matchEntry(entries, "POST", seg("v2/health/contact-point/verify"))
+    if (match.kind !== "matched") throw new Error("expected a match")
+    expect(match.entry.body).toBe(contactPointVerifyBodySchema)
+    expect(match.entry.maxBytes).toBe(CONTACT_POINT_VERIFY_MAX_BYTES)
+    expect(CONTACT_POINT_VERIFY_MAX_BYTES).toBe(1024)
+    expect(match.entry.fixedQuery).toBeUndefined()
+    expect(match.entry.upload).toBeUndefined()
+    expect(match.entry.profile).toBeUndefined()
+    expect(buildUpstreamQuery(match.entry, q(""))?.toString()).toBe("")
+    expect(buildUpstreamQuery(match.entry, q("contactPointIds=1"))).toBeNull()
+    for (const method of ["GET", "PUT", "DELETE"] as const) expect(matchEntry(ALLOWLIST, method, seg("v2/health/contact-point/verify")).kind).toBe("method-not-allowed")
+  })
+
+  it(`accepts 1 to ${CONTACT_POINT_VERIFY_MAX_IDS} unique positive integer ids`, () => {
+    expect(CONTACT_POINT_VERIFY_MAX_IDS).toBe(10)
+    expect(valid({ contactPointIds: [40] })).toBe(true)
+    expect(valid({ contactPointIds: ids(10) })).toBe(true)
+    expect(valid({ contactPointIds: [9_007_199_254_740_991] })).toBe(true)
+  })
+
+  it.each<[string, unknown]>([
+    ["an empty list", { contactPointIds: [] }],
+    ["11 ids", { contactPointIds: ids(11) }],
+    ["a repeated id", { contactPointIds: [40, 41, 40] }],
+    ["a non-integer", { contactPointIds: [1.5] }],
+    ["a string id", { contactPointIds: ["40"] }],
+    ["a zero id", { contactPointIds: [0] }],
+    ["a negative id", { contactPointIds: [-4] }],
+    ["a null id", { contactPointIds: [null] }],
+    ["an unknown key", { contactPointIds: [40], personId: 4 }],
+    ["no list", {}],
+    ["a list that isn't an array", { contactPointIds: 40 }],
+    ["no object", [40]],
+  ])("refuses %s", (_case, body) => {
+    expect(valid(body)).toBe(false)
+  })
+})
+
+/** The verify entry through the real proxy handler (shipped allowlist). */
+describe("POST v2/health/contact-point/verify through the proxy (Story 3.3)", () => {
+  const proxy = createProxyHandler({ env: testEnv(), now: () => NOW })
+  const BODY = { contactPointIds: [40, 41] }
+
+  async function post(options: { readonly path?: string; readonly method?: string; readonly body?: string; readonly contentType?: string | null } = {}): Promise<Response> {
+    const cookie = `${SESSION_COOKIE}=${await sealSession(makeSession())}`
+    const headers: Record<string, string> = { cookie }
+    const contentType = options.contentType === undefined ? "application/json" : options.contentType
+    if (contentType !== null) headers["Content-Type"] = contentType
+    const method = options.method ?? "POST"
+    return proxy(
+      new Request(`http://localhost:3000/api/1h/${options.path ?? "v2/health/contact-point/verify"}`, {
+        method,
+        headers,
+        body: method === "GET" ? undefined : (options.body ?? JSON.stringify(BODY)),
+      }),
+    )
+  }
+
+  beforeEach(() => stubServerEnv())
+
+  it("forwards the body as sent to upstream /api/v2/health/contact-point/verify and relays the answer", async () => {
+    let seen: { path: string; search: string; body: unknown } | undefined
+    server.use(
+      http.post(`${DEMO.apiBase}/v2/health/contact-point/verify`, async ({ request }) => {
+        const url = new URL(request.url)
+        seen = { path: url.pathname, search: url.search, body: await request.json() }
+        return HttpResponse.json({ success: false, contactPointIdsWithSendError: [40] })
+      }),
+    )
+    const response = await post()
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ success: false, contactPointIdsWithSendError: [40] })
+    expect(seen).toEqual({ path: "/api/v2/health/contact-point/verify", search: "", body: BODY })
+  })
+
+  it.each<[string, Parameters<typeof post>[0], number, string]>([
+    ["a text body", { contentType: "text/plain" }, 415, "UNSUPPORTED_MEDIA"],
+    ["no content type", { contentType: null }, 415, "UNSUPPORTED_MEDIA"],
+    ["a GET", { method: "GET" }, 405, "METHOD_NOT_ALLOWED"],
+    ["a PUT", { method: "PUT" }, 405, "METHOD_NOT_ALLOWED"],
+    ["a query", { path: "v2/health/contact-point/verify?personId=4" }, 400, "BAD_QUERY"],
+    ["an empty list", { body: JSON.stringify({ contactPointIds: [] }) }, 400, "BAD_BODY"],
+    ["11 ids", { body: JSON.stringify({ contactPointIds: Array.from({ length: 11 }, (_, index) => index + 1) }) }, 400, "BAD_BODY"],
+    ["a repeated id", { body: JSON.stringify({ contactPointIds: [40, 40] }) }, 400, "BAD_BODY"],
+    ["a non-integer", { body: JSON.stringify({ contactPointIds: [40.5] }) }, 400, "BAD_BODY"],
+    ["an unknown key", { body: JSON.stringify({ ...BODY, personId: 4 }) }, 400, "BAD_BODY"],
+    ["malformed JSON", { body: "{" }, 400, "BAD_BODY"],
+    ["a body over 1 KB", { body: JSON.stringify({ ...BODY, pad: "x".repeat(CONTACT_POINT_VERIFY_MAX_BYTES) }) }, 413, "TOO_LARGE"],
   ])("refuses %s before upstream", async (_name, options, status, errorCode) => {
     const upstreamCalls = trackAllRequests()
     const response = await post(options)

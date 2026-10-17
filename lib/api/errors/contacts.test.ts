@@ -4,7 +4,7 @@ import { mapApiError, type ApiResponse, type ErrorScope, type MappedError } from
 import { rules } from "./contacts"
 
 /**
- * Story 3.2 (NG-9023): the Contacts table's Phone rules, anchored on the
+ * Stories 3.2–3.3 (NG-9023): the Contacts table's Phone rules, anchored on the
  * exact backend texts (`common/Messages.java`; `INVALID_PHONE_PROVIDED` in the
  * common util `Messages`). The duplicate rules are covered in `errors.test.ts`.
  */
@@ -34,6 +34,9 @@ const PRIMARY_RULES = [
   "Operation failed. You can't update contact point with id '12' as primary, because it's not verified.",
 ]
 
+const COOLDOWN = "There is already a pending verification for Contact '+14155550111' submitted within the last 60 minutes."
+const VERIFY: MappedError = { kind: "field", field: "verify", messageKey: "contacts.verifyCooldown" }
+
 const PRIMARY: MappedError = { kind: "field", field: "primary", messageKey: "contacts.phonePrimaryFirst" }
 
 describe("contacts errors: phone rules", () => {
@@ -43,6 +46,8 @@ describe("contacts errors: phone rules", () => {
     ["an invalid type", INVALID_TYPE, { kind: "field", field: "type", messageKey: "contacts.choosePhoneType" }],
     ["an invalid label", INVALID_LABEL, { kind: "field", field: "label", messageKey: "contacts.labelNotOffered" }],
     ...PRIMARY_RULES.map((message): [string, string, MappedError] => [message, message, PRIMARY]),
+    ["the verify cooldown (Story 3.3)", COOLDOWN, VERIFY],
+    ["the verify cooldown of an email-shaped contact", "There is already a pending verification for Contact 'ann@example.com' submitted within the last 60 minutes.", VERIFY],
   ])("maps %s", (_name, message, expected) => {
     expect(mapApiError("phone", upstream(message))).toEqual(expected)
   })
@@ -53,6 +58,7 @@ describe("contacts errors: phone rules", () => {
     expect(messageFor("contacts.labelNotOffered")).toBe("Choose a label from the list")
     expect(messageFor("contacts.choosePhoneType")).toBe("Choose Mobile or Landline")
     expect(messageFor("contacts.phonePrimaryFirst")).toBe("Make another phone primary first")
+    expect(messageFor("contacts.verifyCooldown")).toBe("A link was already sent in the last hour. Check your texts.")
   })
 
   it.each<[string, ErrorScope, string]>([
@@ -67,6 +73,10 @@ describe("contacts errors: phone rules", () => {
     ["another enum attribute", "phone", "Invalid 'Value' specified. Possible values are [x]."],
     ["an enum text without its list", "phone", "Invalid 'Label' specified. Possible values are ."],
     ["a Primary rule with a suffix", "phone", `${PRIMARY_RULES[5]} Try again.`],
+    ["the verify cooldown outside phone", "email", COOLDOWN],
+    ["a verify cooldown with a suffix", "phone", `${COOLDOWN} Try later.`],
+    ["a verify cooldown without minutes", "phone", "There is already a pending verification for Contact '+14155550111' submitted within the last minutes."],
+    ["a verify cooldown of another window (the copy says the last hour)", "phone", "There is already a pending verification for Contact '+14155550111' submitted within the last 5 minutes."],
     ["a near-miss Primary rule", "phone", "Operation failed. In order to delete a primary contact of type 'Mobile', please update another one."],
   ])("leaves %s as generic with the platform message", (_name, scope, message) => {
     expect(mapApiError(scope, upstream(message))).toEqual({ kind: "generic", message })

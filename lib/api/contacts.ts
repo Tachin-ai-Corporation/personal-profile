@@ -21,6 +21,8 @@
  * manage body from a Section's saved rows and its edited rows) and
  * `newUnverifiedContactPoints` (what to verify after a save). Story 3.2 adds
  * the manage call itself: `contactPointManagePath` and `saveContactPoints`.
+ * Story 3.3 adds verification: `contactPointVerifyPath`, `verifyContactPoints`
+ * (one call) and `sendContactVerification` (chunks, outcome per id).
  *
  * Export names carry the `contact` prefix: FOUNDATION.md §1, rule T6.
  */
@@ -32,6 +34,7 @@ import { callApi } from "./client"
 import { proxyPath } from "./config"
 import { PRIMARY_LABEL, type ContactPoint } from "./contact-points"
 import { mapApiError, mappedErrorCode, type ErrorScope, type MappedError } from "./errors"
+import type { ApiResponse } from "./types"
 
 /** A row of a Section's edit view: a saved row (with its `id`), a new row (`id: null`), or a saved row struck through for removal. */
 export type ContactPointEditRow = ContactPoint & { readonly removed?: true }
@@ -225,4 +228,89 @@ export async function saveContactPoints(dto: ContactPointManageDTO, scope: Error
   if (res.success || (res.statusCode !== undefined && res.statusCode >= 200 && res.statusCode < 300)) return { ok: true }
   const mapped = mapApiError(scope, res)
   return { ok: false, error: { code: mappedErrorCode(mapped), mapped } }
+}
+
+/** Ids per verify request: the backend's limit (Story 3.3). Larger sets go in chunks of this size. */
+export const CONTACT_VERIFY_MAX_IDS = 10
+
+/** `POST /api/1h/v2/health/contact-point/verify` (Story 3.3: entry in `allowlist/contacts.ts`): sends verification links. */
+export function contactPointVerifyPath(): string {
+  return proxyPath("v2/health/contact-point/verify")
+}
+
+/**
+ * The verify answer (backend `RequestCPVerificationResponse`): `success`
+ * false when a link couldn't be sent, with the ids it couldn't send (the
+ * backend reports only the last one; `deferred-work.md`).
+ */
+export interface ContactVerifyAnswer {
+  readonly success: boolean
+  readonly contactPointIdsWithSendError: readonly number[]
+}
+
+/**
+ * Story 3.3 (FR17): one `POST /api/1h/v2/health/contact-point/verify` with
+ * `{ contactPointIds: ids }` (at most `CONTACT_VERIFY_MAX_IDS`, unique: the
+ * proxy refuses anything else). An empty list sends nothing and resolves a
+ * success with no send errors. Never throws.
+ */
+export async function verifyContactPoints(ids: readonly number[]): Promise<ApiResponse<ContactVerifyAnswer>> {
+  if (ids.length === 0) return { success: true, data: { success: true, contactPointIdsWithSendError: [] } }
+  return callApi<ContactVerifyAnswer>("contacts/verifyContactPoints", contactPointVerifyPath(), { method: "POST", body: JSON.stringify({ contactPointIds: ids }) })
+}
+
+/**
+ * What `sendContactVerification` did, per id: `sent` (a link went out),
+ * `failed` (it couldn't be sent: listed in `contactPointIdsWithSendError`, or
+ * its request failed), `cooldown` (the backend refused a resend within its
+ * cooldown); `network` when a request couldn't get through (its ids are in
+ * `failed`), `session` when the session ended (left to the shell; its ids
+ * and any later ones are in no list).
+ */
+export interface ContactVerifyOutcome {
+  readonly sent: readonly number[]
+  readonly failed: readonly number[]
+  readonly cooldown: readonly number[]
+  readonly network: boolean
+  readonly session: boolean
+}
+
+/** The send errors of a 2xx verify answer (none when the body can't be read). */
+function sendErrorsOf(answer: ContactVerifyAnswer | undefined): ReadonlySet<number> {
+  const listed: unknown = answer?.contactPointIdsWithSendError
+  return new Set(Array.isArray(listed) ? listed.filter((id): id is number => typeof id === "number") : [])
+}
+
+/**
+ * Story 3.3 (Story 3.6 for emails): sends verification links to `ids`,
+ * de-duplicated, in chunks of at most `CONTACT_VERIFY_MAX_IDS` (one call for
+ * ten or fewer), one after another. A failed chunk is mapped with
+ * `mapApiError(scope, …)`: the cooldown rule puts its ids in `cooldown`, a
+ * network failure sets `network` and a session end sets `session` (no later
+ * chunk is sent); any other failure puts its ids in `failed`. Never throws.
+ */
+export async function sendContactVerification(ids: readonly number[], scope: ErrorScope = "phone"): Promise<ContactVerifyOutcome> {
+  const unique = [...new Set(ids)]
+  const sent: number[] = []
+  const failed: number[] = []
+  const cooldown: number[] = []
+  let network = false
+  for (let start = 0; start < unique.length; start += CONTACT_VERIFY_MAX_IDS) {
+    const chunk = unique.slice(start, start + CONTACT_VERIFY_MAX_IDS)
+    const res = await verifyContactPoints(chunk)
+    if (res.success || (res.statusCode !== undefined && res.statusCode >= 200 && res.statusCode < 300)) {
+      const errors = sendErrorsOf(res.data)
+      for (const id of chunk) (errors.has(id) ? failed : sent).push(id)
+      continue
+    }
+    const mapped = mapApiError(scope, res)
+    if (mapped.kind === "session") return { sent, failed, cooldown, network, session: true }
+    if (mapped.kind === "field" && mapped.field === "verify") {
+      cooldown.push(...chunk)
+      continue
+    }
+    if (mapped.kind === "network") network = true
+    failed.push(...chunk)
+  }
+  return { sent, failed, cooldown, network, session: false }
 }

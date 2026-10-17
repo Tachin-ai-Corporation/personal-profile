@@ -1,9 +1,9 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, type Locator, type Page } from "@playwright/test"
-import { CONTACT_PHONES, contactPointRow, mockContactManage, mockContacts, mockProfileDefaults, setTheme, signIn, test } from "./fixtures"
+import { CONTACT_PHONES, contactPointRow, mockContactManage, mockContacts, mockContactVerify, mockProfileDefaults, setTheme, signIn, test } from "./fixtures"
 
 /**
- * Stories 3.1–3.2 (Team A, NG-9023): the Phone read and edit views on the real `/`. Every
+ * Stories 3.1–3.3 (Team A, NG-9023): the Phone read and edit views and verify on the real `/`. Every
  * test runs under the fail-fast `test`, starts from `mockProfileDefaults` and
  * overrides the Contact Point lists (`mockContacts`, the newest route wins).
  * Desktop asserts run at 1280 px; the stacked cards at 360 px.
@@ -167,6 +167,8 @@ test.describe("Phone edit (Story 3.2)", () => {
   test("Add phone → save → read: one POST with the DTO, the lists refetched, toast, h2 focused", async ({ page }) => {
     await openWith(page)
     const posts = await mockContactManage(page)
+    // Story 3.3: the refetch shows the new unverified Mobile, which the save then verifies.
+    const verifies = await mockContactVerify(page)
     await section(page).getByRole("button", { name: "Add phone" }).click()
     const row = newRow(page)
     await expect(numberInput(row)).toBeFocused()
@@ -202,6 +204,7 @@ test.describe("Phone edit (Story 3.2)", () => {
     expect(post).toBeGreaterThanOrEqual(0)
     const after = calls.slice(post + 1)
     for (const read of ["GET v2/user/contact-point/list?type=Mobile", "GET v2/user/contact-point/list?type=Landline", "GET v2/user/myself"]) expect(after, read).toContain(read)
+    expect(verifies()).toEqual([{ contactPointIds: [13] }])
   })
 
   test("relabel: Home → Work sends one update", async ({ page }) => {
@@ -332,5 +335,118 @@ test.describe("Phone edit (Story 3.2)", () => {
       expect(results.violations, `Phone edit (${theme})`).toEqual([])
     }
     await expectNoHorizontalScroll(page)
+  })
+})
+
+// --- Story 3.3: verify phones -------------------------------------------------------------------
+
+const readRow = (page: Page, number: string): Locator => section(page).locator("tbody tr, li[data-slot='section-table-card']").filter({ hasText: number })
+const liveStatus = (page: Page): Locator => section(page).locator('[data-slot="live-status"]')
+
+test.describe("Phone verify (Story 3.3)", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 })
+  })
+
+  test("add → save → auto-verify: the verify follows the POST; the new row counts down (pending); \"Link sent\" announced", async ({ page }) => {
+    await openWith(page)
+    const posts = await mockContactManage(page)
+    const verifies = await mockContactVerify(page)
+    await section(page).getByRole("button", { name: "Add phone" }).click()
+    const row = newRow(page)
+    await numberInput(row).fill("4155550101")
+    await pick(page, labelSelect(row), "Personal")
+    await pick(page, typeSelect(row), "Mobile")
+    await mockContacts(page, { ...CONTACT_PHONES, Mobile: [...CONTACT_PHONES.Mobile, ADDED] })
+    const writes: string[] = []
+    page.on("request", (request) => {
+      if (request.method() === "POST" && request.url().includes("/api/1h/v2/health/contact-point")) writes.push(new URL(request.url()).pathname)
+    })
+    await saveButton(page).click()
+    await expect(footer(page)).toHaveCount(0)
+    await expect(toastWith(page, "Phone saved.")).toBeVisible()
+    expect(posts()).toHaveLength(1)
+    await expect.poll(() => verifies()).toEqual([{ contactPointIds: [13] }])
+    expect(writes).toEqual(["/api/1h/v2/health/contact-point", "/api/1h/v2/health/contact-point/verify"])
+    const added = readRow(page, "+1 (415) 555-0101")
+    await expect(added.locator('[data-slot="status-badge"]')).toHaveAttribute("data-status", "pending")
+    await expect(added.locator('[data-slot="status-badge"]')).toHaveText(/^Link sent · Resend in (60|59|58) s$/)
+    await expect(liveStatus(page)).toHaveText("Link sent")
+    // The countdown runs.
+    await expect(added.locator('[data-slot="status-badge"]')).toHaveText(/^Link sent · Resend in 5\d s$/)
+  })
+
+  test("manual Verify: sends [11] at once with no edit mode; the countdown; the kebab item is aria-disabled with it", async ({ page }) => {
+    await openWith(page)
+    const verifies = await mockContactVerify(page)
+    const work = readRow(page, "+1 (415) 555-0111")
+    // Only the unverified Work Mobile offers Verify (the Primary is verified, the Home Landline has no status).
+    await expect(section(page).getByRole("button", { name: "Verify", exact: true })).toHaveCount(1)
+    await work.hover()
+    await work.getByRole("button", { name: "Verify", exact: true }).click()
+    await expect.poll(() => verifies()).toEqual([{ contactPointIds: [11] }])
+    await expect(footer(page)).toHaveCount(0)
+    await expect(work.locator('[data-slot="status-badge"]')).toHaveText(/^Link sent · Resend in (60|59) s$/)
+    await expect(liveStatus(page)).toHaveText("Link sent")
+    await section(page).getByRole("button", { name: "More actions for +1 (415) 555-0111" }).click()
+    const item = page.getByRole("menuitem", { name: /Resend verification/ })
+    await expect(item).toHaveAttribute("aria-disabled", "true")
+    await expect(item).toContainText(/Link sent · Resend in \d+ s/)
+    // Activation during the countdown does nothing (the menu stays open).
+    await item.focus()
+    await page.keyboard.press("Enter")
+    await expect(item).toBeVisible()
+    await page.keyboard.press("Escape")
+    expect(verifies()).toHaveLength(1)
+  })
+
+  test("send error: the listed id reads \"Couldn't send the link\" with Resend verification available at once", async ({ page }) => {
+    await openWith(page)
+    const verifies = await mockContactVerify(page, { body: { success: false, contactPointIdsWithSendError: [11] } })
+    const work = readRow(page, "+1 (415) 555-0111")
+    await work.hover()
+    await work.getByRole("button", { name: "Verify", exact: true }).click()
+    await expect(work.getByText("Couldn't send the link")).toBeVisible()
+    await expect(work.locator('[data-slot="status-badge"]')).toHaveText("Not verified")
+    await work.hover()
+    const resend = work.getByRole("button", { name: "Resend verification" })
+    await expect(resend).not.toHaveAttribute("aria-disabled", "true")
+    await resend.click()
+    await expect.poll(() => verifies()).toHaveLength(2)
+  })
+
+  test("at 360 px: the card shows the countdown; Verify is in the kebab; no horizontal scroll", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 })
+    await openWith(page)
+    const verifies = await mockContactVerify(page)
+    await section(page).getByRole("button", { name: "More actions for +1 (415) 555-0111" }).click()
+    await page.getByRole("menuitem", { name: "Verify" }).click()
+    await expect.poll(() => verifies()).toEqual([{ contactPointIds: [11] }])
+    const card = readRow(page, "+1 (415) 555-0111")
+    await expect(card.locator('[data-column="status"] [data-slot="status-badge"]')).toHaveText(/^Link sent · Resend in \d+ s$/)
+    await expectNoHorizontalScroll(page)
+  })
+
+  test("axe passes in light and dark with a countdown and a send error", async ({ page }) => {
+    await openWith(page, {
+      ...CONTACT_PHONES,
+      Mobile: [...CONTACT_PHONES.Mobile, contactPointRow({ id: 14, value: "+14155550114", label: "Personal", isVerified: false })],
+    })
+    await mockContactVerify(page, (request) => {
+      const { contactPointIds } = request.postDataJSON() as { contactPointIds: number[] }
+      return { body: { success: !contactPointIds.includes(14), contactPointIdsWithSendError: contactPointIds.filter((id) => id === 14) } }
+    })
+    for (const number of ["+1 (415) 555-0111", "+1 (415) 555-0114"]) {
+      const row = readRow(page, number)
+      await row.hover()
+      await row.getByRole("button", { name: "Verify", exact: true }).click()
+    }
+    await expect(readRow(page, "+1 (415) 555-0111").locator('[data-slot="status-badge"]')).toHaveText(/^Link sent/)
+    await expect(readRow(page, "+1 (415) 555-0114").getByText("Couldn't send the link")).toBeVisible()
+    for (const theme of ["light", "dark"] as const) {
+      await setTheme(page, theme)
+      const results = await new AxeBuilder({ page }).include("#phone").withTags(WCAG).analyze()
+      expect(results.violations, `Phone verify (${theme})`).toEqual([])
+    }
   })
 })

@@ -54,12 +54,14 @@ const many = (type: "Mobile" | "Landline", count: number, start: number): Wire[]
     contactPointWire({ id: start + index, type, value: `+1415555${String(start + index).padStart(4, "0")}`, label: "Work", phoneNumberRegion: "us" }),
   )
 
-/** Answers the Contact Point lists per type (`[]` for any other), and records each manage body. */
+/** Answers the Contact Point lists per type (`[]` for any other), and records each list read and each manage body. */
 function phoneServer(lists: Lists, answer: () => Response | Promise<Response> = () => new HttpResponse(null, { status: 200 })) {
   const bodies: unknown[] = []
+  const reads: string[] = []
   const handlers: HttpHandler[] = [
     http.get(LIST, ({ request }) => {
       const type = new URL(request.url).searchParams.get("type") as "Mobile" | "Landline"
+      reads.push(type)
       const list = lists[type] ?? []
       return typeof list === "function" ? list() : HttpResponse.json(list)
     }),
@@ -68,7 +70,7 @@ function phoneServer(lists: Lists, answer: () => Response | Promise<Response> = 
       return answer()
     }),
   ]
-  return { bodies, handlers }
+  return { bodies, reads, handlers }
 }
 
 const section = (): HTMLElement => screen.getByRole("region", { name: "Phone" })
@@ -140,7 +142,7 @@ async function render(lists: Lists = DEFAULT_LISTS, answer?: () => Response | Pr
     act(async () => {
       await scoped?.(keys.contactPoints(type), rows.map((row) => ({ ...row })), { revalidate: false })
     })
-  return { ...result, bodies: server.bodies, refetch, setList }
+  return { ...result, bodies: server.bodies, reads: server.reads, refetch, setList }
 }
 
 async function click(element: HTMLElement) {
@@ -213,8 +215,13 @@ describe("PhoneSection: read-view entry points (Story 3.2)", () => {
       expect(action.getAttribute("aria-disabled")).toBeNull()
     }
     for (const number of ["+1 (415) 551-2125", "+1 (415) 555-0111", "+44 20 7183 8750"]) expect(button(`More actions for ${number}`)).toBeTruthy()
+    // Story 3.3: the unverified Work Mobile also offers Verify (first); the verified Primary and the Home Landline don't.
     const menu = await openKebab("+1 (415) 555-0111")
-    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Edit", "Remove"])
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Verify", "Edit", "Remove"])
+    await closeMenu(menu)
+    const primaryMenu = await openKebab("+1 (415) 551-2125")
+    // (Remove there carries its disabled reason as a second line.)
+    expect(within(primaryMenu).getAllByRole("menuitem").map((item) => item.firstElementChild?.firstElementChild?.textContent)).toEqual(["Edit", "Remove"])
   })
 
   it("Edit switches the whole table in place: Editing, the editing container, focus on the first editable Label; saved Number and Type locked with the help; the Primary label locked", async () => {
@@ -325,9 +332,10 @@ describe("PhoneSection: save (Story 3.2)", () => {
     const watched = [keys.contactPoints("Mobile"), keys.contactPoints("Landline"), keys.myself(), keys.contactPoints("Email")]
     const loads = watchAppCache(watched)
     await waitFor(() => expect(loads.size).toBe(4))
-    const { bodies } = await render()
+    const { bodies, reads } = await render()
     await addPhone({ number: "4155550101", label: "Personal", type: "Mobile" })
     await waitFor(() => expect(window.localStorage.getItem(DRAFT_KEY)).not.toBeNull(), { timeout: 2000 })
+    const readsBefore = reads.length
     await save()
     await waitFor(() => expect(isReadView()).toBe(true))
     expect(bodies).toEqual([
@@ -337,8 +345,10 @@ describe("PhoneSection: save (Story 3.2)", () => {
         contactPointsToRemove: [],
       },
     ])
-    // The header and the `/account` pickers read the same keys: Mobile, Landline and myself revalidated, Email untouched.
-    expect(watched.map((key) => loads.get(JSON.stringify(key)))).toEqual([2, 2, 2, 1])
+    // Story 3.3: both Phone keys are refetched through the Section's hooks (in the app the root cache, which the header and the
+    // `/account` pickers read; here the Section's own), myself through the app helper; Email untouched.
+    expect(reads.slice(readsBefore).toSorted()).toEqual(["Landline", "Mobile"])
+    expect(watched.map((key) => loads.get(JSON.stringify(key)))).toEqual([1, 1, 2, 1])
     expect(toastSuccess).toHaveBeenCalledWith("Phone saved.")
     expect(document.activeElement).toBe(heading())
     expect(window.localStorage.getItem(DRAFT_KEY)).toBeNull()

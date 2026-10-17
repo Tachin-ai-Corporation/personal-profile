@@ -60,6 +60,25 @@ export const contactPointManageBodySchema = z
     if (add.some((row) => row.label === "Primary" && (row.type === "Email" || row.type === "Mobile"))) refuse("a Primary Email or Mobile in an add")
   })
 
+/** Ids per verify request: the backend's limit (Story 3.3; the client sends larger sets in chunks of this size). */
+export const CONTACT_POINT_VERIFY_MAX_IDS = 10
+
+/** A JSON body cap of 1 KB (ten 16-digit ids, the most a safe-integer id has, fit). */
+export const CONTACT_POINT_VERIFY_MAX_BYTES = 1024
+
+/**
+ * The body of `POST v2/health/contact-point/verify` (backend
+ * `RequestCPVerificationDTO`, Story 3.3): `contactPointIds`, 1 to 10 unique
+ * positive integer ids. Strict: anything else is 400 `BAD_BODY`.
+ */
+export const contactPointVerifyBodySchema = z.strictObject({
+  contactPointIds: z
+    .array(id)
+    .min(1)
+    .max(CONTACT_POINT_VERIFY_MAX_IDS)
+    .refine((ids) => new Set(ids).size === ids.length, { message: "an id is listed twice" }),
+})
+
 /**
  * Contact Point reads shared by the header, Contacts (Epic 3) and `/account`
  * (Epic 7). One or more `type` params; `Social Media` is the backend
@@ -80,4 +99,11 @@ export const entries: readonly AllowlistEntry[] = [
    * no body (new ids come from the refetch).
    */
   { method: "POST", template: "v2/health/contact-point", body: contactPointManageBodySchema, maxBytes: CONTACT_POINT_MANAGE_MAX_BYTES },
+  /**
+   * Sends a verification link to the caller's own Contact Points (Story 3.3;
+   * Story 3.6 for emails). No query (400 `BAD_QUERY`), JSON only (415
+   * `UNSUPPORTED_MEDIA`), nothing forced; it answers `{ success,
+   * contactPointIdsWithSendError }`.
+   */
+  { method: "POST", template: "v2/health/contact-point/verify", body: contactPointVerifyBodySchema, maxBytes: CONTACT_POINT_VERIFY_MAX_BYTES },
 ]
