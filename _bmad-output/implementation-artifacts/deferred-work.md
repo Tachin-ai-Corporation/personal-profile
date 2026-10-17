@@ -56,6 +56,12 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-4-signature.md`
   summary: Accepted — a replace normally leaves nothing behind: the named op owns every `PersonHasSignatureFile` relation of the caller (foundation a0c01dc), so the old file is deleted (204). Only when that best-effort delete itself fails (5xx, timeout, as in Story 1.10) does the older relation stay behind the newest one. `myself` shows the newest, and Remove deletes every leftover (up to 5 more rounds), so an older Signature is never shown; the file itself stays until then (and hard delete may still leave the private S3 object, item above).
   evidence: features/personal/signature-save.ts (`uploadStep`, `removeStep`, `SIGNATURE_REMOVE_ROUNDS`); lib/server/named-ops/file-delete.ts (`signatureRelationIds`).
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-3-verify-phones.md`
+  summary: PM/backend question — the verify resend cooldown disagrees. The AC shows "Link sent · Resend in 60 s" and enables "Resend verification" after 60 s, but the backend refuses a resend within 60 minutes of a successful send (400 "There is already a pending verification for Contact '…' submitted within the last 60 minutes."). The app keeps the 60 s countdown and shows the refusal as the row's help "A link was already sent in the last hour. Check your texts." (DRAFT COPY, rule `contacts.verifyCooldown`). Align the countdown or the backend window, and confirm the copy.
+  evidence: 1h-ng-bo-core-be OneHealthServiceImpl.java:2634 (`CONTACT_POINT_ALREADY_REQUESTED_VERIFICATION`, Messages.java:1066); lib/api/errors/contacts.ts; features/contacts/phone-section.tsx (`VERIFY_COUNTDOWN_MS`).
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-3-verify-phones.md`
+  summary: Backend follow-up — `POST v2/health/contact-point/verify` reflects only the last contact point it processed. `sendVerificationInstructions` reassigns `notDeliveredInstructions` on each pass, so a send failure before the last one is dropped. The answer can then be `success: true` with an empty list, and the failed row's verification is not marked used, so the 60-minute cooldown blocks a resend of a link that never went out. In the app that row shows as sent (counting down). Ask the backend to accumulate every failed id.
+  evidence: 1h-ng-bo-core-be OneHealthServiceImpl.java:2650-2665 (`sendVerificationInstructions`), :2528-2537 (`RequestCPVerificationResponse.failed`, `updateContactPointVerificationsToUsed`); lib/api/contacts.ts (`sendContactVerification`).
 
 ## Team B (`/account`, Epics 7-10)
 
