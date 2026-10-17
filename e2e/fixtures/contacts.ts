@@ -62,3 +62,25 @@ export async function mockContactManage(page: Page, answer: ProxyResponder = {})
   })
   return () => [...bodies]
 }
+
+/** One `POST v2/health/contact-point/verify` body (backend `RequestCPVerificationDTO`, Story 3.3). */
+export interface ContactVerifyBody {
+  readonly contactPointIds: readonly number[]
+}
+
+/**
+ * Mocks the verify call, `POST v2/health/contact-point/verify` (Story 3.3):
+ * `{ success: true, contactPointIdsWithSendError: [] }` by default (every link
+ * sent). Returns the bodies it answered, in order.
+ */
+export async function mockContactVerify(page: Page, answer: ProxyResponder = {}): Promise<() => ContactVerifyBody[]> {
+  const bodies: ContactVerifyBody[] = []
+  await page.route("**/api/1h/v2/health/contact-point/verify", (route) => {
+    const request = route.request()
+    if (request.method() !== "POST") return route.fallback()
+    bodies.push(request.postDataJSON() as ContactVerifyBody)
+    const { status = 200, body = { success: true, contactPointIdsWithSendError: [] } } = typeof answer === "function" ? answer(request) : answer
+    return json(route, status, body)
+  })
+  return () => [...bodies]
+}

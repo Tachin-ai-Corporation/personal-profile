@@ -3,10 +3,12 @@ import type { ErrorScope, MessageRule } from "./core"
 
 /**
  * Fields of the Contacts Sections (Epic 3) the table can name: the row's
- * `value`, `type` and `label`, and `primary` (the Primary rules, which no
- * single field holds: the Section shows them at Section level).
+ * `value`, `type` and `label`, `primary` (the Primary rules, which no
+ * single field holds: the Section shows them at Section level), and `verify`
+ * (Story 3.3: a verification link refused by the backend's cooldown, shown
+ * as the row's help).
  */
-export type Field = "value" | "type" | "label" | "primary"
+export type Field = "value" | "type" | "label" | "primary" | "verify"
 
 /**
  * Contacts (Epic 3): duplicate values, `Messages.PERSON_ALREADY_HAS_CONTACT_POINT_ERROR`
@@ -43,7 +45,7 @@ const PRIMARY_PATTERNS = [
   /^Operation failed\. You can't update contact point with id '\d+' as primary, because it's not verified\.$/,
 ]
 
-/** Phone (Story 3.2): the per-type limit, an invalid number, an unknown label or type, and the Primary rules. */
+/** Phone (Stories 3.2–3.3): the per-type limit, an invalid number, an unknown label or type, the Primary rules and the verify cooldown. */
 const phoneRules: readonly MessageRule<Field>[] = [
   // `MAX_CONTACT_POINTS_PER_TYPE_ERROR` (20 per Contact Type).
   {
@@ -69,6 +71,13 @@ const phoneRules: readonly MessageRule<Field>[] = [
     pattern,
     result: { kind: "field", field: "primary", messageKey: "contacts.phonePrimaryFirst" },
   })),
+  // `CONTACT_POINT_ALREADY_REQUESTED_VERIFICATION` (Story 3.3, `POST v2/health/contact-point/verify`): a resend within the
+  // backend's cooldown of a successful send: 60 minutes, which the copy calls "the last hour".
+  {
+    scopes: ["phone"],
+    pattern: /^There is already a pending verification for Contact '.*' submitted within the last 60 minutes\.$/,
+    result: { kind: "field", field: "verify", messageKey: "contacts.verifyCooldown" },
+  },
 ]
 
 export const rules: readonly MessageRule<Field>[] = [...duplicateRules, ...phoneRules]

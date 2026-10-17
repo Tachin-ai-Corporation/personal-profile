@@ -23,4 +23,10 @@ export const CONTACT_MESSAGES = {
   labelNotOffered: "Choose a label from the list", // DRAFT COPY (spec 3.2 INVALID_ENUM_VALUE)
   phonePrimaryFirst: "Make another phone primary first", // verbatim: EXPERIENCE.md Voice and Tone, "Disabled Remove (Primary)"
   addRow: "Add row", // DRAFT COPY (epics Story 3.2 table footer action)
+  // Phone verify (Story 3.3).
+  verifyCountdown: "Link sent · Resend in {n} s", // verbatim: EXPERIENCE.md Voice and Tone, "Verify pending"
+  verifyLinkSent: "Link sent", // verbatim: EXPERIENCE.md Voice and Tone, "Verify pending" (announced once per send)
+  verifySendFailed: "Couldn't send the link", // DRAFT COPY (epics Story 3.3 send error row help)
+  verifyNetwork: "Couldn't send the link. Check your connection.", // DRAFT COPY (epics Story 3.3 manual send network toast)
+  verifyCooldown: "A link was already sent in the last hour. Check your texts.", // DRAFT COPY (spec 3.3 backend 60-minute cooldown)
 } as const

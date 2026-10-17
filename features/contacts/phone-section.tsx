@@ -1,7 +1,7 @@
 "use client"
 
 import { Plus } from "lucide-react"
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useWatch, type Path } from "react-hook-form"
 import useSWR from "swr"
 import { Button } from "@/components/ui/button"
@@ -9,6 +9,7 @@ import { Chip } from "@/components/ui/chip"
 import { DisabledAction } from "@/components/ui/disabled-action"
 import { FieldError } from "@/components/ui/form-field"
 import { InputLocked } from "@/components/ui/input-locked"
+import { LiveStatus, useAnnounce } from "@/components/ui/live-status"
 import { PhoneInput } from "@/components/ui/phone-input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { StatusBadge } from "@/components/ui/status-badge"
@@ -23,6 +24,8 @@ import {
   SectionTable,
   StateFrame,
   sectionHeadingId,
+  toastError,
+  useCountdown,
   useReportSectionCount,
   useSectionForm,
   useSectionFrame,
@@ -38,10 +41,11 @@ import {
   findPrimary,
   keys,
   mapFetchError,
-  mutateContactPoints,
   mutateMyself,
+  newUnverifiedContactPoints,
   PRIMARY_LABEL,
   saveContactPoints,
+  sendContactVerification,
   valueListOptions,
   type ApiResponseError,
   type ContactPoint,
@@ -51,7 +55,7 @@ import {
   type TypeInfo,
 } from "@/lib/api"
 import { CONTACT_LABEL_HOME, CONTACT_PHONE_TYPES, contactLabelsFrom, type ContactPhoneType } from "@/lib/shared/contact-labels"
-import { COMMON_MESSAGES, CONTACT_MESSAGES, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
+import { COMMON_MESSAGES, CONTACT_MESSAGES, formatMessage, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 import { formatPhoneDisplay, isPhoneRegion, normalizeRegion, regionFlag, toE164, type PhoneInputValue } from "@/lib/shared/phone"
 import {
   arePhoneTypesFull,
@@ -122,12 +126,115 @@ function PhoneNumber({ row }: { readonly row: PhoneRow }) {
   )
 }
 
-function statusOf(row: PhoneRow): ReactNode {
+// --- Verify (Story 3.3) ------------------------------------------------------------------------
+
+/** How long a sent link's "Resend in {n} s" counts down. */
+const VERIFY_COUNTDOWN_MS = 60_000
+
+/**
+ * A row's verification state this session, held by the Section and keyed by
+ * id (cells remount when the layout swaps at 768 px, so they only read it):
+ * `sent` until its deadline, then "Not verified"; `failed` and `cooldown`
+ * hold no deadline. Any entry means a link was asked for, so the action
+ * reads "Resend verification". A reload forgets it.
+ */
+type PhoneVerifyState = { readonly kind: "sent"; readonly deadline: number } | { readonly kind: "failed" } | { readonly kind: "cooldown" }
+
+type PhoneVerifyStates = ReadonlyMap<number, PhoneVerifyState>
+
+/** The id a row's verification is keyed by: a saved row's id, never a repeated id's later occurrence. */
+const verifyIdOf = (row: PhoneRow): number | null => (isRepeat(row) ? null : row.point.id)
+
+/** A row the Verify action offers: saved (an id, not a repeat), Mobile, not labelled Home, not verified (an unverified Primary counts). */
+const isVerifiable = (row: PhoneRow): boolean =>
+  verifyIdOf(row) !== null && row.type === "Mobile" && row.point.label !== CONTACT_LABEL_HOME && row.point.isVerified !== true
+
+/**
+ * The seconds left before a sent link may be resent (0 when not counting):
+ * `useCountdown`, seeded from the Section-held deadline when the cell
+ * mounts, so a remounted cell (the 768 px layout swap) keeps the right time.
+ */
+function useResendSeconds(state: PhoneVerifyState | undefined): number {
+  const { remaining, running, start, stop } = useCountdown()
+  const deadline = state?.kind === "sent" ? state.deadline : undefined
+  useLayoutEffect(() => {
+    const left = deadline === undefined ? 0 : (deadline - Date.now()) / 1000
+    if (left > 0) start(left)
+    else stop()
+  }, [deadline, start, stop])
+  return running ? remaining : 0
+}
+
+/** "Link sent · Resend in {n} s". */
+const resendInText = (seconds: number): string => formatMessage(CONTACT_MESSAGES.verifyCountdown, { n: seconds })
+
+/**
+ * The Status cell (read view and the saved rows of edit view): empty on a
+ * Home row; "Verified" once the list says so (whatever was sent); during a
+ * sent link's countdown the pending "Link sent · Resend in {n} s", updated
+ * each second; else "Not verified", with the help line of a failed send or
+ * of the backend's cooldown.
+ */
+function PhoneStatus({ row, state }: { readonly row: PhoneRow; readonly state: PhoneVerifyState | undefined }) {
+  const seconds = useResendSeconds(state)
   if (row.point.label === CONTACT_LABEL_HOME) return null
-  return row.point.isVerified === true ? (
-    <StatusBadge status="verified">{COMMON_MESSAGES.verified}</StatusBadge>
-  ) : (
-    <StatusBadge status="notVerified">{COMMON_MESSAGES.notVerified}</StatusBadge>
+  if (row.point.isVerified === true) return <StatusBadge status="verified">{COMMON_MESSAGES.verified}</StatusBadge>
+  if (seconds > 0) return <StatusBadge status="pending">{resendInText(seconds)}</StatusBadge>
+  const help = state?.kind === "failed" ? CONTACT_MESSAGES.verifySendFailed : state?.kind === "cooldown" ? CONTACT_MESSAGES.verifyCooldown : null
+  const badge = <StatusBadge status="notVerified">{COMMON_MESSAGES.notVerified}</StatusBadge>
+  if (!help) return badge
+  return (
+    <span className="flex flex-col gap-0.5">
+      {badge}
+      <span data-slot="verify-help" className="text-muted-foreground text-caption">
+        {help}
+      </span>
+    </span>
+  )
+}
+
+interface PhoneReadActionsProps {
+  readonly row: PhoneRow
+  readonly state: PhoneVerifyState | undefined
+  readonly showInline: boolean
+  readonly removeReason: string | undefined
+  readonly onVerify: (id: number) => void
+  readonly onEdit: (key: string) => void
+  readonly onRemove: (key: string) => void
+}
+
+/**
+ * A read-view row's actions: Verify / Resend verification (inline and in the
+ * kebab; aria-disabled with "Link sent · Resend in {n} s" during the
+ * countdown) on a verifiable row, then Edit, then Remove (rows with an id).
+ */
+function PhoneReadActions({ row, state, showInline, removeReason: removeDisabled, onVerify, onEdit, onRemove }: PhoneReadActionsProps) {
+  const seconds = useResendSeconds(state)
+  const id = verifyIdOf(row)
+  const verify =
+    id !== null && isVerifiable(row)
+      ? [
+          {
+            id: "verify",
+            label: state ? COMMON_MESSAGES.resendVerification : COMMON_MESSAGES.verify,
+            inline: true,
+            disabledReason: seconds > 0 ? resendInText(seconds) : undefined,
+            onSelect: () => onVerify(id),
+          },
+        ]
+      : []
+  return (
+    <RowActions
+      name={formatPhoneDisplay(row.value, row.point.phoneNumberRegion)}
+      showInline={showInline}
+      actions={[
+        ...verify,
+        { id: "edit", label: SECTION_MESSAGES.edit, onSelect: () => onEdit(row.key) },
+        ...(row.point.id === null
+          ? []
+          : [{ id: "remove", label: COMMON_MESSAGES.remove, destructive: true, disabledReason: removeDisabled, onSelect: () => onRemove(row.key) }]),
+      ]}
+    />
   )
 }
 
@@ -152,18 +259,26 @@ function notificationsOf(row: PhoneRow): ReactNode {
 
 const [NUMBER, LABEL, TYPE, STATUS, NOTIFICATIONS] = SECTION_COLUMNS.phone
 
+/** The verification state of a row (none on a repeated id's later occurrence). */
+const verifyStateOf = (states: PhoneVerifyStates, row: PhoneRow): PhoneVerifyState | undefined => {
+  const id = verifyIdOf(row)
+  return id === null ? undefined : states.get(id)
+}
+
 /** Number · Label · Type · Status · Notifications; below 768 px line 1 is the number and status, line 2 the rest (muted). */
-const PHONE_COLUMNS: readonly SectionTableColumn<PhoneRow>[] = [
-  { key: "number", header: NUMBER, width: "w-[34%]", mobileLine: 1, cell: (row) => <PhoneNumber row={row} /> },
-  {
-    key: "label",
-    header: LABEL,
-    cell: (row) => (row.point.label ? <Chip variant={row.primary ? "primary" : "label"}>{row.point.label}</Chip> : null),
-  },
-  { key: "type", header: TYPE, cell: (row) => phoneTypeLabel(row.type) },
-  { key: "status", header: STATUS, mobileLine: 1, cell: statusOf },
-  { key: "notifications", header: NOTIFICATIONS, cell: notificationsOf },
-]
+function phoneReadColumns(states: PhoneVerifyStates): SectionTableColumn<PhoneRow>[] {
+  return [
+    { key: "number", header: NUMBER, width: "w-[34%]", mobileLine: 1, cell: (row) => <PhoneNumber row={row} /> },
+    {
+      key: "label",
+      header: LABEL,
+      cell: (row) => (row.point.label ? <Chip variant={row.primary ? "primary" : "label"}>{row.point.label}</Chip> : null),
+    },
+    { key: "type", header: TYPE, cell: (row) => phoneTypeLabel(row.type) },
+    { key: "status", header: STATUS, mobileLine: 1, cell: (row) => <PhoneStatus row={row} state={verifyStateOf(states, row)} /> },
+    { key: "notifications", header: NOTIFICATIONS, cell: notificationsOf },
+  ]
+}
 
 /** A read failure without cached data (the session end first, then a 403, then any other). */
 function phoneLoadError(failures: readonly unknown[]): MappedError | undefined {
@@ -373,6 +488,8 @@ interface EditColumnsInput {
   /** The saved phones as read, by key (status and notifications). */
   readonly saved: ReadonlyMap<string, PhoneRow>
   readonly primaryKey: string | undefined
+  /** The Section's verification states (the saved rows' Status). */
+  readonly verifyStates: PhoneVerifyStates
 }
 
 const rowStateOf = (row: PhoneEditRow): RowEditState => (row.isNew ? "new" : row.removed ? "removed" : "saved")
@@ -381,7 +498,7 @@ const rowStateOf = (row: PhoneEditRow): RowEditState => (row.isNew ? "new" : row
 const statusIdOf = (key: string) => `phone-row-${key}-status`
 
 /** The edit table: Number, Label and Type as controls (locked on a saved row), Status and Notifications as read. */
-function phoneEditColumns({ section, rows, labelOptions, saved, primaryKey }: EditColumnsInput): SectionTableColumn<EditItem>[] {
+function phoneEditColumns({ section, rows, labelOptions, saved, primaryKey, verifyStates }: EditColumnsInput): SectionTableColumn<EditItem>[] {
   const labelChoices = labelOptions.map((label) => ({ value: label, label }))
   return [
     {
@@ -422,7 +539,7 @@ function phoneEditColumns({ section, rows, labelOptions, saved, primaryKey }: Ed
         const state = rowStateOf(row)
         if (state !== "saved") return <RowEditStatus state={state} id={statusIdOf(row.key)} />
         const read = saved.get(row.key)
-        return read ? statusOf(read) : null
+        return read ? <PhoneStatus row={read} state={verifyStateOf(verifyStates, read)} /> : null
       },
     },
     {
@@ -489,6 +606,17 @@ function editedContactPoints(before: readonly ContactPoint[], rows: readonly Pho
  * type at most. Save sends the one manage POST built by
  * `contactPointsDiffToManageDTO`, then revalidates both Phone keys and
  * `myself` (the header and `/account` follow).
+ *
+ * Verify (Story 3.3, FR17): after its manage POST, `save()` sends one
+ * verification request for the new unverified Mobiles the refetch shows
+ * (`newUnverifiedContactPoints`; Save all too); nothing it does fails the
+ * save. The read view offers Verify / Resend verification on every
+ * unverified, non-Home saved Mobile: it sends at once, with no confirm and
+ * no edit mode. A sent link counts down "Link sent · Resend in {n} s" for
+ * 60 s ("Link sent" announced once); a send error or the backend's
+ * cooldown shows as the row's help with Resend available at once; a
+ * manual send that can't get through shows an error toast with Retry. The
+ * states live here, keyed by id, and a reload forgets them.
  */
 export function PhoneSection() {
   const mobile = useSWR<ContactPoint[] | undefined, ApiResponseError>(keys.contactPoints("Mobile"))
@@ -526,6 +654,50 @@ export function PhoneSection() {
     [rows],
   )
   const newKeys = useRef(0)
+
+  // --- Verify (Story 3.3) ---
+  const [verifyStates, setVerifyStates] = useState<PhoneVerifyStates>(() => new Map())
+  const { message: announcement, announce } = useAnnounce()
+  /** The ids whose send is in flight: a repeat press meanwhile does nothing. */
+  const verifying = useRef(new Set<number>())
+
+  /**
+   * Sends verification links to `ids` (those not already in flight) and
+   * records the outcome: a sent id starts its 60 s countdown and "Link sent"
+   * is announced once; failed and cooldown ids keep "Not verified" with
+   * their help, which is announced when no link went out. A session end
+   * does nothing (the shell owns it). A manual send (one row) that can't get
+   * through leaves the row as it was and resolves `true`, for the caller's
+   * error toast; the auto-verify after a save marks every such id failed,
+   * with no toast.
+   */
+  const sendVerification = useCallback(
+    async (ids: readonly number[], manual: boolean): Promise<boolean> => {
+      const fresh = ids.filter((id) => !verifying.current.has(id))
+      if (fresh.length === 0) return false
+      for (const id of fresh) verifying.current.add(id)
+      try {
+        const outcome = await sendContactVerification(fresh)
+        const keepFailed = !(manual && outcome.network)
+        const deadline = Date.now() + VERIFY_COUNTDOWN_MS
+        setVerifyStates((current) => {
+          const next = new Map(current)
+          for (const id of outcome.sent) next.set(id, { kind: "sent", deadline })
+          if (keepFailed) for (const id of outcome.failed) next.set(id, { kind: "failed" })
+          for (const id of outcome.cooldown) next.set(id, { kind: "cooldown" })
+          return next
+        })
+        if (outcome.sent.length > 0) announce(CONTACT_MESSAGES.verifyLinkSent)
+        else if (outcome.cooldown.length > 0) announce(CONTACT_MESSAGES.verifyCooldown)
+        else if (keepFailed && outcome.failed.length > 0) announce(CONTACT_MESSAGES.verifySendFailed)
+        return !keepFailed
+      } finally {
+        for (const id of fresh) verifying.current.delete(id)
+      }
+    },
+    [announce],
+  )
+
   // The form rows' shape (kept in step while rendering, below): the field order and the server error mapping.
   const [shape, setShape] = useState(() => rowsShape(baseline.rows))
 
@@ -534,10 +706,18 @@ export function PhoneSection() {
     if (dto === null) return { ok: true }
     const result = await saveContactPoints(dto)
     if (!result.ok) return result
+    // The same shared keys the header and `/account` read: refetched through the hooks, which hand back the fresh lists.
+    let fresh: ContactPoint[] | undefined
     try {
-      await Promise.all([mutateContactPoints("Mobile", "Landline"), mutateMyself()])
+      const [mobileRows, landlineRows] = await Promise.all([mobile.mutate(), landline.mutate(), mutateMyself()])
+      fresh = [...(mobileRows ?? []).map((point) => ({ ...point, type: "Mobile" })), ...(landlineRows ?? []).map((point) => ({ ...point, type: "Landline" }))]
     } catch {
-      // Saved: a failed refetch must never make Retry send the adds again (the next read catches up).
+      // Saved: a failed refetch must never make Retry send the adds again (the next read catches up); no verify without it.
+    }
+    if (fresh) {
+      // Never throws: nothing the verify does fails the save.
+      const ids = newUnverifiedContactPoints(savedPoints, fresh)
+      if (ids.length > 0) await sendVerification(ids, false)
     }
     return { ok: true }
   }
@@ -598,11 +778,30 @@ export function PhoneSection() {
     rowsControl.onChange(current.map((row) => (row.key === key ? { ...row, removed } : row)))
   }
 
-  // The saved rows of the latest render: a kebab item runs after its menu closes, from an older render.
+  // The saved rows (and shown phones and verify states) of the latest render: a kebab item runs after its menu closes, from an older render.
   const latestSaved = useRef(baseline.rows)
+  const latestRows = useRef(rows)
+  const latestVerify = useRef(verifyStates)
   useLayoutEffect(() => {
     latestSaved.current = baseline.rows
+    latestRows.current = rows
+    latestVerify.current = verifyStates
   })
+
+  /**
+   * The read view's Verify / Resend verification: sends `[id]` at once, unless
+   * the row stopped being verifiable or is counting down. One that can't get
+   * through shows the error toast, whose Retry goes through these checks again.
+   */
+  function verifyRow(id: number): void {
+    const row = latestRows.current?.find((shown) => verifyIdOf(shown) === id)
+    if (!row || !isVerifiable(row)) return
+    const state = latestVerify.current.get(id)
+    if (state?.kind === "sent" && state.deadline > Date.now()) return
+    void sendVerification([id], true).then((unreached) => {
+      if (unreached) toastError(CONTACT_MESSAGES.verifyNetwork, { onRetry: () => verifyRow(id) })
+    })
+  }
 
   /** The read-view kebab's Edit: edit view, focus on that row's Label (or its locked number). */
   function editRow(key: string): void {
@@ -680,7 +879,7 @@ export function PhoneSection() {
               <>
                 <SectionTable<EditItem>
                   rows={formRows.map((row, index) => ({ row, index }))}
-                  columns={phoneEditColumns({ section, rows: formRows, labelOptions, saved: savedByKey, primaryKey })}
+                  columns={phoneEditColumns({ section, rows: formRows, labelOptions, saved: savedByKey, primaryKey, verifyStates })}
                   getRowKey={({ row }) => row.key}
                   labelledBy={headingId}
                   editing
@@ -707,28 +906,19 @@ export function PhoneSection() {
             ) : (
               <SectionTable
                 rows={rows}
-                columns={PHONE_COLUMNS}
+                columns={phoneReadColumns(verifyStates)}
                 getRowKey={(row) => row.key}
                 labelledBy={headingId}
                 empty={{ message: CONTACT_MESSAGES.phonesEmpty, action: emptyAction }}
                 actions={(row, layout) => (
-                  <RowActions
-                    name={formatPhoneDisplay(row.value, row.point.phoneNumberRegion)}
+                  <PhoneReadActions
+                    row={row}
+                    state={verifyStateOf(verifyStates, row)}
                     showInline={layout === "table"}
-                    actions={[
-                      { id: "edit", label: SECTION_MESSAGES.edit, onSelect: () => editRow(row.key) },
-                      ...(row.point.id === null
-                        ? []
-                        : [
-                            {
-                              id: "remove",
-                              label: COMMON_MESSAGES.remove,
-                              destructive: true,
-                              disabledReason: removeReason({ isNew: false, label: row.point.label ?? "" }, savedWithId, true),
-                              onSelect: () => removeRow(row.key),
-                            },
-                          ]),
-                    ]}
+                    removeReason={removeReason({ isNew: false, label: row.point.label ?? "" }, savedWithId, true)}
+                    onVerify={verifyRow}
+                    onEdit={editRow}
+                    onRemove={removeRow}
                   />
                 )}
               />
@@ -736,6 +926,8 @@ export function PhoneSection() {
           </SectionContainer>
         )}
       </StateFrame>
+      {/* "Link sent", once per send (never each second of the countdown). */}
+      <LiveStatus message={announcement} />
     </section>
   )
 }
