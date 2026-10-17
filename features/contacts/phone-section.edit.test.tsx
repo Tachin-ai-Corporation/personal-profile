@@ -16,6 +16,10 @@ import { PhoneSection } from "."
 
 // The Section's own toasts, observed (the shell's toast API; nothing renders a Toaster here).
 vi.mock("@/features/shell/toasts", () => ({ toastSuccess: vi.fn(), toastError: vi.fn(() => ({ id: "t", dismiss: vi.fn() })), toastPartial: vi.fn() }))
+// Full edit flows (several Selects, a save, a refetch) take up to ~1 s here and several times that on a
+// loaded CI runner. A timed-out test leaves its `act` scope open, and every later `renderInPage` in the
+// file then throws "the Section registry was not mounted", so this file gets more than the default 5 s.
+vi.setConfig({ testTimeout: 20_000 })
 // The global `mutate` the revalidate helpers load (`lib/api/keys.ts`), made to reject on demand.
 const globalMutate = vi.hoisted(() => ({ fail: false }))
 vi.mock("swr", async (importOriginal) => {
