@@ -305,6 +305,8 @@ export interface StateFrameProps {
   readonly anchors?: ReactNode
   /** Called once each time the frame becomes ready. */
   readonly onReady?: () => void
+  /** Layout settled into ready, error or forbidden; session dialogs own session state. */
+  readonly onSettled?: () => void
   readonly className?: string
   readonly children?: ReactNode
 }
@@ -335,16 +337,20 @@ export function StateFrame({
   attempt,
   anchors,
   onReady,
+  onSettled,
   className,
   children,
 }: StateFrameProps): JSX.Element | null {
   const status = statusOf(state)
   const latestOnReady = useRef(onReady)
+  const latestOnSettled = useRef(onSettled)
   useEffect(() => {
     latestOnReady.current = onReady
+    latestOnSettled.current = onSettled
   })
   useEffect(() => {
     if (status === "ready") latestOnReady.current?.()
+    if (status === "ready" || status === "error" || status === "forbidden") latestOnSettled.current?.()
   }, [status])
 
   if (status === "session") return null
