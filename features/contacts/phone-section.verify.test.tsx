@@ -14,6 +14,10 @@ import { PhoneSection } from "."
 
 // The Section's own toasts, observed (the shell's toast API; nothing renders a Toaster here).
 vi.mock("@/features/shell/toasts", () => ({ toastSuccess: vi.fn(), toastError: vi.fn(() => ({ id: "t", dismiss: vi.fn() })), toastPartial: vi.fn() }))
+// Save-then-verify flows take up to ~2 s here and several times that on a loaded CI runner. A timed-out
+// test leaves its `act` scope open, and every later `renderInPage` in the file then throws "the Section
+// registry was not mounted", so this file gets more than the default 5 s.
+vi.setConfig({ testTimeout: 20_000 })
 
 /**
  * Story 3.3 (NG-9023, FR17): verify phones on `/`, rendered the way

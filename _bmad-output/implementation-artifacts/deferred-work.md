@@ -354,3 +354,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-4-signature.md`
   summary: (Integrator, T8) Update `docs/FOUNDATION.md` for Story 2.4 — remove the `POST v2/file/{fileId}/version` entry from §3.1 (Allowlist areas row: "signature upload + `v2/file/{fileId}/version`") and from the §5 Story 2.4 row ("signature upload + version entries", "take the version id only from `myself.signature`"); in §6 Team A drop "Signature-version … ids come from the client" (a replace is now upload to `me` + the ownership-checked delete); and in §3.1 Named ops note that `DELETE /api/pp/file/{fileId}` owns every `PersonHasSignatureFile` relation of the caller (the GraphQL relations lookup, foundation a0c01dc), not only `myself.signature`.
   evidence: docs/FOUNDATION.md §3.1, §5, §6; lib/server/proxy/allowlist/personal.ts (no version entry); lib/server/named-ops/file-delete.ts (`signatureRelationIds`). Stories may not edit FOUNDATION (T8).
+
+### Deferred from: CI failure triage on feat/NG-9023-epic-3 (2026-10-16, CI run #53)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-3-verify-phones.md`
+  summary: (Foundation) When a jsdom test times out in the middle of an `await act(async …)`, React's act scope stays open, and every later `renderInPage` in that file throws "renderInPage: the Section registry was not mounted". That message hides the real cause, the timeout. Run #53 showed 3 timeouts and 24 misleading failures. Options: make `renderInPage`'s message name a likely earlier timeout or unflushed `act`, and/or raise the client project's `testTimeout` in `vitest.config.ts` for full Section flows on CI runners. Story 3.3 instead set `vi.setConfig({ testTimeout: 20_000 })` in its two heavy Phone test files.
+  evidence: `pnpm vitest run --project client features/contacts/phone-section.verify.test.tsx --testTimeout=1000` at 705668d gives 1 timeout and 21 "registry was not mounted" failures; `test/providers.tsx:112`.
