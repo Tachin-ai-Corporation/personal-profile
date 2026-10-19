@@ -53,13 +53,16 @@ test.describe("Authenticator status and app tiles (Story 8.1)", () => {
             const style = getComputedStyle(element)
             // Resolve semantic tokens through a sibling so browser color serialization is identical.
             const sample = document.createElement("span")
+            // Reduced motion still gives every element a 0.01ms transition: token reads must be immediate.
+            sample.style.transitionProperty = "none"
             element.parentElement!.append(sample)
             sample.style.backgroundColor = "var(--card)"
             const card = getComputedStyle(sample).backgroundColor
             sample.style.backgroundColor = "var(--accent)"
             const hover = getComputedStyle(sample).backgroundColor
             sample.remove()
-            return { actual: style.backgroundColor, card, hover }
+            // Tailwind enables hover styles only on devices matching this media query.
+            return { actual: style.backgroundColor, card, hover: matchMedia("(hover: hover)").matches ? hover : card }
           })
           await expect(tile).toHaveCSS("background-color", surface.card)
           if (linked) {
