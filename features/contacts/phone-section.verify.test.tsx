@@ -164,8 +164,9 @@ async function addPhone(number: string, label: string, type: "Mobile" | "Landlin
 
 async function save() {
   await click(within(section()).getByRole("button", { name: "Save" }))
-  // Loading also has no footer: wait for the completed save, after auto-verification.
-  await waitFor(() => expect(within(section()).getByRole("button", { name: "Edit" })).toBeTruthy())
+  // Loading also has no footer. Save includes refetches and verification, which can exceed
+  // Testing Library's 1 s default on CI; keep this below the file's 20 s test budget.
+  await within(section()).findByRole("button", { name: "Edit" }, { timeout: 10_000 })
 }
 
 async function openKebab(number: string): Promise<HTMLElement> {
@@ -208,10 +209,14 @@ afterEach(() => {
 })
 
 describe("PhoneSection: auto-verify after a save (Story 3.3)", () => {
-  it("Auto-verify: the manage POST, then one verify for the new unverified Mobile; \"Phone saved.\"; the row counts down; \"Link sent\" announced once", async () => {
+  it.each([0, 1_500])("Auto-verify: the manage POST, then one verify for the new unverified Mobile; \"Phone saved.\"; the row counts down; \"Link sent\" announced once (%d ms response)", async (verifyDelay) => {
     const { manage, verifies, writes } = await render({
       lists: { Mobile: MOBILE, Landline: LANDLINE },
       afterSave: { Mobile: [...MOBILE, mobileWire(40, { value: "+14155550101" })], Landline: LANDLINE },
+      verify: [async () => {
+        await new Promise((resolve) => setTimeout(resolve, verifyDelay))
+        return verifyOk()()
+      }],
     })
     const announced = watchAnnouncements()
     await addPhone("4155550101", "Personal", "Mobile")

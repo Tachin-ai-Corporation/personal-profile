@@ -162,8 +162,9 @@ async function addEmail(address: string, label: string) {
 
 async function save() {
   await click(within(section()).getByRole("button", { name: "Save" }))
-  // Loading also has no footer: wait for the completed save, after auto-verification.
-  await waitFor(() => expect(within(section()).getByRole("button", { name: "Edit" })).toBeTruthy())
+  // Loading also has no footer. Save includes refetches and verification, which can exceed
+  // Testing Library's 1 s default on CI; keep this below the file's 20 s test budget.
+  await within(section()).findByRole("button", { name: "Edit" }, { timeout: 10_000 })
 }
 
 async function openKebab(address: string): Promise<HTMLElement> {
@@ -208,8 +209,15 @@ afterEach(() => {
 })
 
 describe("EmailSection: auto-verify after a save (Story 3.6)", () => {
-  it("Auto-verify: the manage POST, then one verify for the new unverified email; \"Email saved.\"; the row counts down; \"Link sent\" announced once", async () => {
-    const { manage, verifies, writes } = await render({ list: EMAILS, afterSave: [...EMAILS, added(44, { value: "b@x.com" })] })
+  it.each([0, 1_500])("Auto-verify: the manage POST, then one verify for the new unverified email; \"Email saved.\"; the row counts down; \"Link sent\" announced once (%d ms response)", async (verifyDelay) => {
+    const { manage, verifies, writes } = await render({
+      list: EMAILS,
+      afterSave: [...EMAILS, added(44, { value: "b@x.com" })],
+      verify: [async () => {
+        await new Promise((resolve) => setTimeout(resolve, verifyDelay))
+        return verifyOk()()
+      }],
+    })
     const announced = watchAnnouncements()
     await addEmail("b@x.com", "Personal")
     await save()

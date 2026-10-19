@@ -189,6 +189,12 @@ All four review layers completed. Individual verdicts were assigned before dedup
 - Evidence: /tmp/pr19-fixes-focused.log, /tmp/pr19-fixes-browser-regressions.log, /tmp/pr19-fixed-integration-coverage.log, /tmp/pr19-fixed-integration-browser.log, /tmp/pr19-fixed-integration-rerun.log, /tmp/pr19-fixed-tooltip-mobile-rerun.log. Initial failure traces retained under /tmp/pr19-validation-traces.
 - PR #19 head/base rechecked unchanged at 21943e9 / 7d0d7e6; GitHub reports MERGEABLE/CLEAN. Existing main+PR and Account+PR merges remain conflict-free; the patch touches only Contacts, its owned tests, and this review record.
 
+#### CI follow-up: bounded save completion waits
+
+- CI on 23ccb11 exposed Testing Library's default 1-second wait in the new Phone save helper; the same helper pattern existed in Email. The files already allow 20 seconds for a complete save/verify test.
+- A controlled 1,500 ms verification response reproduced the failure with the original helper. Both helpers now wait up to 10 seconds for the completed read-view Edit action, retaining every DTO, verification, toast and countdown assertion.
+- The existing auto-verify scenarios now run with immediate and delayed verification responses in both sections. All 44 tests in the two verification files, lint and typecheck passed. The change is limited to tests and this record; application behavior is unchanged.
+
 ## Implementation Notes
 
 - **Landmark:** `SectionLandmark` takes no `count`, so the Section renders its own `<section id="phone" aria-labelledby="phone-heading">` with `SectionHeader count` (the Personal information pattern); same landmark, same `h2`, never remounted.
