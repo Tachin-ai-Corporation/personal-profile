@@ -157,9 +157,12 @@ describe("restore (same base)", () => {
     expect(stored()).toBeNull()
   })
 
-  it.each(["Save", "Cancel"])("resolves a mapped draft equal to current data once, including clean %s and remount", async (action) => {
+  it.each((["baseline", "empty", "undeclared"] as const).flatMap((mapping) =>
+    ["Save", "Cancel"].map((action) => ({ mapping, action })),
+  ))("resolves a $mapping mapped draft equal to current data once, including clean $action and remount", async ({ mapping, action }) => {
     await storeDraft(FIXTURE_BASELINE, { number: "4155550000", note: "work" })
-    const transformDraft: NonNullable<PageProps["transformDraft"]> = (_values, baseline) => baseline
+    const transformDraft: NonNullable<PageProps["transformDraft"]> = (_values, baseline) =>
+      mapping === "baseline" ? baseline : mapping === "empty" ? {} : { unknown: "ignored", password: "ignored" }
     const save = vi.fn(async (): Promise<SaveResult> => ({ ok: true }))
     const view = render(<Page transformDraft={transformDraft} save={save} onNoChanges="status" />)
     await screen.findByText(restoreText)
@@ -189,6 +192,24 @@ describe("restore (same base)", () => {
     expect(stored()).toBeNull()
     expect(button("Edit")).toBeTruthy()
     expect(remove.mock.calls.filter(([key]) => key === KEY)).toHaveLength(1)
+  })
+
+  it("persists the next user edit after a clean mapped restoration", async () => {
+    await storeDraft(FIXTURE_BASELINE, { number: "4155550000", note: "work" })
+    render(<Page transformDraft={(_values, baseline) => baseline} />)
+    await screen.findByText(restoreText)
+    await act(async () => fireEvent.click(button("Restore")))
+    expect(stored()).toBeNull()
+    expect(registry?.get("phone")).toMatchObject({ isDirty: false, userChanged: false })
+
+    await act(async () => type(number(), "4155550002"))
+    expect(registry?.get("phone")).toMatchObject({ isDirty: true, userChanged: true })
+    await act(async () => fireEvent(window, new Event("pagehide")))
+    const baseHash = await hashDraftBase(FIXTURE_BASELINE)
+    await waitFor(() => expect(stored()).toMatchObject({
+      baseHash, values: { number: "4155550002", note: "" },
+    }))
+    expect(screen.queryByText(restoreText)).toBeNull()
   })
 
   it("preserves the omitted-callback behavior for a draft equal to current data", async () => {

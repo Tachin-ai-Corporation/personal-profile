@@ -72,7 +72,17 @@ export interface UseSectionFormOptions<T extends FieldValues> {
    * presets with `form.setValue` never count.
    */
   readonly draftFields?: readonly (keyof T & string)[]
-  /** Transforms restored values against the current baseline; `null` defers restoration without changing the form or draft offer. Only declared draft fields are applied. */
+  /**
+   * Synchronously transforms restored values against the current baseline.
+   * Treat both inputs as immutable: they are passed directly, without cloning.
+   * `null` defers restoration without changing the form or draft offer.
+   * The returned object supplies replacements, rather than merging with the
+   * incoming draft. Only declared draft fields are applied; omitted fields keep
+   * their form values (the baseline when entering edit from read view).
+   * `{}` accepts restoration without applying fields. An accepted result that
+   * leaves the form clean immediately resolves the stored draft through the
+   * `discarded` lifecycle event.
+   */
   readonly transformDraft?: (values: DraftValues, baseline: T) => DraftValues | null
   /** F4 drafts: the Section's server data; a stored draft is offered only once `loaded` (the default). */
   readonly dataStatus?: SectionDataStatus
