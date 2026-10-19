@@ -8,10 +8,10 @@ import { FIXTURE_BASELINE, FixtureSection, type FixtureSectionProps } from "./__
 import { fixtureSectionSchema, type FixtureSectionValues } from "./__fixtures__/schema"
 import { z } from "zod"
 import { CONTACT_MESSAGES, PERSON_MESSAGES } from "@/lib/shared/messages"
-import type { SaveResult } from "./nav-types"
+import type { DraftValues, SaveResult } from "./nav-types"
 import { SectionFooter } from "./section-footer"
 import { SectionHeader } from "./section-header"
-import { useSectionForm } from "./use-section-form"
+import { useSectionForm, type SectionForm, type UseSectionFormOptions } from "./use-section-form"
 import { runSaveSteps } from "./run-save-steps"
 import { createSectionRegistry, type SectionRegistry } from "./section-registry"
 import { SectionRegistryProvider, useSectionRegistry } from "./section-registry"
@@ -938,5 +938,159 @@ describe("control(name): non-native controls", () => {
     rerender({ showChoice: false })
     await save()
     expect(document.activeElement?.closest("[data-slot~='inline-banner']")).not.toBeNull()
+  })
+})
+
+
+describe("draft transformation", () => {
+  type Options = Partial<UseSectionFormOptions<FixtureSectionValues>>
+  let form: SectionForm<FixtureSectionValues>
+
+  function DraftSection(options: Options) {
+    const section = useSectionForm<FixtureSectionValues>({
+      id: "phone", label: "Phone", displayOrder: 2, schema: fixtureSectionSchema,
+      baseline: FIXTURE_BASELINE, save: async () => OK,
+      draftFields: ["number"], describeDraftDiff: () => [], ...options,
+    })
+    useEffect(() => { form = section })
+    return (
+      <>
+        <input aria-label="Number" {...section.field("number")} />
+        <input aria-label="Note" {...section.field("note")} />
+        <output>{section.errorFor("number")}</output>
+      </>
+    )
+  }
+
+  function renderDraft(options: Options = {}) {
+    const tree = (next: Options) => (
+      <SectionRegistryProvider>
+        <Capture onRegistry={(next) => { registry = next }} />
+        <DraftSection {...next} />
+      </SectionRegistryProvider>
+    )
+    const view = render(tree(options))
+    return { rerender: (next: Options) => view.rerender(tree(next)) }
+  }
+  const entry = () => registry!.get("phone")!
+  async function restore(values: DraftValues) {
+    let applied: boolean | undefined
+    await act(async () => { applied = entry().applyDraft?.(values) })
+    return applied
+  }
+
+  it("without a callback restores only declared fields and retains field validation", async () => {
+    renderDraft()
+    expect(await restore({ number: "12", note: "ignored", unknown: "ignored", password: "ignored" })).toBe(true)
+    expect(form.mode).toBe("edit")
+    expect(form.form.getValues()).toEqual({ number: "12", note: "" })
+    expect(form.errorFor("number")).toBe(CONTACT_MESSAGES.phoneTenDigits)
+    expect(entry()).toMatchObject({ isDirty: true, userChanged: true })
+  })
+
+  it("maps before entering edit, filters replacement keys and validates mapped values", async () => {
+    const values = { number: "4155550000" }
+    const transformDraft = vi.fn(() => {
+      expect(form.mode).toBe("read")
+      expect(form.form.getValues()).toEqual(FIXTURE_BASELINE)
+      return { number: "12", note: "ignored", unknown: "ignored", password: "ignored" }
+    })
+    renderDraft({ transformDraft })
+    expect(await restore(values)).toBe(true)
+    expect(transformDraft).toHaveBeenCalledExactlyOnceWith(values, FIXTURE_BASELINE)
+    expect(form.form.getValues()).toEqual({ number: "12", note: "" })
+    expect(form.errorFor("number")).toBe(CONTACT_MESSAGES.phoneTenDigits)
+    expect(form.baseline).toEqual(FIXTURE_BASELINE)
+    expect(entry()).toMatchObject({ isDirty: true, userChanged: true })
+  })
+
+  it("refusal leaves read and edit values, errors and dirty signals untouched", async () => {
+    renderDraft({ transformDraft: () => null })
+    expect(await restore({ number: "4155550000" })).toBe(false)
+    expect(form.mode).toBe("read")
+    expect(form.form.getValues()).toEqual(FIXTURE_BASELINE)
+    expect(entry()).toMatchObject({ isDirty: false, userChanged: false })
+    await act(async () => form.startEdit())
+    await act(async () => form.form.setValue("note", "preset"))
+    type(number(), "12")
+    await act(async () => form.form.trigger())
+    const before = form.form.getValues()
+    expect(await restore({ number: "4155550000" })).toBe(false)
+    expect(form.mode).toBe("edit")
+    expect(form.form.getValues()).toEqual(before)
+    expect(form.errorFor("number")).toBe(CONTACT_MESSAGES.phoneTenDigits)
+    expect(entry()).toMatchObject({ isDirty: true, userChanged: true })
+    type(number(), FIXTURE_BASELINE.number)
+    await flush()
+    expect(entry()).toMatchObject({ isDirty: true, userChanged: false })
+  })
+
+  it("refuses during saving before invoking the callback", async () => {
+    let finish: (result: SaveResult) => void = () => undefined
+    const transformDraft = vi.fn((values: DraftValues) => values)
+    renderDraft({ transformDraft, save: () => new Promise((resolve) => { finish = resolve }) })
+    await restore({ number: "4155550000" })
+    let saving: Promise<SaveResult> = Promise.resolve(OK)
+    act(() => { saving = entry().save() })
+    await waitFor(() => expect(form.mode).toBe("saving"))
+    transformDraft.mockClear()
+    expect(await restore({ number: "4155559999" })).toBe(false)
+    expect(transformDraft).not.toHaveBeenCalled()
+    expect(form.form.getValues("number")).toBe("4155550000")
+    await act(async () => { finish(OK); await saving })
+  })
+
+  it("uses the latest callback and current baseline through an existing registration", async () => {
+    const old = vi.fn(() => null)
+    const view = renderDraft({ transformDraft: old })
+    const apply = entry().applyDraft!
+    const baseline = { number: "4155550199", note: "current" }
+    const latest = vi.fn((values: DraftValues, current: FixtureSectionValues) => ({ ...values, number: current.number }))
+    view.rerender({ baseline, transformDraft: latest })
+    const values = { number: "4155550000" }
+    await act(async () => { expect(apply(values)).toBe(true) })
+    expect(old).not.toHaveBeenCalled()
+    expect(latest).toHaveBeenCalledExactlyOnceWith(values, baseline)
+    expect(form.form.getValues()).toEqual(baseline)
+    expect(entry()).toMatchObject({ isDirty: false, userChanged: false })
+  })
+
+  it("passes the effective rebase override while the parent baseline stays unchanged", async () => {
+    const transformDraft = vi.fn((_values: DraftValues, baseline: FixtureSectionValues) => baseline)
+    const view = renderDraft({ transformDraft })
+    const apply = entry().applyDraft!
+    const override = { number: "4155550199", note: "rebased" }
+    await act(async () => form.rebase(override))
+    view.rerender({ baseline: FIXTURE_BASELINE, transformDraft })
+    expect(form.baseline).toEqual(override)
+    const values = { number: "4155550000" }
+    await act(async () => { expect(apply(values)).toBe(true) })
+    expect(transformDraft).toHaveBeenCalledExactlyOnceWith(values, override)
+    expect(form.form.getValues()).toEqual(override)
+    expect(entry()).toMatchObject({ isDirty: false, userChanged: false })
+  })
+
+  it("preserves the pre-restore preset baseline and reports each save/cancel once", async () => {
+    const send = vi.fn(async () => OK)
+    renderDraft({ save: send, transformDraft: (values) => values })
+    const observed: string[] = []
+    registry!.observe((event) => {
+      if (event.type === "saved" || event.type === "discarded") observed.push(event.type)
+    })
+    await act(async () => form.startEdit())
+    await act(async () => form.form.setValue("note", "preset"))
+    expect(await restore({ number: "4155550000" })).toBe(true)
+    expect(entry()).toMatchObject({ isDirty: true, userChanged: true })
+    type(number(), FIXTURE_BASELINE.number)
+    await flush()
+    expect(entry()).toMatchObject({ isDirty: true, userChanged: false })
+    await act(async () => form.cancel())
+    expect(form.form.getValues()).toEqual(FIXTURE_BASELINE)
+    expect(observed).toEqual(["discarded"])
+    await restore({ number: "4155550000" })
+    await act(async () => form.submit())
+    expect(send).toHaveBeenCalledExactlyOnceWith({ number: "4155550000", note: "" }, FIXTURE_BASELINE)
+    expect(observed).toEqual(["discarded", "saved"])
+    expect(entry()).toMatchObject({ isDirty: false, userChanged: false })
   })
 })
