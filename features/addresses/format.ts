@@ -7,6 +7,11 @@ const US_NAMES: ReadonlySet<string> = new Set(["us", "usa", "unitedstates", "uni
 /** A country name or code as compared: dots and all whitespace removed, lower-cased. */
 const comparable = (value: string): string => value.replace(/[.\s]/g, "").toLowerCase()
 
+/** `true` for a country name or code that means the United States ("United States", "USA", "U.S.A", "US", any case or spacing). */
+export function isUnitedStatesName(value: string): boolean {
+  return US_NAMES.has(comparable(value))
+}
+
 /**
  * The United States: its addresses show no country. The name decides when
  * there is one ("United States", "USA", "U.S.A", any case or spacing), so a
@@ -14,8 +19,8 @@ const comparable = (value: string): string => value.replace(/[.\s]/g, "").toLowe
  * decides only without a name.
  */
 function isUnitedStates({ country, countryCode }: Pick<Address, "country" | "countryCode">): boolean {
-  if (!isNotProvided(country)) return US_NAMES.has(comparable(country as string))
-  return !isNotProvided(countryCode) && US_NAMES.has(comparable(countryCode as string))
+  if (!isNotProvided(country)) return isUnitedStatesName(country as string)
+  return !isNotProvided(countryCode) && isUnitedStatesName(countryCode as string)
 }
 
 /**

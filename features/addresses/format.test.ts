@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Address } from "@/lib/api"
-import { formatAddressOneLine } from "./format"
+import { formatAddressOneLine, isUnitedStatesName } from "./format"
 
 const address = (overrides: Partial<Address> = {}): Address => ({
   id: 1,
@@ -78,5 +78,15 @@ describe("formatAddressOneLine (Story 4.1)", () => {
   it("is empty when nothing is provided", () => {
     expect(formatAddressOneLine(address())).toBe("")
     expect(formatAddressOneLine(address({ country: "United States" }))).toBe("")
+  })
+})
+
+describe("isUnitedStatesName (Story 4.2)", () => {
+  it.each(["United States", "united  states", "USA", "U.S.A.", "US", "United States of America"])("%j is the United States", (name) => {
+    expect(isUnitedStatesName(name)).toBe(true)
+  })
+
+  it.each(["Canada", "", "United Kingdom", "U.S. Virgin Islands"])("%j is not", (name) => {
+    expect(isUnitedStatesName(name)).toBe(false)
   })
 })

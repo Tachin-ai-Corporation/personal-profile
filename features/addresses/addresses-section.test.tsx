@@ -14,7 +14,10 @@ import { AddressesSection } from "."
 /**
  * Story 4.1 (NG-9026): the Addresses read view on `/`, rendered the way
  * `PageFrame` hosts it (`renderInPage`, MSW at `/api`). Covers every row of
- * the I/O matrix in `spec-4-1-view-addresses.md` except Proxy.
+ * the I/O matrix in `spec-4-1-view-addresses.md` except Proxy. Story 4.2
+ * adds the entry points (header Edit and Add address, the empty row's Add
+ * address, the row kebab with Edit); the edit view is
+ * `addresses-section.edit.test.tsx`.
  */
 
 const LIST = "/api/1h/v2/person/location/list"
@@ -79,15 +82,21 @@ function tableRows(): string[][] {
   return within(table)
     .getAllByRole("row")
     .slice(1)
-    .map((row) => within(row).getAllByRole("cell").map((cell) => cell.textContent ?? ""))
+    .map((row) =>
+      within(row)
+        .getAllByRole("cell")
+        .filter((cell) => cell.getAttribute("data-slot") !== "row-actions-cell")
+        .map((cell) => cell.textContent ?? ""),
+    )
 }
 
-/** Nothing to act on in 4.1: no button other than a load error's Retry, no menu. */
-function expectNoActions(): void {
-  expect(within(section()).queryAllByRole("button").filter((button) => button.textContent !== "Retry")).toEqual([])
-  expect(within(section()).queryByRole("button", { name: /More actions/ })).toBeNull()
-  expect(within(section()).queryByText("Add address")).toBeNull()
-  expect(section().querySelector('[data-slot="row-actions-cell"]')).toBeNull()
+/** Story 4.2's entry points: the header Edit and Add address, and a kebab with only Edit on each row with an id. */
+function expectEntryPoints(kebabs: readonly string[]): void {
+  expect(within(section()).getByRole("button", { name: "Edit" })).toBeTruthy()
+  expect(within(section()).getAllByRole("button", { name: "Add address" }).length).toBeGreaterThan(0)
+  expect(within(section()).queryAllByRole("button", { name: /^More actions for / }).map((button) => button.getAttribute("aria-label"))).toEqual(
+    kebabs.map((name) => `More actions for ${name}`),
+  )
 }
 
 beforeEach(() => {
@@ -142,10 +151,10 @@ describe("AddressesSection: read view", () => {
     expect(counts.queries).toEqual(["?page=0&size=100"])
   })
 
-  it("shows the real column headers (no actions column) in a table named by the h2; the address in cell-strong, wrapping", async () => {
+  it("shows the real column headers (a hidden Actions header) in a table named by the h2; the address in cell-strong, wrapping", async () => {
     await renderLoaded()
     const table = within(section()).getByRole("table", { name: "Addresses" })
-    expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Address", "Label", "Type", "Status"])
+    expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Address", "Label", "Type", "Status", "Actions"])
     expect(table.getAttribute("aria-labelledby")).toBe("addresses-heading")
     const address = within(section()).getByText("1 Pine St, SF, CA 94105")
     expect(address.classList.contains("cell-strong")).toBe(true)
@@ -162,9 +171,9 @@ describe("AddressesSection: read view", () => {
     expect(badges[0].querySelector("svg")?.getAttribute("aria-hidden")).toBe("true")
   })
 
-  it("has no actions in 4.1: no Add address, no Edit, no kebab", async () => {
+  it("has the 4.2 entry points: header Edit and Add address, a kebab \"More actions for {address}\" per row", async () => {
     await renderLoaded()
-    expectNoActions()
+    expectEntryPoints(["9 Oak Ave, Apt 4, SF, CA 94105", "1 Pine St, SF, CA 94105"])
   })
 
   it("appends a non-US country (the non-US row)", async () => {
@@ -217,6 +226,8 @@ describe("AddressesSection: read view", () => {
     ])
     expect(section().querySelectorAll('[data-slot="chip"]')).toHaveLength(1)
     expect(meta()).toBe("4")
+    // Only a row with an id, first occurrence, can be edited: no kebab on the repeat or the id-less row.
+    expectEntryPoints(["7 Fir St, SF, CA 94105", "3 Ash St, SF, CA 94105"])
   })
 
   it("reports ready to the Section frame and the count to the Section index", async () => {
@@ -242,20 +253,20 @@ describe("AddressesSection: read view", () => {
 describe("AddressesSection: empty", () => {
   it("reads an empty Spring Page (the backend's shape) as no addresses: the empty row and count 0", async () => {
     await renderLoaded(ok(page([])))
-    expect(within(section()).getByRole("table", { name: "Addresses" }).querySelector('[data-slot="empty-state"]')?.textContent).toBe("No addresses yet")
+    expect(within(section()).getByRole("table", { name: "Addresses" }).querySelector('[data-slot="empty-state"]')?.textContent).toBe("No addresses yet·Add address")
     expect(meta()).toBe("0")
   })
 
-  it("shows one \"No addresses yet\" row (no action) and count 0, from the page default (a bare list)", async () => {
+  it("shows one \"No addresses yet · Add address\" row and count 0, from the page default (a bare list)", async () => {
     renderInPage(<AddressesSection />, { page: "profile" })
     await waitFor(() => expect(frame()?.getAttribute("data-state")).toBe("ready"))
     const table = within(section()).getByRole("table", { name: "Addresses" })
     const empty = table.querySelector('[data-slot="empty-state"]')
     expect(empty?.getAttribute("data-variant")).toBe("row")
-    expect(empty?.textContent).toBe("No addresses yet")
-    expect(empty?.querySelector("td")?.getAttribute("colspan")).toBe("4")
+    expect(empty?.textContent).toBe("No addresses yet·Add address")
+    expect(empty?.querySelector("td")?.getAttribute("colspan")).toBe("5")
     expect(meta()).toBe("0")
-    expectNoActions()
+    expectEntryPoints([])
   })
 })
 
@@ -272,13 +283,13 @@ describe("AddressesSection: below 768 px", () => {
     expect(line2.classList.contains("text-muted-foreground")).toBe(true)
     expect(line1.textContent).toBe("Address: 1 Pine St, SF, CA 94105")
     expect(line2.textContent).toBe("Label: PrimaryType: HomeStatus: Verified")
-    expectNoActions()
+    expectEntryPoints(["1 Pine St, SF, CA 94105"])
   })
 
   it("shows the empty line as a card", async () => {
     stubViewport(360)
     await renderLoaded(ok(page([])))
-    expect(within(section()).getByRole("list", { name: "Addresses" }).textContent).toBe("No addresses yet")
+    expect(within(section()).getByRole("list", { name: "Addresses" }).textContent).toBe("No addresses yet·Add address")
   })
 })
 

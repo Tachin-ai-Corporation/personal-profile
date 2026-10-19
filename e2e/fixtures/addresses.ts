@@ -1,5 +1,5 @@
 import type { Page, Request } from "@playwright/test"
-import { mockProxy, type ProxyAnswer } from "./core"
+import { json, mockProxy, type ProxyAnswer, type ProxyResponder } from "./core"
 
 /** Addresses (Team A, Epic 4) mocks. Stories 4.1–4.4 add their write and Places mocks here. */
 
@@ -42,4 +42,45 @@ export async function mockAddresses(page: Page, answer: readonly Record<string, 
 /** `GET v2/public/countries` (Story 4.2); default an empty list. */
 export async function mockCountries(page: Page, answer: ProxyAnswer = {}): Promise<() => Request[]> {
   return mockProxy(page, "v2/public/countries", { status: answer.status ?? 200, body: answer.body ?? [] })
+}
+
+/** One address write body (`POST v2/person/location`, `PUT v2/person/location/{id}`; backend `PersonLocationRequestDTO`, Story 4.2). */
+export type AddressWriteBody = Record<string, unknown>
+
+/**
+ * Mocks `POST v2/person/location` (Story 4.2): 200 with a created row (id
+ * 31) by default, as the backend answers its `PersonLocationResponseDTO`.
+ * Returns the bodies it answered, in order. Pair it with a fresh
+ * `mockAddresses` for the refetch that follows a save.
+ */
+export async function mockAddressCreate(page: Page, answer: ProxyResponder = { body: { id: 31 } }): Promise<() => AddressWriteBody[]> {
+  const bodies: AddressWriteBody[] = []
+  await page.route("**/api/1h/v2/person/location", (route) => {
+    const request = route.request()
+    if (request.method() !== "POST") return route.fallback()
+    bodies.push(request.postDataJSON() as AddressWriteBody)
+    const { status = 200, body = {} } = typeof answer === "function" ? answer(request) : answer
+    return json(route, status, body)
+  })
+  return () => [...bodies]
+}
+
+/**
+ * Mocks `PUT v2/person/location/{id}` (Story 4.2, numeric ids only): 200 with
+ * `{ id }` by default. Returns each `{ id, body }` it answered, in order.
+ */
+export async function mockAddressUpdate(page: Page, answer: ProxyResponder = {}): Promise<() => { readonly id: number; readonly body: AddressWriteBody }[]> {
+  const seen: { readonly id: number; readonly body: AddressWriteBody }[] = []
+  await page.route(
+    (url) => /^\/api\/1h\/v2\/person\/location\/\d+$/.test(url.pathname),
+    (route) => {
+      const request = route.request()
+      if (request.method() !== "PUT") return route.fallback()
+      const id = Number(new URL(request.url()).pathname.split("/").pop())
+      seen.push({ id, body: request.postDataJSON() as AddressWriteBody })
+      const { status = 200, body = { id } } = typeof answer === "function" ? answer(request) : answer
+      return json(route, status, body)
+    },
+  )
+  return () => [...seen]
 }
