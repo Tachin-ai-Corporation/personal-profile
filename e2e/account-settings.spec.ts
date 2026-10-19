@@ -367,10 +367,9 @@ test.describe("Personal account settings read view (Story 7.4)", () => {
       })
       await page.goto("/account?tab=personal")
       await expect(section(page).getByText(forbidden ? NO_ACCESS : LOAD_ERROR, { exact: true })).toBeVisible()
-      await expect(page.getByText(forbidden ? NO_ACCESS : LOAD_ERROR, { exact: true })).toHaveCount(1)
+      await expect(authenticator(page).getByText(forbidden ? NO_ACCESS : LOAD_ERROR, { exact: true })).toBeVisible()
       await expect(page.getByText("Private diagnostic", { exact: true })).toHaveCount(0)
       await expect(authenticator(page)).toBeVisible()
-      const authenticatorBefore = await authenticator(page).innerHTML()
       expect(reads()).toBe(1)
       await expect(table(page)).toHaveCount(0)
       const retry = section(page).getByRole("button", { name: "Retry", exact: true })
@@ -393,7 +392,8 @@ test.describe("Personal account settings read view (Story 7.4)", () => {
         expect(recovered()).toBe(1)
         expect(requests).toEqual(["/api/1h/v2/user/myself"])
         await expect(authenticator(page)).toBeVisible()
-        expect(await authenticator(page).innerHTML()).toBe(authenticatorBefore)
+        await expect(authenticator(page).getByText("Not set up", { exact: true })).toBeVisible()
+        await expect(authenticator(page).getByRole("button", { name: /^Link / })).toHaveCount(5)
       }
     })
   }
