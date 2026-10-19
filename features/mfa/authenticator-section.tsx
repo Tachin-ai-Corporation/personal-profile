@@ -3,14 +3,14 @@
 import { useEffect, useRef, useState } from "react"
 import { sectionHeadingId, useClaimMyselfError, useMyself, useSectionFrame, type FrameState } from "@/features/shell"
 import { mapFetchError } from "@/lib/api"
-import { AuthenticatorCard } from "./authenticator-card"
+import { AuthenticatorLinkDialog } from "./authenticator-link-dialog"
 import { useMfaAccess } from "./mfa-access"
 
 /** Read-only landmark, deliberately outside the editable Section registry. */
 export function AuthenticatorSection() {
   const { myself, error, isLoading, retry } = useMyself()
   const { onReady } = useSectionFrame("authenticator")
-  const { mfaForbidden } = useMfaAccess()
+  const { mfaForbidden, handleFailure } = useMfaAccess()
   const retryFocus = useRef<{ origin: HTMLButtonElement; controller: AbortController } | null>(null)
   useEffect(() => () => retryFocus.current?.controller.abort(), [])
   useEffect(() => {
@@ -52,5 +52,5 @@ export function AuthenticatorSection() {
     pending.controller.abort()
     if (ownsFocus) document.getElementById(sectionHeadingId("authenticator"))?.focus()
   }
-  return <AuthenticatorCard state={state} linked={myself?.totpEnabled === true} onRetry={retryMyself} attempt={failure.attempt} onSettled={settled} />
+  return <AuthenticatorLinkDialog onFailure={handleFailure} cardProps={{ state, linked: myself?.totpEnabled === true, onRetry: retryMyself, attempt: failure.attempt, onSettled: settled }} />
 }

@@ -1,5 +1,6 @@
 "use client"
 
+import type { ReactNode } from "react"
 import { Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { StatusBadge } from "@/components/ui/status-badge"
@@ -7,7 +8,7 @@ import { Tooltip } from "@/components/ui/tooltip"
 import { SectionLandmark, StateFrame, type FrameState } from "@/features/shell"
 import { formatMessage, MFA_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 
-const MFA_APPS = [
+export const MFA_APPS = [
   { id: "google", name: MFA_MESSAGES.google },
   { id: "microsoft", name: MFA_MESSAGES.microsoft },
   { id: "authy", name: MFA_MESSAGES.authy },
@@ -26,24 +27,27 @@ export interface AuthenticatorCardProps {
   readonly onSettled?: () => void
   /** Integration seams for Stories 8.2 and 8.3; this story performs no mutations. */
   readonly onLink?: (app: MfaAppId) => void
+  readonly busyApp?: MfaAppId | null
+  readonly notice?: ReactNode
   readonly onDisable?: () => void
 }
 
-export function AuthenticatorCard({ state, linked, onRetry, attempt, onSettled, onLink, onDisable }: AuthenticatorCardProps) {
+export function AuthenticatorCard({ state, linked, onRetry, attempt, onSettled, onLink, onDisable, busyApp, notice }: AuthenticatorCardProps) {
   return <SectionLandmark id="authenticator" title={SHELL_MESSAGES.authenticatorHeading} tools={state === "ready" ? <>
     <StatusBadge status={linked ? "verified" : "pending"}>{linked ? MFA_MESSAGES.enabled : MFA_MESSAGES.notSetUp}</StatusBadge>
     {linked && <Button type="button" variant="outline-destructive" size="touch" onClick={onDisable}>{MFA_MESSAGES.disable}</Button>}
   </> : undefined}>
     <StateFrame state={state} className={state === "ready" ? "overflow-visible" : undefined} skeleton="tiles" loadError={{ kind: "page" }} level="section" onRetry={onRetry} attempt={attempt} onSettled={onSettled}>
       <div className="space-y-3 py-3">
+        {notice}
         <p className="text-muted-foreground text-body-sm px-3">{MFA_MESSAGES.intro}</p>
         <div className="grid grid-cols-2 gap-3 min-[360px]:grid-cols-3 md:flex md:gap-4">
           {/* The non-null empty content keeps the same trigger DOM and focus across linked transitions. */}
           {MFA_APPS.map((app) => <Tooltip key={app.id} content={linked ? MFA_MESSAGES.inactiveReason : <></>} contentClassName={linked ? undefined : "hidden"} keepOpenOnPress>
             <Button type="button" variant="outline" aria-label={formatMessage(MFA_MESSAGES.linkApp, { App: app.name })} aria-haspopup="dialog"
-              aria-disabled={linked || undefined} aria-describedby={linked ? CAPTION_ID : undefined}
+              busy={busyApp === app.id} aria-disabled={linked || Boolean(busyApp) || undefined} aria-describedby={linked ? CAPTION_ID : undefined}
               className="bg-card hover:bg-accent dark:bg-card dark:hover:bg-accent dark:border-border transition-colors grid h-auto min-w-24 w-full grid-cols-1 whitespace-normal p-0 before:col-start-1 before:row-start-1 before:aspect-square before:w-full before:content-[''] aria-disabled:opacity-[0.55] md:w-28 md:shrink-0"
-              onClick={() => onLink?.(app.id)}>
+              onClick={(event) => { event.currentTarget.focus(); onLink?.(app.id) }}>
               {/* The empty grid item reserves a square; enlarged text can grow the content row. */}
               <div className="col-start-1 row-start-1 flex w-full min-w-0 flex-col items-center gap-2 py-2">
                 {/* Original decorative vendor artwork; same-origin under the image CSP. */}
