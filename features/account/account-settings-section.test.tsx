@@ -90,7 +90,7 @@ describe("AccountSettingsSection (Story 7.4)", () => {
     expect(within(section()).getByRole("button", { name: "Edit" })).toBeTruthy()
     expect(within(section()).queryByRole("textbox")).toBeNull()
     expect(result.registry.getDirtyCount()).toBe(0)
-    expect(result.registry.get("account")?.draftFields).toEqual(["firstName", "lastName", "birthDate", "preferredLanguage", "timeZone", "locale"])
+    expect(result.registry.get("account")?.draftFields).toEqual(["firstName", "lastName", "birthDate", "preferredLanguage", "timeZone", "locale", "primaryEmail", "primaryPhone"])
     expect(requests).toEqual([MYSELF])
   })
 

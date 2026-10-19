@@ -72,3 +72,17 @@ describe("Account preserves failed identity preflights", () => {
     })
   }
 })
+
+import { expectTypeOf } from "vitest"
+import type { PersonalInformationPayload } from "."
+it("Personal-information payload excludes all primary login contact fields", () => {
+  expectTypeOf<Extract<keyof PersonalInformationPayload, "email" | "phoneNumber" | "phoneNumberRegion">>().toEqualTypeOf<never>()
+})
+it("explicitly forwards selected primary contacts with phone region unchanged", async () => {
+  server.use(http.get("/api/1h/v2/user/myself", () => HttpResponse.json(myselfWire())))
+  await fetchMyself()
+  let body: unknown
+  server.use(http.put("/api/1h/v2/user/edit", async ({ request }) => { body = await request.json(); return new HttpResponse(null, { status: 204 }) }))
+  expect((await updateAccount({ email: "work@example.com", phoneNumber: "+442071838750", phoneNumberRegion: "GB" })).success).toBe(true)
+  expect(body).toEqual({ email: "work@example.com", phoneNumber: "+442071838750", phoneNumberRegion: "GB" })
+})

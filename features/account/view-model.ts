@@ -3,7 +3,7 @@ import { wireToDisplayDate } from "@/lib/shared/dates"
 import { providedOrNull } from "@/lib/shared/display-value"
 import { ACCOUNT_MESSAGES } from "@/lib/shared/messages"
 import { isBirthDateInRange } from "@/lib/shared/person-rules"
-import { formatPhoneDisplay } from "@/lib/shared/phone"
+import { formatPhoneDisplay, phoneDigits } from "@/lib/shared/phone"
 import { ACCOUNT_TIME_ZONES } from "@/lib/shared/time-zones"
 
 export interface AccountView {
@@ -26,6 +26,10 @@ function provided(value: string | null | undefined): string | null {
 /** A read-only display model; dates and phone rules have a single shared owner. */
 export function toAccountView(myself: Myself, mobileRows?: readonly ContactPoint[], today: Date = new Date()): AccountView {
   const phone = provided(myself.phoneNumber)
+  // Contact labels may lag a confirmed identity update. The current number's
+  // matching Mobile row owns its region before falling back to shared lookup.
+  const matchingPhone = phone ? mobileRows?.find((row) => (row.type === "Mobile" || row.type === null) && phoneDigits(row.value ?? "") === phoneDigits(phone)) : undefined
+  const phoneRegion = matchingPhone ? matchingPhone.phoneNumberRegion : primaryPhoneRegion(mobileRows, myself)
   const language = provided(myself.preferredLanguage)
   const zone = provided(myself.timeZone)
   const locale = provided(myself.locale)
@@ -35,7 +39,7 @@ export function toAccountView(myself: Myself, mobileRows?: readonly ContactPoint
     username: provided(myself.username),
     password: "********",
     primaryEmail: provided(myself.email),
-    primaryPhone: phone === null ? null : formatPhoneDisplay(phone, primaryPhoneRegion(mobileRows, myself)),
+    primaryPhone: phone === null ? null : formatPhoneDisplay(phone, phoneRegion),
     birthDate: isBirthDateInRange(myself.birthDate, myself.roles, today) ? wireToDisplayDate(myself.birthDate) : null,
     preferredLanguage: language === "en" ? ACCOUNT_MESSAGES.english : language,
     timeZone: ACCOUNT_TIME_ZONES.find((entry) => entry.value === zone)?.label ?? zone,

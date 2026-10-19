@@ -32,6 +32,9 @@ export function localePath(): string {
 
 /** Account's changed details only; credentials and regional writes are excluded. */
 export interface AccountDetailsPayload {
+  readonly email?: string
+  readonly phoneNumber?: string
+  readonly phoneNumberRegion?: string
   readonly firstName?: string
   readonly lastName?: string
   readonly birthDate?: string
@@ -46,7 +49,7 @@ function accountWrite(path: string, method: "PUT" | "POST", body?: AccountDetail
 
 export function updateAccount(diff: AccountDetailsPayload): Promise<ApiResponse<void>> {
   // Pick explicitly so even a structurally wider object cannot send credentials.
-  const body = Object.fromEntries((["firstName", "lastName", "birthDate", "preferredLanguage"] as const)
+  const body = Object.fromEntries((["firstName", "lastName", "birthDate", "preferredLanguage", "email", "phoneNumber", "phoneNumberRegion"] as const)
     .filter((field) => diff[field] !== undefined).map((field) => [field, diff[field]]))
   return accountWrite(userEditPath(), "PUT", body)
 }

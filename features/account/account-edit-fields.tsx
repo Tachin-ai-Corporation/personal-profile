@@ -9,14 +9,15 @@ import { InfoIconButton } from "@/components/ui/info-icon-button"
 import { Tooltip } from "@/components/ui/tooltip"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { KeyValueEditTable, sectionHeadingId, type SectionForm, type KeyValueEditRow } from "@/features/shell"
-import { ACCOUNT_MESSAGES, COMMON_MESSAGES } from "@/lib/shared/messages"
+import { ACCOUNT_MESSAGES } from "@/lib/shared/messages"
 import { birthDateBounds } from "@/lib/shared/person-rules"
 import { displayToWireDate } from "@/lib/shared/dates"
 import { ACCOUNT_TIME_ZONES } from "@/lib/shared/time-zones"
 import { ACCOUNT_FIELD_LABELS, type AccountFormValues } from "./schema"
+import { AccountPrimaryPicker, type PrimaryRead } from "./account-primary-picker"
 import type { AccountView } from "./view-model"
 
-export function AccountEditFields({ section, view, roles }: { readonly section: SectionForm<AccountFormValues>; readonly view: AccountView; readonly roles?: readonly string[] }) {
+export function AccountEditFields({ section, view, roles, contacts, notices, onPrimaryChange }: { readonly section: SectionForm<AccountFormValues>; readonly view: AccountView; readonly roles?: readonly string[]; readonly contacts: { readonly email: PrimaryRead; readonly mobile: PrimaryRead }; readonly notices: { readonly email: boolean; readonly mobile: boolean }; readonly onPrimaryChange: (kind: "email" | "mobile") => void }) {
   const textRow = (key: "firstName" | "lastName"): KeyValueEditRow => {
     const field = section.field(key)
     return { key, label: ACCOUNT_FIELD_LABELS[key], required: true, error: section.errorFor(key), render: (props) => <Input {...props} {...field} onBlur={(event) => {
@@ -41,8 +42,8 @@ export function AccountEditFields({ section, view, roles }: { readonly section: 
     textRow("firstName"), textRow("lastName"),
     { key: "username", label: ACCOUNT_MESSAGES.username, render: (props) => <InputLocked {...props} value={view.username ?? ""} help={ACCOUNT_MESSAGES.usernameHelp} /> },
     { key: "password", label: ACCOUNT_MESSAGES.password, render: (props) => <InputLocked {...props} value={view.password} help={ACCOUNT_MESSAGES.passwordHelp} className="mono-value" /> },
-    { key: "primaryEmail", label: ACCOUNT_MESSAGES.primaryEmail, render: () => <span>{view.primaryEmail ?? COMMON_MESSAGES.notProvided}</span> },
-    { key: "primaryPhone", label: ACCOUNT_MESSAGES.primaryPhone, render: () => <span>{view.primaryPhone ?? COMMON_MESSAGES.notProvided}</span> },
+    { key: "primaryEmail", label: ACCOUNT_MESSAGES.primaryEmail, error: section.errorFor("primaryEmail"), render: (wiring) => <AccountPrimaryPicker kind="Email" changed={notices.email} onFirstChange={() => onPrimaryChange("email")} current={section.baseline.primaryEmail} section={section} wiring={wiring} read={contacts.email} /> },
+    { key: "primaryPhone", label: ACCOUNT_MESSAGES.primaryPhone, required: true, error: section.errorFor("primaryPhone"), render: (wiring) => <AccountPrimaryPicker kind="Mobile" changed={notices.mobile} onFirstChange={() => onPrimaryChange("mobile")} current={section.baseline.primaryPhone} section={section} wiring={wiring} read={contacts.mobile} /> },
     { key: "birthDate", label: ACCOUNT_FIELD_LABELS.birthDate, required: true, error: section.errorFor("birthDate"), labelAddon: <Tooltip wide content={ACCOUNT_MESSAGES.birthDateHelp}><InfoIconButton aria-label={ACCOUNT_MESSAGES.aboutBirthDate} /></Tooltip>, render: (props) => <AccountBirthDateControl wiring={props} binding={dateControl} roles={roles} /> },
     selectRow("preferredLanguage", [{ value: "en", label: ACCOUNT_MESSAGES.english }]),
     selectRow("timeZone", ACCOUNT_TIME_ZONES),
