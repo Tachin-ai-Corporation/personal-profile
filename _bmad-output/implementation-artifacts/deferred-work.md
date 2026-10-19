@@ -62,6 +62,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-3-verify-phones.md`
   summary: Backend follow-up — `POST v2/health/contact-point/verify` reflects only the last contact point it processed. `sendVerificationInstructions` reassigns `notDeliveredInstructions` on each pass, so a send failure before the last one is dropped. The answer can then be `success: true` with an empty list, and the failed row's verification is not marked used, so the 60-minute cooldown blocks a resend of a link that never went out. In the app that row shows as sent (counting down). Ask the backend to accumulate every failed id.
   evidence: 1h-ng-bo-core-be OneHealthServiceImpl.java:2650-2665 (`sendVerificationInstructions`), :2528-2537 (`RequestCPVerificationResponse.failed`, `updateContactPointVerificationsToUsed`); lib/api/contacts.ts (`sendContactVerification`).
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-4-make-a-phone-primary-and-manage-notifications.md`
+  summary: Backend follow-up — `isVerified` may be writable through `contactPointsToUpdate` of `POST v2/health/contact-point`. `ContactPointToUpdateDTO` extends `BaseContactPointDTO`, which carries `isVerified`, and `updateContactPoints` maps the whole DTO onto the entity (`Helper.mapper.convertValue`) before `repository.update`, so a caller could mark its own number verified (and then make it Primary). The app never sends it, and the strict proxy schema (`contactPointManageBodySchema`: update rows are `{ id, type, label, isNotificationEnabled? }` only) refuses it with 400, so this app can't. Ask the backend to ignore `isVerified` on update (and on add).
+  evidence: 1h-ng-bo-core-be BaseContactPointDTO.java:25, ContactPointServiceImpl.java:393-415 (`updateContactPoints`); lib/server/proxy/allowlist/contacts.ts (`contactPointManageBodySchema`).
 
 ## Team B (`/account`, Epics 7-10)
 
