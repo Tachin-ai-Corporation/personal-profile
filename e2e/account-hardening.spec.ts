@@ -338,15 +338,23 @@ test.describe("Account read failures (Story 7.2)", () => {
       const calls = await mockMyself(page, { status, body })
       await signIn(page)
       await page.goto("/account?tab=personal")
-      await expect(page.getByText(forbidden ? "You don't have access to this in your current account" : "Something went wrong while loading profile information")).toBeVisible()
+      const account = page.getByRole("region", { name: "Personal account settings", exact: true })
+      const authenticator = page.getByRole("region", { name: "Authenticator app", exact: true })
+      for (const section of [account, authenticator]) {
+        await expect(section.getByText(forbidden ? "You don't have access to this in your current account" : "Something went wrong while loading profile information", { exact: true })).toBeVisible()
+        await expect(section.locator('[data-slot="state-frame"]')).toHaveAttribute("data-state", forbidden ? "forbidden" : "error")
+      }
       if (!forbidden) await expect(page.getByText("You don't have access to this in your current account")).toHaveCount(0)
       await expect(page.getByText("Private upstream diagnostic")).toHaveCount(0)
       expect(calls()).toBe(1)
       await expectAxeAndLayout(page)
-      const retry = page.getByRole("button", { name: "Retry", exact: true })
+      const retry = account.getByRole("button", { name: "Retry", exact: true })
+      const authenticatorRetry = authenticator.getByRole("button", { name: "Retry", exact: true })
       if (forbidden) {
         await expect(retry).toHaveCount(0)
+        await expect(authenticatorRetry).toHaveCount(0)
       } else {
+        await expect(authenticatorRetry).toBeVisible()
         await expectTouchTarget(retry)
         for (const theme of ["light", "dark"] as const) {
           await setTheme(page, theme)
@@ -358,7 +366,13 @@ test.describe("Account read failures (Story 7.2)", () => {
         const recovered = await mockMyself(page)
         await page.keyboard.press("Enter")
         await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
-        await expect(page.getByText("Something went wrong while loading profile information")).toHaveCount(0)
+        for (const section of [account, authenticator]) {
+          await expect(section.getByText("Something went wrong while loading profile information", { exact: true })).toHaveCount(0)
+          await expect(section.locator('[data-slot="state-frame"]')).toHaveAttribute("data-state", "ready")
+        }
+        await expect(account.getByRole("heading", { level: 2, name: "Personal account settings", exact: true })).toBeFocused()
+        await expect(authenticator.getByText("Not set up", { exact: true })).toBeVisible()
+        await expect(authenticator.getByRole("button", { name: /^Link / })).toHaveCount(5)
         expect(recovered()).toBe(1)
       }
     })
