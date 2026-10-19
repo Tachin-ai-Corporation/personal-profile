@@ -71,6 +71,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-6-verify-emails-make-an-email-primary-and-manage-notifications.md`
   summary: Phone's restored stale draft can turn off a new Primary's notifications. A draft stored while a Mobile wasn't Primary holds its `notifications: false`; once that Mobile is made Primary elsewhere (another tab, `/account`), `editedContactPoints` applies the draft's value because the saved row is now Primary-labelled, and Save sends notifications off. Fix it as Email does in Story 3.6: also require the edit row's label to be Primary.
   evidence: features/contacts/phone-section.tsx (`editedContactPoints`, `point.label === PRIMARY_LABEL && typeof edit.notifications === "boolean"`). Found in Story 3.6 review (row 19). Spec 3.6 keeps Phone's behaviour unchanged.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-1-view-addresses.md`
+  summary: Confirm the `GET v2/person/location/list` row shape on demo before Story 4.2 writes addresses: whether the booleans come back as `primary`/`validated` (backend code) or `isPrimary`/`isValidated` (agents.md), and whether `personLocationType` is always present (the loader ignores the wire `type`; a null type leaves the Type cell empty).
+  evidence: lib/api/addresses.ts (`addressWireSchema`, `toAddress`); 1h-ng-bo-core-be PersonLocationResponseDTO.java (Lombok booleans with `@JsonAlias`, input only). Review row 5 of spec 4.1.
 
 ## Team B (`/account`, Epics 7-10)
 
@@ -372,3 +375,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-7-manage-social-media-links.md`
   summary: (Foundation) Gate `target="_blank"` in `scripts/check-forbidden.sh`: allow it only in `features/contacts/social-section.tsx` (the AD-5 exception for external social links, Story 3.7), so a portal or 1health destination can never open a new tab unnoticed.
   evidence: Story 3.7 AC ("no portal or 1health destination anywhere in the app uses target=_blank") is checked only by a one-off search today; review row 14 of spec 3.7.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-1-view-addresses.md`
+  summary: (Foundation) `SectionTable`'s stacked card prints a screen-reader "{header}: " prefix for every line-2 column, even when the cell is empty, so a plain address reads "Label: Type: Home Status:" (and an Email Home row an empty "Status:"). Skip the prefix when the cell renders nothing.
+  evidence: features/shell/section-table.tsx (mobile card, `sr-only` header prefix); review row 6 of spec 4.1.
