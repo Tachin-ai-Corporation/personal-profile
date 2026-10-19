@@ -38,12 +38,10 @@ export interface AccountDetailsPayload {
   readonly preferredLanguage?: string
 }
 
-async function accountWrite(path: string, method: "PUT" | "POST", body?: AccountDetailsPayload): Promise<ApiResponse<void>> {
-  const response = await callApi<void>("account/write", path, { method, ...(body ? { body: JSON.stringify(body) } : {}) })
-  // These upstream endpoints may return an empty or non-JSON 2xx response.
-  return response.statusCode !== undefined && response.statusCode >= 200 && response.statusCode < 300
-    ? { success: true, statusCode: response.statusCode }
-    : response
+function accountWrite(path: string, method: "PUT" | "POST", body?: AccountDetailsPayload): Promise<ApiResponse<void>> {
+  // callApi already accepts empty success bodies. A failed identity preflight
+  // may carry a 2xx status without having sent this write; preserve its result.
+  return callApi<void>("account/write", path, { method, ...(body ? { body: JSON.stringify(body) } : {}) })
 }
 
 export function updateAccount(diff: AccountDetailsPayload): Promise<ApiResponse<void>> {

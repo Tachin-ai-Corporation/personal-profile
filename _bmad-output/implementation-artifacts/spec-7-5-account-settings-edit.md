@@ -144,3 +144,66 @@ The parent read the staged unified diff including new files, source integrations
 - Final typecheck, lint, forbidden/token and whitespace gates passed after the final test adjustment. Source/test diffs were audited and the unified review artifact was refreshed.
 - BMAD Build dispatch, implementation, matrix audit, all three independent review layers, patch triage and final verification are complete. Story spec is done; sprint status is review per Build's terminal workflow, ready for normal team review. No new deferrals or unresolved implementation findings remain.
 - BMAD's terminal step records local conventional commits only, with the approved DateInput foundation change isolated before the Account story. No remote push, PR, Jira transition, deployment or real-account mutation occurred. Existing real-demo acceptance limits remain documented, without a new performance claim.
+
+
+## Full Code Review — 2026-10-19
+
+Review mode: full. Scope: `b46a297108161fd3e76c5f2f6bd0966e670e4933..74e3feb8979d2835d4d3a5fb0aa62b6bf229b883`, including both DateInput foundation and Account feature commits: 23 files, +1,331/-18 lines. The working tree was clean at entry. Loaded the story and existing CLAUDE/FOUNDATION/Epic 7 context; those context files were unchanged from the reviewed baseline.
+
+All four configured layers completed: Blind Hunter (10 observations), Edge Case Hunter (one observation), Verification Gap Reviewer (one regression gap), Acceptance Auditor (no concrete AC violation). No layer failed or was skipped. Reviewer follow-ups clarified reachability before host triage. Three reviewers ran concurrently and the fourth started when a slot became available; findings were handled only after all layers had been launched and returned.
+
+**Result: 0 decision-needed, 5 patch, 0 defer, 7 rejected.** At presentation, no production source had changed and patches awaited the human's workflow choice. The human selected option 1 (apply every patch); completion evidence follows.
+
+### Normalized verdicts
+
+Every observation retains its individual verdict before grouping. IDs correspond to the original reviewer observations, not the earlier Build review.
+
+- R1 / blind-hunter — high / patch. `accountWrite` promotes any 2xx status to success, overriding a failed D-A identity check. Both malformed-JSON-shape and non-JSON 200 preflight responses were reproduced through real callApi/MSW: zero PUTs were sent, yet updateAccount returned success true. This can acknowledge unsent changes and delete their draft.
+- R2 / blind-hunter — false / rejected. The claimed malformed stored birth date cannot reach accountFormDefaults through the production loader: `toMyself` validates with parseWireDate and maps malformed/impossible dates to null before exposing Myself. The backend DTO also serializes LocalDate. Valid dates outside the age rule remain preserved and are tested; changing Account to reverse the shared normalization would bypass its owner.
+- R3 / blind-hunter — low / rejected. A stale successful refresh can leave the shared header older than the Account acknowledgement; failed reads show their existing error behavior. The AC requires key revalidation, which occurs, and fresh responses update the independent identity reader in tests. Strong optimistic consistency despite failed/stale reads is a broader improvement requiring cache reconciliation beyond a direct correction, so it is not added here.
+- R4 / blind-hunter — false / rejected. The alleged masking after an authoritative confirmation is disproved: confirmation retires the acknowledgement, then external predecessor values flow through. Existing confirmation/external-replacement tests cover it. An unconfirmed predecessor response is indistinguishable from the stale reads this mechanism intentionally protects against; the reviewer withdrew the stronger defect claim.
+- R5 / blind-hunter — low / rejected. A direct controlled-to-legacy rerender with the same wire value can expose old internal text. Account and the inputs fixture always supply textValue; Personal always omits it. No mounted application caller switches modes, and the optional prop does not promise such transitions. Additional transition synchronization would add complexity for an unshown application state.
+- R6 / blind-hunter — false / rejected. Registered saves and shell-toast retries bypass the own-Save wrapper, but accountDetailsDiff still normalizes comparison and payloads; normalized acknowledgements replace the hook's raw override. The reviewer could not demonstrate re-sending unchanged fields, lost edits or an observable bad baseline. Ordinary name blur trims as well.
+- R7 / blind-hunter — low / patch. Regional query tests directly exercise buildUpstreamQuery, while the literal AC asks for real proxy 400 responses. Shared handler tests cover generic rejection and area tests cover aggregation, so no current routing defect was found. Add narrow handler-level negative rows for the specified regional queries, with appropriate successful-forwarding coverage for the two new endpoints.
+- R8 / blind-hunter — medium / patch. Account's guard browser case fails details only; its partial-success/retry cases use own Save. The registered-save path through the leave guard is a separate integration boundary. Add details-success/time-zone-failure followed by a second guard Save that sends only the zone and then navigates.
+- R9 / blind-hunter — false / rejected. Persisted cleanup is already verified by real FixtureSection/useSectionForm/DraftsProvider integration in drafts-ui tests for own Save, Cancel and guard Save. Account uses those unchanged lifecycle paths and its own tests verify actual six-field registration and persistence/restoration. No Account cleanup defect or bypass was identified.
+- R10 / blind-hunter — low / patch. The proxy's six-zone regex duplicates ACCOUNT_TIME_ZONES, which the UI consumes. Derive membership from that existing constant to keep endpoint acceptance and selectable options under one owner; preserve exact matching and required-query behavior. This is a small direct correction, with no new helper/public API needed.
+- R11 / edge-case-hunter — low / rejected. Independently describes the same unsupported controlled-to-legacy DateInput transition as R5. The reviewer confirmed no current production caller toggles textValue; retain the same rejection rationale.
+- R12 / verification-gap — medium / patch. Pre-verified gap: no test selects the supported locale through Account's actual Select. Existing locale save tests inject draft values or call the API directly. Add a real control interaction from fr-FR to en-US, asserting one correct locale request and the resulting read display.
+
+Survivors have distinct root causes; no surviving observations were merged. The two DateInput transition observations were each assessed and rejected individually. No human intent decision or new deferral is required.
+
+### Review evidence
+
+- The host traced callApi -> checkPageUser -> accountWrite and the Section/save/draft result path. A temporary two-case MSW probe confirmed updateAccount returned `{ success: true, statusCode: 200 }` with zero PUT calls after malformed/non-JSON identity preflights. Both diagnostic assertions passed because they explicitly assert the observed bad behavior; these are reproductions, not fixes. Log: `/tmp/pp-7-5-full-review-identity-probe.log`. The probe source was removed.
+- Reviewed current caller reachability, existing shared draft cleanup, query handler contracts, registered-save normalization and acknowledgement retirement before rejecting observations. No full unit/browser rerun was claimed for this read-only review; the preceding Build validation remains separate evidence above.
+- Unified review diff: `/var/folders/h_/_0j0tkt10dj4lhvlt6zl54c00000gn/T/pp-7-5-full-review-diff-9k_w9g29.diff`. Commit narrative was staged separately for the edge layer.
+
+### Review Findings
+
+- [x] [Review][Patch][R1][high] Preserve blocked identity-check failures in Account writes [`lib/api/account.ts:44`]. Do not turn a failed callApi preflight into success solely because its HTTP status was 2xx. Keep legitimate empty 200/204 write responses working (callApi already supports empty success bodies), and cover malformed/non-JSON 200 identity preflights with zero writes and failed save results so drafts cannot be cleared as saved.
+- [x] [Review][Patch][R8][medium] Verify partial recovery through leave-guard Save [`e2e/account-settings-edit.spec.ts:84`]. First guard Save: details succeeds, zone fails, departure stays blocked. Second guard Save: zone alone is retried, details is not resent, navigation completes.
+- [x] [Review][Patch][R12][medium] Exercise the preferred-locale Select through the real Account UI [`features/account/account-edit-fields.tsx:49`]. Start from fr-FR, pick English - United States, save, verify the en-US request and resulting read value. Do not substitute draft injection for this control interaction.
+- [x] [Review][Patch][R7][low] Complete regional real-proxy contract coverage [`lib/server/proxy/allowlist/account.test.ts:103`]. Add handler-level bad-query response cases required by the story, plus forwarding checks for both regional endpoints; preserve existing query helper and kill-switch coverage.
+- [x] [Review][Patch][R10][low] Use the shared time-zone options as proxy membership source [`lib/server/proxy/allowlist/account.ts:12`]. Derive exact membership from ACCOUNT_TIME_ZONES instead of duplicating its six strings in a regex; retain rejection of unknown, missing, repeated and extra parameters.
+
+### Approved patch completion — 2026-10-19
+
+- All five approved patches (R1, R8, R12, R7, R10) are resolved. Account now preserves callApi failures from identity preflights, including malformed/non-JSON HTTP 200 responses; unsent changes remain unsaved and their draft remains recoverable. Legitimate empty 200/204 writes remain supported.
+- Regional allowlist membership derives from the existing ACCOUNT_TIME_ZONES constant. Real proxy tests verify authenticated query forwarding, no request body, no-store responses and 400 rejection of invalid/missing/repeated/extra query parameters or unexpected bodies without upstream work. No shared foundation source changed in these patches.
+- Real Account browser cases cover leave-guard partial success followed by retrying only the failed zone before departure, actual locale Select interaction from fr-FR to en-US with request/read/reload assertions, and both HTTP 200 identity-preflight failures with zero writes and exact persisted-draft restoration.
+- Regression proof: the six new API identity-preflight assertions failed against the original implementation (`/tmp/pp-7-5-review-r1-red.log`), then passed after the fix. Focused API/proxy suite: 2 files / 63 tests passed (`/tmp/pp-7-5-review-api-proxy.log`). New browser cases: 8 passed across desktop/mobile (`/tmp/pp-7-5-review-new-browser.log`).
+- Full unit validation: `corepack pnpm vitest run --coverage --maxWorkers=4` — 185 files / 4,708 tests passed; enforced server/API/shared statements, branches, functions and lines all 100% (`/tmp/pp-7-5-review-patches-coverage.log`).
+- Final affected production build/browser regression: `corepack pnpm test:e2e e2e/account-settings-edit.spec.ts e2e/account-settings.spec.ts e2e/account-page.spec.ts e2e/account-hardening.spec.ts e2e/shell.spec.ts --workers=4` — 282 passed / 6 expected viewport-conditional skips, no failures or retries (`/tmp/pp-7-5-review-patches-browser.log`).
+- Typecheck, lint, forbidden/token gates and whitespace checks passed. Independent read-only reviewer follow-up confirmed all five approved findings addressed with no concrete regression; that follow-up did not rerun suites.
+- BMAD review actions complete: 0 decisions, 5 fixes, 0 new deferrals, 7 rejected observations unchanged. Story and own sprint entry are done; sprint header/last_updated are preserved. Existing real-demo acceptance limits remain unchanged. These review patches remain local and uncommitted; no push, PR, Jira transition or deployment occurred.
+
+### Rejected
+
+- R2 — false: shared toMyself converts malformed/impossible dates to null before Account; valid out-of-range dates remain prefilled and tested.
+- R3 — low: required revalidation and fresh-data propagation already work; optimistic cache reconciliation under failed/stale reads is beyond a direct correction and is not added for this rare condition.
+- R4 — false: confirmation retires acknowledgements; subsequent external predecessor replacements are accepted. Only an unconfirmed stale/external ambiguity remained, and the reviewer withdrew the defect claim.
+- R5 — low: controlled-to-legacy mode switching has no mounted application caller and is not an advertised contract; additional state synchronization is not justified here.
+- R6 — false: normalized diffs/acknowledgements and ordinary blur prevent the claimed material failure; no reachable data loss or repeated unchanged write was shown.
+- R9 — false: real foundation integration already verifies persisted cleanup after Save, Cancel and guard Save; Account uses the same registered lifecycle.
+- R11 — low: same unreachable application mode-transition condition as R5, individually verified and rejected.

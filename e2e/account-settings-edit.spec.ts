@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, type Page } from "@playwright/test"
-import { test, mockAccountDefaults, mockMyself, mockUserEdit, mockAccountTimeZone, mockAccountLocale, ACCOUNT_SETTINGS_MYSELF, signIn, setTheme } from "./fixtures"
+import { test, mockAccountDefaults, mockMyself, mockProxy, mockUserEdit, mockAccountTimeZone, mockAccountLocale, ACCOUNT_SETTINGS_MYSELF, signIn, setTheme } from "./fixtures"
 
 const account = (page: Page) => page.getByRole("region", { name: "Personal account settings", exact: true })
 async function openEdit(page: Page) {
@@ -220,5 +220,82 @@ for (const text of ["02/3", "02/30/1990"]) {
     await expect(date).toBeFocused()
     await expect(account(page).getByText("Enter a date as MM/DD/YYYY", { exact: true })).toBeVisible()
     expect(writes()).toHaveLength(0)
+  })
+}
+
+
+test("leave-guard partial retry sends only the failed zone and then navigates", async ({ page }) => {
+  let rejectZone = true
+  const details = await mockUserEdit(page, { status: 204 })
+  const zones = await mockAccountTimeZone(page, () => ({ status: rejectZone ? 500 : 204 }))
+  await openEdit(page)
+  const section = account(page)
+  await section.getByRole("textbox", { name: "First name", exact: true }).fill("Bea")
+  await section.getByRole("combobox", { name: "Default time zone", exact: true }).click()
+  await page.getByRole("option", { name: "Eastern", exact: true }).click()
+  const target = page.getByRole("tab", { name: "Individual Provider Registration", exact: true })
+  const guard = page.getByRole("alertdialog", { name: "You have unsaved changes", exact: true })
+  await target.click()
+  await guard.getByRole("button", { name: "Save", exact: true }).click()
+  await expect(guard).toBeHidden()
+  await expect(section.getByText("Time zone was not saved.", { exact: true })).toBeVisible()
+  await expect(target).toHaveAttribute("aria-selected", "false")
+  expect(details()).toEqual([{ firstName: "Bea" }])
+  expect(zones()).toHaveLength(1)
+  rejectZone = false
+  await target.click()
+  await guard.getByRole("button", { name: "Save", exact: true }).click()
+  await expect(target).toHaveAttribute("aria-selected", "true")
+  await expect(page).toHaveURL(/tab=provider/)
+  expect(details()).toEqual([{ firstName: "Bea" }])
+  expect(zones()).toHaveLength(2)
+  expect(zones().every((request) => new URL(request.url()).searchParams.get("timeZone") === "America/New_York")).toBe(true)
+})
+
+test("locale Select changes an unlisted saved locale to English - United States", async ({ page }) => {
+  let locale = "fr-FR"
+  await mockProxy(page, "v2/user/myself", () => ({ body: { ...ACCOUNT_SETTINGS_MYSELF, locale } }))
+  const locales = await mockAccountLocale(page, (request) => {
+    locale = new URL(request.url()).searchParams.get("locale") ?? ""
+    return { status: 204 }
+  })
+  await openEdit(page)
+  const section = account(page)
+  const select = section.getByRole("combobox", { name: "Preferred locale for date, time, and currency", exact: true })
+  await expect(select).toHaveText("fr-FR")
+  await select.click()
+  await page.getByRole("option", { name: "English - United States", exact: true }).click()
+  await expect(select).toHaveText("English - United States")
+  await section.getByRole("button", { name: "Save", exact: true }).click()
+  await expect(section.getByRole("button", { name: "Edit", exact: true })).toBeVisible()
+  expect(locales()).toHaveLength(1)
+  expect(new URL(locales()[0].url()).searchParams.get("locale")).toBe("en-US")
+  await expect(section.getByText("English - United States", { exact: true })).toBeVisible()
+  await page.reload()
+  await expect(section.getByRole("button", { name: "Edit", exact: true })).toBeVisible()
+  await expect(section.getByText("English - United States", { exact: true })).toBeVisible()
+})
+
+for (const response of ["malformed", "non-JSON"] as const) {
+  test(`failed ${response} 200 identity preflight never saves or clears the Account draft`, async ({ page }) => {
+    const writes = await mockUserEdit(page, { status: 204 })
+    const key = `pp:draft:v1:demo:${ACCOUNT_SETTINGS_MYSELF.id}:account`
+    await openEdit(page)
+    const section = account(page)
+    await section.getByRole("textbox", { name: "First name", exact: true }).fill("Bea")
+    const draftName = () => page.evaluate((draftKey) => JSON.parse(localStorage.getItem(draftKey) ?? "null")?.values?.firstName, key)
+    await expect.poll(draftName).toBe("Bea")
+    if (response === "malformed") await mockMyself(page, { body: {} })
+    else await page.route("**/api/1h/v2/user/myself", (route) => route.fulfill({ status: 200, contentType: "text/plain", body: "not JSON" }))
+    await section.getByRole("button", { name: "Save", exact: true }).click()
+    await expect(section.getByRole("alert")).toContainText("Account details was not saved.")
+    await expect(section.getByRole("button", { name: "Save", exact: true })).toBeVisible()
+    expect(writes()).toHaveLength(0)
+    await expect(page.getByText("Personal account updated successfully", { exact: true })).toHaveCount(0)
+    await expect.poll(draftName).toBe("Bea")
+    await mockMyself(page, { body: ACCOUNT_SETTINGS_MYSELF })
+    await page.reload()
+    await section.getByRole("button", { name: "Restore", exact: true }).click()
+    await expect(section.getByRole("textbox", { name: "First name", exact: true })).toHaveValue("Bea")
   })
 }
