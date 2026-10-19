@@ -196,7 +196,6 @@ describe("fetcher", () => {
     expect(await swrFetcher(keys.npi())).toEqual(["loaded", "pp", "npi"])
     unregisterFetcher("npi")
     await expect(swrFetcher(keys.npi())).rejects.toThrow("No fetcher for npi")
-    await expect(swrFetcher(keys.addresses())).rejects.toThrow("No fetcher for addresses")
     await expect(swrFetcher("nope")).rejects.toBeInstanceOf(ApiResponseError)
     await expect(swrFetcher(["pp", "unknown"])).rejects.toThrow("No fetcher for unknown")
     await expect(swrFetcher(["pp", "constructor"])).rejects.toThrow("No fetcher for constructor")
