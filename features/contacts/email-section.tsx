@@ -9,7 +9,7 @@ import { Chip } from "@/components/ui/chip"
 import { DisabledAction } from "@/components/ui/disabled-action"
 import { Input } from "@/components/ui/input"
 import { InputLocked } from "@/components/ui/input-locked"
-import { StatusBadge } from "@/components/ui/status-badge"
+import { LiveStatus } from "@/components/ui/live-status"
 import {
   RowActions,
   RowEditStatus,
@@ -37,6 +37,7 @@ import {
   keys,
   mapFetchError,
   mutateMyself,
+  newUnverifiedContactPoints,
   PRIMARY_LABEL,
   saveContactPoints,
   valueListOptions,
@@ -48,8 +49,10 @@ import {
   type TypeInfo,
 } from "@/lib/api"
 import { CONTACT_LABEL_HOME, contactLabelsFrom } from "@/lib/shared/contact-labels"
-import { COMMON_MESSAGES, CONTACT_MESSAGES, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
-import { CellField, ChoiceCell, isRepeatKey, nextNewKey, NotApplicable, uniqueRowKeys } from "./contact-edit-kit"
+import { COMMON_MESSAGES, CONTACT_MESSAGES, formatMessage, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
+import { CellField, ChoiceCell, isRepeatKey, nextNewKey, NotApplicable, NotificationsSwitch, uniqueRowKeys } from "./contact-edit-kit"
+import { useMakePrimary } from "./contact-primary"
+import { contactVerifyAction, ContactVerifyStatus, useContactVerification, useResendSeconds, type ContactVerifyState, type ContactVerifyStates } from "./contact-verify"
 import { emailDraftDiff, emailEditRowOf, emailSchema, isEmailFull, newEmailEditRow, type EmailEditRow, type EmailValues } from "./email-schema"
 
 /** The Contact Type of every row here (the list key, the add `type`). */
@@ -83,14 +86,27 @@ function emailRowsOf(points: readonly ContactPoint[]): EmailRow[] {
 /** A repeated id's later occurrence: locked like a row without an id. */
 const isRepeat = (row: EmailRow): boolean => isRepeatKey(row.key)
 
-/** The Status cell: empty on a Home row, else "Verified" or "Not verified" (icon + word). */
-function EmailStatus({ row }: { readonly row: EmailRow }) {
-  if (row.point.label === CONTACT_LABEL_HOME) return null
-  return row.point.isVerified === true ? (
-    <StatusBadge status="verified">{COMMON_MESSAGES.verified}</StatusBadge>
-  ) : (
-    <StatusBadge status="notVerified">{COMMON_MESSAGES.notVerified}</StatusBadge>
-  )
+// --- Verify (Story 3.6; the flow is shared in `contact-verify.tsx`) ------------------------------
+
+/** The id a row's verification (and Make primary) is keyed by: a saved row's id, never a repeated id's later occurrence. */
+const verifyIdOf = (row: EmailRow): number | null => (isRepeat(row) ? null : row.point.id)
+
+/** A row the Verify action offers: saved (an id, not a repeat), not labelled Home, not verified (an unverified Primary counts). */
+const isVerifiable = (row: EmailRow): boolean => verifyIdOf(row) !== null && row.point.label !== CONTACT_LABEL_HOME && row.point.isVerified !== true
+
+/** The verification state of a row (none on a repeated id's later occurrence). */
+const verifyStateOf = (states: ContactVerifyStates, row: EmailRow): ContactVerifyState | undefined => {
+  const id = verifyIdOf(row)
+  return id === null ? undefined : states.get(id)
+}
+
+/**
+ * The Status cell: empty on a Home row; "Verified"; during a sent link's
+ * countdown "Link sent · Resend in {n} s"; else "Not verified", with the help
+ * line of a failed send or of the backend's cooldown ("…Check your email.").
+ */
+function EmailStatus({ row, state }: { readonly row: EmailRow; readonly state: ContactVerifyState | undefined }) {
+  return <ContactVerifyStatus label={row.point.label} isVerified={row.point.isVerified} state={state} cooldownHelp={CONTACT_MESSAGES.emailVerifyCooldown} />
 }
 
 /** The Notifications cell: "On" / "Off" on the Primary only (RC3), the "—" elsewhere. */
@@ -106,23 +122,25 @@ function notificationsOf(row: EmailRow): ReactNode {
 const [ADDRESS, LABEL, STATUS, NOTIFICATIONS] = SECTION_COLUMNS.email
 
 /** Email address · Label · Status · Notifications; below 768 px line 1 is the address and status, line 2 the label and notifications (muted). */
-const EMAIL_READ_COLUMNS: SectionTableColumn<EmailRow>[] = [
-  { key: "address", header: ADDRESS, width: "w-[40%]", mobileLine: 1, cell: (row) => <span className="cell-strong text-foreground">{row.value}</span> },
-  {
-    key: "label",
-    header: LABEL,
-    cell: (row) => (row.point.label ? <Chip variant={row.primary ? "primary" : "label"}>{row.point.label}</Chip> : null),
-  },
-  { key: "status", header: STATUS, mobileLine: 1, cell: (row) => <EmailStatus row={row} /> },
-  { key: "notifications", header: NOTIFICATIONS, cell: notificationsOf },
-]
+function emailReadColumns(states: ContactVerifyStates): SectionTableColumn<EmailRow>[] {
+  return [
+    { key: "address", header: ADDRESS, width: "w-[40%]", mobileLine: 1, cell: (row) => <span className="cell-strong text-foreground">{row.value}</span> },
+    {
+      key: "label",
+      header: LABEL,
+      cell: (row) => (row.point.label ? <Chip variant={row.primary ? "primary" : "label"}>{row.point.label}</Chip> : null),
+    },
+    { key: "status", header: STATUS, mobileLine: 1, cell: (row) => <EmailStatus row={row} state={verifyStateOf(states, row)} /> },
+    { key: "notifications", header: NOTIFICATIONS, cell: notificationsOf },
+  ]
+}
 
 /**
  * Why a row's Remove is unavailable, if it is: the last email left ("You
  * need at least one email"; only when the person had saved emails), else a
  * Primary-labelled saved row ("Make another email primary first": the
- * backend rejects removing a Primary without a replacement, and Story 3.6
- * builds Make primary).
+ * backend rejects removing a Primary without a replacement; Make primary
+ * moves it first).
  */
 function removeReason(row: { readonly isNew: boolean; readonly label: string }, remaining: number, hadSaved: boolean): string | undefined {
   if (remaining === 1 && hadSaved) return CONTACT_MESSAGES.emailMinimum
@@ -130,19 +148,58 @@ function removeReason(row: { readonly isNew: boolean; readonly label: string }, 
   return undefined
 }
 
+// --- Make primary (Story 3.6; the flow is shared in `contact-primary.tsx`) ------------------------
+
+/** A row's Make primary: offered, enabled (`reason` undefined) or aria-disabled with its reason; `null` when not offered. */
+type EmailPrimaryOffer = { readonly reason: string | undefined } | null
+
+/**
+ * Make primary on a read-view row (Story 3.6, FR22). Never offered on the
+ * Primary, on a row already labelled Primary (a legacy second one), or on a
+ * row without an id or a repeated id's later occurrence. Only a Verified
+ * email is eligible (no exception, unlike phones): an unverified
+ * Home-labelled one reads "Change the label from Home, then verify this
+ * email"; any other unverified one "Verify this email first" (Verify sits
+ * beside it).
+ */
+function emailPrimaryOfferOf(row: EmailRow): EmailPrimaryOffer {
+  if (row.primary || row.point.label === PRIMARY_LABEL || verifyIdOf(row) === null) return null
+  if (row.point.isVerified === true) return { reason: undefined }
+  return { reason: row.point.label === CONTACT_LABEL_HOME ? CONTACT_MESSAGES.emailHomeNotPrimary : CONTACT_MESSAGES.emailVerifyFirst }
+}
+
 interface EmailReadActionsProps {
   readonly row: EmailRow
+  readonly state: ContactVerifyState | undefined
+  readonly showInline: boolean
   readonly removeReason: string | undefined
+  readonly onVerify: (id: number) => void
+  readonly onMakePrimary: (id: number) => void
   readonly onEdit: (key: string) => void
   readonly onRemove: (key: string) => void
 }
 
-/** A read-view row's kebab, "More actions for {email}": Edit, then Remove (rows with an id, not a repeat). No Verify or Make primary (Story 3.6). */
-function EmailReadActions({ row, removeReason: removeDisabled, onEdit, onRemove }: EmailReadActionsProps) {
+/**
+ * A read-view row's actions, "More actions for {email}": Verify / Resend
+ * verification (inline and in the kebab; aria-disabled with "Link sent ·
+ * Resend in {n} s" during the countdown) on a verifiable row, then Make
+ * primary (inline and in the kebab; aria-disabled with its reason) where
+ * offered, then Edit, then Remove (rows with an id, not a repeat).
+ */
+function EmailReadActions({ row, state, showInline, removeReason: removeDisabled, onVerify, onMakePrimary, onEdit, onRemove }: EmailReadActionsProps) {
+  const seconds = useResendSeconds(state)
+  const id = verifyIdOf(row)
+  const offer = emailPrimaryOfferOf(row)
+  const verify = id !== null && isVerifiable(row) ? [contactVerifyAction(state, seconds, () => onVerify(id))] : []
+  const makePrimary =
+    id !== null && offer ? [{ id: "make-primary", label: COMMON_MESSAGES.makePrimary, inline: true, disabledReason: offer.reason, onSelect: () => onMakePrimary(id) }] : []
   return (
     <RowActions
       name={row.value}
+      showInline={showInline}
       actions={[
+        ...verify,
+        ...makePrimary,
         { id: "edit", label: SECTION_MESSAGES.edit, onSelect: () => onEdit(row.key) },
         // Nothing to remove on a row without an id or a repeated id's later occurrence (both locked in edit view).
         ...(row.point.id === null || isRepeat(row)
@@ -168,10 +225,12 @@ const valuePath = (index: number) => `rows.${index}.value` as const
 const labelPath = (index: number) => `rows.${index}.label` as const
 /** The locked address of a saved row (focus only: a kebab Edit on a row with nothing editable). Same path as a new row's address. */
 const lockedPath = valuePath
+/** The Primary row's notifications switch (Story 3.6). */
+const notificationsPath = (index: number) => `rows.${index}.notifications` as const
 /** The row's Remove / Restore action (focus only: Restore after a read-view Remove). */
 const removalPath = (index: number) => `rows.${index}.removed` as const
 
-/** A saved row whose label can be changed here: it has an id (to update) and isn't labelled Primary (Story 3.6 changes it). */
+/** A saved row whose label can be changed here: it has an id (to update) and isn't labelled Primary (Make primary changes it). */
 const isLabelEditable = (row: EmailEditRow): boolean => row.isNew || (row.id !== null && row.label !== PRIMARY_LABEL)
 
 /** The shape of the form's rows, one letter per row: `n` new, `s` saved with an editable label, `l` saved and locked. */
@@ -246,10 +305,12 @@ interface EditColumnsInput {
   /** The saved emails as read, by key (status and notifications). */
   readonly saved: ReadonlyMap<string, EmailRow>
   readonly primaryKey: string | undefined
+  /** The Section's verification states (the saved rows' Status). */
+  readonly verifyStates: ContactVerifyStates
 }
 
-/** The edit table: the address (locked on a saved row) and Label as controls, Status and Notifications as read. */
-function emailEditColumns({ section, labelOptions, saved, primaryKey }: EditColumnsInput): SectionTableColumn<EditItem>[] {
+/** The edit table: the address (locked on a saved row) and Label as controls, Status as read, the Primary's Notifications switch. */
+function emailEditColumns({ section, labelOptions, saved, primaryKey, verifyStates }: EditColumnsInput): SectionTableColumn<EditItem>[] {
   const labelChoices = labelOptions.map((label) => ({ value: label, label }))
   return [
     {
@@ -281,16 +342,18 @@ function emailEditColumns({ section, labelOptions, saved, primaryKey }: EditColu
         const state = rowStateOf(row)
         if (state !== "saved") return <RowEditStatus state={state} id={statusIdOf(row.key)} />
         const read = saved.get(row.key)
-        return read ? <EmailStatus row={read} /> : null
+        return read ? <EmailStatus row={read} state={verifyStateOf(verifyStates, read)} /> : null
       },
     },
     {
       key: "notifications",
       header: NOTIFICATIONS,
-      cell: ({ row }) => {
+      cell: ({ row, index }) => {
         const read = row.isNew ? undefined : saved.get(row.key)
-        // RC3: only the Primary has a setting, shown as read (Story 3.6 adds its switch).
-        return read ? notificationsOf(read) : <NotApplicable />
+        // RC3: only the Primary has a setting; it can change only with an id to update (Story 3.6, FR23).
+        if (!read?.primary) return <NotApplicable />
+        if (row.id === null) return notificationsOf(read)
+        return <NotificationsSwitch section={section} path={notificationsPath(index)} name={read.value} saved={read.point.isNotificationEnabled === true} />
       },
     },
   ]
@@ -298,18 +361,24 @@ function emailEditColumns({ section, labelOptions, saved, primaryKey }: EditColu
 
 /**
  * The rows `values` stands for, as the engine reads them: every saved email
- * (with an id) as read, relabelled or struck through by its edit row (a
- * saved email the form doesn't hold, e.g. one a stale draft didn't know, is
- * kept unchanged), then the new rows with their trimmed address, notifications off.
+ * (with an id) as read, relabelled, its notifications switched (only the
+ * saved Primary, `primaryId`) or struck through by its edit row (a saved
+ * email the form doesn't hold, e.g. one a stale draft didn't know, is kept
+ * unchanged), then the new rows with their trimmed address, notifications off.
  */
-function editedContactPoints(before: readonly ContactPoint[], rows: readonly EmailEditRow[]): ContactPointEditRow[] {
+function editedContactPoints(before: readonly ContactPoint[], rows: readonly EmailEditRow[], primaryId: number | null): ContactPointEditRow[] {
   const kept = before.map((point): ContactPointEditRow => {
     const edit = rows.find((row) => !row.isNew && row.id === point.id)
     if (!edit) return point
-    // Only a label the edit view offers is taken: never Primary and never a change to a Primary-labelled row (Story 3.6
-    // owns both), so a stale draft can't switch the Primary.
+    // Only a label the edit view offers is taken: never Primary and never a change to a Primary-labelled row (Make
+    // primary owns both), so a stale draft can't switch the Primary.
     const label = edit.label === "" || edit.label === PRIMARY_LABEL || point.label === PRIMARY_LABEL ? point.label : edit.label
-    return edit.removed ? { ...point, label, removed: true } : { ...point, label }
+    // Only the saved Primary has a control for them (a restored draft never changes another row's), only a draft row
+    // that was the Primary when stored holds its setting (a stale one stored before Make primary doesn't), and a draft
+    // stored before Story 3.6 holds none: unchanged.
+    const isNotificationEnabled =
+      point.id === primaryId && edit.label === PRIMARY_LABEL && typeof edit.notifications === "boolean" ? edit.notifications : point.isNotificationEnabled
+    return edit.removed ? { ...point, label, isNotificationEnabled, removed: true } : { ...point, label, isNotificationEnabled }
   })
   const added = rows
     .filter((row) => row.isNew)
@@ -352,7 +421,25 @@ const emailLoadError = (failure: unknown): MappedError | undefined => (failure =
  * the last email and on a Primary-labelled one. Twenty emails at most. Save
  * sends the one manage POST built by `contactPointsDiffToManageDTO`, then
  * revalidates the Email key and `myself` (the header and `/account`
- * follow). Verify, Make primary and the notifications switch are Story 3.6.
+ * follow).
+ *
+ * Verify (Story 3.6, FR21): after its manage POST, `save()` sends one
+ * verification request for the new unverified, non-Home emails the refetch
+ * shows (`newUnverifiedContactPoints`; Save all too); nothing it does fails
+ * the save. The read view offers Verify / Resend verification on every
+ * unverified, non-Home saved email (an unverified Primary too): it sends at
+ * once, with no confirm and no edit mode, and counts down "Link sent ·
+ * Resend in {n} s" for 60 s. The states live here, keyed by id.
+ *
+ * Make primary (Story 3.6, FR22): a read-view row action (after Verify,
+ * before Edit) enabled only on a Verified email that isn't the Primary,
+ * elsewhere aria-disabled with its reason. It opens the standard confirm
+ * and sends one manage POST (the new Primary first with notifications on,
+ * the old one relabelled Old), then refetches the Email key and `myself`,
+ * toasts "Email saved." and focuses the `h2`; a failure refetches, then
+ * toasts the mapped error (the address in use by another account
+ * included) with Retry. Notifications (FR23): in edit view the Primary
+ * row's cell is a switch, and Save sends only that row.
  */
 export function EmailSection() {
   const email = useSWR<ContactPoint[] | undefined, ApiResponseError>(keys.contactPoints(EMAIL_TYPE))
@@ -387,7 +474,22 @@ export function EmailSection() {
     () => (rows ?? []).filter((row) => row.point.id !== null && !isRepeat(row)).map((row) => ({ ...row.point, type: EMAIL_TYPE })),
     [rows],
   )
+  /** The saved Primary's id: the only row whose notifications the edit view changes. */
+  const primaryRow = rows?.find((row) => row.primary)
+  const primaryId = primaryRow ? verifyIdOf(primaryRow) : null
   const newKeys = useRef(0)
+
+  // --- Verify (Story 3.6) ---
+  // The shown emails of the latest render: a kebab item runs after its menu closes, from an older render, and a toast's
+  // Retry later still (the hook reads the check when a send starts).
+  const latestRows = useRef(rows)
+  useLayoutEffect(() => {
+    latestRows.current = rows
+  })
+  const verification = useContactVerification("email", CONTACT_MESSAGES.emailVerifyCooldown, (id) => {
+    const row = latestRows.current?.find((shown) => verifyIdOf(shown) === id)
+    return row !== undefined && isVerifiable(row)
+  })
 
   // The form rows' shape (kept in step while rendering, below): the field order and the server error mapping.
   const [shape, setShape] = useState(() => rowsShape(baseline.rows))
@@ -395,7 +497,7 @@ export function EmailSection() {
   async function save(values: EmailValues): Promise<SaveResult> {
     let dto: ReturnType<typeof contactPointsDiffToManageDTO>
     try {
-      dto = contactPointsDiffToManageDTO(savedPoints, editedContactPoints(savedPoints, values.rows))
+      dto = contactPointsDiffToManageDTO(savedPoints, editedContactPoints(savedPoints, values.rows, primaryId))
     } catch {
       // A refused body (a stale draft striking a row that became Primary meanwhile): never sent, never thrown.
       return { ok: false, error: { code: "UNEXPECTED", mapped: { kind: "generic" } } }
@@ -403,12 +505,17 @@ export function EmailSection() {
     if (dto === null) return { ok: true }
     const result = await saveContactPoints(dto, "email")
     if (!result.ok) return result
-    // The same shared key the header and `/account` read, and `myself` (the header's primary email).
+    // The same shared key the header and `/account` read, and `myself` (the header's primary email): refetched through
+    // the hook, which hands back the fresh list.
+    let fresh: ContactPoint[] | undefined
     try {
-      await Promise.all([email.mutate(), mutateMyself()])
+      const [emailRows] = await Promise.all([email.mutate(), mutateMyself()])
+      fresh = (emailRows ?? []).map((point) => ({ ...point, type: EMAIL_TYPE }))
     } catch {
-      // Saved: a failed refetch must never make Retry send the adds again (the next read catches up).
+      // Saved: a failed refetch must never make Retry send the adds again (the next read catches up); no verify without it.
     }
+    // Never throws: nothing the verify does fails the save.
+    if (fresh) await verification.sendAfterSave(newUnverifiedContactPoints(savedPoints, fresh))
     return { ok: true }
   }
 
@@ -468,10 +575,40 @@ export function EmailSection() {
     rowsControl.onChange(current.map((row) => (row.key === key ? { ...row, removed } : row)))
   }
 
-  // The saved rows of the latest render: a kebab item runs after its menu closes, from an older render.
+  // The saved rows, saved points and mode of the latest render: a kebab item runs after its menu closes, from an older
+  // render, and a toast's Retry later still.
   const latestSaved = useRef(baseline.rows)
+  const latestPoints = useRef(savedPoints)
+  const latestEditing = useRef(isEditing)
   useLayoutEffect(() => {
     latestSaved.current = baseline.rows
+    latestPoints.current = savedPoints
+    latestEditing.current = isEditing
+  })
+
+  // --- Make primary (Story 3.6) ---
+  const headingId = sectionHeadingId("email")
+  const makePrimary = useMakePrimary({
+    scope: "email",
+    sectionLabel: SHELL_MESSAGES.sectionEmail,
+    headingId,
+    // The shown row `id` stands for, when Make primary is still enabled on it (latest rows, read view only).
+    eligible: (id) => {
+      const shown = latestRows.current
+      if (!shown || latestEditing.current) return undefined
+      const row = shown.find((candidate) => verifyIdOf(candidate) === id)
+      const offer = row ? emailPrimaryOfferOf(row) : null
+      if (!row || !offer || offer.reason !== undefined) return undefined
+      return { name: row.value, relabelsOld: latestPoints.current.some((point) => point.id !== id && point.label === PRIMARY_LABEL) }
+    },
+    savedPoints: () => latestPoints.current,
+    refetch: () => Promise.allSettled([email.mutate(), mutateMyself()]),
+    // A long address has no spaces to break at: wrapped anywhere, so the confirm fits at 360 px.
+    body: ({ name, relabelsOld }) => (
+      <span data-slot="make-primary-body" className="break-words">
+        {formatMessage(relabelsOld ? CONTACT_MESSAGES.emailMakePrimaryBody : CONTACT_MESSAGES.emailMakePrimaryBodyNoCurrent, { email: name })}
+      </span>
+    ),
   })
 
   /** The read-view kebab's Edit: edit view, focus on that row's Label (or its locked address). */
@@ -492,7 +629,6 @@ export function EmailSection() {
     rowsControl.onChange(saved.map((row) => (row.key === key ? { ...row, removed: true } : row)))
   }
 
-  const headingId = sectionHeadingId("email")
   const savedFull = isEmailFull(baseline.rows)
   const editFull = isEmailFull(formRows)
   const limitReason = (full: boolean) => (full ? CONTACT_MESSAGES.emailLimit : undefined)
@@ -545,7 +681,7 @@ export function EmailSection() {
               <>
                 <SectionTable<EditItem>
                   rows={formRows.map((row, index) => ({ row, index }))}
-                  columns={emailEditColumns({ section, labelOptions, saved: savedByKey, primaryKey })}
+                  columns={emailEditColumns({ section, labelOptions, saved: savedByKey, primaryKey, verifyStates: verification.states })}
                   getRowKey={({ row }) => row.key}
                   labelledBy={headingId}
                   editing
@@ -572,18 +708,30 @@ export function EmailSection() {
             ) : (
               <SectionTable
                 rows={rows}
-                columns={EMAIL_READ_COLUMNS}
+                columns={emailReadColumns(verification.states)}
                 getRowKey={(row) => row.key}
                 labelledBy={headingId}
                 empty={{ message: CONTACT_MESSAGES.emailsEmpty, action: emptyAction }}
-                actions={(row) => (
-                  <EmailReadActions row={row} removeReason={removeReason({ isNew: false, label: row.point.label ?? "" }, savedWithId, true)} onEdit={editRow} onRemove={removeRow} />
+                actions={(row, layout) => (
+                  <EmailReadActions
+                    row={row}
+                    state={verifyStateOf(verification.states, row)}
+                    showInline={layout === "table"}
+                    removeReason={removeReason({ isNew: false, label: row.point.label ?? "" }, savedWithId, true)}
+                    onVerify={verification.verify}
+                    onMakePrimary={makePrimary.open}
+                    onEdit={editRow}
+                    onRemove={removeRow}
+                  />
                 )}
               />
             )}
           </SectionContainer>
         )}
       </StateFrame>
+      {makePrimary.dialog}
+      {/* "Link sent", once per send (never each second of the countdown). */}
+      <LiveStatus message={verification.announcement} />
     </section>
   )
 }

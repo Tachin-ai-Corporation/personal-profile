@@ -56,4 +56,18 @@ export const CONTACT_MESSAGES = {
   emailLimit: "You've reached the limit of 20 emails", // DRAFT COPY (verbatim: EXPERIENCE.md Voice and Tone, "Disabled Add (limit)", the email form)
   emailLockedPrimary: "Locked. This is the address you sign in with.", // verbatim: EXPERIENCE.md Voice and Tone, "Locked email" (Primary)
   emailLocked: "Saved addresses can't be changed. Remove it and add a new one.", // verbatim: EXPERIENCE.md Voice and Tone, "Locked email" (others)
+  // Email verify, Make primary and notifications (Story 3.6). Phone's keys are reused where the text is the same
+  // ("Link sent", the countdown, "Couldn't send the link", the network toast, the confirm title, "Notifications for {number}").
+  emailVerifyCooldown: "A link was already sent in the last hour. Check your email.", // DRAFT COPY (spec 3.6 backend 60-minute cooldown)
+  emailVerifyFirst: "Verify this email first", // verbatim: EXPERIENCE.md Voice and Tone, "Disabled Make primary (unverified)"
+  emailHomeNotPrimary: "Change the label from Home, then verify this email", // DRAFT COPY (epics Story 3.6 unverified Home-labelled email)
+  emailMakePrimaryBody: "{email} becomes your primary email and sign-in email. Your current primary is relabeled Old.", // DRAFT COPY (epics Story 3.6, adapted from the phone body)
+  emailMakePrimaryBodyNoCurrent: "{email} becomes your primary email and sign-in email.", // DRAFT COPY (spec 3.6 body with no current Primary)
+  emailInUse: "This email is used by another account. Choose a different one.", // DRAFT COPY (epics Story 3.6 USER_ALREADY_EXISTS on the manage POST)
+  // The backend's Primary rules for emails (spec 3.6; "delete" reuses `emailPrimaryFirst`, "not verified" `emailVerifyFirst`).
+  emailPrimaryDowngrade: "Make another email primary before you change this one's label", // DRAFT COPY (spec 3.6 downgrade without a replacement)
+  emailPrimaryOneReplacement: "Only one email can replace your primary email", // DRAFT COPY (spec 3.6 more than one replacement)
+  emailPrimaryOnePerType: "Only one email can be primary", // DRAFT COPY (spec 3.6 one Primary per type in a request)
+  emailPrimaryNotNew: "A new email can't be primary. Save it, then make it primary.", // DRAFT COPY (spec 3.6 Primary in an add)
+  emailPrimaryChanged: "Your primary email changed. Check your email addresses and try again.", // DRAFT COPY (spec 3.6 the person already has a Primary)
 } as const

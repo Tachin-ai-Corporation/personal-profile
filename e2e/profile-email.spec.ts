@@ -1,9 +1,9 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, type Locator, type Page } from "@playwright/test"
-import { contactPointRow, mockContactManage, mockContacts, mockProfileDefaults, setTheme, signIn, test, type ContactAnswer } from "./fixtures"
+import { contactPointRow, mockContactManage, mockContacts, mockContactVerify, mockProfileDefaults, setTheme, signIn, test, type ContactAnswer } from "./fixtures"
 
 /**
- * Story 3.5 (Team A, NG-9024): the Email read and edit views on the real `/`.
+ * Stories 3.5–3.6 (Team A, NG-9024): the Email read and edit views, verify, Make primary and notifications on the real `/`.
  * Every test runs under the fail-fast `test`, starts from
  * `mockProfileDefaults` and overrides the Contact Point lists
  * (`mockContacts`, the newest route wins). Desktop asserts run at 1280 px;
@@ -84,8 +84,8 @@ test.describe("Email read view (Story 3.5)", () => {
     await expect(section(page).getByRole("button", { name: "Edit", exact: true })).toBeVisible()
     await expect(section(page).getByRole("button", { name: "Add email" })).toBeVisible()
     await section(page).getByRole("button", { name: "More actions for ann@work.example" }).click()
-    // Only Edit and Remove (Verify and Make primary are Story 3.6).
-    await expect(page.getByRole("menuitem")).toHaveText(["Edit", "Remove"])
+    // Story 3.6: Verify and Make primary (aria-disabled with its reason) before Edit and Remove.
+    await expect(page.getByRole("menuitem")).toHaveText(["Verify", "Make primaryVerify this email first", "Edit", "Remove"])
   })
 
   test("empty: one \"No emails yet · Add email\" row and count 0", async ({ page }) => {
@@ -153,6 +153,7 @@ test.describe("Email edit (Story 3.5)", () => {
   test("Add email → save → read: one POST with the trimmed address, the Email list and myself refetched, toast, h2 focused", async ({ page }) => {
     await openWith(page)
     const posts = await mockContactManage(page)
+    const verifies = await mockContactVerify(page)
     await section(page).getByRole("button", { name: "Add email" }).click()
     const row = newRow(page)
     await expect(addressInput(row)).toBeFocused()
@@ -187,8 +188,8 @@ test.describe("Email edit (Story 3.5)", () => {
     expect(post).toBeGreaterThanOrEqual(0)
     const after = calls.slice(post + 1)
     for (const read of ["GET v2/user/contact-point/list?type=Email", "GET v2/user/myself"]) expect(after, read).toContain(read)
-    // No verification call in this story (Story 3.6).
-    expect(after.filter((call) => call.includes("verify"))).toEqual([])
+    // Story 3.6: the new unverified address gets its link after the refetch.
+    await expect.poll(() => verifies()).toEqual([{ contactPointIds: [44] }])
   })
 
   test("relabel and remove: Work → Main and Home struck through go in one POST", async ({ page }) => {
@@ -344,5 +345,239 @@ test.describe("Email edit (Story 3.5)", () => {
     await expect(addressInput(newRow(page))).toHaveAttribute("aria-invalid", "true")
     await axe(page, "Email edit")
     await expectNoHorizontalScroll(page)
+  })
+})
+
+// --- Story 3.6: verify emails, make an email primary and manage notifications ----------------------
+
+const readRow = (page: Page, address: string): Locator => section(page).locator("tbody tr, li[data-slot='section-table-card']").filter({ hasText: address })
+const liveStatus = (page: Page): Locator => section(page).locator('[data-slot="live-status"]')
+const confirmDialog = (page: Page): Locator => page.getByRole("alertdialog")
+const header = (page: Page): Locator => page.locator("div:has(> h1)")
+
+/** EMAILS plus a Verified Personal 44: [Work 41 (unverified), Primary 42, Home 43 (unverified), Personal 44]. */
+const PRIMARY_EMAILS = [...EMAILS, emailRow({ id: 44, value: "ann@personal.example", label: "Personal" })]
+/** After Make primary on 44: 44 Primary with notifications on, 42 Old. */
+const SWITCHED_EMAILS = [
+  EMAILS[0],
+  { ...EMAILS[1], label: "Old" },
+  EMAILS[2],
+  emailRow({ id: 44, value: "ann@personal.example", label: "Primary", isNotificationEnabled: true }),
+]
+const IN_USE = "User with email 'ann@personal.example' already exists."
+
+test.describe("Email verify (Story 3.6)", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 })
+  })
+
+  test("add → save → auto-verify: the verify follows the POST; the new row counts down (pending); \"Link sent\" announced", async ({ page }) => {
+    await openWith(page)
+    const posts = await mockContactManage(page)
+    const verifies = await mockContactVerify(page)
+    await section(page).getByRole("button", { name: "Add email" }).click()
+    const row = newRow(page)
+    await addressInput(row).fill("b@x.com")
+    await pick(page, labelSelect(row), "Personal")
+    await mockContacts(page, { Email: [...EMAILS, emailRow({ id: 45, value: "b@x.com", label: "Personal", isVerified: false })] })
+    const writes: string[] = []
+    page.on("request", (request) => {
+      if (request.method() === "POST" && request.url().includes("/api/1h/v2/health/contact-point")) writes.push(new URL(request.url()).pathname)
+    })
+    await saveButton(page).click()
+    await expect(footer(page)).toHaveCount(0)
+    await expect(toastWith(page, "Email saved.")).toBeVisible()
+    expect(posts()).toHaveLength(1)
+    await expect.poll(() => verifies()).toEqual([{ contactPointIds: [45] }])
+    expect(writes).toEqual(["/api/1h/v2/health/contact-point", "/api/1h/v2/health/contact-point/verify"])
+    const added = readRow(page, "b@x.com")
+    await expect(added.locator('[data-slot="status-badge"]')).toHaveAttribute("data-status", "pending")
+    await expect(added.locator('[data-slot="status-badge"]')).toHaveText(/^Link sent · Resend in (60|59|58) s$/)
+    await expect(liveStatus(page)).toHaveText("Link sent")
+  })
+
+  test("manual Verify: sends [41] at once with no edit mode; the countdown; the kebab item is aria-disabled with it", async ({ page }) => {
+    await openWith(page)
+    const verifies = await mockContactVerify(page)
+    const work = readRow(page, "ann@work.example")
+    // Only the unverified Work email offers Verify (the Primary is verified, the Home row has no status).
+    await expect(section(page).getByRole("button", { name: "Verify", exact: true })).toHaveCount(1)
+    await work.hover()
+    await work.getByRole("button", { name: "Verify", exact: true }).click()
+    await expect.poll(() => verifies()).toEqual([{ contactPointIds: [41] }])
+    await expect(footer(page)).toHaveCount(0)
+    await expect(work.locator('[data-slot="status-badge"]')).toHaveText(/^Link sent · Resend in (60|59) s$/)
+    await expect(liveStatus(page)).toHaveText("Link sent")
+    await section(page).getByRole("button", { name: "More actions for ann@work.example" }).click()
+    const item = page.getByRole("menuitem", { name: /Resend verification/ })
+    await expect(item).toHaveAttribute("aria-disabled", "true")
+    await expect(item).toContainText(/Link sent · Resend in \d+ s/)
+    await page.keyboard.press("Escape")
+    expect(verifies()).toHaveLength(1)
+  })
+
+  test("a send error reads \"Couldn't send the link\" with Resend verification available at once", async ({ page }) => {
+    await openWith(page)
+    const verifies = await mockContactVerify(page, { body: { success: false, contactPointIdsWithSendError: [41] } })
+    const work = readRow(page, "ann@work.example")
+    await work.hover()
+    await work.getByRole("button", { name: "Verify", exact: true }).click()
+    await expect(work.getByText("Couldn't send the link")).toBeVisible()
+    await work.hover()
+    const resend = work.getByRole("button", { name: "Resend verification" })
+    await expect(resend).not.toHaveAttribute("aria-disabled", "true")
+    await resend.click()
+    await expect.poll(() => verifies()).toHaveLength(2)
+  })
+})
+
+test.describe("Email Make primary and notifications (Story 3.6)", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 })
+  })
+
+  test("Make primary → confirm → one POST; 44 first with Primary and On, 42 Old; toast; h2 focused; the header shows the new email", async ({ page }) => {
+    await openWith(page, PRIMARY_EMAILS)
+    await expect(header(page).getByText("ann@example.com")).toBeVisible()
+    const posts = await mockContactManage(page)
+    const row = readRow(page, "ann@personal.example")
+    await row.hover()
+    await row.getByRole("button", { name: "Make primary" }).click()
+    const dialog = confirmDialog(page)
+    await expect(dialog.getByRole("heading", { name: "This changes how you sign in" })).toBeVisible()
+    await expect(dialog).toContainText("ann@personal.example becomes your primary email and sign-in email. Your current primary is relabeled Old.")
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused()
+    await mockContacts(page, { Email: SWITCHED_EMAILS })
+    await dialog.getByRole("button", { name: "Make primary" }).click()
+    await expect(dialog).toHaveCount(0)
+    expect(posts()).toEqual([
+      {
+        contactPointsToAdd: [],
+        contactPointsToUpdate: [
+          { id: 44, type: "Email", label: "Primary", isNotificationEnabled: true },
+          { id: 42, type: "Email", label: "Old", isNotificationEnabled: true },
+        ],
+        contactPointsToRemove: [],
+      },
+    ])
+    await expect(toastWith(page, "Email saved.")).toBeVisible()
+    await expect(page.getByRole("heading", { level: 2, name: "Email" })).toBeFocused()
+    const first = emailTable(page).locator("tbody tr").first()
+    await expect(first.getByRole("cell").first()).toHaveText("ann@personal.example")
+    await expect(first.locator('[data-slot="chip"]')).toHaveAttribute("data-variant", "primary")
+    await expect(first.getByRole("cell").nth(3)).toHaveText("On")
+    await expect(readRow(page, "ann@example.com").locator('[data-slot="chip"]')).toHaveText("Old")
+    await expect(header(page).getByText("ann@personal.example")).toBeVisible()
+  })
+
+  test("Cancel and Escape send nothing and return focus to the trigger", async ({ page }) => {
+    await openWith(page, PRIMARY_EMAILS)
+    const posts = await mockContactManage(page)
+    const row = readRow(page, "ann@personal.example")
+    await row.hover()
+    const trigger = row.getByRole("button", { name: "Make primary" })
+    await trigger.click()
+    await confirmDialog(page).getByRole("button", { name: "Cancel" }).click()
+    await expect(confirmDialog(page)).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect(confirmDialog(page)).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(confirmDialog(page)).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+    expect(posts()).toEqual([])
+  })
+
+  test("disabled reasons: unverified (Verify beside it) and unverified Home", async ({ page }) => {
+    await openWith(page, PRIMARY_EMAILS)
+    const cases: [string, string][] = [
+      ["ann@work.example", "Verify this email first"],
+      ["ann@home.example", "Change the label from Home, then verify this email"],
+    ]
+    for (const [address, reason] of cases) {
+      const action = readRow(page, address).getByRole("button", { name: "Make primary" })
+      await expect(action).toHaveAttribute("aria-disabled", "true")
+      await expect(action).toHaveAccessibleDescription(reason)
+      await action.focus()
+      await page.keyboard.press("Enter")
+      await expect(confirmDialog(page)).toHaveCount(0)
+    }
+    await readRow(page, "ann@work.example").getByRole("button", { name: "Make primary" }).focus()
+    await expect(page.getByRole("tooltip", { name: "Verify this email first" })).toBeVisible()
+    await expect(readRow(page, "ann@work.example").getByRole("button", { name: "Verify", exact: true })).toHaveCount(1)
+    // The Primary row offers no Make primary.
+    await expect(readRow(page, "ann@example.com").getByRole("button", { name: "Make primary" })).toHaveCount(0)
+  })
+
+  test("in use: the 400 toasts \"This email is used by another account. Choose a different one.\" with Retry; the view is unchanged", async ({ page }) => {
+    await openWith(page, PRIMARY_EMAILS)
+    const posts = await mockContactManage(page, { status: 400, body: { message: IN_USE, code: 400 } })
+    const row = readRow(page, "ann@personal.example")
+    await row.hover()
+    await row.getByRole("button", { name: "Make primary" }).click()
+    await confirmDialog(page).getByRole("button", { name: "Make primary" }).click()
+    await expect(confirmDialog(page)).toHaveCount(0)
+    const toast = toastWith(page, "This email is used by another account. Choose a different one.")
+    await expect(toast).toBeVisible()
+    await expect(toast.getByRole("button", { name: "Retry" })).toBeVisible()
+    expect(posts()).toHaveLength(1)
+    // Unchanged: 42 still first and Primary, 44 still Personal.
+    const first = emailTable(page).locator("tbody tr").first()
+    await expect(first.getByRole("cell").first()).toHaveText("ann@example.com")
+    await expect(first.locator('[data-slot="chip"]')).toHaveAttribute("data-variant", "primary")
+    await expect(readRow(page, "ann@personal.example").locator('[data-slot="chip"]')).toHaveText("Personal")
+  })
+
+  test("notifications: in edit view only the Primary has a switch; off → Save sends only that row; read view shows Off", async ({ page }) => {
+    await openWith(page, PRIMARY_EMAILS)
+    const posts = await mockContactManage(page)
+    await section(page).getByRole("button", { name: "Edit", exact: true }).click()
+    await expect(section(page).getByRole("switch")).toHaveCount(1)
+    const toggle = section(page).getByRole("switch", { name: "Notifications for ann@example.com" })
+    await expect(toggle).toHaveAttribute("aria-checked", "true")
+    await toggle.click()
+    await expect(toggle).toHaveAttribute("aria-checked", "false")
+    await expect(footer(page).getByText("Unsaved changes")).toBeVisible()
+    await mockContacts(page, { Email: PRIMARY_EMAILS.map((row) => (row.id === 42 ? { ...row, isNotificationEnabled: false } : row)) })
+    await saveButton(page).click()
+    await expect(footer(page)).toHaveCount(0)
+    expect(posts()).toEqual([{ contactPointsToAdd: [], contactPointsToUpdate: [{ id: 42, type: "Email", label: "Primary", isNotificationEnabled: false }], contactPointsToRemove: [] }])
+    await expect(emailTable(page).locator("tbody tr").first().getByRole("cell").nth(3)).toHaveText("Off")
+  })
+
+  test("at 360 px: Make primary from the kebab; the confirm fits with no horizontal scroll", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 })
+    await openWith(page, PRIMARY_EMAILS)
+    await section(page).getByRole("button", { name: "More actions for ann@personal.example" }).click()
+    await page.getByRole("menuitem", { name: "Make primary" }).click()
+    const dialog = confirmDialog(page)
+    await expect(dialog).toBeVisible()
+    const box = await dialog.boundingBox()
+    expect(box && box.x >= 16 && box.x + box.width <= 360 - 16).toBe(true)
+    await expectNoHorizontalScroll(page)
+    await dialog.getByRole("button", { name: "Cancel" }).click()
+    await expect(section(page).getByRole("button", { name: "More actions for ann@personal.example" })).toBeFocused()
+    await expectNoHorizontalScroll(page)
+  })
+
+  test("axe passes in light and dark with the confirm open, with a countdown, and in edit view with the switch", async ({ page }) => {
+    await openWith(page, PRIMARY_EMAILS)
+    await mockContactVerify(page)
+    const work = readRow(page, "ann@work.example")
+    await work.hover()
+    await work.getByRole("button", { name: "Verify", exact: true }).click()
+    await expect(work.locator('[data-slot="status-badge"]')).toHaveText(/^Link sent/)
+    const row = readRow(page, "ann@personal.example")
+    await row.hover()
+    await row.getByRole("button", { name: "Make primary" }).click()
+    await expect(confirmDialog(page)).toBeVisible()
+    for (const theme of ["light", "dark"] as const) {
+      await setTheme(page, theme)
+      const results = await new AxeBuilder({ page }).withTags(WCAG).analyze()
+      expect(results.violations, `Make primary confirm (${theme})`).toEqual([])
+    }
+    await confirmDialog(page).getByRole("button", { name: "Cancel" }).click()
+    await section(page).getByRole("button", { name: "Edit", exact: true }).click()
+    await axe(page, "Email edit with the switch")
   })
 })

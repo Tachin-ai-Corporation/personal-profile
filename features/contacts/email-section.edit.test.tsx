@@ -198,7 +198,7 @@ afterEach(() => {
 })
 
 describe("EmailSection: read-view entry points", () => {
-  it("the header has an outline Edit and Add email (44 px); each kebab holds only Edit and Remove", async () => {
+  it("the header has an outline Edit and Add email (44 px); an unverified row's kebab holds Verify, Make primary, Edit and Remove", async () => {
     await render()
     for (const name of ["Edit", "Add email"]) {
       const action = button(name)
@@ -206,10 +206,9 @@ describe("EmailSection: read-view entry points", () => {
       expect(action.getAttribute("data-variant") ?? action.className).toMatch(/outline/)
       expect(action.getAttribute("aria-disabled")).toBeNull()
     }
-    // No Verify or Make primary (Story 3.6), inline or in the kebab.
-    expect(within(section()).queryByRole("button", { name: /^(Verify|Make primary)$/ })).toBeNull()
+    // Story 3.6 adds Verify and Make primary (aria-disabled with its reason) before Edit.
     const menu = await openKebab("ann@work.example")
-    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Edit", "Remove"])
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Verify", "Make primaryVerify this email first", "Edit", "Remove"])
   })
 
   it("Edit switches the whole table in place: Editing, focus on the first editable Label; addresses locked with their help; the Primary label locked", async () => {
@@ -227,11 +226,11 @@ describe("EmailSection: read-view entry points", () => {
     expect(described(lockedInput(primary))).toEqual(["Locked. This is the address you sign in with."])
     expect(described(lockedInput(work))).toEqual(["Saved addresses can't be changed. Remove it and add a new one."])
     expect(described(lockedInput(home))).toEqual(["Saved addresses can't be changed. Remove it and add a new one."])
-    // The Primary row's label is the locked chip; Status and Notifications show as read.
+    // The Primary row's label is the locked chip; Status shows as read and Notifications as its switch (Story 3.6).
     expect(within(primary).queryByRole("combobox", { name: "Label" })).toBeNull()
     expect(within(primary).getByText("Primary").getAttribute("data-variant")).toBe("primary")
     expect(within(primary).getByText("Verified")).toBeTruthy()
-    expect(within(primary).getByText("On")).toBeTruthy()
+    expect(within(primary).getByRole("switch", { name: "Notifications for ann@example.com" }).getAttribute("aria-checked")).toBe("true")
     expect(within(work).getByText("Not verified")).toBeTruthy()
     expect(within(work).getByText("Not applicable")).toBeTruthy()
     expect(labelTrigger(work).textContent).toBe("Work")
@@ -788,12 +787,12 @@ describe("EmailSection: review guards", () => {
 
   it("a repeated id: shown twice, the repeat locked; a save sends that id once", async () => {
     const { bodies } = await render([email({ id: 7, value: "seven@example.com", label: "Work" }), email({ id: 7, value: "again@example.com", label: "Home" })])
-    // The repeat's kebab holds only Edit (nothing to remove); the first occurrence keeps Remove.
+    // The repeat's kebab holds only Edit (nothing to remove or make primary); the first occurrence keeps Make primary and Remove.
     const repeatMenu = await openKebab("again@example.com")
     expect(within(repeatMenu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Edit"])
     await closeMenu(repeatMenu)
     const firstMenu = await openKebab("seven@example.com")
-    expect(within(firstMenu).getAllByRole("menuitem").map((item) => item.firstElementChild?.firstElementChild?.textContent ?? item.textContent)).toEqual(["Edit", "Remove"])
+    expect(within(firstMenu).getAllByRole("menuitem").map((item) => item.firstElementChild?.firstElementChild?.textContent ?? item.textContent)).toEqual(["Make primary", "Edit", "Remove"])
     await closeMenu(firstMenu)
     await click(button("Edit"))
     const [first, repeat] = editRows()

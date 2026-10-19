@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react"
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { useEffect } from "react"
 import { useSWRConfig, type ScopedMutator } from "swr"
@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { SectionCountProvider, useSectionCounts } from "@/features/shell"
 import { keys } from "@/lib/api"
 import { axeViolations } from "@/test/axe"
+import { stubLayoutApis } from "@/test/dom-stubs"
 import { stubViewport } from "@/test/media"
 import { contactPointWire } from "@/test/myself-fixture"
 import { renderInPage } from "@/test/providers"
@@ -240,6 +241,25 @@ describe("EmailSection: below 768 px", () => {
     expect(line2.classList.contains("text-muted-foreground")).toBe(true)
     expect(line1.textContent).toBe("Email address: ann@example.comStatus: Verified")
     expect(line2.textContent).toBe("Label: PrimaryNotifications: On")
+  })
+
+  it("keeps Verify and Make primary out of the card (no inline actions); the kebab lists them (Story 3.6)", async () => {
+    stubViewport(360)
+    stubLayoutApis()
+    await renderLoaded()
+    const work = within(within(section()).getByRole("list", { name: "Email" }))
+      .getAllByRole("listitem")
+      .find((card) => card.textContent?.includes("ann@work.example")) as HTMLElement
+    expect(within(work).queryByRole("button", { name: "Verify" })).toBeNull()
+    expect(within(work).queryByRole("button", { name: "Make primary" })).toBeNull()
+    await act(async () => fireEvent.keyDown(within(work).getByRole("button", { name: "More actions for ann@work.example" }), { key: "Enter" }))
+    const menu = await screen.findByRole("menu")
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.firstElementChild?.firstElementChild?.textContent ?? item.textContent)).toEqual([
+      "Verify",
+      "Make primary",
+      "Edit",
+      "Remove",
+    ])
   })
 })
 

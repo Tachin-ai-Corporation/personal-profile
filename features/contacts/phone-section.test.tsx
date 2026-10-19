@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react"
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { useEffect } from "react"
 import { useSWRConfig, type ScopedMutator } from "swr"
@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { SectionCountProvider, useSectionCounts } from "@/features/shell"
 import { keys } from "@/lib/api"
 import { axeViolations } from "@/test/axe"
+import { stubLayoutApis } from "@/test/dom-stubs"
 import { stubViewport } from "@/test/media"
 import { contactPointWire } from "@/test/myself-fixture"
 import { renderInPage } from "@/test/providers"
@@ -417,5 +418,28 @@ describe("PhoneSection: accessibility", () => {
     renderInPage(<PhoneSection />, { page: "profile", handlers: listServer({ Mobile: fail() }).handlers })
     await screen.findByText("Couldn't load phones")
     expect(await axeViolations()).toEqual([])
+  })
+})
+
+describe("PhoneSection: a repeated id's kebab (deferred from Story 3.5, fixed in Story 3.6)", () => {
+  it("offers no Remove on a repeated id's later occurrence; the first occurrence keeps it", async () => {
+    stubLayoutApis()
+    await renderLoaded({
+      Mobile: ok([...MOBILE, contactPointWire({ id: 12, value: "+14155550112", label: "Work", isVerified: true, isNotificationEnabled: false })]),
+      Landline: ok(LANDLINE),
+    })
+    const menuOf = async (number: string): Promise<string[]> => {
+      await act(async () => fireEvent.keyDown(within(section()).getByRole("button", { name: `More actions for ${number}` }), { key: "Enter" }))
+      const menu = await screen.findByRole("menu")
+      const items = within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => item.firstElementChild?.firstElementChild?.textContent ?? item.textContent ?? "")
+      await act(async () => fireEvent.keyDown(menu, { key: "Escape" }))
+      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull())
+      return items
+    }
+    // The repeat is locked like a row without an id: Edit only (its edit row could never be restored or sent).
+    expect(await menuOf("+1 (415) 555-0112")).toEqual(["Edit"])
+    expect(await menuOf("+1 (415) 551-2125")).toContain("Remove")
   })
 })

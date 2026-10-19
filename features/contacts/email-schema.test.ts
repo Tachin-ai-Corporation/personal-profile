@@ -15,9 +15,10 @@ import {
 } from "./email-schema"
 
 /**
- * Story 3.5 (NG-9024): `emailSchema` and the Email edit helpers. Covers the
+ * Stories 3.5–3.6 (NG-9024): `emailSchema` and the Email edit helpers. Covers the
  * "Invalid" and "Limit" rows of the I/O matrix in
- * `spec-3-5-view-add-relabel-and-remove-emails.md`.
+ * `spec-3-5-view-add-relabel-and-remove-emails.md` and the edit rows'
+ * notifications of spec 3.6.
  */
 
 function point(overrides: Partial<ContactPoint> = {}): ContactPoint {
@@ -111,13 +112,15 @@ describe("email limit helpers", () => {
 })
 
 describe("email rows", () => {
-  it("a saved email as an edit row: its id, label and value; never new or removed", () => {
-    expect(emailEditRowOf("id-41", point())).toEqual({ key: "id-41", id: 41, isNew: false, label: "Work", value: "ann@x.com", removed: false })
-    expect(emailEditRowOf("k", point({ id: null, label: null, value: null }))).toEqual({ key: "k", id: null, isNew: false, label: "", value: "", removed: false })
+  it("a saved email as an edit row: its id, label, value and notifications; never new or removed", () => {
+    expect(emailEditRowOf("id-41", point())).toEqual({ key: "id-41", id: 41, isNew: false, label: "Work", value: "ann@x.com", removed: false, notifications: false })
+    expect(emailEditRowOf("k", point({ id: null, label: null, value: null }))).toEqual({ key: "k", id: null, isNew: false, label: "", value: "", removed: false, notifications: false })
+    expect(emailEditRowOf("k", point({ label: "Primary", isNotificationEnabled: true })).notifications).toBe(true)
+    expect(emailEditRowOf("k", point({ isNotificationEnabled: null })).notifications).toBe(false)
   })
 
-  it("a new row starts empty", () => {
-    expect(newEmailEditRow("new-3")).toEqual({ key: "new-3", id: null, isNew: true, label: "", value: "", removed: false })
+  it("a new row starts empty, notifications off", () => {
+    expect(newEmailEditRow("new-3")).toEqual({ key: "new-3", id: null, isNew: true, label: "", value: "", removed: false, notifications: false })
   })
 })
 
@@ -144,5 +147,20 @@ describe("email drafts", () => {
     ])
     expect(emailDraftDiff(current, current)).toEqual([])
     expect(emailDraftDiff({ rows: [newEmailEditRow("new-9")] }, { rows: [] })).toEqual([{ field: "rows.new-9", label: "", mine: "New · not saved", current: "" }])
+  })
+
+  it("includes the Primary's notifications (Story 3.6): a switched one differs; other rows never show theirs", () => {
+    const primary = saved({ id: 42, value: "ann@example.com", label: "Primary", isNotificationEnabled: true })
+    const work = saved({ id: 41, value: "ann@work.example", label: "Work" })
+    const current = { rows: [primary, work] }
+    expect(emailDraftDiff({ rows: [{ ...primary, notifications: false }, { ...work, notifications: true }] }, current)).toEqual([
+      { field: "rows.id-42", label: "ann@example.com", mine: "Primary · Notifications off", current: "Primary · Notifications on" },
+    ])
+    // A draft row stored before Story 3.6 (no notifications) still parses, and reads as the current row's notifications.
+    const legacy: EmailEditRow = { ...primary }
+    delete legacy.notifications
+    expect(emailDraftRows([legacy])).toEqual([legacy])
+    expect(emailDraftDiff({ rows: [legacy, work] }, current)).toEqual([])
+    expect(emailDraftDiff({ rows: [legacy] }, { rows: [] })).toEqual([{ field: "rows.id-42", label: "ann@example.com", mine: "Primary", current: "" }])
   })
 })

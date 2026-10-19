@@ -4,7 +4,7 @@ import { mapApiError, type ApiResponse, type ErrorScope, type MappedError } from
 import { rules } from "./contacts"
 
 /**
- * Stories 3.2–3.5 (NG-9023, NG-9024): the Contacts table's Phone and Email rules, anchored on the
+ * Stories 3.2–3.6 (NG-9023, NG-9024): the Contacts table's Phone and Email rules, anchored on the
  * exact backend texts (`common/Messages.java`; `INVALID_PHONE_PROVIDED` in the
  * common util `Messages`). The duplicate rules are covered in `errors.test.ts`.
  */
@@ -77,14 +77,14 @@ describe("contacts errors: phone rules", () => {
     ["an invalid phone outside phone", "personal", INVALID_PHONE],
     ["an invalid label outside phone", "social", INVALID_LABEL],
     ["an invalid type outside phone", "email", INVALID_TYPE],
-    ["a Primary rule outside phone", "email", PRIMARY_RULES[0][0]],
+    ["a Primary rule outside phone and email", "social", PRIMARY_RULES[0][0]],
     ["a near-miss limit (no period)", "phone", LIMIT.slice(0, -1)],
     ["a limit with a prefix", "phone", `Error: ${LIMIT}`],
     ["an invalid phone without braces", "phone", "Invalid phone number provided +1415555."],
     ["another enum attribute", "phone", "Invalid 'Value' specified. Possible values are [x]."],
     ["an enum text without its list", "phone", "Invalid 'Label' specified. Possible values are ."],
     ["a Primary rule with a suffix", "phone", `${PRIMARY_RULES[5][0]} Try again.`],
-    ["the verify cooldown outside phone", "email", COOLDOWN],
+    ["the verify cooldown outside phone and email", "social", COOLDOWN],
     ["a verify cooldown with a suffix", "phone", `${COOLDOWN} Try later.`],
     ["a verify cooldown without minutes", "phone", "There is already a pending verification for Contact '+14155550111' submitted within the last minutes."],
     ["a verify cooldown of another window (the copy says the last hour)", "phone", "There is already a pending verification for Contact '+14155550111' submitted within the last 5 minutes."],
@@ -134,5 +134,60 @@ describe("contacts errors: email rules (Story 3.5)", () => {
     ["an invalid type (no email rule)", "email", INVALID_TYPE],
   ])("leaves %s as generic with the platform message", (_name, scope, message) => {
     expect(mapApiError(scope, upstream(message))).toEqual({ kind: "generic", message })
+  })
+})
+
+describe("contacts errors: email Primary, in-use and cooldown rules (Story 3.6)", () => {
+  /** Each backend Primary rule's text (as above) and the Email message it gets. */
+  const EMAIL_PRIMARY_RULES: ReadonlyArray<readonly [string, MessageKey]> = [
+    ["Operation failed. In order to delete a primary contact of type 'Email', please update another one as primary.", "contacts.emailPrimaryFirst"],
+    ["Operation failed. In order to downgrade a primary contact point from type 'Email', you must update another one as primary.", "contacts.emailPrimaryDowngrade"],
+    ["Operation failed. You can provide only one replacement as primary contact from type 'Email'.", "contacts.emailPrimaryOneReplacement"],
+    ["Operation failed. You can create or update one primary contact point per type.", "contacts.emailPrimaryOnePerType"],
+    ["Operation failed. You aren't allowed to create a Primary contact point from types '[MOBILE, EMAIL]'.", "contacts.emailPrimaryNotNew"],
+    ["Operation failed. Person already has primary contact point from type 'Email'.", "contacts.emailPrimaryChanged"],
+    ["Operation failed. You can't update contact point with id '41' as primary, because it's not verified.", "contacts.emailVerifyFirst"],
+  ]
+  const IN_USE = "User with email 'ann@work.example' already exists."
+  const EMAIL_COOLDOWN = "There is already a pending verification for Contact 'ann@work.example' submitted within the last 60 minutes."
+
+  it.each<[string, string, MappedError]>([
+    ...EMAIL_PRIMARY_RULES.map(([message, messageKey]): [string, string, MappedError] => [message, message, { kind: "field", field: "primary", messageKey }]),
+    ["the address in use by another account", IN_USE, { kind: "field", field: "primary", messageKey: "contacts.emailInUse" }],
+    ["the verify cooldown", EMAIL_COOLDOWN, { kind: "field", field: "verify", messageKey: "contacts.emailVerifyCooldown" }],
+  ])("maps %s", (_name, message, expected) => {
+    expect(mapApiError("email", upstream(message))).toEqual(expected)
+  })
+
+  it("gives each Primary rule its own email message, and the in-use and cooldown rules theirs", () => {
+    expect(Object.fromEntries(EMAIL_PRIMARY_RULES.map(([, key]) => [key, messageFor(key)]))).toEqual({
+      "contacts.emailPrimaryFirst": "Make another email primary first",
+      "contacts.emailPrimaryDowngrade": "Make another email primary before you change this one's label",
+      "contacts.emailPrimaryOneReplacement": "Only one email can replace your primary email",
+      "contacts.emailPrimaryOnePerType": "Only one email can be primary",
+      "contacts.emailPrimaryNotNew": "A new email can't be primary. Save it, then make it primary.",
+      "contacts.emailPrimaryChanged": "Your primary email changed. Check your email addresses and try again.",
+      "contacts.emailVerifyFirst": "Verify this email first",
+    })
+    expect(messageFor("contacts.emailInUse")).toBe("This email is used by another account. Choose a different one.")
+    expect(messageFor("contacts.emailVerifyCooldown")).toBe("A link was already sent in the last hour. Check your email.")
+  })
+
+  it("keeps the phone's Primary messages on the phone scope", () => {
+    expect(mapApiError("phone", upstream(EMAIL_PRIMARY_RULES[6][0]))).toEqual({ kind: "field", field: "primary", messageKey: "contacts.phoneVerifyFirst" })
+  })
+
+  it.each<[string, ErrorScope, string]>([
+    ["the address in use outside email and account", "phone", IN_USE],
+    ["an in-use text with a suffix", "email", `${IN_USE} Try again.`],
+    ["a near-miss in-use text", "email", "User with username 'ann' already exists."],
+    ["an email Primary rule with a suffix", "email", `${EMAIL_PRIMARY_RULES[0][0]} Try again.`],
+    ["an email cooldown with a suffix", "email", `${EMAIL_COOLDOWN} Try later.`],
+  ])("leaves %s as generic with the platform message", (_name, scope, message) => {
+    expect(mapApiError(scope, upstream(message))).toEqual({ kind: "generic", message })
+  })
+
+  it("still maps the address in use on the account scope to its own copy (Story 7.6)", () => {
+    expect(mapApiError("account", upstream(IN_USE))).toEqual({ kind: "field", field: "primaryEmail", messageKey: "account.primaryEmailInUse" })
   })
 })

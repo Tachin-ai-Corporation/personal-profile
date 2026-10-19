@@ -4,15 +4,17 @@ import { useId, type ReactNode } from "react"
 import type { FieldValues, Path, PathValue } from "react-hook-form"
 import { FieldError } from "@/components/ui/form-field"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import type { SectionForm } from "@/features/shell"
-import { CONTACT_MESSAGES } from "@/lib/shared/messages"
+import { CONTACT_MESSAGES, formatMessage } from "@/lib/shared/messages"
 
 /**
  * The edit-view cells and row helpers the Contact Sections share (Team A,
  * Epic 3: Phone since Stories 3.1–3.4, Email since Story 3.5): a control's
- * help and error wiring, the Label (or Type) `Select`, the "—" of a row with
- * no notifications setting, new-row keys and unique row keys. Not
- * foundation: only `features/contacts` imports it.
+ * help and error wiring, the Label (or Type) `Select`, the Primary row's
+ * notifications `Switch` (Story 3.6 shares it), the "—" of a row with no
+ * notifications setting, new-row keys and unique row keys. Not foundation:
+ * only `features/contacts` imports it.
  */
 
 /** A row the helpers key: anything with a stable `key`. */
@@ -147,5 +149,39 @@ export function ChoiceCell<T extends FieldValues>({ section, path, headerId, opt
         </Select>
       )}
     </CellField>
+  )
+}
+
+export interface NotificationsSwitchProps<T extends FieldValues> {
+  readonly section: SectionForm<T>
+  /** The form path of the row's `notifications`. */
+  readonly path: Path<T>
+  /** How the row is named: "Notifications for {name}" (the formatted number, the address). */
+  readonly name: string
+  /** The saved setting, shown when the form holds none (a draft stored before the switch existed). */
+  readonly saved: boolean
+}
+
+/**
+ * The Primary row's Notifications switch (Stories 3.4, 3.6), named
+ * "Notifications for {name}": a toggle makes the Section dirty and Save
+ * sends only that row. Read-only while saving (it ignores presses).
+ */
+export function NotificationsSwitch<T extends FieldValues>({ section, path, name, saved }: NotificationsSwitchProps<T>) {
+  const { ref, ...binding } = section.control(path)
+  // A draft stored before the switch existed holds no value: the saved one shows.
+  const checked = typeof binding.value === "boolean" ? binding.value : saved
+  return (
+    <Switch
+      ref={ref}
+      name={binding.name}
+      checked={checked}
+      aria-label={formatMessage(CONTACT_MESSAGES.notificationsFor, { number: name })}
+      aria-readonly={binding.readOnly || undefined}
+      onCheckedChange={(next) => {
+        if (!binding.readOnly) binding.onChange(next as PathValue<T, Path<T>>)
+      }}
+      onBlur={binding.onBlur}
+    />
   )
 }
