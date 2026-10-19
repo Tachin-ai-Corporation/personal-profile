@@ -106,6 +106,7 @@ describe("toAccountView (Story 7.4)", () => {
     ["4155552125", [{ phoneNumberRegion: "n/a" }], "+1 (415) 555-2125"],
     ["4155552125", [{ phoneNumberRegion: null }], "+1 (415) 555-2125"],
     ["02071838750", [{ type: "Landline", phoneNumberRegion: "GB" }], "02071838750"],
+    ["02071838750", [{ label: "Primary", phoneNumberRegion: "us" }, { value: "020 7183 8750", label: "Work", phoneNumberRegion: "GB" }], "+44 20 7183 8750"],
     ["not a phone", undefined, "not a phone"],
     ["+442071838750", undefined, "+44 20 7183 8750"],
   ] as const)("formats %s using cached Mobile rows %j", (phoneNumber, rows, expected) => {

@@ -1,5 +1,13 @@
 /** `/account` copy needed by the shared error tables (`lib/api/errors/account.ts`); Epic 7 adds the rest. */
 export const ACCOUNT_MESSAGES = {
+  emailInvalid: "Invalid email address", // DRAFT COPY
+  phoneRequired: "Primary phone is required", // DRAFT COPY
+  primaryUnavailable: "Select a current verified contact", // DRAFT COPY
+  emailHelper: "Please add additional verified email(s) in your personal profile to change your current primary contact email", // DRAFT COPY
+  phoneHelper: "Please add additional verified phone(s) in your personal profile to change your current primary contact phone", // DRAFT COPY
+  personalProfile: "personal profile", // DRAFT COPY
+  emailNotice: "Changing your primary email will result in updating your login credentials. The next time you login you will have to use the new email.", // DRAFT COPY
+  phoneNotice: "Changing your primary phone will result in updating your notification preferences.", // DRAFT COPY
   primaryEmailInUse: "This email is already used by another account", // DRAFT COPY (email in use on PUT user/edit)
   username: "Username", // DRAFT COPY (Story 7.4 field label)
   password: "Password", // DRAFT COPY (Story 7.4 field label)
