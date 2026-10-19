@@ -135,6 +135,80 @@ test.describe("Authenticator status and app tiles (Story 8.1)", () => {
     expect(mutations).toEqual([])
   })
 
+  test("200% tile text wraps inside the controls without clipping logos or horizontal overflow", async ({ page }) => {
+    for (const linked of [false, true]) {
+      await mockMyself(page, { body: { ...ANN, totpEnabled: linked } })
+      await page.goto("/account?tab=personal")
+      await expect(tiles(page)).toHaveCount(5)
+      // Emulate text-only enlargement, keeping control dimensions and viewport unchanged.
+      await tiles(page).locator("span").evaluateAll((labels) => labels.forEach((label) => {
+        const element = label as HTMLElement
+        const style = getComputedStyle(element)
+        const fontSize = parseFloat(style.fontSize) * 2
+        const lineHeight = parseFloat(style.lineHeight) * 2
+        element.style.fontSize = `${fontSize}px`
+        element.style.lineHeight = `${lineHeight}px`
+      }))
+      for (const tile of await tiles(page).all()) {
+        const dimensions = await tile.evaluate((element) => {
+          const bounds = element.getBoundingClientRect()
+          const label = element.querySelector("span")!
+          const range = document.createRange()
+          range.selectNodeContents(label)
+          return {
+            noOverflow: element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight,
+            textContained: [...range.getClientRects()].every((line) => line.left >= bounds.left && line.right <= bounds.right && line.top >= bounds.top && line.bottom <= bounds.bottom),
+            logo: element.querySelector("img")!.getBoundingClientRect().height,
+          }
+        })
+        expect(dimensions).toEqual({ noOverflow: true, textContained: true, logo: 48 })
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+      expect((await new AxeBuilder({ page }).include("#authenticator").withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze()).violations).toEqual([])
+    }
+  })
+
+  for (const destination of ["Retry", "another control", "another control then body", "content", "session"] as const) {
+    test(`held Authenticator Retry preserves the focus intent: ${destination}`, async ({ page }) => {
+      await mockMyself(page, { status: 400, body: {} })
+      await page.goto("/account?tab=personal")
+      const retry = card(page).getByRole("button", { name: "Retry", exact: true })
+      await expect(retry).toBeVisible()
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => { release = resolve })
+      let calls = 0
+      await page.route("**/api/1h/v2/user/myself", async (route) => {
+        calls++
+        await gate
+        await route.fulfill(destination === "session" ? { status: 401, json: { errorCode: "SESSION_EXPIRED", source: "proxy" } } : { json: ANN })
+      })
+      try {
+        await retry.focus()
+        await page.keyboard.press("Enter")
+        await expect.poll(() => calls).toBe(1)
+        const outside = page.getByRole("tab", { name: "Individual Provider Registration", exact: true })
+        const otherHeading = page.getByRole("heading", { name: "Personal account settings", exact: true })
+        if (destination.startsWith("another control")) {
+          await outside.focus()
+          if (destination === "another control then body") await outside.evaluate((element) => (element as HTMLElement).blur())
+        } else if (destination === "content") await otherHeading.click()
+        release()
+        if (destination === "session") {
+          const dialog = page.getByRole("alertdialog", { name: "Your session ended" })
+          await expect(dialog).toBeVisible()
+          await expect(dialog.getByRole("button", { name: "Return to 1health", exact: true })).toBeFocused()
+        } else {
+          await expect(tiles(page)).toHaveCount(5)
+          if (destination === "Retry") await expect(card(page).getByRole("heading", { name: TITLE, exact: true })).toBeFocused()
+          else if (destination === "another control") await expect(outside).toBeFocused()
+          else if (destination === "content") await expect(otherHeading).toBeFocused()
+          else expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true)
+        }
+        expect(calls).toBe(1)
+      } finally { release() }
+    })
+  }
+
   test("keyboard order, inactive caption association, focus/hover tooltip and no actions", async ({ page, isMobile }) => {
     await mockMyself(page, { body: { ...ANN, totpEnabled: true } })
     const mfaRequests: string[] = []

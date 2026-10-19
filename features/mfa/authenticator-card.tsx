@@ -42,12 +42,15 @@ export function AuthenticatorCard({ state, linked, onRetry, attempt, onSettled, 
           {MFA_APPS.map((app) => <Tooltip key={app.id} content={linked ? MFA_MESSAGES.inactiveReason : <></>} contentClassName={linked ? undefined : "hidden"} keepOpenOnPress>
             <Button type="button" variant="outline" aria-label={formatMessage(MFA_MESSAGES.linkApp, { App: app.name })} aria-haspopup="dialog"
               aria-disabled={linked || undefined} aria-describedby={linked ? CAPTION_ID : undefined}
-              className="bg-card hover:bg-accent dark:bg-card dark:hover:bg-accent dark:border-border transition-colors aspect-square h-auto min-w-24 w-full flex-col gap-2 whitespace-nowrap p-0 aria-disabled:opacity-[0.55] md:size-28 md:shrink-0"
+              className="bg-card hover:bg-accent dark:bg-card dark:hover:bg-accent dark:border-border transition-colors grid h-auto min-w-24 w-full grid-cols-1 whitespace-normal p-0 before:col-start-1 before:row-start-1 before:aspect-square before:w-full before:content-[''] aria-disabled:opacity-[0.55] md:w-28 md:shrink-0"
               onClick={() => onLink?.(app.id)}>
-              {/* Original decorative vendor artwork; same-origin under the image CSP. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={`/mfa/${app.id}.png`} alt="" aria-hidden="true" width={48} height={48} className="size-12 object-contain" />
-              <span className="cell-strong">{app.name}</span>
+              {/* The empty grid item reserves a square; enlarged text can grow the content row. */}
+              <div className="col-start-1 row-start-1 flex w-full min-w-0 flex-col items-center gap-2 py-2">
+                {/* Original decorative vendor artwork; same-origin under the image CSP. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`/mfa/${app.id}.png`} alt="" aria-hidden="true" width={48} height={48} className="size-12 shrink-0 object-contain" />
+                <span className="cell-strong max-w-full wrap-anywhere">{app.name}</span>
+              </div>
             </Button>
           </Tooltip>)}
         </div>

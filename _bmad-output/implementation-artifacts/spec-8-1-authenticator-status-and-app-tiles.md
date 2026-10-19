@@ -71,6 +71,60 @@ context:
 - Given scoped MFA denial, when rendered, then other Account functionality and tabs remain available.
 - Given every matrix row, when registered tests execute, then all asserted behavior passes alongside existing Account/anchor regressions.
 
+### Review Findings — bmad-code-review (2026-10-19)
+
+Scope: `main...5731fac`;12 files,+834/-184 lines; full mode. All four layers completed: blind hunter, edge-case hunter, verification-gap reviewer and acceptance auditor. No failed layers. The latter two reported no findings. The approved frozen intent remains unchanged.
+
+- [x] [Review][Patch] Restore focus after successful keyboard Authenticator Retry [features/mfa/authenticator-section.tsx:22] — medium. Both blind and edge reviewers found that raw retry removes its focused button on recovery. Production browser probes reproduced document.body focus in desktop and360px projects. Preserve focus ownership during the pending request, focus the authenticator heading only when the activating Retry still owns focus, clear ownership after failed/session outcomes and unmount, and never reclaim focus after intervening user interaction. Account settings already demonstrates the required behavior; keep the fix within the MFA area and add held-retry regressions.
+- [x] [Review][Patch] Contain tile labels at200% text size [features/mfa/authenticator-card.tsx:45] — low. The no-wrap label can protrude past its tile: the browser probe measured Android OTP at169.9px against110px desktop /99px mobile inner width after doubling its14px font. Allow wrapping/content height accommodation without altering the normal112px desktop or three-column360px layouts; verify enlarged text containment in both viewports.
+
+#### Individual triage before grouping
+
+| ID | Source | Verdict | Evidence / disposition |
+|---|---|---|---|
+|1| blind-hunter | medium | Successful keyboard Retry leaves body focused in both real browser projects; no retry ownership or heading restoration exists in AuthenticatorSection. Patch. |
+|2| blind-hunter | false | DESIGN.md Authenticator app section explicitly specifies status on the right (line795). The shared right-aligned tools implement that precise layout; PM5's general next-to-heading wording does not override its detailed visual rule. |
+|3| blind-hunter | low | Empty hidden tooltip roots can update the provider timing, but no visible popup or lost focus results; unlinked keyboard browser checks assert no exposed tooltip. Reject: negligible timing difference is uncommon and a supported disabled-tooltip mechanism adds shared API/state complexity. |
+|4| blind-hunter | low | A doubled label font demonstrably exceeds the tile width in both projects. Keep as a direct local CSS correction; patch. |
+|5| blind-hunter | low | Native images have no fallback if a same-origin static asset fails. All five versioned repository assets load successfully in actual browser coverage. Reject: uncommon static delivery failure would require new conditional fallback state for decorative artwork while the vendor name stays readable. |
+|6| blind-hunter | false | This suggests an additional cross-product test, not a demonstrated missing behavior: linked click/Enter/Space inertness is already covered for every vendor, transition tests observe updated aria-disabled on the retained Button, and the shared Button recomputes inertness from current props each render. No stale handler or memoized guard exists. |
+|7| blind-hunter | false | The proxy403 matrix row already supplies mapped generic/non-forbidden failure on an MFA-owned path, proving the guard rejects it. Other non-forbidden kinds follow the same explicit kind!==forbidden guard; additional enumerated kind tests would mirror that unchanged predicate. |
+|8| blind-hunter | false | Current code never calls focus on retry recovery, so it cannot steal focus from an outside control. The verified failure is loss of the removed Retry's focus (ID1), not an existing focus-stealing path. Held-request/intervening-interaction cases are required validation of ID1's correction. |
+|9| blind-hunter | false | No contrary background-read behavior was demonstrated. AuthenticatorSection prioritizes readError over stale myself, so stale status/actions disappear; onReady only notifies anchor readiness and never reclaims focus. Existing read-error and background-update tests cover those contracts. |
+|10| blind-hunter | false | The cited in-progress language describes the independent-review phase and is followed by explicit final closure evidence and done metadata. The artifact records chronology rather than a pending current task. Also rejected by workflow rule against fixes that edit the spec under review. |
+|11| edge-case-hunter | medium | Independently confirms ID1's same raw-retry focus loss; reproduced in both browser projects. Group with ID1 after individual verdict. |
+
+Grouped result:0 decision-needed,2 patch,0 defer,8 rejected. IDs1/11 share the missing retry focus lifecycle; ID4 is independent label containment. Existing review/build triage above is historical evidence and remains intact.
+
+Validation for this review:598 focused unit/catalog tests passed (3 files). Temporary production-browser probes reproduced the focus and enlarged-label issues in both projects and were removed after execution; log `/tmp/story81-review-probes.log`. At initial presentation no application source had changed and push was pending the patch decision.
+
+#### Approved corrections
+
+The user selected option1 (apply both patches and complete the pending push). Both patch findings are resolved;0 decisions or deferred items remain.
+
+- Retry now tracks ownership from its focused native button. A successful read restores the authenticator heading only if no deliberate focus or pointer move intervened. Failed reads, session errors, replacement retries and unmount release the previous ownership. Six new unit cases cover held recovery, outside focus, outside-to-body, pointer interaction, virtual activation and failed-retry/background recovery. Production browser cases also cover the real session dialog.
+- Tile labels wrap at enlarged text sizes. An empty CSS grid item preserves the usual square size, while the content row can grow when text needs more height. Original48px artwork stays unshrunk; normal112px desktop tiles and320/360/767/768px layouts remain verified. No shared foundation code or public component API changed.
+- Focused checks:29 unit cases passed; targeted typography/geometry browser run8 passed across both projects, including both linked states, normal themes/layout and 200% text. All ten held-Retry browser cases passed in the preceding full authenticator run; its only failures were the label-height issue subsequently corrected. The complete verification below supersedes this intermediate validation.
+
+#### Final code-review closure
+
+- Both user-approved patches are complete; 0 decision-needed, 0 open patch, 0 deferred and 8 rejected observations. No unresolved high/medium findings remain. Story status is done.
+- Full final unit/coverage command: `corepack pnpm vitest run --coverage --maxWorkers=2` — 4,817 passed, 100% statements/branches/functions/lines in all enforced modules. Log: `/tmp/story81-review-complete-coverage.log`.
+- Full affected production-browser command: `corepack pnpm test:e2e e2e/account-*.spec.ts --workers=2` — 314 passed, 6 expected viewport-specific skips, no failures or retries. All seven Account specs and production build passed, including the new held Retry/session/focus and 200% text cases. Log: `/tmp/story81-review-complete-browser.log`.
+- Full lint, typecheck, forbidden/token and whitespace checks passed. Approved intent remains unchanged. Only the own 8.1 sprint line moves to done; header, last_updated, parent epic and all other stories are preserved per repository/user constraints.
+- The user explicitly chose applying both patches and completing the pending branch push. The authorized next action is commit/push; no PR, merge, Jira transition or next-story work is requested.
+
+#### Rejected
+
+- ID2 — false: DESIGN.md:795 explicitly positions authenticator status on the right.
+- ID3 — low: hidden tooltip timing has negligible uncommon impact; a supported inactive mode adds shared API/state complexity.
+- ID5 — low: rare static artwork delivery failure needs conditional fallback logic; the visible vendor label remains available.
+- ID6 — false: initial linked activation, updated transition props and shared current-prop inertness are covered; no activation defect was shown.
+- ID7 — false: mapped generic/proxy denial already covers the non-forbidden guard; extra kinds repeat that predicate.
+- ID8 — false: current raw-retry code never restores focus, so it cannot steal outside focus; ID1's fix will include the requested preservation regression.
+- ID9 — false: read-error precedence hides stale actions and the unchanged anchor callback does not move focus on background readiness.
+- ID10 — false: final closure and done metadata identify the current state; earlier phase notes are historical, and spec-edit fixes are excluded by the workflow.
+
 ## Implementation Notes
 
 - Parent audited all tasks and all eight matrix rows against the changed source and passing 21 MFA RTL cases, catalog suite and 11 focused production-browser passes. The foundation prerequisite is already merged; original baseline diff includes its assets, while implementation_base_commit gives the feature-only audit. Own sprint entry stays in-progress during independent review and moves to review at final closure.
