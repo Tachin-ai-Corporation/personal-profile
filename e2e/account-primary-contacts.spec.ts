@@ -94,6 +94,8 @@ for (const hash of ["email", "phone"] as const) {
 test(`${hash} empty alternatives helper runs dirty leave guard and passes axe`, async ({ page }) => {
   await mockContacts(page)
   await mockProxy(page, "v2/type/key/Person", { body: {} })
+  // The helper ends on `/?tab=contacts`, whose Email and Phone Sections read the Contact Point labels (Epic 3).
+  await mockProxy(page, "v2/type/key/ContactPoint", { body: {} })
   await edit(page)
   await expect(email(page)).toHaveAttribute("aria-disabled", "true")
   await email(page).focus()

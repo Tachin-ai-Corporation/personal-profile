@@ -156,16 +156,22 @@ test.describe("/ page frame (Stories 1.8, 1.9)", () => {
     await page.goto("/")
     await expect(page.getByRole("heading", { level: 1, name: "Ann Lee" })).toBeVisible()
     await expect(page.getByText("AL", { exact: true })).toBeVisible()
+    // The profile header: the block holding the page's h1 (the Sections below use h2). Scoped so the
+    // Contact Sections (Epic 3), which read the same per-type keys and show their own errors, don't count.
+    const header = page.locator("div:has(> h1)")
+    await expect(header).toHaveCount(1)
     if (isMobile) {
       await page.waitForLoadState("networkidle")
-      expect(seen).toEqual([])
-      await expect(page.getByText("ann@example.com")).toHaveCount(0)
+      await expect(header.getByText("ann@example.com")).toHaveCount(0)
     } else {
-      await expect(page.getByText("ann@example.com")).toBeVisible()
+      await expect(header.getByText("ann@example.com")).toBeVisible()
       // Shown through the shared formatter (spec F1), with the row's region (default us).
-      await expect(page.getByText("+1 (212) 555-0100")).toBeVisible()
-      expect(seen.toSorted()).toEqual(["Email", "Landline", "Mobile"])
-      await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0)
+      await expect(header.getByText("+1 (212) 555-0100")).toBeVisible()
+      // As a set: the header and the Contact Sections share the keys, so a type may be requested twice outside SWR's dedupe
+      // window; Social Media is the Social media Section's own read (Story 3.7).
+      expect([...new Set(seen)].toSorted()).toEqual(["Email", "Landline", "Mobile", "Social Media"])
+      // The failed type is omitted from the header, with no error there.
+      await expect(header.getByRole("alert")).toHaveCount(0)
     }
   })
 

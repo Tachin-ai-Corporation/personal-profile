@@ -84,7 +84,7 @@ describe("mapApiError: exact-message tables", () => {
 
   it.each<[string, ErrorScope, ApiResponse<unknown>]>([
     ["SSN taken outside personal", "account", upstream(400, SSN_TAKEN)],
-    ["email in use outside account", "email", upstream(400, EMAIL_IN_USE)],
+    ["email in use outside account and email", "phone", upstream(400, EMAIL_IN_USE)],
     ["an MFA text outside authenticator", "personal", upstream(409, "Totp is already enabled.")],
     ["an NPI text outside provider", "organizations", upstream(400, PERSONAL_NPI)],
     ["a contact duplicate outside contacts", "addresses", upstream(400, CONTACT_DUPLICATES)],
