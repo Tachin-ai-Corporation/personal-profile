@@ -72,6 +72,8 @@ export interface UseSectionFormOptions<T extends FieldValues> {
    * presets with `form.setValue` never count.
    */
   readonly draftFields?: readonly (keyof T & string)[]
+  /** Transforms restored values against the current baseline; `null` defers restoration without changing the form or draft offer. Only declared draft fields are applied. */
+  readonly transformDraft?: (values: DraftValues, baseline: T) => DraftValues | null
   /** F4 drafts: the Section's server data; a stored draft is offered only once `loaded` (the default). */
   readonly dataStatus?: SectionDataStatus
   /** F4 drafts: the changed fields between a draft and the current server values. */
@@ -192,6 +194,7 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
     errorFields,
     describeError,
     draftFields,
+    transformDraft,
     describeDraftDiff,
     dataStatus,
     revealField,
@@ -571,15 +574,20 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
     applyDraft: draftFields
       ? (values) => {
           if (mode === "saving") return false
+          const restored = transformDraft ? transformDraft(values, baseline) : values
+          if (restored === null) return false
           if (mode === "read") enterEdit()
           // A restored draft is the user's own change, against the values before it: it is written again (with the current base).
           const before = form.getValues()
           setPresetBase({ ...before })
           for (const key of draftFields) {
-            if (Object.hasOwn(values, key)) {
-              form.setValue(key as Path<T>, values[key] as PathValue<T, Path<T>>, { shouldValidate: true, shouldDirty: true })
+            if (Object.hasOwn(restored, key)) {
+              form.setValue(key as Path<T>, restored[key] as PathValue<T, Path<T>>, { shouldValidate: true, shouldDirty: true })
             }
           }
+          // Mapping can discard every outdated choice. Resolve that draft now:
+          // a clean Save or Cancel has no dirty lifecycle event to remove it.
+          if (transformDraft && !differsFromBaseline(form.getValues())) registry.report({ type: "discarded", id })
           return true
         }
       : undefined,

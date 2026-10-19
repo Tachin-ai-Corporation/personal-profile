@@ -18,6 +18,7 @@ import { PortalUrlProvider } from "./portal-url-provider"
 import { runSaveAll } from "./save-all"
 import { SectionRegistryProvider, useDirtyCount, useSectionRegistry, type SectionRegistry } from "./section-registry"
 import { SessionDialog } from "./session-dialog"
+import type { UseSectionFormOptions } from "./use-section-form"
 
 vi.mock("./toasts", () => ({ toastSuccess: vi.fn(), toastError: vi.fn(() => ({ id: "t", dismiss: vi.fn() })), toastPartial: vi.fn() }))
 
@@ -39,6 +40,7 @@ function Capture() {
 }
 
 interface PageProps extends FixtureSectionProps {
+  readonly transformDraft?: UseSectionFormOptions<FixtureSectionValues>["transformDraft"]
   /** `null`: myself hasn't loaded. */
   readonly userId?: number | null
   readonly events?: SessionEvents
@@ -111,6 +113,95 @@ describe("restore (same base)", () => {
     expect(screen.getByText("Unsaved changes")).toBeTruthy()
     expect(screen.getByTestId("dirty-count").textContent).toBe("1")
     expect(document.activeElement).toBe(heading())
+  })
+
+  it.each([
+    { action: "Save", baseline: FIXTURE_BASELINE, choice: "Restore", notice: restoreText },
+    { action: "Cancel", baseline: FIXTURE_BASELINE, choice: "Restore", notice: restoreText },
+    { action: "Save", baseline: CURRENT, choice: "Keep mine", notice: conflictText },
+    { action: "Cancel", baseline: CURRENT, choice: "Keep mine", notice: conflictText },
+  ])("keeps a refused $choice offered, persists mapped retry against the current base, then cleans up once on $action", async ({ action, baseline, choice, notice }) => {
+    const values = { number: "4155550000", note: "work" }
+    await storeDraft(FIXTURE_BASELINE, values)
+    const original = stored()
+    const refused = vi.fn(() => null)
+    const view = render(<Page baseline={baseline} transformDraft={refused} />)
+    await screen.findByText(notice)
+    const comparison = screen.queryByRole("table", { name: `Phone ${conflictText}` })?.textContent
+    await act(async () => fireEvent.click(button(choice)))
+    expect(refused).toHaveBeenCalledExactlyOnceWith(values, baseline)
+    expect(screen.getByText(notice)).toBeTruthy()
+    expect(screen.queryByRole("table", { name: `Phone ${conflictText}` })?.textContent).toBe(comparison)
+    expect(button("Edit")).toBeTruthy()
+    expect(registry?.get("phone")).toMatchObject({ isDirty: false, userChanged: false })
+    expect(stored()).toEqual(original)
+
+    const ready = vi.fn(() => ({ ...values, number: "4155550001" }))
+    view.rerender(<Page baseline={baseline} transformDraft={ready} />)
+    await act(async () => fireEvent.click(button(choice)))
+    expect(ready).toHaveBeenCalledExactlyOnceWith(values, baseline)
+    expect(number().value).toBe("4155550001")
+    expect(note().value).toBe("work")
+    expect(screen.queryByText(notice)).toBeNull()
+    const baseHash = await hashDraftBase(baseline)
+    await act(async () => fireEvent(window, new Event("pagehide")))
+    await waitFor(() => expect(stored()).toMatchObject({ values: { ...values, number: "4155550001" }, baseHash }))
+    const observed: string[] = []
+    registry!.observe((event) => {
+      if (event.type === "saved" || event.type === "discarded") observed.push(event.type)
+    })
+    const remove = vi.spyOn(Storage.prototype, "removeItem")
+    await act(async () => fireEvent.click(button(action)))
+    expect(observed).toEqual([action === "Save" ? "saved" : "discarded"])
+    expect(remove.mock.calls.filter(([key]) => key === KEY)).toHaveLength(1)
+    expect(stored()).toBeNull()
+  })
+
+  it.each(["Save", "Cancel"])("resolves a mapped draft equal to current data once, including clean %s and remount", async (action) => {
+    await storeDraft(FIXTURE_BASELINE, { number: "4155550000", note: "work" })
+    const transformDraft: NonNullable<PageProps["transformDraft"]> = (_values, baseline) => baseline
+    const save = vi.fn(async (): Promise<SaveResult> => ({ ok: true }))
+    const view = render(<Page transformDraft={transformDraft} save={save} onNoChanges="status" />)
+    await screen.findByText(restoreText)
+    const observed: string[] = []
+    registry!.observe((event) => {
+      if (event.type === "saved" || event.type === "discarded") observed.push(event.type)
+    })
+    const remove = vi.spyOn(Storage.prototype, "removeItem")
+    await act(async () => fireEvent.click(button("Restore")))
+    expect(number().value).toBe(FIXTURE_BASELINE.number)
+    expect(note().value).toBe(FIXTURE_BASELINE.note)
+    expect(registry?.get("phone")).toMatchObject({ isDirty: false, userChanged: false })
+    expect(screen.queryByText(restoreText)).toBeNull()
+    expect(stored()).toBeNull()
+    await act(async () => fireEvent(window, new Event("pagehide")))
+    await act(async () => fireEvent.click(button(action)))
+    expect(save).not.toHaveBeenCalled()
+    expect(observed).toEqual(["discarded"])
+    expect(remove.mock.calls.filter(([key]) => key === KEY)).toHaveLength(1)
+    view.unmount()
+    const store = createDraftStore()
+    const read = vi.spyOn(store, "read")
+    render(<Page transformDraft={transformDraft} store={store} />)
+    await waitFor(() => expect(read).toHaveBeenCalledWith(owner(), "phone"))
+    expect(read).toHaveReturnedWith(null)
+    expect(screen.queryByText(restoreText)).toBeNull()
+    expect(stored()).toBeNull()
+    expect(button("Edit")).toBeTruthy()
+    expect(remove.mock.calls.filter(([key]) => key === KEY)).toHaveLength(1)
+  })
+
+  it("preserves the omitted-callback behavior for a draft equal to current data", async () => {
+    await storeDraft(FIXTURE_BASELINE, FIXTURE_BASELINE)
+    const original = stored()
+    const view = render(<Page />)
+    await screen.findByText(restoreText)
+    await act(async () => fireEvent.click(button("Restore")))
+    await act(async () => fireEvent.click(button("Cancel")))
+    expect(stored()).toEqual(original)
+    view.unmount()
+    render(<Page />)
+    expect(await screen.findByText(restoreText)).toBeTruthy()
   })
 
   it("Discard deletes the draft and stays in the read view", async () => {
