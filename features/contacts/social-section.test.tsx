@@ -371,3 +371,34 @@ describe("SocialSection: accessibility", () => {
     expect(await axeViolations()).toEqual([])
   })
 })
+
+it("never opens portal or other 1health destinations in a new tab", async () => {
+  const destinations = ["https://1health.app.1health.io", "https://1health.demo.1health.io/u", "https://dev.1hdev.io", "https://1health.app.1health.io./u", "https://www.1health.io", "https://sub.dev.1hdev.io/u"]
+  await renderLoaded({ "Social Media": ok(destinations.map((value, index) => link({ id: 100 + index, value }))) })
+  for (const value of destinations) {
+    expect(within(section()).getByText(value)).toBeTruthy()
+    expect(within(section()).queryByRole("link", { name: value })).toBeNull()
+  }
+})
+
+it("repeated Retry presses join one contact read", async () => {
+  let recover = false
+  let release = () => {}
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  const server = listServer({ "Social Media": async () => {
+    if (!recover) return fail()()
+    await gate
+    return ok(LINKS)()
+  } })
+  renderInPage(<SocialSection />, { page: "profile", handlers: server.handlers })
+  const retry = await within(section()).findByRole("button", { name: "Retry" })
+  recover = true
+  await act(async () => {
+    fireEvent.click(retry)
+    fireEvent.click(retry)
+  })
+  await waitFor(() => expect(server.counts["Social Media"]).toBe(2))
+  await act(async () => release())
+  await waitFor(() => expect(frame()?.getAttribute("data-state")).toBe("ready"))
+  expect(server.counts["Social Media"]).toBe(2)
+})

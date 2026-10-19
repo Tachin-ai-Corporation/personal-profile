@@ -162,7 +162,8 @@ async function addEmail(address: string, label: string) {
 
 async function save() {
   await click(within(section()).getByRole("button", { name: "Save" }))
-  await waitFor(() => expect(isReadView()).toBe(true))
+  // Loading also has no footer: wait for the completed save, after auto-verification.
+  await waitFor(() => expect(within(section()).getByRole("button", { name: "Edit" })).toBeTruthy())
 }
 
 async function openKebab(address: string): Promise<HTMLElement> {

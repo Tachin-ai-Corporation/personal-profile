@@ -55,8 +55,8 @@ export interface MakePrimaryOptions {
   readonly eligible: (id: number) => ContactPrimaryCandidate | undefined
   /** The saved rows the engine diffs against (latest). */
   readonly savedPoints: () => readonly ContactPoint[]
-  /** Revalidates the Section's keys and `myself`, never rejecting (a failed refetch is left to the next read). */
-  readonly refetch: () => Promise<unknown>
+  /** Revalidates the Section's keys and `myself`, invalidating obsolete IDs only after an acknowledged write; never rejects. */
+  readonly refetch: (saved: boolean) => Promise<unknown>
   /** The confirm's body for `name` (the second sentence only when `relabelsOld`); an element may wrap a long name. */
   readonly body: (candidate: ContactPrimaryCandidate) => ReactNode
 }
@@ -105,13 +105,13 @@ export function useMakePrimary(options: MakePrimaryOptions): MakePrimary {
       if (dto === null) return false
       const result = await saveContactPoints(dto, scope)
       // Saved or not, a failed refetch is left to the next read.
-      await refetch()
+      await refetch(result.ok)
       if (result.ok) return true
       const { mapped } = result.error
       if (mapped.kind !== "session") toastError(contactPrimaryFailureText(mapped, sectionLabel), { onRetry: () => void retry(id) })
       return false
     } catch {
-      toastError(contactPrimaryFailureText({ kind: "generic" }, sectionLabel), { onRetry: () => void latest.current.refetch() })
+      toastError(contactPrimaryFailureText({ kind: "generic" }, sectionLabel), { onRetry: () => void latest.current.refetch(false) })
       return false
     } finally {
       sending.current = false

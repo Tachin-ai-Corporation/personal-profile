@@ -611,3 +611,22 @@ test.describe("Phone Make primary and notifications (Story 3.4)", () => {
     }
   })
 })
+
+test("restoring a stale phone draft preserves the principal changed in another session", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openWith(page, PRIMARY_PHONES)
+  const posts = await mockContactManage(page)
+  await section(page).getByRole("button", { name: "Edit", exact: true }).click()
+  const row = section(page).locator("tbody tr").filter({ has: page.locator('input[value="+1 (415) 555-0113"]') })
+  await pick(page, row.getByRole("combobox", { name: "Label", exact: true }), "Work")
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("pp:draft:v1:demo:42:phone"))).not.toBeNull()
+  await mockContacts(page, SWITCHED_PHONES)
+  await page.reload()
+  await section(page).getByRole("button", { name: /^(Restore|Keep mine)$/ }).click()
+  const keepMine = section(page).getByRole("button", { name: "Keep mine", exact: true })
+  if (await keepMine.count()) await keepMine.click()
+  await section(page).getByRole("button", { name: "Save", exact: true }).click()
+  await expect(section(page).getByRole("button", { name: "Edit", exact: true })).toBeVisible()
+  expect(posts()).toEqual([])
+  await expect(readRow(page, "+1 (415) 555-0113").getByText("Primary", { exact: true })).toBeVisible()
+})

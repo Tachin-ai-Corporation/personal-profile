@@ -285,3 +285,41 @@ test.describe("Social media edit (Story 3.7)", () => {
     await expectNoHorizontalScroll(page)
   })
 })
+
+test("post-save list failure requires a read Retry before the next replacement uses the new ID", async ({ page }) => {
+  await openWith(page, [socialRow({ id: 51, value: "https://example.com/a" })])
+  const posts = await mockContactManage(page, () => ({ status: 200 }))
+  await section(page).getByRole("button", { name: "Edit", exact: true }).click()
+  await linkInput(editRow(page, 0)).fill("https://example.com/b")
+  await mockContacts(page, { "Social Media": { status: 500, body: { message: "temporary list failure" } } })
+  await saveButton(page).click()
+  await expect(toastWith(page, "Social media saved.")).toBeVisible()
+  await expect(section(page).getByText("Couldn't load social links", { exact: true })).toBeVisible()
+  await expect(section(page).getByRole("button", { name: "Edit", exact: true })).toHaveCount(0)
+  expect(posts()).toHaveLength(1)
+  await page.getByRole("tab", { name: "Insurance", exact: true }).click()
+  await page.getByRole("tab", { name: "Contacts", exact: true }).click()
+  await expect(section(page).getByText("Couldn't load social links", { exact: true })).toBeVisible()
+  await expect(section(page).getByRole("button", { name: "Edit", exact: true })).toHaveCount(0)
+  await axe(page, "failed post-save refresh")
+  await mockContacts(page, { "Social Media": [socialRow({ id: 53, value: "https://example.com/b" })] })
+  await section(page).getByRole("button", { name: "Retry", exact: true }).click()
+  await expect(section(page).getByRole("link", { name: "https://example.com/b", exact: true })).toBeVisible()
+  expect(posts()).toHaveLength(1)
+  await section(page).getByRole("button", { name: "Edit", exact: true }).click()
+  await linkInput(editRow(page, 0)).fill("https://example.com/c")
+  await mockContacts(page, { "Social Media": [socialRow({ id: 54, value: "https://example.com/c" })] })
+  await saveButton(page).click()
+  await expect(section(page).getByRole("link", { name: "https://example.com/c", exact: true })).toBeVisible()
+  expect(posts()[1]).toEqual({ contactPointsToAdd: [addOf("https://example.com/c")], contactPointsToUpdate: [], contactPointsToRemove: [53] })
+})
+
+test("portal destinations remain plain text while external Social links can open a new tab", async ({ page }) => {
+  const urls = ["https://1health.app.1health.io", "https://1health.demo.1health.io/u", "https://dev.1hdev.io", "https://www.1health.io", "https://example.com/u"]
+  await openWith(page, urls.map((value, index) => socialRow({ id: 100 + index, value })))
+  for (const value of urls.slice(0, -1)) {
+    await expect(section(page).getByText(value, { exact: true })).toBeVisible()
+    await expect(section(page).getByRole("link", { name: value, exact: true })).toHaveCount(0)
+  }
+  await expect(section(page).getByRole("link", { name: urls[4], exact: true })).toHaveAttribute("target", "_blank")
+})

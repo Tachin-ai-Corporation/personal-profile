@@ -123,7 +123,7 @@ function watchAppCache(list: readonly SwrKey[]): Map<string, number> {
 const section = (): HTMLElement => screen.getByRole("region", { name: "Phone" })
 const frame = (): HTMLElement | null => section().querySelector('[data-slot="state-frame"]')
 const heading = (): HTMLElement => screen.getByRole("heading", { level: 2, name: "Phone" })
-const isReadView = (): boolean => section().querySelector('[data-slot="section-footer"]') === null
+const isReadView = (): boolean => section().querySelector('[data-slot="section-footer"]') === null && within(section()).queryByRole("button", { name: "Edit" }) !== null
 const footnote = (): HTMLElement | null => section().querySelector('[data-slot="phone-footnote"]')
 const dialog = (): HTMLElement | null => screen.queryByRole("alertdialog")
 /** The read-view rows (table rows or cards), in order. */
@@ -675,4 +675,46 @@ describe("PhoneSection: notifications and the footnote (Story 3.4)", () => {
     document.documentElement.classList.add("dark")
     expect(await axeViolations()).toEqual([])
   })
+})
+
+// PR #19 review: restored drafts are reconciled with the current saved contacts.
+it("a stale draft cannot undo a primary change performed in another session", async () => {
+  const first = await render({ lists: SWITCH })
+  await click(within(section()).getByRole("button", { name: "Edit" }))
+  const work = bodyRows().find((row) => row.querySelector('input[value="+1 (415) 555-0113"]')) as HTMLElement
+  await act(async () => fireEvent.keyDown(within(work).getByRole("combobox", { name: "Label" }), { key: "Enter" }))
+  await click(screen.getByRole("option", { name: "Personal" }))
+  await act(async () => sessionEvents.publish("session-expired"))
+  await waitFor(() => expect(window.localStorage.getItem(DRAFT_KEY)).not.toBeNull())
+  first.unmount()
+  sessionEvents.reset()
+  const second = await render({ lists: SWITCHED })
+  await click(await within(section()).findByRole("button", { name: /^(Restore|Keep mine)$/ }))
+  const keepMine = within(section()).queryByRole("button", { name: "Keep mine" })
+  if (keepMine) await click(keepMine)
+  await waitFor(() => expect(isReadView()).toBe(false))
+  expect(dialog()).toBeNull()
+  await click(within(section()).getByRole("button", { name: "Save" }))
+  await waitFor(() => expect(isReadView()).toBe(true))
+  expect(second.bodies).toEqual([])
+  expect(within(rowOf("+1 (415) 555-0113")).getByText("Primary")).toBeTruthy()
+})
+
+it("a restored removal cannot delete the last currently saved non-Primary phone", async () => {
+  const a = { ...PRIMARY_12, label: "Work" }
+  const first = await render({ lists: { Mobile: [a, WORK_13] } })
+  const menu = await openKebab("+1 (415) 551-2125")
+  await click(within(menu).getByRole("menuitem", { name: "Remove" }))
+  await act(async () => sessionEvents.publish("session-expired"))
+  await waitFor(() => expect(window.localStorage.getItem(DRAFT_KEY)).not.toBeNull())
+  first.unmount()
+  sessionEvents.reset()
+  const second = await render({ lists: { Mobile: [a] } })
+  await click(await within(section()).findByRole("button", { name: /^(Restore|Keep mine)$/ }))
+  const keepMine = within(section()).queryByRole("button", { name: "Keep mine" })
+  if (keepMine) await click(keepMine)
+  await click(within(section()).getByRole("button", { name: "Save" }))
+  await waitFor(() => expect(section().querySelector('[data-slot~="inline-banner"]')?.textContent).toContain("You need at least one phone"))
+  expect(second.bodies).toEqual([])
+  expect(isReadView()).toBe(false)
 })

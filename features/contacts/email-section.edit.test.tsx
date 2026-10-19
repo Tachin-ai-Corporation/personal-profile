@@ -78,7 +78,7 @@ const frame = (): HTMLElement | null => section().querySelector('[data-slot="sta
 const heading = (): HTMLElement => screen.getByRole("heading", { level: 2, name: "Email" })
 const button = (name: string | RegExp): HTMLElement => within(section()).getByRole("button", { name })
 const footer = (): HTMLElement => section().querySelector('[data-slot="section-footer"]') as HTMLElement
-const isReadView = (): boolean => section().querySelector('[data-slot="section-footer"]') === null
+const isReadView = (): boolean => section().querySelector('[data-slot="section-footer"]') === null && within(section()).queryByRole("button", { name: "Edit" }) !== null
 const banner = (): HTMLElement | null => section().querySelector('[data-slot~="inline-banner"]')
 /** The body rows of the edit table (desktop) or its cards (mobile). */
 const editRows = (): HTMLElement[] => [...section().querySelectorAll<HTMLElement>("tbody tr, li[data-slot='section-table-card']")]
@@ -861,4 +861,23 @@ describe("EmailSection: edit view accessibility", () => {
     await render(many(20, 100))
     expect(await axeViolations()).toEqual([])
   })
+})
+
+it("a restored removal cannot delete the last currently saved non-Primary email", async () => {
+  const original = many(2, 61)
+  const first = await render(original)
+  const menu = await openKebab("user61@example.com")
+  await click(within(menu).getByRole("menuitem", { name: "Remove" }))
+  await act(async () => sessionEvents.publish("session-expired"))
+  await waitFor(() => expect(window.localStorage.getItem(DRAFT_KEY)).not.toBeNull())
+  first.unmount()
+  sessionEvents.reset()
+  const second = await render([original[0]])
+  await click(await within(section()).findByRole("button", { name: /^(Restore|Keep mine)$/ }))
+  const keepMine = within(section()).queryByRole("button", { name: "Keep mine" })
+  if (keepMine) await click(keepMine)
+  await save()
+  await waitFor(() => expect(banner()?.textContent).toContain("You need at least one email"))
+  expect(second.bodies).toEqual([])
+  expect(isReadView()).toBe(false)
 })

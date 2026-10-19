@@ -3,7 +3,6 @@
 import { Plus } from "lucide-react"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useWatch, type Path } from "react-hook-form"
-import useSWR from "swr"
 import { Button } from "@/components/ui/button"
 import { DisabledAction } from "@/components/ui/disabled-action"
 import { Input } from "@/components/ui/input"
@@ -31,19 +30,19 @@ import {
 } from "@/features/shell"
 import {
   contactPointsDiffToManageDTO,
-  keys,
   mapFetchError,
   mutateMyself,
   PRIMARY_LABEL,
   saveContactPoints,
-  type ApiResponseError,
   type ContactPoint,
   type ContactPointEditRow,
   type ErrorField,
   type MappedError,
 } from "@/lib/api"
+import { ENVIRONMENTS, environmentConfig } from "@/lib/shared/environments"
 import { safeHref } from "@/lib/shared/safe-href"
 import { COMMON_MESSAGES, CONTACT_MESSAGES, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
+import { useContactRead } from "./use-contact-read"
 import { CellField, isRepeatKey, nextNewKey, uniqueRowKeys } from "./contact-edit-kit"
 import {
   isSocialFull,
@@ -89,7 +88,14 @@ function socialHref(value: string): string | undefined {
   const href = safeHref(value, ["https:"])
   if (!href) return undefined
   const url = new URL(href)
-  return url.username === "" && url.password === "" ? href : undefined
+  // Portal and other 1health destinations are outside the Social new-tab exception (PA1).
+  const host = url.hostname.replace(/\.$/, "")
+  const firstParty = ENVIRONMENTS.some((environment) => {
+    const portalHost = new URL(environmentConfig(environment).portalUrl).hostname
+    const domain = portalHost.split(".").slice(-2).join(".")
+    return host === domain || host.endsWith(`.${domain}`)
+  })
+  return url.username === "" && url.password === "" && !firstParty ? href : undefined
 }
 
 /**
@@ -309,7 +315,7 @@ const socialLoadError = (failure: unknown): MappedError | undefined => (failure 
  * no verification.
  */
 export function SocialSection() {
-  const social = useSWR<ContactPoint[] | undefined, ApiResponseError>(keys.contactPoints(SOCIAL_TYPE))
+  const social = useContactRead(SOCIAL_TYPE)
   const { onReady } = useSectionFrame("social")
 
   const failure = social.data === undefined ? social.error : undefined
@@ -323,9 +329,9 @@ export function SocialSection() {
   }
 
   const rows = useMemo(() => (social.data ? socialRowsOf(social.data) : undefined), [social.data])
-  const loadError = rows ? undefined : socialLoadError(failure)
-  const state: FrameState = rows ? "ready" : loadError ? { error: loadError } : "loading"
-  const dataStatus: SectionDataStatus = rows ? "loaded" : loadError ? "error" : "loading"
+  const loadError = socialLoadError(failure)
+  const state: FrameState = loadError ? { error: loadError } : rows ? "ready" : "loading"
+  const dataStatus: SectionDataStatus = loadError ? "error" : rows ? "loaded" : "loading"
   useReportSectionCount("social", rows?.length)
 
   const baseline = useMemo<SocialValues>(
@@ -354,7 +360,7 @@ export function SocialSection() {
     const result = await saveContactPoints(dto, "social")
     if (!result.ok) return result
     // Saved: a failed refetch must never make Retry send the body again (the next read catches up).
-    await Promise.allSettled([social.mutate(), mutateMyself()])
+    await Promise.allSettled([social.refresh(), mutateMyself()])
     return { ok: true }
   }
 
@@ -472,7 +478,7 @@ export function SocialSection() {
         columns={SECTION_COLUMNS.social}
         loadError={{ kind: "section", sectionId: "social" }}
         level="section"
-        onRetry={() => void social.mutate()}
+        onRetry={() => void social.refresh(false)}
         attempt={attempt}
         onReady={onReady}
         // Once ready the Section container is the card (it carries the editing halo and the draft notice).

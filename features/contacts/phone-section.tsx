@@ -51,6 +51,7 @@ import {
 import { CONTACT_LABEL_HOME, CONTACT_PHONE_TYPES, contactLabelsFrom, type ContactPhoneType } from "@/lib/shared/contact-labels"
 import { COMMON_MESSAGES, CONTACT_MESSAGES, formatMessage, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 import { formatPhoneDisplay, isPhoneRegion, normalizeRegion, regionFlag, toE164, type PhoneInputValue } from "@/lib/shared/phone"
+import { useContactRead } from "./use-contact-read"
 import { CellField, ChoiceCell, isRepeatKey, nextNewKey, NotApplicable, NotificationsSwitch, uniqueRowKeys } from "./contact-edit-kit"
 import { useMakePrimary } from "./contact-primary"
 import { contactVerifyAction, ContactVerifyStatus, useContactVerification, useResendSeconds, type ContactVerifyState, type ContactVerifyStates } from "./contact-verify"
@@ -448,11 +449,12 @@ function editedContactPoints(before: readonly ContactPoint[], rows: readonly Pho
   const kept = before.map((point): ContactPointEditRow => {
     const edit = rows.find((row) => !row.isNew && row.id === point.id)
     if (!edit) return point
-    const label = edit.label === "" ? point.label : edit.label
+    // Primary changes belong exclusively to the confirmed Make primary flow, never a restored edit draft.
+    const label = edit.label === "" || edit.label === PRIMARY_LABEL || point.label === PRIMARY_LABEL ? point.label : edit.label
     // Only the Primary has a control for them (a restored draft never changes another row's), and a draft stored
     // before Story 3.4 holds none: unchanged.
     const isNotificationEnabled =
-      point.label === PRIMARY_LABEL && typeof edit.notifications === "boolean" ? edit.notifications : point.isNotificationEnabled
+      point.label === PRIMARY_LABEL && edit.label === PRIMARY_LABEL && typeof edit.notifications === "boolean" ? edit.notifications : point.isNotificationEnabled
     return edit.removed ? { ...point, label, isNotificationEnabled, removed: true } : { ...point, label, isNotificationEnabled }
   })
   const added = rows
@@ -521,8 +523,8 @@ function editedContactPoints(before: readonly ContactPoint[], rows: readonly Pho
  * cell is a switch, and Save sends only that row.
  */
 export function PhoneSection() {
-  const mobile = useSWR<ContactPoint[] | undefined, ApiResponseError>(keys.contactPoints("Mobile"))
-  const landline = useSWR<ContactPoint[] | undefined, ApiResponseError>(keys.contactPoints("Landline"))
+  const mobile = useContactRead("Mobile")
+  const landline = useContactRead("Landline")
   const typeKey = useSWR<TypeInfo | undefined, ApiResponseError>(keys.typeKey("ContactPoint"))
   const { onReady } = useSectionFrame("phone")
 
@@ -538,9 +540,9 @@ export function PhoneSection() {
   }
 
   const rows = useMemo(() => (mobile.data && landline.data ? phoneRowsOf(mobile.data, landline.data) : undefined), [mobile.data, landline.data])
-  const loadError = rows ? undefined : phoneLoadError([mobileFailure, landlineFailure])
-  const state: FrameState = rows ? "ready" : loadError ? { error: loadError } : "loading"
-  const dataStatus: SectionDataStatus = rows ? "loaded" : loadError ? "error" : "loading"
+  const loadError = phoneLoadError([mobileFailure, landlineFailure])
+  const state: FrameState = loadError ? { error: loadError } : rows ? "ready" : "loading"
+  const dataStatus: SectionDataStatus = loadError ? "error" : rows ? "loaded" : "loading"
   useReportSectionCount("phone", rows?.length)
 
   // The Contact Labels the platform offers (the enum when the type key is loading or failed), never Primary.
@@ -575,14 +577,18 @@ export function PhoneSection() {
 
   async function save(values: PhoneValues): Promise<SaveResult> {
     const dto = contactPointsDiffToManageDTO(savedPoints, editedContactPoints(savedPoints, values.rows))
+    // Count current saved IDs, not stale rows retained by a restored draft.
+    if (dto !== null && savedPoints.length > 0 && dto.contactPointsToAdd.length === 0 && savedPoints.every((point) => point.id !== null && dto.contactPointsToRemove.includes(point.id))) {
+      return { ok: false, error: { code: "FIELD", mapped: { kind: "field", field: "primary", messageKey: "contacts.phoneMinimum" } } }
+    }
     if (dto === null) return { ok: true }
     const result = await saveContactPoints(dto)
     if (!result.ok) return result
     // The same shared keys the header and `/account` read: refetched through the hooks, which hand back the fresh lists.
     let fresh: ContactPoint[] | undefined
     try {
-      const [mobileRows, landlineRows] = await Promise.all([mobile.mutate(), landline.mutate(), mutateMyself()])
-      fresh = [...(mobileRows ?? []).map((point) => ({ ...point, type: "Mobile" })), ...(landlineRows ?? []).map((point) => ({ ...point, type: "Landline" }))]
+      const [mobileRows, landlineRows] = await Promise.all([mobile.refresh(), landline.refresh(), mutateMyself()])
+      if (mobileRows !== undefined && landlineRows !== undefined) fresh = [...mobileRows.map((point) => ({ ...point, type: "Mobile" })), ...landlineRows.map((point) => ({ ...point, type: "Landline" }))]
     } catch {
       // Saved: a failed refetch must never make Retry send the adds again (the next read catches up); no verify without it.
     }
@@ -677,7 +683,7 @@ export function PhoneSection() {
       }
     },
     savedPoints: () => latestPoints.current,
-    refetch: () => Promise.allSettled([mobile.mutate(), landline.mutate(), mutateMyself()]),
+    refetch: (saved) => Promise.allSettled([mobile.refresh(saved), landline.refresh(saved), mutateMyself()]),
     body: ({ name, relabelsOld }) => formatMessage(relabelsOld ? CONTACT_MESSAGES.makePrimaryBody : CONTACT_MESSAGES.makePrimaryBodyNoCurrent, { number: name }),
   })
 
@@ -732,8 +738,8 @@ export function PhoneSection() {
     ) : null
 
   const retry = () => {
-    void mobile.mutate()
-    void landline.mutate()
+    void mobile.refresh(false)
+    void landline.refresh(false)
   }
 
   return (

@@ -1,6 +1,6 @@
 import { act, render as renderPlain, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse, type HttpHandler } from "msw"
-import { createElement, useEffect } from "react"
+import { createElement, useEffect, useState, type ReactElement } from "react"
 import useSWR, { useSWRConfig, type ScopedMutator } from "swr"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { runSaveAll, toastError, toastSuccess } from "@/features/shell"
@@ -84,7 +84,7 @@ const frame = (): HTMLElement | null => section().querySelector('[data-slot="sta
 const heading = (): HTMLElement => screen.getByRole("heading", { level: 2, name: "Social media" })
 const button = (name: string | RegExp): HTMLElement => within(section()).getByRole("button", { name })
 const footer = (): HTMLElement => section().querySelector('[data-slot="section-footer"]') as HTMLElement
-const isReadView = (): boolean => section().querySelector('[data-slot="section-footer"]') === null
+const isReadView = (): boolean => section().querySelector('[data-slot="section-footer"]') === null && within(section()).queryByRole("button", { name: "Edit" }) !== null
 const banner = (): HTMLElement | null => section().querySelector('[data-slot~="inline-banner"]')
 /** The body rows of the edit table (desktop) or its cards (mobile). */
 const editRows = (): HTMLElement[] => [...section().querySelectorAll<HTMLElement>("tbody tr, li[data-slot='section-table-card']")]
@@ -112,7 +112,7 @@ function watchAppCache(list: readonly SwrKey[]): Map<string, number> {
   return loads
 }
 
-async function render(list: List = LINKS, answer?: () => Response | Promise<Response>) {
+async function render(list: List = LINKS, answer?: () => Response | Promise<Response>, ui: ReactElement = <SocialSection />) {
   const server = socialServer(list, answer)
   let scoped: ScopedMutator | undefined
   function CacheProbe() {
@@ -124,7 +124,7 @@ async function render(list: List = LINKS, answer?: () => Response | Promise<Resp
   }
   const result = renderInPage(
     <>
-      <SocialSection />
+      {ui}
       <CacheProbe />
     </>,
     { page: "profile", handlers: server.handlers },
@@ -782,4 +782,56 @@ describe("SocialSection: edit view accessibility", () => {
     await render(many(20, 100))
     expect(await axeViolations()).toEqual([])
   })
+})
+
+it("a failed post-save list read blocks stale edits; Retry refreshes only the read and the next replacement uses its new ID", async () => {
+  let current = [link({ id: 51, value: "https://example.com/a" })]
+  let failRead = false
+  const { bodies } = await render(() => failRead ? HttpResponse.json({ message: "boom" }, { status: 500 }) : HttpResponse.json(current), () => {
+    current = [link({ id: 53, value: "https://example.com/b" })]
+    failRead = true
+    return new HttpResponse(null, { status: 200 })
+  })
+  await click(button("Edit"))
+  await type(linkInput(editRows()[0]), "https://example.com/b")
+  await save()
+  await waitFor(() => expect(frame()?.getAttribute("data-state")).toBe("error"))
+  expect(vi.mocked(toastSuccess)).toHaveBeenCalled()
+  expect(within(section()).queryByRole("button", { name: "Edit" })).toBeNull()
+  expect(within(section()).queryByRole("textbox", { name: "Link" })).toBeNull()
+  expect(bodies).toHaveLength(1)
+  await click(button("Retry"))
+  await waitFor(() => expect(frame()?.getAttribute("data-state")).toBe("error"))
+  expect(bodies).toHaveLength(1)
+  failRead = false
+  await click(button("Retry"))
+  await waitFor(() => expect(frame()?.getAttribute("data-state")).toBe("ready"))
+  await click(button("Edit"))
+  await type(linkInput(editRows()[0]), "https://example.com/c")
+  await save()
+  await waitFor(() => expect(bodies).toHaveLength(2))
+  expect(bodies[1]).toMatchObject({ contactPointsToRemove: [53], contactPointsToAdd: [{ value: "https://example.com/c" }] })
+})
+
+it("failed write refresh invalidates IDs across a Contacts panel unmount", async () => {
+  function Toggle() {
+    const [shown, setShown] = useState(true)
+    return <><button onClick={() => setShown((value) => !value)}>Toggle Contacts</button>{shown && <SocialSection />}</>
+  }
+  let failed = false
+  const { bodies } = await render(() => failed ? HttpResponse.json({ message: "boom" }, { status: 500 }) : HttpResponse.json([link({ id: 51, value: "https://example.com/a" })]), () => {
+    failed = true
+    return new HttpResponse(null, { status: 200 })
+  }, <Toggle />)
+  await click(button("Edit"))
+  await type(linkInput(editRows()[0]), "https://example.com/b")
+  await save()
+  await waitFor(() => expect(frame()?.getAttribute("data-state")).toBe("error"))
+  await waitFor(() => expect(toastSuccess).toHaveBeenCalled())
+  await click(screen.getByRole("button", { name: "Toggle Contacts" }))
+  await click(screen.getByRole("button", { name: "Toggle Contacts" }))
+  await waitFor(() => expect(frame()?.getAttribute("data-state")).toBe("error"))
+  expect(within(section()).queryByRole("button", { name: "Edit" })).toBeNull()
+  expect(within(section()).queryByRole("link")).toBeNull()
+  expect(bodies).toHaveLength(1)
 })

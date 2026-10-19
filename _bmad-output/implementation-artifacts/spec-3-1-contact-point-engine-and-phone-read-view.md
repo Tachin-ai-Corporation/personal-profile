@@ -122,6 +122,73 @@ context:
 - Given the full check (`pnpm lint && pnpm typecheck && bash scripts/check-forbidden.sh && pnpm vitest run --coverage && pnpm build && CI=1 pnpm test:e2e`) on Node 24, when it runs, then it is all green with 100% coverage on `lib/server`, `lib/api`, `lib/shared`.
 - Given the diff against the baseline, when listed, then only Team A paths, the new `lib/shared/contact-labels.ts` (+ test) and the approved `e2e/shell.spec.ts` exception changed.
 
+### Review Findings
+
+PR #19 integration review (2026-10-19), BMAD full mode across Stories 3.1–3.7. Reviewed head `21943e9464ae8286c5024f5049a8221d22da6ada`, base `7d0d7e65198a64133c423c1e6f9a78e2f3c4abfe`, and an isolated uncommitted merge into Account head `a9abe20f9479df30ca2fc18e722944286a33c751`. Initial review was read-only; the user then selected Apply every patch. Source fixes are local on the PR branch; no remote comments, commits or merges were made. This local review section does not update Team A story/sprint status.
+
+- [x] [Review][Patch][high] Preserve the current phone Primary when restoring an old draft [features/contacts/phone-section.tsx:451]. A real draft stores A=Primary/B=Personal. Another session changes B to Primary and A to Old. Restoring and saving the draft sends B=Personal/A=Primary without the Make primary confirmation. A focused RTL/MSW reproduction captured that exact DTO. Protect both current and drafted Primary labels and stale notification ownership as Email already does; add a regression for this restore sequence. Sources: B1, E1, V1.
+- [x] [Review][Patch][medium] Validate the last-contact rule against current saved contacts on Save [features/contacts/phone-section.tsx:576; features/contacts/email-section.tsx:497]. With non-Primary A/B, draft removal of A, remove B elsewhere, then restore: the stale B satisfies the UI count but is absent from current savedPoints. Save removes the last real A. A focused RTL/MSW repro sent `contactPointsToRemove:[12]` against a one-phone current list. Backend `ContactPointServiceImpl:330–373` only protects Primary removal and accepts this non-Primary deletion. Validate the effective post-save set from current IDs plus additions, for both Phone and Email. Source: B2.
+- [x] [Review][Patch][medium] Recover a failed post-save refresh before allowing another write from stale IDs [features/contacts/social-section.tsx:354]. Replacing Social ID 51 creates a new ID and deletes 51. If its list refetch fails, SWR resolves with cached 51, Save succeeds and the stale row remains editable. A second replacement sends remove 51 again and backend ownership checks reject it. Keep the acknowledged POST successful, but expose read recovery and prevent edits from using the obsolete baseline until refreshed. The analogous contact save flows should follow the same freshness rule. Source: B4.
+- [x] [Review][Patch][medium] Restrict the new-tab Social exception to non-1health destinations [features/contacts/social-section.tsx:88]. `https://1health.app.1health.io` passes isSocialLink/socialHref and receives `target="_blank"`. Story 3.7/PA1 expressly excludes every portal/1health destination from that exception. Exclude those hosts from Social new-tab anchors, or route a supported portal destination through the existing same-tab handoff. Test the demo, prod and dev portal hosts. Sources: B7, E2, A1.
+
+All four review layers completed. Individual verdicts were assigned before deduplication:
+
+| ID | Layer | Verdict | Evidence / disposition |
+|---|---|---|---|
+| B1 | blind-hunter | high | Reproduced a stale draft sending the old Primary in an ordinary Save; grouped into patch 1. |
+| B2 | blind-hunter | medium | Reproduced last-current-phone deletion; backend permits last non-Primary removal; patch 2. |
+| B3 | blind-hunter | false | Ordinary HTTP failures are caught by SWR; mutate returns cached data, so an unrelated myself/Landline failure does not reject Promise.all as claimed. |
+| B4 | blind-hunter | medium | A stateful Playwright repro on both projects captured the second DTO removing obsolete ID 51 after a failed list refresh; backend missing-ID checks reject it; patch 3. |
+| B5 | blind-hunter | low | Concurrently added contacts can be included in auto-verify's ID difference, but all belong to this person and verification is a recoverable side effect. Rare overlap; filtering/correlation adds complexity; rejected. |
+| B6 | blind-hunter | maybe-false | The client accepts an anomalous malformed 2xx verify answer, but backend always returns a typed success/error-ID DTO; interrupted reads are network failures. A production malformed 2xx is needed to establish harm. Defensive hardening would be low impact; rejected. |
+| B7 | blind-hunter | medium | HTTPS/credential checks contain no host exclusion, so a valid 1health URL gets a new-tab anchor; grouped into patch 4. |
+| B8 | blind-hunter | low | Hostname typos accepted by the URL parser are rejected by the backend regex and become the existing field error. No false save/data loss; extra duplicate validation is not justified here; rejected. |
+| B9 | blind-hunter | low | Eleven near-2048-character Unicode links exceed 64KiB although individually valid. Real but pathological Social input; a byte-budget/chunking branch adds complexity; rejected. |
+| B10 | blind-hunter | low | Missing specific cross-page/mixed-result compositions are additional coverage, not proof of a new failure. A stateful Profile-to-Account probe is included in this integration review; no product patch established; rejected. |
+| E1 | edge-case-hunter | high | Independently confirmed Phone lacks Email's Primary-label guard; parent reproduced; grouped into patch 1. |
+| E2 | edge-case-hunter | medium | Independently confirmed the 1health destination receives target=_blank; grouped into patch 4. |
+| V1 | verification-gap, Other finding | high | Email already guards the exact stale-Primary sequence while Phone does not; reproduced; grouped into patch 1. |
+| A1 | acceptance-auditor | medium | Explicit Story 3.7/PA1 excludes 1health destinations from the Social exception; grouped into patch 4. |
+
+#### Integration validation
+
+- Both merge-tree checks (main + PR; Account 8.1 + PR) are conflict-free. The actual detached worktree merge of PR into Account 8.1 also succeeded without conflicts; it remains uncommitted.
+- Full combined unit suite: 205 files, 5,610 tests passed; enforced statements/branches/functions/lines coverage 100%.
+- Lint, Next route type generation, typecheck, forbidden-pattern/token gates and production build passed.
+- Combined Account, Profile Phone/Email/Social and Save all browser suite: 452 passed, 8 skipped, desktop and 360px projects; includes axe light/dark checks.
+- Additional stateful browser probes: 4 passed. Profile Make primary updates the real Account picker selection after client navigation; a failed Social post-save refresh leaves obsolete ID 51 in the next replacement DTO. These probes ran against the same production build with route-level backend state mocks.
+- Two temporary focused unit probes intentionally failed their safety assertions, confirming the unexpected Primary change and deletion of the last current non-Primary phone. Captured request bodies appear above; no product source was patched.
+- GitHub head/base were rechecked after testing and remain the reviewed commits. Root Account checkout remains clean at a9abe20. PR review: 4 patch groups, 0 decisions, 0 deferrals, 6 rejected individual findings.
+- Evidence logs: /tmp/pr19-integration-coverage.log, /tmp/pr19-integration-browser.log, /tmp/pr19-review-roundtrip.log, /tmp/pr19-repro.log, /tmp/pr19-minimum-repro.log. Stateful probe source retained at /tmp/pr19-review-roundtrip.spec.ts.
+
+#### Rejected
+
+- B3 — false: SWR handles ordinary failed revalidations without rejecting the Promise.all; the initial claim relied on artificial mutation rejection.
+- B5 — low: rare cross-session addition produces a recoverable verification side effect; correlating added values adds branching.
+- B6 — maybe-false, at most low: the backend supplies a typed verify DTO and interrupted reads fail transport; evidence of a malformed successful production response is missing.
+- B8 — low: mistyped hosts already receive a handled backend field error; extra parallel validation adds complexity.
+- B9 — low: the size failure needs unusually many exceptionally long Unicode social URLs; byte-budget handling adds complexity.
+- B10 — low: broader scenario coverage alone does not establish a product defect; this review adds a stateful integration probe.
+
+#### Patch implementation (user-approved option 1)
+
+- Phone now preserves both current and drafted Primary labels, and applies notification settings only when the draft row still owns the Primary control.
+- Phone and Email Save validate the effective current saved IDs and additions before allowing deletion of every saved contact; the existing minimum copy is shown at Section level.
+- A Contacts-only useContactRead hook invalidates obsolete rows before ordinary SWR revalidation. A failed post-write read keeps the acknowledged save successful but leaves no editable cached baseline; StateFrame shows loading or read recovery. SWR broadcasts that state across panel unmounts, and repeated Retry presses join one read. Failed Make primary writes retain their current rows and focus during their read-only refetch. Retry only reloads reads; replacement uses the new server ID after recovery. Phone and Email use the same recovery, including Make primary refetches.
+- Social first-party domain families are derived from the shared environment configuration; links to those hosts render as plain text. External HTTPS Social links keep their new-tab behavior.
+- Seven unit regressions and three browser regressions cover the corrected outcomes; final validation results follow below.
+
+#### Final patch validation (2026-10-19)
+
+- All four initial patch groups are resolved locally on the same `feat/NG-9023-epic-3` branch at /tmp/personal-profile-pr19-fixes-20261019. Validation completed before commit and push; the user subsequently authorized publishing these patches on this same branch. Root Account checkout remains clean and unchanged.
+- Contacts: 426 unit tests passed, including seven new regressions. Three new browser regressions passed on both desktop/mobile projects (six cases); the failed-read regression includes Insurance → Contacts remount before recovery and a replacement using the new server ID.
+- Two independent patch reviewers found no remaining issues after the refresh implementation delegated recovery to SWR. Repeated Retry joins one request. Failed Make primary writes preserve their trigger/focus; acknowledged writes invalidate obsolete IDs first. Verify test helpers now await completed save UI rather than treating a loading frame with no footer as a completed save.
+- PR branch lint, typecheck, forbidden/token checks and production build passed. Combined PR + Account 8.1 full coverage run: 205 files, 5,617 unit tests passed, 100% enforced statements/branches/functions/lines coverage.
+- Combined production browser suite: 920 cases attempted, 906 passed, 11 skipped, three failed initially. The three failures were DisabledAction Escape on desktop/mobile and the raw-plus LPL launch on mobile. Isolated rerun passed both launch projects and desktop DisabledAction; mobile DisabledAction failed once more, then passed the final isolated run. Thus every initially failed case was subsequently verified; the initial complete run was not fully green. DisabledAction intermittency is already recorded in deferred-work.md (Foundation follow-up near lines 101 and 346); no shared-control/auth source was changed by these patches.
+- The full browser run includes a temporary stateful Profile Make primary → real Account picker probe (desktop/mobile), both passed. Probe source retained at /tmp/pr19-fixed-account-roundtrip.spec.ts, removed from the integration checkout after testing.
+- Evidence: /tmp/pr19-fixes-focused.log, /tmp/pr19-fixes-browser-regressions.log, /tmp/pr19-fixed-integration-coverage.log, /tmp/pr19-fixed-integration-browser.log, /tmp/pr19-fixed-integration-rerun.log, /tmp/pr19-fixed-tooltip-mobile-rerun.log. Initial failure traces retained under /tmp/pr19-validation-traces.
+- PR #19 head/base rechecked unchanged at 21943e9 / 7d0d7e6; GitHub reports MERGEABLE/CLEAN. Existing main+PR and Account+PR merges remain conflict-free; the patch touches only Contacts, its owned tests, and this review record.
+
 ## Implementation Notes
 
 - **Landmark:** `SectionLandmark` takes no `count`, so the Section renders its own `<section id="phone" aria-labelledby="phone-heading">` with `SectionHeader count` (the Personal information pattern); same landmark, same `h2`, never remounted.

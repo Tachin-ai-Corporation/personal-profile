@@ -164,7 +164,8 @@ async function addPhone(number: string, label: string, type: "Mobile" | "Landlin
 
 async function save() {
   await click(within(section()).getByRole("button", { name: "Save" }))
-  await waitFor(() => expect(isReadView()).toBe(true))
+  // Loading also has no footer: wait for the completed save, after auto-verification.
+  await waitFor(() => expect(within(section()).getByRole("button", { name: "Edit" })).toBeTruthy())
 }
 
 async function openKebab(number: string): Promise<HTMLElement> {

@@ -123,7 +123,7 @@ function watchAppCache(list: readonly SwrKey[]): Map<string, number> {
 const section = (): HTMLElement => screen.getByRole("region", { name: "Email" })
 const frame = (): HTMLElement | null => section().querySelector('[data-slot="state-frame"]')
 const heading = (): HTMLElement => screen.getByRole("heading", { level: 2, name: "Email" })
-const isReadView = (): boolean => section().querySelector('[data-slot="section-footer"]') === null
+const isReadView = (): boolean => section().querySelector('[data-slot="section-footer"]') === null && within(section()).queryByRole("button", { name: "Edit" }) !== null
 const dialog = (): HTMLElement | null => screen.queryByRole("alertdialog")
 /** The read-view rows (table rows or cards), in order. */
 const bodyRows = (): HTMLElement[] => [...section().querySelectorAll<HTMLElement>("tbody tr, li[data-slot='section-table-card']")]

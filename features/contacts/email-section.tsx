@@ -50,6 +50,7 @@ import {
 } from "@/lib/api"
 import { CONTACT_LABEL_HOME, contactLabelsFrom } from "@/lib/shared/contact-labels"
 import { COMMON_MESSAGES, CONTACT_MESSAGES, formatMessage, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
+import { useContactRead } from "./use-contact-read"
 import { CellField, ChoiceCell, isRepeatKey, nextNewKey, NotApplicable, NotificationsSwitch, uniqueRowKeys } from "./contact-edit-kit"
 import { useMakePrimary } from "./contact-primary"
 import { contactVerifyAction, ContactVerifyStatus, useContactVerification, useResendSeconds, type ContactVerifyState, type ContactVerifyStates } from "./contact-verify"
@@ -442,7 +443,7 @@ const emailLoadError = (failure: unknown): MappedError | undefined => (failure =
  * row's cell is a switch, and Save sends only that row.
  */
 export function EmailSection() {
-  const email = useSWR<ContactPoint[] | undefined, ApiResponseError>(keys.contactPoints(EMAIL_TYPE))
+  const email = useContactRead(EMAIL_TYPE)
   const typeKey = useSWR<TypeInfo | undefined, ApiResponseError>(keys.typeKey("ContactPoint"))
   const { onReady } = useSectionFrame("email")
 
@@ -457,9 +458,9 @@ export function EmailSection() {
   }
 
   const rows = useMemo(() => (email.data ? emailRowsOf(email.data) : undefined), [email.data])
-  const loadError = rows ? undefined : emailLoadError(failure)
-  const state: FrameState = rows ? "ready" : loadError ? { error: loadError } : "loading"
-  const dataStatus: SectionDataStatus = rows ? "loaded" : loadError ? "error" : "loading"
+  const loadError = emailLoadError(failure)
+  const state: FrameState = loadError ? { error: loadError } : rows ? "ready" : "loading"
+  const dataStatus: SectionDataStatus = loadError ? "error" : rows ? "loaded" : "loading"
   useReportSectionCount("email", rows?.length)
 
   // The Contact Labels the platform offers (the enum when the type key is loading or failed), never Primary.
@@ -502,6 +503,10 @@ export function EmailSection() {
       // A refused body (a stale draft striking a row that became Primary meanwhile): never sent, never thrown.
       return { ok: false, error: { code: "UNEXPECTED", mapped: { kind: "generic" } } }
     }
+    // Count current saved IDs, not stale rows retained by a restored draft.
+    if (dto !== null && savedPoints.length > 0 && dto.contactPointsToAdd.length === 0 && savedPoints.every((point) => point.id !== null && dto.contactPointsToRemove.includes(point.id))) {
+      return { ok: false, error: { code: "FIELD", mapped: { kind: "field", field: "primary", messageKey: "contacts.emailMinimum" } } }
+    }
     if (dto === null) return { ok: true }
     const result = await saveContactPoints(dto, "email")
     if (!result.ok) return result
@@ -509,8 +514,8 @@ export function EmailSection() {
     // the hook, which hands back the fresh list.
     let fresh: ContactPoint[] | undefined
     try {
-      const [emailRows] = await Promise.all([email.mutate(), mutateMyself()])
-      fresh = (emailRows ?? []).map((point) => ({ ...point, type: EMAIL_TYPE }))
+      const [emailRows] = await Promise.all([email.refresh(), mutateMyself()])
+      if (emailRows !== undefined) fresh = emailRows.map((point) => ({ ...point, type: EMAIL_TYPE }))
     } catch {
       // Saved: a failed refetch must never make Retry send the adds again (the next read catches up); no verify without it.
     }
@@ -602,7 +607,7 @@ export function EmailSection() {
       return { name: row.value, relabelsOld: latestPoints.current.some((point) => point.id !== id && point.label === PRIMARY_LABEL) }
     },
     savedPoints: () => latestPoints.current,
-    refetch: () => Promise.allSettled([email.mutate(), mutateMyself()]),
+    refetch: (saved) => Promise.allSettled([email.refresh(saved), mutateMyself()]),
     // A long address has no spaces to break at: wrapped anywhere, so the confirm fits at 360 px.
     body: ({ name, relabelsOld }) => (
       <span data-slot="make-primary-body" className="break-words">
@@ -669,7 +674,7 @@ export function EmailSection() {
         columns={SECTION_COLUMNS.email}
         loadError={{ kind: "section", sectionId: "email" }}
         level="section"
-        onRetry={() => void email.mutate()}
+        onRetry={() => void email.refresh(false)}
         attempt={attempt}
         onReady={onReady}
         // Once ready the Section container is the card (it carries the editing halo and the draft notice).

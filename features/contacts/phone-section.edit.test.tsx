@@ -81,7 +81,7 @@ const section = (): HTMLElement => screen.getByRole("region", { name: "Phone" })
 const frame = (): HTMLElement | null => section().querySelector('[data-slot="state-frame"]')
 const heading = (): HTMLElement => screen.getByRole("heading", { level: 2, name: "Phone" })
 const button = (name: string | RegExp): HTMLElement => within(section()).getByRole("button", { name })
-const isReadView = (): boolean => section().querySelector('[data-slot="section-footer"]') === null
+const isReadView = (): boolean => section().querySelector('[data-slot="section-footer"]') === null && within(section()).queryByRole("button", { name: "Edit" }) !== null
 /** The body rows of the edit table (desktop) or its cards (mobile). */
 const editRows = (): HTMLElement[] => [...section().querySelectorAll<HTMLElement>("tbody tr, li[data-slot='section-table-card']")]
 const newRow = (): HTMLElement => {
