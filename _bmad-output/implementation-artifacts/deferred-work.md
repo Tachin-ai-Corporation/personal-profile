@@ -65,6 +65,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-4-make-a-phone-primary-and-manage-notifications.md`
   summary: Backend follow-up — `isVerified` may be writable through `contactPointsToUpdate` of `POST v2/health/contact-point`. `ContactPointToUpdateDTO` extends `BaseContactPointDTO`, which carries `isVerified`, and `updateContactPoints` maps the whole DTO onto the entity (`Helper.mapper.convertValue`) before `repository.update`, so a caller could mark its own number verified (and then make it Primary). The app never sends it, and the strict proxy schema (`contactPointManageBodySchema`: update rows are `{ id, type, label, isNotificationEnabled? }` only) refuses it with 400, so this app can't. Ask the backend to ignore `isVerified` on update (and on add).
   evidence: 1h-ng-bo-core-be BaseContactPointDTO.java:25, ContactPointServiceImpl.java:393-415 (`updateContactPoints`); lib/server/proxy/allowlist/contacts.ts (`contactPointManageBodySchema`).
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-5-view-add-relabel-and-remove-emails.md`
+  summary: Phone's read-view kebab offers Remove on a repeated-id row. `PhoneReadActions` checks only `row.point.id === null`, not `isRepeat(row)`. Its edit row has `id: null`, so the row shows struck through with no Restore, and Save sends nothing but still toasts "Phone saved.". Fix it as Email does in Story 3.5: no Remove on a repeat row.
+  evidence: features/contacts/phone-section.tsx (`PhoneReadActions` Remove item; `baseline` nulls a repeat's id; the edit `actions` return `null` for a saved row without an id). Found in Story 3.5 review (row 25). Spec 3.5 forbids changing Phone behaviour.
 
 ## Team B (`/account`, Epics 7-10)
 
