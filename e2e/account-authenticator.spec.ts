@@ -51,15 +51,22 @@ test.describe("Authenticator status and app tiles (Story 8.1)", () => {
           geometry.push(rect!)
           const surface = await tile.evaluate((element) => {
             const style = getComputedStyle(element)
-            // Resolve semantic tokens through a sibling so browser color serialization is identical.
-            const sample = document.createElement("span")
-            element.parentElement!.append(sample)
-            sample.style.backgroundColor = "var(--card)"
-            const card = getComputedStyle(sample).backgroundColor
-            sample.style.backgroundColor = "var(--accent)"
-            const hover = getComputedStyle(sample).backgroundColor
-            sample.remove()
-            return { actual: style.backgroundColor, card, hover }
+            // Resolve semantic tokens through a sibling so browser color serialization is identical. A fresh span per
+            // token, with transitions off: under reduced motion every element transitions `all` for 0.01 ms
+            // (globals.css), so restyling one span could read back the previous token mid-transition.
+            const resolve = (token: string): string => {
+              const sample = document.createElement("span")
+              sample.style.transition = "none"
+              sample.style.backgroundColor = `var(${token})`
+              element.parentElement!.append(sample)
+              const color = getComputedStyle(sample).backgroundColor
+              sample.remove()
+              return color
+            }
+            // `hover:` styles apply only where the primary pointer can hover (Tailwind v4 `@media (hover: hover)`); a touch
+            // viewport keeps the card surface.
+            const canHover = window.matchMedia("(hover: hover)").matches
+            return { actual: style.backgroundColor, card: resolve("--card"), hover: canHover ? resolve("--accent") : resolve("--card") }
           })
           await expect(tile).toHaveCSS("background-color", surface.card)
           if (linked) {
