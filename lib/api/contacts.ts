@@ -23,6 +23,8 @@
  * the manage call itself: `contactPointManagePath` and `saveContactPoints`.
  * Story 3.3 adds verification: `contactPointVerifyPath`, `verifyContactPoints`
  * (one call) and `sendContactVerification` (chunks, outcome per id).
+ * Story 3.7 adds the engine's replace mode for Social media links
+ * (`ContactPointsDiffOptions`).
  *
  * Export names carry the `contact` prefix: FOUNDATION.md §1, rule T6.
  */
@@ -71,6 +73,9 @@ export interface ContactPointManageDTO {
 
 const PHONE_TYPES: ReadonlySet<string> = new Set(CONTACT_PHONE_TYPES)
 
+/** The types whose saved value never changes, replace mode included (Phone, Email; a row with no type counts as Mobile). */
+const LOCKED_VALUE_TYPES: ReadonlySet<string> = new Set(["Mobile", "Landline", "Email"])
+
 /** The new-and-unverified types that get a verification link (Stories 3.3, 3.6). */
 const VERIFIABLE_TYPES: ReadonlySet<string> = new Set(["Mobile", "Email"])
 
@@ -80,6 +85,17 @@ const VERIFIABLE_TYPES: ReadonlySet<string> = new Set(["Mobile", "Email"])
  * rejects it; legacy Landline and Social Media Primaries are out of scope).
  */
 const PRIMARY_REQUIRED_TYPES: ReadonlySet<string> = new Set(["Mobile", "Email"])
+
+/** How `contactPointsDiffToManageDTO` treats a saved row whose `value` changed. */
+export interface ContactPointsDiffOptions {
+  /**
+   * `"locked"` (the default; Phone and Email): a changed value is a caller
+   * bug and throws. `"replace"` (Story 3.7, Social media only): it is sent as
+   * a remove of the saved id plus an add of the new value, in one body; a
+   * Mobile, Landline or Email value still throws.
+   */
+  readonly valueChange?: "locked" | "replace"
+}
 
 /** A caller bug (a Section offered something the backend rejects): never shown to the user. */
 function programmerError(message: string): Error {
@@ -123,16 +139,26 @@ function toUpdate(row: ContactPoint, id: number): ContactPointUpdateDTO {
  * labelled Primary, is relabelled "Old" (its other fields as in `after`), in
  * the same body.
  *
+ * Replace mode (Story 3.7, Social media only: `options.valueChange:
+ * "replace"`): a saved row whose `value` changed (same type) is sent as a
+ * remove of its id plus an add of its new value (with its `label` and
+ * notifications as in `after`), in the same body; the backend deletes before
+ * it creates, so the same value can come back in one request.
+ *
  * Throws a programmer error (a Section bug, never shown) when a saved row's
- * `value` or `type` changed (saved values are locked; Story 3.7 adds Social's
- * replace), when an id repeats in `before` or in `after`, when an `after` id
+ * `type` changed, when its `value` changed outside replace mode or is a
+ * Mobile, Landline or Email value (Phone and Email values are locked), when an id repeats in `before` or in `after`, when an `after` id
  * isn't in `before`, when a sent row has no value, type or label (blank
  * counts as none), when the body would hold a Primary in `contactPointsToAdd`
  * or two Primary rows of one type, and when the saved Mobile or Email Primary
  * is removed or relabelled with no other row of its type made Primary (the
  * backend rejects each).
  */
-export function contactPointsDiffToManageDTO(before: readonly ContactPoint[], after: readonly ContactPointEditRow[]): ContactPointManageDTO | null {
+export function contactPointsDiffToManageDTO(
+  before: readonly ContactPoint[],
+  after: readonly ContactPointEditRow[],
+  options: ContactPointsDiffOptions = {},
+): ContactPointManageDTO | null {
   const saved = new Map<number, ContactPoint>()
   for (const row of before) {
     if (row.id === null) continue
@@ -154,8 +180,13 @@ export function contactPointsDiffToManageDTO(before: readonly ContactPoint[], af
     if (seen.has(row.id)) throw programmerError(`row ${row.id} is listed twice`)
     seen.add(row.id)
     if (!was) throw programmerError(`row ${row.id} is not a saved row`)
-    if (row.value !== was.value || row.type !== was.type) throw programmerError(`the value or type of saved row ${row.id} changed`)
-    if (!row.removed) kept.set(row.id, { row, was })
+    if (row.type !== was.type || (row.value !== was.value && (options.valueChange !== "replace" || LOCKED_VALUE_TYPES.has(was.type ?? "Mobile")))) {
+      throw programmerError(`the value or type of saved row ${row.id} changed`)
+    }
+    if (row.removed) continue
+    // Replace mode: the saved id goes (it isn't kept), and the new value comes in as an add.
+    if (row.value !== was.value) added.push(toAdd(row))
+    else kept.set(row.id, { row, was })
   }
   const toRemove = [...saved.keys()].filter((id) => !kept.has(id))
 

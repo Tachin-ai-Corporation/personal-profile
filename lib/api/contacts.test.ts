@@ -253,6 +253,89 @@ describe("contactPointsDiffToManageDTO: Primary switch (AD-9)", () => {
   })
 })
 
+describe("contactPointsDiffToManageDTO: replace mode (Story 3.7)", () => {
+  const social = (overrides: Partial<ContactPoint> = {}): ContactPoint =>
+    point({ id: 51, value: "https://x.com/ann", type: "Social Media", label: "Personal", isVerified: null, phoneNumberRegion: null, ...overrides })
+  const REPLACE = { valueChange: "replace" } as const
+
+  it("sends a saved row whose value changed as a remove of its id plus an add of the new value, in one body", () => {
+    const before = [social(), social({ id: 52, value: "@ann" })]
+    const after = [social({ value: "https://x.com/ann2" }), social({ id: 52, value: "@ann" })]
+    expect(contactPointsDiffToManageDTO(before, after, REPLACE)).toStrictEqual({
+      contactPointsToAdd: [{ value: "https://x.com/ann2", type: "Social Media", label: "Personal", isNotificationEnabled: false }],
+      contactPointsToUpdate: [],
+      contactPointsToRemove: [51],
+    })
+  })
+
+  it("adds the replacement with the label and notifications after gives it", () => {
+    const after = [social({ value: "https://x.com/ann2", label: "Work", isNotificationEnabled: true })]
+    expect(contactPointsDiffToManageDTO([social({ label: "Home" })], after, REPLACE)?.contactPointsToAdd).toEqual([
+      { value: "https://x.com/ann2", type: "Social Media", label: "Work", isNotificationEnabled: true },
+    ])
+  })
+
+  it("only removes a changed row that is struck through", () => {
+    expect(contactPointsDiffToManageDTO([social()], [{ ...social({ value: "https://x.com/ann2" }), removed: true }], REPLACE)).toEqual(body({ contactPointsToRemove: [51] }))
+  })
+
+  it("sends replaces, adds, updates and removes together, and nothing for an unchanged row", () => {
+    const before = [social(), social({ id: 52, value: "https://b.example/ann" }), social({ id: 53, value: "https://c.example/ann" })]
+    const after: ContactPointEditRow[] = [
+      social({ value: "https://x.com/ann2" }),
+      social({ id: 52, value: "https://b.example/ann", label: "Work" }),
+      { ...social({ id: 53, value: "https://c.example/ann" }), removed: true },
+      social({ id: null, value: "https://d.example/ann" }),
+    ]
+    expect(contactPointsDiffToManageDTO(before, after, REPLACE)).toStrictEqual({
+      contactPointsToAdd: [
+        { value: "https://x.com/ann2", type: "Social Media", label: "Personal", isNotificationEnabled: false },
+        { value: "https://d.example/ann", type: "Social Media", label: "Personal", isNotificationEnabled: false },
+      ],
+      contactPointsToUpdate: [{ id: 52, type: "Social Media", label: "Work", isNotificationEnabled: false }],
+      contactPointsToRemove: [51, 53],
+    })
+    expect(contactPointsDiffToManageDTO(before, before.map((row) => ({ ...row })), REPLACE)).toBeNull()
+  })
+
+  it("still throws when the type changed", () => {
+    expect(() => contactPointsDiffToManageDTO([social()], [social({ type: "Email" })], REPLACE)).toThrow("the value or type of saved row 51 changed")
+    expect(() => contactPointsDiffToManageDTO([social()], [social({ value: "https://x.com/ann2", type: "Email" })], REPLACE)).toThrow(
+      "the value or type of saved row 51 changed",
+    )
+  })
+
+  it("still refuses a Primary replacement (a new row can't be Primary)", () => {
+    expect(() => contactPointsDiffToManageDTO([social({ label: "Primary" })], [social({ value: "https://x.com/ann2", label: "Primary" })], REPLACE)).toThrow(
+      "a new row can't be Primary",
+    )
+  })
+
+  it("still throws in replace mode when a Mobile, Landline or Email value changed (or a row with no type)", () => {
+    const mobile = point({ id: 5 })
+    const landline = point({ id: 6, value: "+14155550106", type: "Landline" })
+    const mail = point({ id: 41, value: "ann@x.com", type: "Email", label: "Work", phoneNumberRegion: null })
+    const untyped = point({ id: 7, value: "+14155550107", type: null })
+    for (const [row, value] of [
+      [mobile, "+14155550199"],
+      [landline, "+14155550198"],
+      [mail, "ann@y.com"],
+      [untyped, "+14155550197"],
+    ] as const) {
+      expect(() => contactPointsDiffToManageDTO([row], [{ ...row, value }], REPLACE)).toThrow(`the value or type of saved row ${row.id} changed`)
+    }
+  })
+
+  it("keeps the immutable guard without the option, or with \"locked\": Social, Phone and Email", () => {
+    for (const options of [undefined, { valueChange: "locked" } as const]) {
+      expect(() => contactPointsDiffToManageDTO([social()], [social({ value: "https://x.com/ann2" })], options)).toThrow("the value or type of saved row 51 changed")
+      expect(() => contactPointsDiffToManageDTO([point({ id: 5 })], [point({ id: 5, value: "+14155550199" })], options)).toThrow("the value or type of saved row 5 changed")
+      const mail = point({ id: 41, value: "ann@x.com", type: "Email", label: "Work", phoneNumberRegion: null })
+      expect(() => contactPointsDiffToManageDTO([mail], [{ ...mail, value: "ann@y.com" }], options)).toThrow("the value or type of saved row 41 changed")
+    }
+  })
+})
+
 describe("newUnverifiedContactPoints", () => {
   it("returns only the new, unverified Mobile and Email rows not labelled Home", () => {
     const before = [point({ id: 1, isVerified: false, label: "Work" })]

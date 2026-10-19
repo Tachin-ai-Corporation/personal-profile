@@ -167,8 +167,9 @@ test.describe("/ page frame (Stories 1.8, 1.9)", () => {
       await expect(header.getByText("ann@example.com")).toBeVisible()
       // Shown through the shared formatter (spec F1), with the row's region (default us).
       await expect(header.getByText("+1 (212) 555-0100")).toBeVisible()
-      // As a set: the header and the Phone Section share the keys, so a type may be requested twice outside SWR's dedupe window.
-      expect([...new Set(seen)].toSorted()).toEqual(["Email", "Landline", "Mobile"])
+      // As a set: the header and the Contact Sections share the keys, so a type may be requested twice outside SWR's dedupe
+      // window; Social Media is the Social media Section's own read (Story 3.7).
+      expect([...new Set(seen)].toSorted()).toEqual(["Email", "Landline", "Mobile", "Social Media"])
       // The failed type is omitted from the header, with no error there.
       await expect(header.getByRole("alert")).toHaveCount(0)
     }

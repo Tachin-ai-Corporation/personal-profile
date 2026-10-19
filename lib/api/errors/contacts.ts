@@ -126,4 +126,20 @@ const emailRules: readonly MessageRule<Field>[] = [
   { scopes: ["email"], pattern: VERIFY_COOLDOWN, result: { kind: "field", field: "verify", messageKey: "contacts.emailVerifyCooldown" } },
 ]
 
-export const rules: readonly MessageRule<Field>[] = [...duplicateRules, ...phoneRules, ...emailRules]
+/**
+ * Social media (Story 3.7): an invalid link and the per-type limit. The
+ * limit names `type`, which the Social Section maps to no field, so it shows
+ * at Section level.
+ */
+const socialRules: readonly MessageRule<Field>[] = [
+  // `INVALID_URL_PROVIDED` (`Messages.java:745`, `Helper.validateURL` on every Social Media value).
+  { scopes: ["social"], pattern: /^Invalid URL provided '.*'\.$/, result: { kind: "field", field: "value", messageKey: "contacts.socialInvalid" } },
+  // `MAX_CONTACT_POINTS_PER_TYPE_ERROR` (20 per Contact Type).
+  {
+    scopes: ["social"],
+    pattern: /^Operation failed\. Person can have maximum of \d+ contact points per type\.$/,
+    result: { kind: "field", field: "type", messageKey: "contacts.socialLimit" },
+  },
+]
+
+export const rules: readonly MessageRule<Field>[] = [...duplicateRules, ...phoneRules, ...emailRules, ...socialRules]

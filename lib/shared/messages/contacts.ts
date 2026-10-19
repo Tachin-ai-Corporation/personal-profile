@@ -70,4 +70,11 @@ export const CONTACT_MESSAGES = {
   emailPrimaryOnePerType: "Only one email can be primary", // DRAFT COPY (spec 3.6 one Primary per type in a request)
   emailPrimaryNotNew: "A new email can't be primary. Save it, then make it primary.", // DRAFT COPY (spec 3.6 Primary in an add)
   emailPrimaryChanged: "Your primary email changed. Check your email addresses and try again.", // DRAFT COPY (spec 3.6 the person already has a Primary)
+  // Social media (Story 3.7). Its duplicate is `duplicateSocial` (above); "Social media saved." is the shell's `{section} saved.`.
+  socialEmpty: "No social links yet", // DRAFT COPY (epics Story 3.7 empty Section)
+  addLink: "Add link", // DRAFT COPY (epics Story 3.7 header and empty-state action)
+  socialRequired: "Enter a link", // DRAFT COPY (epics Story 3.7 empty link)
+  socialInvalid: "Enter a link that starts with https://", // DRAFT COPY (spec 3.7 https links only, human decision 2026-10-19)
+  socialLimit: "You've reached the limit of 20 links", // DRAFT COPY (epics Story 3.7, follows the phone pattern)
+  socialPrimaryLocked: "This link can't be removed or changed here.", // DRAFT COPY (spec 3.7 legacy Primary link)
 } as const

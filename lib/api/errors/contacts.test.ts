@@ -4,7 +4,7 @@ import { mapApiError, type ApiResponse, type ErrorScope, type MappedError } from
 import { rules } from "./contacts"
 
 /**
- * Stories 3.2–3.6 (NG-9023, NG-9024): the Contacts table's Phone and Email rules, anchored on the
+ * Stories 3.2–3.7 (NG-9023, NG-9024, NG-9025): the Contacts table's Phone, Email and Social rules, anchored on the
  * exact backend texts (`common/Messages.java`; `INVALID_PHONE_PROVIDED` in the
  * common util `Messages`). The duplicate rules are covered in `errors.test.ts`.
  */
@@ -73,7 +73,7 @@ describe("contacts errors: phone rules", () => {
   })
 
   it.each<[string, ErrorScope, string]>([
-    ["the limit outside phone and email", "social", LIMIT],
+    ["the limit outside phone, email and social", "personal", LIMIT],
     ["an invalid phone outside phone", "personal", INVALID_PHONE],
     ["an invalid label outside phone", "social", INVALID_LABEL],
     ["an invalid type outside phone", "email", INVALID_TYPE],
@@ -189,5 +189,48 @@ describe("contacts errors: email Primary, in-use and cooldown rules (Story 3.6)"
 
   it("still maps the address in use on the account scope to its own copy (Story 7.6)", () => {
     expect(mapApiError("account", upstream(IN_USE))).toEqual({ kind: "field", field: "primaryEmail", messageKey: "account.primaryEmailInUse" })
+  })
+})
+
+describe("contacts errors: social rules (Story 3.7)", () => {
+  const INVALID_URL = "Invalid URL provided '@ann'."
+
+  it.each<[string, string, MappedError]>([
+    ["an invalid link", INVALID_URL, { kind: "field", field: "value", messageKey: "contacts.socialInvalid" }],
+    ["an invalid https link", "Invalid URL provided 'https://x'.", { kind: "field", field: "value", messageKey: "contacts.socialInvalid" }],
+    ["an empty invalid link", "Invalid URL provided ''.", { kind: "field", field: "value", messageKey: "contacts.socialInvalid" }],
+    ["the per-type limit", LIMIT, { kind: "field", field: "type", messageKey: "contacts.socialLimit" }],
+    ["a duplicate (the shared rule)", "Duplicate Contact Points specified.", { kind: "field", field: "value", messageKey: "contacts.duplicateSocial" }],
+    [
+      "a duplicate of a saved link (the shared rule)",
+      "Operation failed. Person with id '42' already has contact point with value 'https://x.com/ann'.",
+      { kind: "field", field: "value", messageKey: "contacts.duplicateSocial" },
+    ],
+  ])("maps %s", (_name, message, expected) => {
+    expect(mapApiError("social", upstream(message))).toEqual(expected)
+  })
+
+  it("names the catalog copy the Section shows", () => {
+    expect(messageFor("contacts.socialInvalid")).toBe("Enter a link that starts with https://")
+    expect(messageFor("contacts.socialLimit")).toBe("You've reached the limit of 20 links")
+    expect(messageFor("contacts.duplicateSocial")).toBe("This link is already on your profile")
+  })
+
+  it("keeps the limit's phone and email messages on their scopes", () => {
+    expect(mapApiError("phone", upstream(LIMIT))).toEqual({ kind: "field", field: "type", messageKey: "contacts.phoneLimit" })
+    expect(mapApiError("email", upstream(LIMIT))).toEqual({ kind: "field", field: "type", messageKey: "contacts.emailLimit" })
+  })
+
+  it.each<[string, ErrorScope, string]>([
+    ["an invalid link outside social", "email", INVALID_URL],
+    ["an invalid link outside social (phone)", "phone", INVALID_URL],
+    ["an invalid link without quotes", "social", "Invalid URL provided @ann."],
+    ["an invalid link without its period", "social", "Invalid URL provided '@ann'"],
+    ["an invalid link with a suffix", "social", `${INVALID_URL} Try again.`],
+    ["an invalid link with a prefix", "social", `Error: ${INVALID_URL}`],
+    ["a near-miss limit", "social", LIMIT.slice(0, -1)],
+    ["an invalid email (no social rule)", "social", "ann@ is not a valid email."],
+  ])("leaves %s as generic with the platform message", (_name, scope, message) => {
+    expect(mapApiError(scope, upstream(message))).toEqual({ kind: "generic", message })
   })
 })
