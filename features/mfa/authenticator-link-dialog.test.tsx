@@ -5,7 +5,7 @@ import { useSWRConfig } from "swr"
 import { StrictMode, useState } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { toastSuccess, useMyself, type FrameState } from "@/features/shell"
-import { sessionEvents } from "@/lib/api"
+import { keys, sessionEvents } from "@/lib/api"
 import { setTelemetrySink } from "@/lib/shared/telemetry"
 import { MFA_MESSAGES } from "@/lib/shared/messages"
 import { axeViolations } from "@/test/axe"
@@ -77,13 +77,15 @@ describe("Authenticator enrollment", () => {
     await user.click(submit())
     expect(await screen.findByText(MFA_MESSAGES.codeRequired)).toBeTruthy()
     expect(document.activeElement).toBe(codeField())
+    expect(codeField().getAttribute("aria-describedby")).toBeTruthy()
     await user.type(codeField(), "a1b2c3")
     expect(codeField()).toHaveProperty("value", "123")
     await user.clear(codeField())
     await user.paste("12a 34-56 78")
     expect(codeField()).toHaveProperty("value", "123456")
     expect(calls).toBe(0)
-    expect(codeField().getAttribute("aria-describedby")).toBeTruthy()
+    expect(screen.queryByText(MFA_MESSAGES.codeRequired)).toBeNull()
+    expect(codeField().getAttribute("aria-invalid")).toBeNull()
   })
 
   it("retains QR on invalid codes, counts outcomes per opening, links and refreshes shared status", async () => {
@@ -334,11 +336,14 @@ describe("Authenticator enrollment", () => {
     await user.click(tile())
     await waitFor(() => expect(calls).toBe(1))
     act(() => window.dispatchEvent(new Event("pagehide")))
+    expect(tile().getAttribute("aria-busy")).toBe("true")
+    expect(tile("Google").getAttribute("aria-disabled")).toBe("true")
     await user.click(tile("Google"))
     expect(calls).toBe(1)
     expect(screen.queryByRole("dialog")).toBeNull()
     await act(async () => release())
     expect(screen.queryByRole("dialog")).toBeNull()
+    await waitFor(() => expect(tile("Google").hasAttribute("aria-disabled")).toBe(false))
     await user.click(tile("Google"))
     await screen.findByRole("dialog", { name: "Link your Google authenticator" })
     expect(within(dialog()).getByAltText(MFA_MESSAGES.qrAlt).getAttribute("src")).toBe(latestQr)
@@ -457,6 +462,123 @@ describe("Authenticator enrollment", () => {
       expect(events).not.toHaveBeenCalled()
       await waitFor(() => expect(document.activeElement).toBe(transition === "session" ? screen.getByText("Session action") : heading()))
     } finally { restore() }
+  })
+
+  it.each([false, true])("keeps validation coordinated after pagehide and reconciles its late %s outcome", async (ok) => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let linked = false
+    let enables = 0
+    let validations = 0
+    let reads = 0
+    let refresh!: () => Promise<unknown>
+    const events = vi.fn()
+    const restore = setTelemetrySink(events)
+    function Harness() {
+      const { mutate } = useSWRConfig()
+      refresh = () => mutate(keys.myself())
+      return <AuthenticatorSection />
+    }
+    renderInPage(<Harness />, { page: "account", myself: myselfWire(), handlers: [
+      http.get(MYSELF, () => { reads++; return HttpResponse.json(myselfWire({ totpEnabled: linked })) }),
+      http.post(ENABLE, () => { enables++; return HttpResponse.json({ qrCode: QR }) }),
+      http.post(VALIDATE, async () => { validations++; await gate; linked = ok; return HttpResponse.json(ok) }),
+    ] })
+    try {
+      await open()
+      const user = userEvent.setup()
+      await user.type(codeField(), "123456{Enter}")
+      await waitFor(() => expect(validations).toBe(1))
+      act(() => window.dispatchEvent(new Event("pagehide")))
+      expect(screen.queryByRole("dialog")).toBeNull()
+      expect(document.querySelector(`img[src="${QR}"]`)).toBeNull()
+      expect(tile().getAttribute("aria-busy")).toBe("true")
+      expect(tile("Google").getAttribute("aria-disabled")).toBe("true")
+      await user.click(tile("Google"))
+      expect(enables).toBe(1)
+      // A focus/return-time refresh can finish before the backend mutation.
+      await act(async () => { await refresh() })
+      const readsBeforeSettlement = reads
+      await act(async () => release())
+      await waitFor(() => expect(reads).toBeGreaterThan(readsBeforeSettlement))
+      expect(toastSuccess).not.toHaveBeenCalled()
+      expect(events).not.toHaveBeenCalled()
+      if (ok) await screen.findByText("Enabled")
+      else {
+        await waitFor(() => expect(tile("Google").hasAttribute("aria-disabled")).toBe(false))
+        await user.click(tile("Google"))
+        await screen.findByRole("dialog", { name: "Link your Google authenticator" })
+        expect(codeField()).toHaveProperty("value", "")
+        expect(enables).toBe(2)
+      }
+    } finally { release(); restore() }
+  })
+
+  it("keeps tiles unavailable until post-success status refresh settles", async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let linked = false
+    let enables = 0
+    let heldReads = 0
+    setup([
+      http.get(MYSELF, async () => {
+        if (linked) { heldReads++; await gate }
+        return HttpResponse.json(myselfWire({ totpEnabled: linked }))
+      }),
+      http.post(ENABLE, () => { enables++; return HttpResponse.json({ qrCode: QR }) }),
+      http.post(VALIDATE, () => { linked = true; return HttpResponse.json(true) }),
+    ])
+    try {
+      await open()
+      const user = userEvent.setup()
+      await user.type(codeField(), "123456{Enter}")
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+      await waitFor(() => expect(heldReads).toBe(1))
+      act(() => window.dispatchEvent(new Event("pagehide")))
+      expect(tile("Google").getAttribute("aria-disabled")).toBe("true")
+      expect(tile().getAttribute("aria-busy")).toBe("true")
+      await user.click(tile("Google"))
+      expect(enables).toBe(1)
+      expect(heldReads).toBe(1)
+      await act(async () => release())
+      await screen.findByText("Enabled")
+      expect(tile().getAttribute("aria-busy")).toBeNull()
+      expect(enables).toBe(1)
+    } finally { release() }
+  })
+
+  it.each(["linked", "error"])("removes an obsolete notice when shared account state becomes %s", async (transition) => {
+    let update!: () => void
+    function Harness() {
+      const { myself } = useMyself()
+      const [changed, setChanged] = useState(false)
+      update = () => setChanged(true)
+      const state: FrameState = changed && transition === "error" ? { error: { kind: "generic" } } : "ready"
+      return <><p>{myself ? "Identity loaded" : "Loading identity"}</p><AuthenticatorLinkDialog cardProps={{ state, linked: changed && transition === "linked", onRetry: vi.fn() }} onFailure={vi.fn()} /></>
+    }
+    renderInPage(<Harness />, { page: "account", myself: myselfWire(), handlers: [
+      http.post(ENABLE, () => HttpResponse.json({ message: "Mfa is not enabled for this user." }, { status: 400 })),
+    ] })
+    await screen.findByText("Identity loaded")
+    await userEvent.setup().click(tile())
+    await screen.findByText(MFA_MESSAGES.baseUnavailable)
+    act(update)
+    expect(screen.queryByText(MFA_MESSAGES.baseUnavailable)).toBeNull()
+    if (transition === "linked") expect(screen.getByText("Enabled")).toBeTruthy()
+  })
+
+  it("clears a previous validation error when pasting a replacement code", async () => {
+    let validations = 0
+    setup([http.post(VALIDATE, () => { validations++; return HttpResponse.json(false) })])
+    await open()
+    const user = userEvent.setup()
+    await user.type(codeField(), "123456{Enter}")
+    await screen.findByText(MFA_MESSAGES.codeInvalid)
+    await user.paste("65-43-21")
+    expect(codeField()).toHaveProperty("value", "654321")
+    expect(screen.queryByText(MFA_MESSAGES.codeInvalid)).toBeNull()
+    expect(codeField().getAttribute("aria-invalid")).toBeNull()
+    expect(validations).toBe(1)
   })
 
 })

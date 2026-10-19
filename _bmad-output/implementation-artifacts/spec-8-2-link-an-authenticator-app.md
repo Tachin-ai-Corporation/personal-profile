@@ -69,6 +69,50 @@ context:
 - Given every matrix case, when tests run, then behavior matches authoritative 8.2 ACs and existing Account regressions pass.
 - Given successful verification, when publishing, then BMAD code review has completed before commit/push to the story branch.
 
+### Review Findings
+
+Standalone `bmad-code-review`, 2026-10-19, reviewed commit `7d83fc9992f7936e5a4841e03c376c928159eed3` against `main`. Four layers completed; verification-gap and acceptance-auditor reported no findings. This review found additional lifecycle/UI issues after the earlier build review. No application code changed during this review.
+
+- [x] [Review][Patch] R1 (medium): Retain physical validation coordination after pagehide until its request settles, preventing a new enable call from overlapping it. [`features/mfa/authenticator-link-dialog.tsx:45`]
+- [x] [Review][Patch] R2 (medium): Reconcile shared status after a discarded late validation result; a return-time identity refresh can finish before upstream validation changes the account. [`features/mfa/authenticator-link-dialog.tsx:148`]
+- [x] [Review][Patch] R3 (medium): Prevent another enrollment from starting during the delayed status refresh after successful validation. Tiles become active before refreshed identity confirms the new linked status. [`features/mfa/authenticator-link-dialog.tsx:95`]
+- [x] [Review][Patch] R4 (medium): Keep truthful in-flight tile feedback when an enable request survives pagehide. Tiles currently look enabled but silently ignore activation until the outstanding request settles. [`features/mfa/authenticator-link-dialog.tsx:49`]
+- [x] [Review][Patch] R5 (medium): Clear obsolete enrollment notices when observed account status changes; an Enabled card can retain the base-MFA-unavailable notice. [`features/mfa/authenticator-link-dialog.tsx:76`]
+- [x] [Review][Patch] R6 (low): Clear or update field errors when editing/pasting a new code; a complete six-digit value retains the short-code message and aria-invalid until resubmission. [`features/mfa/authenticator-link-dialog.tsx:187`]
+
+#### Individual verdicts before grouping
+
+| ID | Source | Verdict | Verified evidence / disposition |
+|---|---|---|---|
+| 1 | blind-hunter | medium | clear resets validatePending while await validateTotp is still unresolved; held-request reproduction admits a second enable. R1. |
+| 2 | blind-hunter | medium | Reproduction refreshes myself after pagehide but before validation settles, then late true is discarded without another read: backend linked, card Not set up. SWR focus/visibility refresh alone does not close this ordering gap. R2. |
+| 3 | blind-hunter | medium | Held-enable reproduction: after pagehide tiles have no aria-disabled, but another activation is ignored by enableRequestPending. R4. |
+| 4 | blind-hunter | medium | Reproduction changes shared myself to linked after MFA_NOT_ENABLED: Enabled and the obsolete prerequisite notice render together. Reconciliation never clears notice. R5. |
+| 5 | blind-hunter | medium | Delayed post-success identity reproduction: tiles become enabled; another activation launches a second enable after its page-user check completes. Backend may refuse it, but UI exposes a completed action again while reconciliation is pending. R3. |
+| 6 | blind-hunter | low | onChange/onPaste update code only; short-submit error/aria-invalid remain on a now-complete code. Direct local UI correction. R6. |
+| 7 | blind-hunter | low | Browser privacy assertions stop before success, but the complete-flow unit test actively enables development logging and inspects caches, storage/writes, console and telemetry after invalid and successful validation. Reject redundant additional browser assertions; no uncovered application privacy defect demonstrated. |
+| 8 | blind-hunter | low | Browser cancellation test does not count reads; the feature cancellation test captures readsBeforeDismissal and awaits an increment for Cancel/Escape/Close. Reject duplicate browser accounting without a demonstrated consumer gap. |
+| 9 | blind-hunter | low | e2e/ui-kit.spec.ts:113 exercises the reused Dialog's mobile full height, body scroll and pinned footer. Story tests verify the full-screen integration and geometry. Reject duplicating shared-control scenarios without an observed composition failure. |
+| 10 | edge-case-hunter | medium | Same held physical validation/reset defect as finding 1. Grouped only after individual verification; R1. |
+
+Five isolated reproduction tests passed (they assert the observed bad behaviors), then the temporary test was removed from the working tree. Evidence retained locally at `/tmp/story82-code-review-repro.log` and `/tmp/story82-code-review-repro.test.tsx`; these are ephemeral, not regression fixes.
+
+#### Rejected
+
+- Finding 7 — low: complete-flow privacy, including successful validation and active development logging, already has direct feature coverage; extra browser assertions would duplicate it.
+- Finding 8 — low: every cancellation action already proves a fresh identity read in the feature tests; no additional runtime defect shown.
+- Finding 9 — low: mobile height/scroll/pinned-footer behavior is verified by the shared Dialog browser contract; no story-specific override or failing composition shown.
+
+Summary: 0 decision-needed, 6 patches resolved, 0 defer, 3 rejected. Human selected Apply every patch.
+
+Resolution (2026-10-19):
+- R1/R4: one in-flight mutation guard covers enable and validation, survives dialog cleanup/pagehide, and retains truthful busy/inert tiles until the request settles.
+- R2/R3: discarded late results revalidate shared identity; completed validation keeps enrollment blocked until its identity refresh settles, including another pagehide during that refresh. Session expiry prevents background revalidation and preserves shell focus.
+- R5: unavailable/linked card transitions and dialog cleanup remove obsolete notices.
+- R6: typing or pasting a replacement code removes the prior field error without sending a request.
+- Regression verification: 39 enrollment unit tests; full 206-file suite passed with 5,705 tests and all 131 enforced files at 100% statements/branches/functions/lines. Production Account browser suite: 330 passed / 6 expected skips, including delayed validation and delayed identity refresh in desktop/mobile. Typecheck, lint, forbidden-pattern and whitespace checks passed. Local evidence: `/tmp/story82-six-patches-coverage.log`, `/tmp/story82-six-patches-e2e.log` (ephemeral).
+- No foundation/API/session contract or accepted rate-limit policy changed. Three rejected items and all frozen intent remain unchanged.
+
 ## Implementation Notes
 
 - Parent diff audit: all seven execution tasks implemented; story-only ownership preserved. No named-op/session/foundation implementation changes.

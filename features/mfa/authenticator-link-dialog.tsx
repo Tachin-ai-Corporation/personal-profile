@@ -32,7 +32,8 @@ export function AuthenticatorLinkDialog({ cardProps, onFailure }: Props) {
   const mounted = useRef(false)
   const generation = useRef(0)
   const pending = useRef(false)
-  const enableRequestPending = useRef(false)
+  const mutationRequestPending = useRef(false)
+  const reconciliationPending = useRef(false)
   const validatePending = useRef(false)
   const attempts = useRef(0)
   const noticeAttempts = useRef(0)
@@ -46,12 +47,13 @@ export function AuthenticatorLinkDialog({ cardProps, onFailure }: Props) {
     generation.current++
     pending.current = false
     validatePending.current = false
-    setBusyApp(null)
+    if (!mutationRequestPending.current && !reconciliationPending.current) setBusyApp(null)
     setValidating(false)
     setEnrollment(null)
     setQrLoaded(false)
     setCode("")
     setFieldError(null)
+    setNotice(null)
   }
   useEffect(() => {
     mounted.current = true
@@ -75,13 +77,14 @@ export function AuthenticatorLinkDialog({ cardProps, onFailure }: Props) {
 
   const canEnroll = !cardProps.linked && cardProps.state === "ready"
   // Reconcile transient state before rendering a newly unavailable card.
-  if (!canEnroll && (enrollment || busyApp)) {
+  if (!canEnroll && (enrollment || busyApp || notice)) {
     setBusyApp(null)
     setValidating(false)
     setEnrollment(null)
     setQrLoaded(false)
     setCode("")
     setFieldError(null)
+    setNotice(null)
   }
   useLayoutEffect(() => {
     if (!canEnroll) {
@@ -92,11 +95,22 @@ export function AuthenticatorLinkDialog({ cardProps, onFailure }: Props) {
     }
   }, [canEnroll])
 
-  const refresh = (): void => { void mutate(keys.myself()).catch(() => undefined) }
-  const close = (focus: "origin" | "heading" | "none"): void => {
+  const refresh = (holdApp?: MfaAppId): void => {
+    if (sessionEvents.hasPublished("session-expired")) { setBusyApp(null); return }
+    if (holdApp) {
+      reconciliationPending.current = true
+      setBusyApp(holdApp)
+    }
+    void mutate(keys.myself()).catch(() => undefined).finally(() => {
+      if (!holdApp) return
+      reconciliationPending.current = false
+      if (mounted.current) setBusyApp(null)
+    })
+  }
+  const close = (focus: "origin" | "heading" | "none", holdApp?: MfaAppId): void => {
     closeFocus.current = focus
     clear()
-    refresh()
+    refresh(holdApp)
   }
   const fail = (path: string, error: MappedError, fallback: string): void => {
     onFailure(path, error)
@@ -116,9 +130,9 @@ export function AuthenticatorLinkDialog({ cardProps, onFailure }: Props) {
     } else setFieldError({ text, attempt: attempts.current })
   }
   const start = async (app: MfaAppId): Promise<void> => {
-    if (enableRequestPending.current || pending.current || validatePending.current || enrollment || sessionEvents.hasPublished("session-expired")) return
+    if (!canEnroll || mutationRequestPending.current || reconciliationPending.current || pending.current || validatePending.current || enrollment || sessionEvents.hasPublished("session-expired")) return
     pending.current = true
-    enableRequestPending.current = true
+    mutationRequestPending.current = true
     const current = ++generation.current
     origin.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     closeFocus.current = "origin"
@@ -126,34 +140,40 @@ export function AuthenticatorLinkDialog({ cardProps, onFailure }: Props) {
     setNotice(null)
     setBusyApp(app)
     const response = await enableTotp()
-    enableRequestPending.current = false
-    if (!mounted.current || current !== generation.current) return
+    mutationRequestPending.current = false
+    if (!mounted.current) return
+    if (current !== generation.current) { refresh(app); return }
     setBusyApp(null)
     if (!response.success || !response.data) { pending.current = false; fail(mfaEnableTotpPath(), mapApiError("authenticator", response), MFA_MESSAGES.startFailed); return }
     setEnrollment({ app, qrCode: response.data.qrCode })
   }
   const submit = async (): Promise<void> => {
-    if (validatePending.current || !enrollment) return
+    if (!canEnroll || mutationRequestPending.current || reconciliationPending.current || validatePending.current || !enrollment) return
     if (!/^\d{6}$/.test(code)) {
       setFieldError((previous) => ({ text: MFA_MESSAGES.codeRequired, attempt: (previous?.attempt ?? 0) + 1 }))
       input.current?.focus()
       return
     }
     validatePending.current = true
+    mutationRequestPending.current = true
     const current = generation.current
     const attempt = ++attempts.current
     setValidating(true)
+    setBusyApp(enrollment.app)
     setFieldError(null)
     const response = await validateTotp(code)
-    if (!mounted.current || current !== generation.current) return
+    mutationRequestPending.current = false
+    if (!mounted.current) return
+    if (current !== generation.current) { refresh(enrollment.app); return }
     validatePending.current = false
     setValidating(false)
+    setBusyApp(null)
     if (!response.success) { fail(mfaValidatePath(), mapApiError("authenticator", response), MFA_MESSAGES.validateFailed); return }
     const ok = response.data === true
     telemetry.track("mfa_link", { ok, attempt })
     if (ok) {
       toastSuccess(formatMessage(MFA_MESSAGES.linked, { App: MFA_APPS.find((app) => app.id === enrollment.app)!.name }))
-      close("heading")
+      close("heading", enrollment.app)
     } else {
       setCode("")
       setFieldError({ text: MFA_MESSAGES.codeInvalid, attempt })
@@ -184,12 +204,16 @@ export function AuthenticatorLinkDialog({ cardProps, onFailure }: Props) {
           </div>}
           <form id={formId} onSubmit={(event) => { event.preventDefault(); void submit() }}>
             <FormField label={MFA_MESSAGES.codeLabel} error={fieldError && <span key={fieldError.attempt}>{fieldError.text}</span>}>
-              {(control) => <Input {...control} ref={input} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} onPaste={(event) => {
+              {(control) => <Input {...control} ref={input} value={code} onChange={(event) => {
+                setCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+                setFieldError(null)
+              }} onPaste={(event) => {
                 event.preventDefault()
                 if (validatePending.current) return
                 const pasted = event.clipboardData.getData("text").replace(/\D/g, "")
                 const target = event.currentTarget
                 setCode((code.slice(0, target.selectionStart ?? 0) + pasted + code.slice(target.selectionEnd ?? code.length)).slice(0, 6))
+                setFieldError(null)
               }} readOnly={validating} inputMode="numeric" autoComplete="one-time-code" maxLength={6} className="mono-value h-11 w-[200px] tracking-[0.3em]" />}
             </FormField>
           </form>

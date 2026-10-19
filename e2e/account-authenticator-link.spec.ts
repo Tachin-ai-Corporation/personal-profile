@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect } from "@playwright/test"
-import { MFA_TEST_QR, mockAccountDefaults, mockMfaEnrollment, setTheme, signIn, test } from "./fixtures"
+import { ANN, MFA_TEST_QR, mockAccountDefaults, mockMfaEnrollment, setTheme, signIn, test } from "./fixtures"
 
 test.beforeEach(async ({ page }) => { await mockAccountDefaults(page); await signIn(page) })
 for (const theme of ["light", "dark"] as const) {
@@ -45,6 +45,8 @@ for (const theme of ["light", "dark"] as const) {
       element.dispatchEvent(new ClipboardEvent("paste", { clipboardData, bubbles: true, cancelable: true }))
     })
     await expect(field).toHaveValue("654321")
+    await expect(dialog.getByText("Enter the 6-digit code", { exact: true })).toHaveCount(0)
+    await expect(field).not.toHaveAttribute("aria-invalid", "true")
     await field.press("Enter")
     await expect(dialog.getByText("Invalid code. Try again.", { exact: true })).toBeVisible()
     await expect(field).toHaveValue("")
@@ -55,6 +57,7 @@ for (const theme of ["light", "dark"] as const) {
     expect(stored).not.toContain("654321")
     expect(stored).not.toContain("data:image")
     await field.fill("123456")
+    await expect(dialog.getByText("Invalid code. Try again.", { exact: true })).toHaveCount(0)
     await field.press("Enter")
     await expect(dialog).toHaveCount(0)
     await expect(page.getByRole("heading", { name: "Authenticator app", exact: true })).toBeFocused()
@@ -129,4 +132,66 @@ test("expired validation leaves focus with the shell session dialog", async ({ p
   await expect(session.getByRole("button", { name: "Return to 1health", exact: true })).toBeFocused()
   await expect(page.getByRole("dialog", { name: "Link your Microsoft authenticator" })).toHaveCount(0)
   await expect(page.locator(`img[src="${MFA_TEST_QR}"]`)).toHaveCount(0)
+})
+
+test("a validation surviving pagehide blocks enrollment and reconciles the late result", async ({ page }) => {
+  const state = await mockMfaEnrollment(page)
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  await page.route("**/api/pp/mfa/validate", async (route) => {
+    state.validations++
+    await gate
+    state.linked = true
+    await route.fulfill({ json: true })
+  })
+  try {
+    await page.goto("/account?tab=personal")
+    const tile = page.getByRole("button", { name: "Link Microsoft", exact: true })
+    const other = page.getByRole("button", { name: "Link Google", exact: true })
+    await tile.click()
+    const code = page.getByRole("textbox", { name: "6-digit code" })
+    await code.fill("123456")
+    await code.press("Enter")
+    await expect.poll(() => state.validations).toBe(1)
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })))
+    await expect(page.getByRole("dialog")).toHaveCount(0)
+    await expect(page.locator(`img[src="${MFA_TEST_QR}"]`)).toHaveCount(0)
+    await expect(tile).toHaveAttribute("aria-busy", "true")
+    await expect(other).toHaveAttribute("aria-disabled", "true")
+    await other.dispatchEvent("click")
+    expect(state.enables).toBe(1)
+    release()
+    await expect(page.getByRole("region", { name: "Authenticator app", exact: true }).getByText("Enabled", { exact: true })).toBeVisible()
+    await expect(tile).not.toHaveAttribute("aria-busy", "true")
+    await expect(page.getByText("Microsoft authenticator linked", { exact: true })).toHaveCount(0)
+    expect(state.enables).toBe(1)
+  } finally { release() }
+})
+
+test("successful validation keeps tiles inert while identity refresh is held", async ({ page }) => {
+  const state = await mockMfaEnrollment(page)
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  await page.route("**/api/1h/v2/user/myself", async (route) => {
+    if (state.linked) await gate
+    await route.fulfill({ json: { ...ANN, mfaEnabled: true, totpEnabled: state.linked } })
+  })
+  try {
+    await page.goto("/account?tab=personal")
+    const tile = page.getByRole("button", { name: "Link Microsoft", exact: true })
+    const other = page.getByRole("button", { name: "Link Google", exact: true })
+    await tile.click()
+    const code = page.getByRole("textbox", { name: "6-digit code" })
+    await code.fill("123456")
+    await code.press("Enter")
+    await expect(page.getByRole("dialog")).toHaveCount(0)
+    await expect(tile).toHaveAttribute("aria-busy", "true")
+    await expect(other).toHaveAttribute("aria-disabled", "true")
+    await other.dispatchEvent("click")
+    expect(state.enables).toBe(1)
+    release()
+    await expect(page.getByRole("region", { name: "Authenticator app", exact: true }).getByText("Enabled", { exact: true })).toBeVisible()
+    await expect(tile).not.toHaveAttribute("aria-busy", "true")
+    expect(state.enables).toBe(1)
+  } finally { release() }
 })
