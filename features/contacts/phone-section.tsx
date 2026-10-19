@@ -1,18 +1,16 @@
 "use client"
 
 import { Plus } from "lucide-react"
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useWatch, type Path } from "react-hook-form"
 import useSWR from "swr"
 import { Button } from "@/components/ui/button"
 import { Chip } from "@/components/ui/chip"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { DisabledAction } from "@/components/ui/disabled-action"
-import { FieldError } from "@/components/ui/form-field"
 import { InputLocked } from "@/components/ui/input-locked"
 import { LiveStatus, useAnnounce } from "@/components/ui/live-status"
 import { PhoneInput } from "@/components/ui/phone-input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { StatusBadge } from "@/components/ui/status-badge"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -60,6 +58,7 @@ import {
 import { CONTACT_LABEL_HOME, CONTACT_PHONE_TYPES, contactLabelsFrom, type ContactPhoneType } from "@/lib/shared/contact-labels"
 import { COMMON_MESSAGES, CONTACT_MESSAGES, formatMessage, messageFor, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 import { formatPhoneDisplay, isPhoneRegion, normalizeRegion, regionFlag, toE164, type PhoneInputValue } from "@/lib/shared/phone"
+import { CellField, ChoiceCell, isRepeatKey, nextNewKey, NotApplicable, uniqueRowKeys } from "./contact-edit-kit"
 import {
   arePhoneTypesFull,
   isPhoneTypeFull,
@@ -92,17 +91,7 @@ function toPhoneRows(type: ContactPhoneType, points: readonly ContactPoint[]): P
 }
 
 /** A repeated id's later occurrence (`id-<id>~<n>`): locked like a row without an id, so only the first one can change. */
-const isRepeat = (row: PhoneRow): boolean => row.key.includes("~")
-
-/** Unique keys: a repeated id (in one list or across both) gets its occurrence, so the first one keeps `id-<id>`. */
-function uniqueKeys(rows: readonly PhoneRow[]): PhoneRow[] {
-  const seen = new Map<string, number>()
-  return rows.map((row) => {
-    const count = seen.get(row.key) ?? 0
-    seen.set(row.key, count + 1)
-    return count === 0 ? row : { ...row, key: `${row.key}~${count}` }
-  })
-}
+const isRepeat = (row: PhoneRow): boolean => isRepeatKey(row.key)
 
 /**
  * The shown phones: the Mobile rows, then the Landline rows, each in API
@@ -111,7 +100,7 @@ function uniqueKeys(rows: readonly PhoneRow[]): PhoneRow[] {
  * shown as Primary.
  */
 function phoneRowsOf(mobile: readonly ContactPoint[], landline: readonly ContactPoint[]): PhoneRow[] {
-  const rows = uniqueKeys([...toPhoneRows("Mobile", mobile), ...toPhoneRows("Landline", landline)])
+  const rows = uniqueRowKeys([...toPhoneRows("Mobile", mobile), ...toPhoneRows("Landline", landline)])
   const primary = findPrimary(rows.map((row) => row.point))
   const first = rows.find((row) => row.point === primary)
   return first ? [{ ...first, primary: true }, ...rows.filter((row) => row !== first)] : rows
@@ -298,16 +287,6 @@ function PhoneReadActions({ row, state, showInline, removeReason: removeDisabled
   )
 }
 
-/** The "—" of a row that has no notifications setting, with its meaning for screen readers. */
-function NotApplicable() {
-  return (
-    <span className="text-muted-foreground">
-      <span aria-hidden="true">{CONTACT_MESSAGES.notificationsNotApplicable}</span>
-      <span className="sr-only">{CONTACT_MESSAGES.notificationsNotApplicableLabel}</span>
-    </span>
-  )
-}
-
 function notificationsOf(row: PhoneRow): ReactNode {
   if (!row.primary) return <NotApplicable />
   return row.point.isNotificationEnabled === true ? (
@@ -399,16 +378,6 @@ function phoneErrorFields(shape: string): Partial<Record<ErrorField, Path<PhoneV
 /** Where a row's kebab Edit puts focus: its Label, else its locked number. */
 const editFocusOf = (row: PhoneEditRow, index: number) => (isLabelEditable(row) ? labelPath(index) : lockedPath(index))
 
-/** A new row key no row holds yet. */
-function nextNewKey(rows: readonly PhoneEditRow[], counter: { current: number }): string {
-  let key: string
-  do {
-    counter.current += 1
-    key = `new-${counter.current}`
-  } while (rows.some((row) => row.key === key))
-  return key
-}
-
 /**
  * Why a row's Remove is unavailable, if it is: the last phone left ("You
  * need at least one phone"; only when the person had saved phones), else a
@@ -420,33 +389,6 @@ function removeReason(row: { readonly isNew: boolean; readonly label: string }, 
   if (remaining === 1 && hadSaved) return CONTACT_MESSAGES.phoneMinimum
   if (!row.isNew && row.label === PRIMARY_LABEL) return CONTACT_MESSAGES.phonePrimaryFirst
   return undefined
-}
-
-/** A control's help and error lines, wired to it (`aria-describedby`, `aria-invalid`) with the error in a polite live region. */
-function CellField({
-  help,
-  error,
-  children,
-}: {
-  readonly help?: ReactNode
-  readonly error?: string
-  readonly children: (wiring: { readonly id: string; readonly "aria-describedby": string | undefined; readonly "aria-invalid": true | undefined }) => ReactNode
-}) {
-  const id = useId()
-  const helpId = `${id}-help`
-  const errorId = `${id}-error`
-  const describedBy = [help ? helpId : null, error ? errorId : null].filter(Boolean).join(" ") || undefined
-  return (
-    <div className="flex min-w-0 flex-col gap-1.5">
-      {children({ id, "aria-describedby": describedBy, "aria-invalid": error ? true : undefined })}
-      {help ? (
-        <p id={helpId} className="text-muted-foreground text-body-sm">
-          {help}
-        </p>
-      ) : null}
-      <div aria-live="polite">{error ? <FieldError id={errorId}>{error}</FieldError> : null}</div>
-    </div>
-  )
 }
 
 interface CellProps {
@@ -482,55 +424,6 @@ function NewNumberCell({ section, item }: Omit<CellProps, "headerId">) {
             aria-required
           />
         </>
-      )}
-    </CellField>
-  )
-}
-
-interface ChoiceCellProps extends CellProps {
-  readonly path: `rows.${number}.label` | `rows.${number}.type`
-  readonly options: readonly { readonly value: string; readonly label: string; readonly disabled?: boolean }[]
-  readonly placeholder: string
-}
-
-/** A Label or Type Select (read-only while saving: it doesn't open and ignores changes). */
-function ChoiceCell({ section, path, headerId, options, placeholder }: ChoiceCellProps) {
-  const { ref, ...binding } = section.control(path)
-  const error = section.errorFor(path)
-  const value = String(binding.value ?? "")
-  // A saved label the list doesn't offer still shows on the trigger until changed.
-  const unlisted = value !== "" && !options.some((option) => option.value === value) ? { value } : undefined
-  return (
-    <CellField error={error}>
-      {(wiring) => (
-        <Select
-          value={value}
-          open={binding.readOnly ? false : undefined}
-          onValueChange={(next) => {
-            if (!binding.readOnly) binding.onChange(next)
-          }}
-          placeholder={placeholder}
-          unlistedValue={unlisted}
-        >
-          <SelectTrigger
-            {...wiring}
-            ref={ref}
-            aria-labelledby={headerId}
-            aria-required
-            onBlur={binding.onBlur}
-            aria-readonly={binding.readOnly || undefined}
-            className="w-full"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {options.map((option) => (
-              <SelectItem key={option.value} value={option.value} disabled={option.disabled}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
       )}
     </CellField>
   )
@@ -603,7 +496,7 @@ function phoneEditColumns({ section, rows, labelOptions, saved, primaryKey, veri
       header: LABEL,
       cell: ({ row, index }, { headerId }) => {
         if (isLabelEditable(row)) {
-          return <ChoiceCell section={section} item={{ row, index }} headerId={headerId} path={labelPath(index)} options={labelChoices} placeholder={CONTACT_MESSAGES.chooseLabel} />
+          return <ChoiceCell section={section} headerId={headerId} path={labelPath(index)} options={labelChoices} placeholder={CONTACT_MESSAGES.chooseLabel} />
         }
         // The Primary (and a row without an id) keeps its label: shown as the locked chip.
         return row.label ? <Chip variant={row.key === primaryKey ? "primary" : "label"}>{row.label}</Chip> : null
@@ -615,7 +508,7 @@ function phoneEditColumns({ section, rows, labelOptions, saved, primaryKey, veri
       cell: ({ row, index }, { headerId }) => {
         if (!row.isNew) return <LockedCell section={section} item={{ row, index }} headerId={headerId} value={phoneTypeLabel(row.type)} />
         const options = CONTACT_PHONE_TYPES.map((type) => ({ value: type, label: phoneTypeLabel(type), disabled: isPhoneTypeFull(rows, type, row.key) }))
-        return <ChoiceCell section={section} item={{ row, index }} headerId={headerId} path={typePath(index)} options={options} placeholder={CONTACT_MESSAGES.choosePhoneType} />
+        return <ChoiceCell section={section} headerId={headerId} path={typePath(index)} options={options} placeholder={CONTACT_MESSAGES.choosePhoneType} />
       },
     },
     {

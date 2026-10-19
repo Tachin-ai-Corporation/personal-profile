@@ -46,4 +46,14 @@ export const CONTACT_MESSAGES = {
   phonePrimaryOnePerType: "Only one phone can be primary", // DRAFT COPY (spec 3.4 one Primary per type in a request)
   phonePrimaryNotNew: "A new phone can't be primary. Save it, then make it primary.", // DRAFT COPY (spec 3.4 Primary in an add)
   phonePrimaryChanged: "Your primary phone changed. Check your phones and try again.", // DRAFT COPY (spec 3.4 the person already has a Primary)
+  // Email (Story 3.5). The "…email" variants are Voice and Tone copy the table writes only as "…email": `messages.test.ts`
+  // matches whole quoted strings, so they carry the marker with their source.
+  emailsEmpty: "No emails yet", // DRAFT COPY (epics Story 3.5 empty Section)
+  addEmail: "Add email", // DRAFT COPY (epics Story 3.5 header and empty-state action)
+  emailInvalid: "Enter a valid email address", // verbatim: EXPERIENCE.md Voice and Tone, "Validation"
+  emailMinimum: "You need at least one email", // DRAFT COPY (verbatim: EXPERIENCE.md Voice and Tone, "Disabled Remove (last entry)", the "…email" variant)
+  emailPrimaryFirst: "Make another email primary first", // DRAFT COPY (verbatim: EXPERIENCE.md Voice and Tone, "Disabled Remove (Primary)", the "…email…" variant)
+  emailLimit: "You've reached the limit of 20 emails", // DRAFT COPY (verbatim: EXPERIENCE.md Voice and Tone, "Disabled Add (limit)", the email form)
+  emailLockedPrimary: "Locked. This is the address you sign in with.", // verbatim: EXPERIENCE.md Voice and Tone, "Locked email" (Primary)
+  emailLocked: "Saved addresses can't be changed. Remove it and add a new one.", // verbatim: EXPERIENCE.md Voice and Tone, "Locked email" (others)
 } as const

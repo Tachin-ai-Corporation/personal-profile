@@ -162,9 +162,6 @@ test.describe("/ page frame (Stories 1.8, 1.9)", () => {
     await expect(header).toHaveCount(1)
     if (isMobile) {
       await page.waitForLoadState("networkidle")
-      // The header fetches nothing below 768 px. The Phone Section reads Mobile and Landline itself (Story 3.1);
-      // no Section reads Email until Story 3.5 (human-approved foundation exception, spec 3.1).
-      expect(seen.filter((type) => type === "Email")).toEqual([])
       await expect(header.getByText("ann@example.com")).toHaveCount(0)
     } else {
       await expect(header.getByText("ann@example.com")).toBeVisible()

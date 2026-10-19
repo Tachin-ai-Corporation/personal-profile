@@ -80,4 +80,26 @@ const phoneRules: readonly MessageRule<Field>[] = [
   },
 ]
 
-export const rules: readonly MessageRule<Field>[] = [...duplicateRules, ...phoneRules]
+/**
+ * Email (Story 3.5): an invalid address, the per-type limit and an unknown
+ * label. The limit names `type`, which the Email Section maps to no field,
+ * so it shows at Section level.
+ */
+const emailRules: readonly MessageRule<Field>[] = [
+  // `INSTANT_TEST_INVALID_EMAIL` ("%s is not a valid email.", `ContactPointServiceImpl` validating an Email value).
+  { scopes: ["email"], pattern: /^.+ is not a valid email\.$/, result: { kind: "field", field: "value", messageKey: "contacts.emailInvalid" } },
+  // `MAX_CONTACT_POINTS_PER_TYPE_ERROR` (20 per Contact Type).
+  {
+    scopes: ["email"],
+    pattern: /^Operation failed\. Person can have maximum of \d+ contact points per type\.$/,
+    result: { kind: "field", field: "type", messageKey: "contacts.emailLimit" },
+  },
+  // `INVALID_ENUM_VALUE` for the Contact Point `Label` (a list of the allowed values follows).
+  {
+    scopes: ["email"],
+    pattern: /^Invalid 'Label' specified\. Possible values are \[.*\]\.$/,
+    result: { kind: "field", field: "label", messageKey: "contacts.labelNotOffered" },
+  },
+]
+
+export const rules: readonly MessageRule<Field>[] = [...duplicateRules, ...phoneRules, ...emailRules]

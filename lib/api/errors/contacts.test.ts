@@ -4,7 +4,7 @@ import { mapApiError, type ApiResponse, type ErrorScope, type MappedError } from
 import { rules } from "./contacts"
 
 /**
- * Stories 3.2–3.4 (NG-9023): the Contacts table's Phone rules, anchored on the
+ * Stories 3.2–3.5 (NG-9023, NG-9024): the Contacts table's Phone and Email rules, anchored on the
  * exact backend texts (`common/Messages.java`; `INVALID_PHONE_PROVIDED` in the
  * common util `Messages`). The duplicate rules are covered in `errors.test.ts`.
  */
@@ -73,7 +73,7 @@ describe("contacts errors: phone rules", () => {
   })
 
   it.each<[string, ErrorScope, string]>([
-    ["the limit outside phone", "email", LIMIT],
+    ["the limit outside phone and email", "social", LIMIT],
     ["an invalid phone outside phone", "personal", INVALID_PHONE],
     ["an invalid label outside phone", "social", INVALID_LABEL],
     ["an invalid type outside phone", "email", INVALID_TYPE],
@@ -103,5 +103,36 @@ describe("contacts errors: phone rules", () => {
       expect(rule.pattern.source.startsWith("^")).toBe(true)
       expect(rule.pattern.source.endsWith("$")).toBe(true)
     }
+  })
+})
+
+describe("contacts errors: email rules (Story 3.5)", () => {
+  const INVALID_EMAIL = "ann@ is not a valid email."
+
+  it.each<[string, string, MappedError]>([
+    ["an invalid address", INVALID_EMAIL, { kind: "field", field: "value", messageKey: "contacts.emailInvalid" }],
+    ["an invalid address with spaces", "ann @ example .com is not a valid email.", { kind: "field", field: "value", messageKey: "contacts.emailInvalid" }],
+    ["the per-type limit", LIMIT, { kind: "field", field: "type", messageKey: "contacts.emailLimit" }],
+    ["an invalid label", INVALID_LABEL, { kind: "field", field: "label", messageKey: "contacts.labelNotOffered" }],
+    ["a duplicate (the shared rule)", "Duplicate Contact Points specified.", { kind: "field", field: "value", messageKey: "contacts.duplicateEmail" }],
+  ])("maps %s", (_name, message, expected) => {
+    expect(mapApiError("email", upstream(message))).toEqual(expected)
+  })
+
+  it("names the catalog copy the Section shows", () => {
+    expect(messageFor("contacts.emailInvalid")).toBe("Enter a valid email address")
+    expect(messageFor("contacts.emailLimit")).toBe("You've reached the limit of 20 emails")
+  })
+
+  it.each<[string, ErrorScope, string]>([
+    ["an invalid address outside email", "phone", INVALID_EMAIL],
+    ["an invalid address outside email (social)", "social", INVALID_EMAIL],
+    ["an address with nothing before the text", "email", " is not a valid email."],
+    ["an invalid address without its period", "email", "ann@ is not a valid email"],
+    ["an invalid address with a suffix", "email", `${INVALID_EMAIL} Try again.`],
+    ["a near-miss limit", "email", LIMIT.slice(0, -1)],
+    ["an invalid type (no email rule)", "email", INVALID_TYPE],
+  ])("leaves %s as generic with the platform message", (_name, scope, message) => {
+    expect(mapApiError(scope, upstream(message))).toEqual({ kind: "generic", message })
   })
 })
