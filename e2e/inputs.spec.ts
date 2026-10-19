@@ -134,6 +134,22 @@ test.describe("Select", () => {
 })
 
 test.describe("DateInput", () => {
+  test("controlled text restores partial/impossible dates, edits with the mask and clears externally", async ({ page }) => {
+    const input = birthDate(page)
+    await page.getByRole("button", { name: "Restore 02/3", exact: true }).click()
+    await expect(input).toHaveValue("02/3")
+    await page.getByRole("button", { name: "Restore 02/30/1990", exact: true }).click()
+    await expect(input).toHaveValue("02/30/1990")
+    await expect(input).toHaveAttribute("aria-invalid", "true")
+    await expect(page.getByTestId("birth-date")).toHaveText("")
+    await page.getByRole("button", { name: "Clear restored date", exact: true }).click()
+    await expect(input).toHaveValue("")
+    await input.pressSequentially("02292000")
+    await expect(input).toHaveValue("02/29/2000")
+    await expect(page.getByTestId("birth-date")).toHaveText("2000-02-29")
+    await expectNoAxeViolations(page, "controlled restored date", 'section[aria-label="Dates"]')
+  })
+
   test("typing 02292024 shows 02/29/2024 and sends 2024-02-29; 02/30/1990 sends nothing and shows the caller's error", async ({ page }) => {
     const input = birthDate(page)
     await input.click()

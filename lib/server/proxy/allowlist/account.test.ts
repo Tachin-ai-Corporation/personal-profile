@@ -1,7 +1,10 @@
+import { http, HttpResponse } from "msw"
+import { SESSION_COOKIE, sealSession } from "@/lib/server/session/session"
+import { DEMO } from "@/test/upstream-fixture"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { stubServerEnv, testEnv } from "@/test/env-fixture"
-import { trackAllRequests } from "@/test/msw-server"
-import { NOW } from "@/test/session-fixture"
+import { server, trackAllRequests } from "@/test/msw-server"
+import { makeSession, NOW } from "@/test/session-fixture"
 import { createProxyHandler } from "../handler"
 import { ALLOWLIST } from "./index"
 import { entries } from "./account"
@@ -13,8 +16,8 @@ import { entries } from "./account"
  * The shared `PUT v2/user/edit` contract is `user-edit.account.test.ts`.
  */
 describe("account allowlist area", () => {
-  it("has its planned entries (none yet), all aggregated into the shipped allowlist", () => {
-    expect(entries.map((entry) => `${entry.method} ${entry.template}`)).toEqual([])
+  it("has its regional write entries, all aggregated into the shipped allowlist", () => {
+    expect(entries.map((entry) => `${entry.method} ${entry.template}`)).toEqual(["POST v2/user/time-zone", "POST v2/user/locale"])
     for (const entry of entries) expect(ALLOWLIST).toContain(entry)
   })
 
@@ -89,5 +92,88 @@ describe("Story 7.2: account proxy rejections with the shipped allowlist", () =>
     ["POST", "v2/MFA/enable/totp", 403, "NOT_ALLOWED"],
   ])("rejects traversal %s %s → %i %s", async (method, path, status, errorCode) => {
     await expectRejection(method, path, status, errorCode)
+  })
+})
+
+import { buildUpstreamQuery } from "../match"
+import { ACCOUNT_TIME_ZONES } from "@/lib/shared/time-zones"
+
+describe("Account regional query contracts", () => {
+  it("accepts exactly the six shared zones and en-US", () => {
+    for (const zone of ACCOUNT_TIME_ZONES) expect(buildUpstreamQuery(entries[0], new URLSearchParams({ timeZone: zone.value }))?.get("timeZone")).toBe(zone.value)
+    expect(buildUpstreamQuery(entries[1], new URLSearchParams("locale=en-US"))?.toString()).toBe("locale=en-US")
+  })
+  it.each(["", "timeZone=", "timeZone=Europe/Paris", "timeZone=america/Chicago", "timeZone=America/Chicago&timeZone=America/Chicago", "timeZone=America/Chicago&extra=x"])("rejects invalid zone queries %s", (query) => {
+    expect(buildUpstreamQuery(entries[0], new URLSearchParams(query))).toBeNull()
+  })
+  it.each(["", "locale=", "locale=en-us", "locale=fr-FR", "locale=en-US&locale=en-US", "locale=en-US&extra=x"])("rejects invalid locale queries %s", (query) => {
+    expect(buildUpstreamQuery(entries[1], new URLSearchParams(query))).toBeNull()
+  })
+  it.each(["v2/user/time-zone?timeZone=America/Chicago", "v2/user/locale?locale=en-US"])("kill switch rejects %s before session/upstream", async (path) => {
+    stubServerEnv()
+    const calls = trackAllRequests()
+    const handler = createProxyHandler({ env: testEnv({ ACCOUNT_DISABLED: "1" }), now: () => NOW })
+    const response = await handler(new Request(`http://localhost:3000/api/1h/${path}`, { method: "POST" }))
+    expect(response.status).toBe(503)
+    expect(calls()).toBe(0)
+  })
+})
+
+
+describe("Account regional endpoints through the shipped proxy", () => {
+  const handler = createProxyHandler({ env: testEnv(), now: () => NOW })
+  beforeEach(() => stubServerEnv())
+
+  async function post(path: string, body?: string) {
+    const cookie = `${SESSION_COOKIE}=${await sealSession(makeSession())}`
+    return handler(new Request(`http://localhost:3000/api/1h/${path}`, {
+      method: "POST", headers: { cookie }, body,
+    }))
+  }
+
+  it.each([
+    ["v2/user/time-zone", "timeZone", "America/Chicago"],
+    ["v2/user/locale", "locale", "en-US"],
+  ])("forwards authenticated POST %s with only its required query and no body", async (path, key, value) => {
+    const requests: Request[] = []
+    server.use(http.post(`${DEMO.apiBase}/${path}`, ({ request }) => {
+      requests.push(request)
+      return new HttpResponse(null, { status: 204 })
+    }))
+    const response = await post(`${path}?${new URLSearchParams({ [key]: value })}`)
+    expect(response.status).toBe(204)
+    expect(requests).toHaveLength(1)
+    const request = requests[0]
+    expect(request.method).toBe("POST")
+    expect(new URL(request.url).pathname).toBe(`/api/${path}`)
+    expect([...new URL(request.url).searchParams]).toEqual([[key, value]])
+    expect(request.headers.get("authorization")).toBe(`Bearer ${makeSession().accessToken}`)
+    expect(await request.text()).toBe("")
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0")
+  })
+
+  it.each([
+    "v2/user/time-zone?timeZone=Europe/Paris",
+    "v2/user/time-zone",
+    "v2/user/time-zone?timeZone=America/Chicago&timeZone=America/Chicago",
+    "v2/user/time-zone?timeZone=America/Chicago&extra=x",
+    "v2/user/locale?locale=en-us",
+    "v2/user/locale",
+    "v2/user/locale?locale=en-US&locale=en-US",
+    "v2/user/locale?locale=en-US&extra=x",
+  ])("rejects %s as BAD_QUERY without upstream work", async (path) => {
+    const calls = trackAllRequests()
+    const response = await post(path)
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ errorCode: "BAD_QUERY", source: "proxy" })
+    expect(calls()).toBe(0)
+  })
+
+  it.each(["v2/user/time-zone?timeZone=America/Chicago", "v2/user/locale?locale=en-US"])("rejects an unexpected body for %s without upstream work", async (path) => {
+    const calls = trackAllRequests()
+    const response = await post(path, "{}")
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ errorCode: "BAD_BODY", source: "proxy" })
+    expect(calls()).toBe(0)
   })
 })

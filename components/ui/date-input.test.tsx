@@ -376,3 +376,58 @@ describe("DateInput: calendar", () => {
     expect(screen.getByRole("grid").getAttribute("aria-label")).toBe(now.toLocaleString("en-US", { month: "long", year: "numeric" }))
   })
 })
+
+describe("DateInput: optional controlled display text", () => {
+  it("renders external partial, impossible, valid and empty text without emitting changes", () => {
+    const onChange = vi.fn()
+    const { rerender } = render(<DateInput aria-label="Draft date" value="" textValue="02/3" onChange={onChange} />)
+    const input = screen.getByRole("textbox", { name: "Draft date" }) as HTMLInputElement
+    expect(input.value).toBe("02/3")
+    for (const [textValue, value] of [["02/30/1990", ""], ["02/29/2000", "2000-02-29"], ["", ""]]) {
+      rerender(<DateInput aria-label="Draft date" value={value} textValue={textValue} onChange={onChange} />)
+      expect(input.value).toBe(textValue)
+    }
+    expect(onChange).not.toHaveBeenCalled()
+  })
+  it("preserves controlled typing, middle caret editing, paste and external resets", () => {
+    function Controlled() {
+      const [textValue, setText] = useState("02/29/2000")
+      const [value, setValue] = useState("2000-02-29")
+      return <><DateInput aria-label="Birth date" value={value} textValue={textValue} onChange={(wire, { text }) => { setValue(wire); setText(text) }} /><button onClick={() => { setText(""); setValue("") }}>Clear controlled</button></>
+    }
+    render(<Controlled />)
+    const input = field()
+    input.setSelectionRange(3, 4)
+    typeChar(input, "1")
+    expect(input.value).toBe("02/19/2000")
+    expect(input.selectionStart).toBe(4)
+    expect(paste(input, "1990-04-15")).toBe(true)
+    expect(input.value).toBe("04/15/1990")
+    fireEvent.click(screen.getByRole("button", { name: "Clear controlled" }))
+    expect(input.value).toBe("")
+    typeText(input, "02301990")
+    expect(input.value).toBe("02/30/1990")
+  })
+  it("keeps controlled text authoritative across resetKey and supports a return to legacy mode", () => {
+    const onChange = vi.fn()
+    const { rerender } = render(<DateInput aria-label="Birth date" value="" textValue="02/3" resetKey={0} onChange={onChange} />)
+    rerender(<DateInput aria-label="Birth date" value="" textValue="02/3" resetKey={1} onChange={onChange} />)
+    expect(field().value).toBe("02/3")
+    rerender(<DateInput aria-label="Birth date" value="2000-02-29" onChange={onChange} />)
+    expect(field().value).toBe("02/29/2000")
+  })
+  it("keeps controlled text read-only and preserves bounded calendar selection", async () => {
+    const onChange = vi.fn()
+    const { rerender } = render(<DateInput aria-label="Birth date" value="" textValue="02/3" onChange={onChange} readOnly calendar min="1906-10-14" max="2005-10-14" today={TODAY} />)
+    expect(field().readOnly).toBe(true)
+    expect((screen.getByRole("button", { name: "Choose date" }) as HTMLButtonElement).disabled).toBe(true)
+    expect(paste(field(), "2000-02-29")).toBe(false)
+    expect(onChange).not.toHaveBeenCalled()
+    rerender(<DateInput aria-label="Birth date" value="2000-02-29" textValue="02/29/2000" onChange={onChange} calendar min="2000-02-28" max="2000-02-29" today={TODAY} />)
+    fireEvent.click(screen.getByRole("button", { name: "Choose date" }))
+    await screen.findByRole("dialog", { name: "Choose date" })
+    const day = screen.getByRole("button", { name: /February 28th, 2000/ })
+    fireEvent.click(day)
+    expect(onChange).toHaveBeenCalledWith("2000-02-28", { text: "02/28/2000" })
+  })
+})

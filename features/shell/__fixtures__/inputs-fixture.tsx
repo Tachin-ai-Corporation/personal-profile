@@ -98,6 +98,7 @@ export function InputsFixture() {
               max={BOUNDS.max}
               today={INPUTS_FIXTURE_TODAY}
               value={birthDate}
+              textValue={birthText}
               onChange={(value, { text }) => {
                 setBirthDate(value)
                 setBirthText(text)
@@ -105,6 +106,9 @@ export function InputsFixture() {
             />
           )}
         </FormField>
+        <div className="flex flex-wrap gap-2">
+          {["02/3", "02/30/1990", ""].map((text) => <button key={text} type="button" className="min-h-11 rounded-md border px-3 focus-ring" onClick={() => { setBirthDate(""); setBirthText(text) }}>{text === "" ? "Clear restored date" : `Restore ${text}`}</button>)}
+        </div>
         <p>
           Wire value: <output data-testid="birth-date">{birthDate}</output> · bounds{" "}
           <output data-testid="bounds">

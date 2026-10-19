@@ -4,7 +4,8 @@
  * their write mocks (`PUT v2/user/edit`, `POST v2/user/time-zone`,
  * `POST v2/user/locale`) here with `mockProxy`.
  */
-import { ANN } from "./core"
+import { ANN, mockProxy, type ProxyResponder } from "./core"
+import type { Page } from "@playwright/test"
 
 /** Synthetic Story 7.4 data; the shared ANN fixture stays frozen. */
 export const ACCOUNT_SETTINGS_MYSELF = Object.freeze({
@@ -21,3 +22,11 @@ export const ACCOUNT_SETTINGS_MYSELF = Object.freeze({
   locale: "en-US",
   password: "must-never-be-rendered",
 })
+
+/** Regional responses can fail independently to exercise Account recovery. */
+export function mockAccountTimeZone(page: Page, answer: ProxyResponder = { status: 204 }) {
+  return mockProxy(page, "v2/user/time-zone?**", answer)
+}
+export function mockAccountLocale(page: Page, answer: ProxyResponder = { status: 204 }) {
+  return mockProxy(page, "v2/user/locale?**", answer)
+}
