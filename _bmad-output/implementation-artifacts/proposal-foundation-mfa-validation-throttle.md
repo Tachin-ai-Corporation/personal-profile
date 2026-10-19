@@ -1,11 +1,19 @@
 ---
 title: 'Foundation proposal: shared attempt limiting for TOTP enrollment'
-status: 'draft'
+status: 'superseded'
 created: '2026-10-19'
 baseline_commit: 'a56a8358de9adc26afef57e68ac19498d003cfba'
 ---
 
 # Shared attempt limiting for TOTP enrollment
+
+**Superseded by human decision (2026-10-19):** Story 8.2 will reuse demo's
+existing backend limit of 500 requests per 60 seconds, including its current
+per-instance behavior and private-client exemption. No new BFF counter or
+Redis is required for this story. The proposal below is historical, not
+approved for implementation or a prerequisite to Story 8.2. This decision
+does not establish a deployed TOTP-specific lockout. Keep the PR in draft;
+do not merge it as an implemented security control.
 
 This is a design proposal for the foundation prerequisite of Story 8.2
 (NG-9037). It does not implement or activate protection. The implementation
