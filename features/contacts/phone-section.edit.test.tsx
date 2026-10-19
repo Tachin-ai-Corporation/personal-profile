@@ -220,8 +220,9 @@ describe("PhoneSection: read-view entry points (Story 3.2)", () => {
     }
     for (const number of ["+1 (415) 551-2125", "+1 (415) 555-0111", "+44 20 7183 8750"]) expect(button(`More actions for ${number}`)).toBeTruthy()
     // Story 3.3: the unverified Work Mobile also offers Verify (first); the verified Primary and the Home Landline don't.
+    // Story 3.4: then Make primary, aria-disabled with its reason (the menu's second line).
     const menu = await openKebab("+1 (415) 555-0111")
-    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Verify", "Edit", "Remove"])
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Verify", "Make primaryVerify this number first", "Edit", "Remove"])
     await closeMenu(menu)
     const primaryMenu = await openKebab("+1 (415) 551-2125")
     // (Remove there carries its disabled reason as a second line.)

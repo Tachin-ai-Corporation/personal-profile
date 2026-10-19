@@ -3,7 +3,7 @@ import { expect, type Locator, type Page } from "@playwright/test"
 import { CONTACT_PHONES, contactPointRow, mockContactManage, mockContacts, mockContactVerify, mockProfileDefaults, setTheme, signIn, test } from "./fixtures"
 
 /**
- * Stories 3.1–3.3 (Team A, NG-9023): the Phone read and edit views and verify on the real `/`. Every
+ * Stories 3.1–3.4 (Team A, NG-9023): the Phone read and edit views, verify and Make primary on the real `/`. Every
  * test runs under the fail-fast `test`, starts from `mockProfileDefaults` and
  * overrides the Contact Point lists (`mockContacts`, the newest route wins).
  * Desktop asserts run at 1280 px; the stacked cards at 360 px.
@@ -420,7 +420,7 @@ test.describe("Phone verify (Story 3.3)", () => {
     await openWith(page)
     const verifies = await mockContactVerify(page)
     await section(page).getByRole("button", { name: "More actions for +1 (415) 555-0111" }).click()
-    await page.getByRole("menuitem", { name: "Verify" }).click()
+    await page.getByRole("menuitem", { name: "Verify", exact: true }).click()
     await expect.poll(() => verifies()).toEqual([{ contactPointIds: [11] }])
     const card = readRow(page, "+1 (415) 555-0111")
     await expect(card.locator('[data-column="status"] [data-slot="status-badge"]')).toHaveText(/^Link sent · Resend in \d+ s$/)
@@ -447,6 +447,167 @@ test.describe("Phone verify (Story 3.3)", () => {
       await setTheme(page, theme)
       const results = await new AxeBuilder({ page }).include("#phone").withTags(WCAG).analyze()
       expect(results.violations, `Phone verify (${theme})`).toEqual([])
+    }
+  })
+})
+
+// --- Story 3.4: make a phone primary and manage notifications --------------------------------------
+
+/** Mobile [Work 11 (unverified), Primary 12, Verified Personal 13, unverified Home 14], Landline [Home 21]. */
+const PRIMARY_PHONES = {
+  Mobile: [
+    ...CONTACT_PHONES.Mobile,
+    contactPointRow({ id: 13, value: "+14155550113", label: "Personal" }),
+    contactPointRow({ id: 14, value: "+14155550114", label: "Home", isVerified: false }),
+  ],
+  Landline: CONTACT_PHONES.Landline,
+}
+/** After Make primary on 13: 13 Primary with notifications on, 12 Old. */
+const SWITCHED_PHONES = {
+  Mobile: [
+    CONTACT_PHONES.Mobile[0],
+    { ...CONTACT_PHONES.Mobile[1], label: "Old" },
+    contactPointRow({ id: 13, value: "+14155550113", label: "Primary", isNotificationEnabled: true }),
+    PRIMARY_PHONES.Mobile[3],
+  ],
+  Landline: CONTACT_PHONES.Landline,
+}
+const confirmDialog = (page: Page): Locator => page.getByRole("alertdialog")
+const header = (page: Page): Locator => page.locator("div:has(> h1)")
+
+test.describe("Phone Make primary and notifications (Story 3.4)", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 })
+  })
+
+  test("Make primary → confirm → one POST; 13 first with Primary and On, 12 Old; toast; h2 focused; the header shows the new number", async ({ page }) => {
+    await openWith(page, PRIMARY_PHONES)
+    await expect(section(page).getByText("Changing your primary phone changes how you sign in.")).toBeVisible()
+    await expect(header(page).getByText("+1 (415) 551-2125")).toBeVisible()
+    const posts = await mockContactManage(page)
+    const row = readRow(page, "+1 (415) 555-0113")
+    await row.hover()
+    await row.getByRole("button", { name: "Make primary" }).click()
+    const dialog = confirmDialog(page)
+    await expect(dialog.getByRole("heading", { name: "This changes how you sign in" })).toBeVisible()
+    await expect(dialog).toContainText("+1 (415) 555-0113 becomes your primary phone and sign-in number. Your current primary is relabeled Old.")
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused()
+    await mockContacts(page, SWITCHED_PHONES)
+    await dialog.getByRole("button", { name: "Make primary" }).click()
+    await expect(dialog).toHaveCount(0)
+    expect(posts()).toEqual([
+      {
+        contactPointsToAdd: [],
+        contactPointsToUpdate: [
+          { id: 13, type: "Mobile", label: "Primary", isNotificationEnabled: true },
+          { id: 12, type: "Mobile", label: "Old", isNotificationEnabled: true },
+        ],
+        contactPointsToRemove: [],
+      },
+    ])
+    await expect(toastWith(page, "Phone saved.")).toBeVisible()
+    await expect(page.getByRole("heading", { level: 2, name: "Phone" })).toBeFocused()
+    const first = phoneTable(page).locator("tbody tr").first()
+    await expect(first.getByRole("cell").first()).toHaveText("🇺🇸+1 (415) 555-0113")
+    await expect(first.locator('[data-slot="chip"]')).toHaveAttribute("data-variant", "primary")
+    await expect(first.getByRole("cell").nth(4)).toHaveText("On")
+    await expect(readRow(page, "+1 (415) 551-2125").locator('[data-slot="chip"]')).toHaveText("Old")
+    await expect(header(page).getByText("+1 (415) 555-0113")).toBeVisible()
+  })
+
+  test("Cancel and Escape send nothing and return focus to the trigger", async ({ page }) => {
+    await openWith(page, PRIMARY_PHONES)
+    const posts = await mockContactManage(page)
+    const row = readRow(page, "+1 (415) 555-0113")
+    await row.hover()
+    const trigger = row.getByRole("button", { name: "Make primary" })
+    await trigger.click()
+    await confirmDialog(page).getByRole("button", { name: "Cancel" }).click()
+    await expect(confirmDialog(page)).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect(confirmDialog(page)).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(confirmDialog(page)).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+    expect(posts()).toEqual([])
+  })
+
+  test("disabled reasons: Landline, unverified Mobile (Verify beside it) and unverified Home Mobile", async ({ page }) => {
+    await openWith(page, PRIMARY_PHONES)
+    const cases: [string, string][] = [
+      ["+44 20 7183 8750", "Landlines can't be primary"],
+      ["+1 (415) 555-0111", "Verify this number first"],
+      ["+1 (415) 555-0114", "Change the label from Home, then verify this number"],
+    ]
+    for (const [number, reason] of cases) {
+      const action = readRow(page, number).getByRole("button", { name: "Make primary" })
+      await expect(action).toHaveAttribute("aria-disabled", "true")
+      // The reason is the action's description (its Tooltip's text); activation is a no-op.
+      await expect(action).toHaveAccessibleDescription(reason)
+      await action.focus()
+      await page.keyboard.press("Enter")
+      await expect(confirmDialog(page)).toHaveCount(0)
+    }
+    // The Tooltip shows the reason on focus.
+    await readRow(page, "+1 (415) 555-0111").getByRole("button", { name: "Make primary" }).focus()
+    await expect(page.getByRole("tooltip", { name: "Verify this number first" })).toBeVisible()
+    await expect(readRow(page, "+1 (415) 555-0111").getByRole("button", { name: "Verify", exact: true })).toHaveCount(1)
+    // The Primary row offers no Make primary.
+    await expect(readRow(page, "+1 (415) 551-2125").getByRole("button", { name: "Make primary" })).toHaveCount(0)
+  })
+
+  test("notifications: in edit view only the Primary has a switch; off → Save sends only that row; read view shows Off", async ({ page }) => {
+    await openWith(page, PRIMARY_PHONES)
+    const posts = await mockContactManage(page)
+    await section(page).getByRole("button", { name: "Edit", exact: true }).click()
+    await expect(section(page).getByRole("switch")).toHaveCount(1)
+    const toggle = section(page).getByRole("switch", { name: "Notifications for +1 (415) 551-2125" })
+    await expect(toggle).toHaveAttribute("aria-checked", "true")
+    await expect(section(page).getByText("Changing your primary phone changes how you sign in.")).toBeVisible()
+    await toggle.click()
+    await expect(toggle).toHaveAttribute("aria-checked", "false")
+    await expect(footer(page).getByText("Unsaved changes")).toBeVisible()
+    await mockContacts(page, { ...PRIMARY_PHONES, Mobile: PRIMARY_PHONES.Mobile.map((row) => (row.id === 12 ? { ...row, isNotificationEnabled: false } : row)) })
+    await saveButton(page).click()
+    await expect(footer(page)).toHaveCount(0)
+    expect(posts()).toEqual([{ contactPointsToAdd: [], contactPointsToUpdate: [{ id: 12, type: "Mobile", label: "Primary", isNotificationEnabled: false }], contactPointsToRemove: [] }])
+    await expect(phoneTable(page).locator("tbody tr").first().getByRole("cell").nth(4)).toHaveText("Off")
+  })
+
+  test("at 360 px: Make primary from the kebab; the confirm fits with no horizontal scroll", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 })
+    await openWith(page, PRIMARY_PHONES)
+    await section(page).getByRole("button", { name: "More actions for +1 (415) 555-0113" }).click()
+    await page.getByRole("menuitem", { name: "Make primary" }).click()
+    const dialog = confirmDialog(page)
+    await expect(dialog).toBeVisible()
+    const box = await dialog.boundingBox()
+    expect(box && box.x >= 16 && box.x + box.width <= 360 - 16).toBe(true)
+    await expectNoHorizontalScroll(page)
+    await dialog.getByRole("button", { name: "Cancel" }).click()
+    await expect(section(page).getByRole("button", { name: "More actions for +1 (415) 555-0113" })).toBeFocused()
+    await expect(section(page).getByText("Changing your primary phone changes how you sign in.")).toBeVisible()
+    await expectNoHorizontalScroll(page)
+  })
+
+  test("axe passes in light and dark with the confirm open and in edit view with the switch", async ({ page }) => {
+    await openWith(page, PRIMARY_PHONES)
+    const row = readRow(page, "+1 (415) 555-0113")
+    await row.hover()
+    await row.getByRole("button", { name: "Make primary" }).click()
+    await expect(confirmDialog(page)).toBeVisible()
+    for (const theme of ["light", "dark"] as const) {
+      await setTheme(page, theme)
+      const results = await new AxeBuilder({ page }).withTags(WCAG).analyze()
+      expect(results.violations, `Make primary confirm (${theme})`).toEqual([])
+    }
+    await confirmDialog(page).getByRole("button", { name: "Cancel" }).click()
+    await section(page).getByRole("button", { name: "Edit", exact: true }).click()
+    for (const theme of ["light", "dark"] as const) {
+      await setTheme(page, theme)
+      const results = await new AxeBuilder({ page }).include("#phone").withTags(WCAG).analyze()
+      expect(results.violations, `Phone edit with the switch (${theme})`).toEqual([])
     }
   })
 })

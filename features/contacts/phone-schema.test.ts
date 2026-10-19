@@ -17,7 +17,7 @@ import {
 } from "./phone-schema"
 
 /**
- * Story 3.2 (NG-9023): `phoneSchema` and the Phone edit helpers. Covers the
+ * Stories 3.2 and 3.4 (NG-9023): `phoneSchema` and the Phone edit helpers. Covers the
  * "Invalid" and "Limit" rows of the I/O matrix in
  * `spec-3-2-add-relabel-and-remove-phones.md`.
  */
@@ -131,7 +131,7 @@ describe("phone limit helpers", () => {
 })
 
 describe("phone rows", () => {
-  it("a saved phone as an edit row: its id, type, label, value and region; never new or removed", () => {
+  it("a saved phone as an edit row: its id, type, label, value, region and notifications; never new or removed", () => {
     expect(phoneEditRowOf("Mobile-5-0", "Mobile", point())).toEqual({
       key: "Mobile-5-0",
       id: 5,
@@ -142,12 +142,16 @@ describe("phone rows", () => {
       region: "us",
       phone: { region: "us", national: "" },
       removed: false,
+      notifications: false,
     })
     expect(phoneEditRowOf("k", "Landline", point({ id: null, label: null, value: null, phoneNumberRegion: null }))).toMatchObject({ id: null, label: "", value: "", region: "" })
+    // Story 3.4: the switch's value; anything but `true` reads off.
+    expect(phoneEditRowOf("k", "Mobile", point({ label: "Primary", isNotificationEnabled: true })).notifications).toBe(true)
+    expect(phoneEditRowOf("k", "Mobile", point({ isNotificationEnabled: null })).notifications).toBe(false)
   })
 
   it("a new row starts empty in the default region", () => {
-    expect(newPhoneEditRow("new-3")).toEqual({ key: "new-3", id: null, isNew: true, type: "", label: "", value: "", region: "", phone: { region: "us", national: "" }, removed: false })
+    expect(newPhoneEditRow("new-3")).toEqual({ key: "new-3", id: null, isNew: true, type: "", label: "", value: "", region: "", phone: { region: "us", national: "" }, removed: false, notifications: false })
   })
 
   it("names the types and shows the numbers", () => {
@@ -181,5 +185,20 @@ describe("phone drafts", () => {
     ])
     expect(phoneDraftDiff(current, current)).toEqual([])
     expect(phoneDraftDiff({ rows: [{ ...newPhoneEditRow("new-9"), label: "" }] }, { rows: [] })).toEqual([{ field: "rows.new-9", label: "", mine: "New · not saved", current: "" }])
+  })
+
+  it("includes the Primary's notifications (Story 3.4): a switched one differs; other rows never show theirs", () => {
+    const primary = saved({ id: 7, value: "+14155550107", label: "Primary", isNotificationEnabled: true })
+    const work = saved({ id: 5, label: "Work" })
+    const current = { rows: [primary, work] }
+    expect(phoneDraftDiff({ rows: [{ ...primary, notifications: false }, { ...work, notifications: true }] }, current)).toEqual([
+      { field: "rows.Mobile-7", label: "+1 (415) 555-0107", mine: "Primary · Mobile · Notifications off", current: "Primary · Mobile · Notifications on" },
+    ])
+    // A draft row stored before Story 3.4 (no notifications) still parses, and reads as the current row's notifications.
+    const legacy: PhoneEditRow = { ...primary }
+    delete legacy.notifications
+    expect(phoneDraftRows([legacy])).toEqual([legacy])
+    expect(phoneDraftDiff({ rows: [legacy, work] }, current)).toEqual([])
+    expect(phoneDraftDiff({ rows: [legacy] }, { rows: [] })).toEqual([{ field: "rows.Mobile-7", label: "+1 (415) 555-0107", mine: "Primary · Mobile", current: "" }])
   })
 })

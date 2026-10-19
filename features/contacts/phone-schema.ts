@@ -34,6 +34,12 @@ const phoneEditRowSchema = z.object({
   phone: z.object({ region: z.string(), national: z.string() }),
   /** A saved row struck through by Remove (a new row is deleted instead). */
   removed: z.boolean(),
+  /**
+   * Its `isNotificationEnabled` (Story 3.4: only the Primary row's switch
+   * changes it; a new row's is off). Absent in a draft stored before Story
+   * 3.4, which reads as unchanged.
+   */
+  notifications: z.boolean().optional(),
 })
 
 export type PhoneEditRow = z.infer<typeof phoneEditRowSchema>
@@ -131,12 +137,13 @@ export function phoneEditRowOf(key: string, type: ContactPhoneType, point: Conta
     region: point.phoneNumberRegion ?? "",
     phone: { ...EMPTY_PHONE_INPUT },
     removed: false,
+    notifications: point.isNotificationEnabled === true,
   }
 }
 
 /** An empty new row keyed `key`: the default region, no label, no type. */
 export function newPhoneEditRow(key: string): PhoneEditRow {
-  return { key, id: null, isNew: true, type: "", label: "", value: "", region: "", phone: { ...EMPTY_PHONE_INPUT }, removed: false }
+  return { key, id: null, isNew: true, type: "", label: "", value: "", region: "", phone: { ...EMPTY_PHONE_INPUT }, removed: false, notifications: false }
 }
 
 /** The Type copy of a row (`""` without one). */
@@ -159,16 +166,23 @@ export function phoneDraftRows(value: unknown): PhoneEditRow[] {
   return parsed.success ? parsed.data : []
 }
 
-/** One row as the draft compare reads it: label · type · its edit state. */
+/** A Primary row's notifications as the draft compare reads them (only the Primary has the switch); "" for any other row. */
+function describeNotifications(row: PhoneEditRow): string {
+  if (row.isNew || row.label !== PRIMARY_LABEL || row.notifications === undefined) return ""
+  return row.notifications ? CONTACT_MESSAGES.notificationsDraftOn : CONTACT_MESSAGES.notificationsDraftOff
+}
+
+/** One row as the draft compare reads it: label · type · the Primary's notifications · its edit state. */
 function describeRow(row: PhoneEditRow | undefined): string {
   if (!row) return ""
   const state = row.removed ? SECTION_MESSAGES.removedOnSave : row.isNew ? SECTION_MESSAGES.newNotSaved : ""
-  return [row.label, phoneTypeLabel(row.type), state].filter((part) => part !== "").join(" · ")
+  return [row.label, phoneTypeLabel(row.type), describeNotifications(row), state].filter((part) => part !== "").join(" · ")
 }
 
 /**
  * The draft conflict compare rows (F4): one per phone whose stored row
- * differs from the current one (added, struck through, relabelled), named
+ * differs from the current one (added, struck through, relabelled, the
+ * Primary's notifications switched), named
  * by its number.
  */
 export function phoneDraftDiff(draft: DraftValues, current: DraftValues): readonly DraftDiffRow[] {
@@ -176,8 +190,10 @@ export function phoneDraftDiff(draft: DraftValues, current: DraftValues): readon
   const now = phoneDraftRows(current.rows)
   const keys = [...new Set([...mine.map((row) => row.key), ...now.map((row) => row.key)])]
   return keys.flatMap((key) => {
-    const a = mine.find((row) => row.key === key)
+    const stored = mine.find((row) => row.key === key)
     const b = now.find((row) => row.key === key)
+    // A draft row stored before Story 3.4 holds no notifications: read as the current ones (unchanged).
+    const a = stored && stored.notifications === undefined && b ? { ...stored, notifications: b.notifications } : stored
     const left = describeRow(a)
     const right = describeRow(b)
     if (left === right) return []

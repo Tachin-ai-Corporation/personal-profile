@@ -388,7 +388,7 @@ describe("PhoneSection: Verify / Resend verification in the read view (Story 3.3
       ],
     })
     const menu = await openKebab("+1 (415) 555-0111")
-    expect(within(menu).getAllByRole("menuitem").map((entry) => entry.firstElementChild?.firstElementChild?.textContent)).toEqual(["Verify", "Edit", "Remove"])
+    expect(within(menu).getAllByRole("menuitem").map((entry) => entry.firstElementChild?.firstElementChild?.textContent)).toEqual(["Verify", "Make primary", "Edit", "Remove"])
     await act(async () => fireEvent.click(within(menu).getByRole("menuitem", { name: "Verify" })))
     await waitFor(() => expect(verifies).toHaveLength(1))
     await click(inlineAction("+1 (415) 555-0111", "Verify") as HTMLElement)

@@ -6,6 +6,7 @@ import { useWatch, type Path } from "react-hook-form"
 import useSWR from "swr"
 import { Button } from "@/components/ui/button"
 import { Chip } from "@/components/ui/chip"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { DisabledAction } from "@/components/ui/disabled-action"
 import { FieldError } from "@/components/ui/form-field"
 import { InputLocked } from "@/components/ui/input-locked"
@@ -13,6 +14,7 @@ import { LiveStatus, useAnnounce } from "@/components/ui/live-status"
 import { PhoneInput } from "@/components/ui/phone-input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { StatusBadge } from "@/components/ui/status-badge"
+import { Switch } from "@/components/ui/switch"
 import {
   RowActions,
   RowEditStatus,
@@ -25,6 +27,7 @@ import {
   StateFrame,
   sectionHeadingId,
   toastError,
+  toastSuccess,
   useCountdown,
   useReportSectionCount,
   useSectionForm,
@@ -55,7 +58,7 @@ import {
   type TypeInfo,
 } from "@/lib/api"
 import { CONTACT_LABEL_HOME, CONTACT_PHONE_TYPES, contactLabelsFrom, type ContactPhoneType } from "@/lib/shared/contact-labels"
-import { COMMON_MESSAGES, CONTACT_MESSAGES, formatMessage, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
+import { COMMON_MESSAGES, CONTACT_MESSAGES, formatMessage, messageFor, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 import { formatPhoneDisplay, isPhoneRegion, normalizeRegion, regionFlag, toE164, type PhoneInputValue } from "@/lib/shared/phone"
 import {
   arePhoneTypesFull,
@@ -193,12 +196,62 @@ function PhoneStatus({ row, state }: { readonly row: PhoneRow; readonly state: P
   )
 }
 
+// --- Make primary (Story 3.4) --------------------------------------------------------------------
+
+/** A row's Make primary: offered, enabled (`reason` undefined) or aria-disabled with its reason; `null` when not offered. */
+type PhonePrimaryOffer = { readonly reason: string | undefined } | null
+
+/**
+ * The RC2 exception: no shown phone is Verified and none is Primary, so an
+ * unverified Mobile (not labelled Home) may be made Primary too.
+ */
+const isPrimaryExceptionCase = (rows: readonly PhoneRow[]): boolean => !rows.some((row) => row.primary || row.point.isVerified === true)
+
+/**
+ * Make primary on a read-view row (Story 3.4, FR18). Never offered on the
+ * Primary, on a row already labelled Primary (a legacy second one), or on a
+ * row without an id or a repeated id's later occurrence. A Landline reads
+ * "Landlines can't be primary"; a Verified Mobile is eligible; an unverified
+ * Home-labelled Mobile reads "Change the label from Home, then verify this
+ * number"; any other unverified Mobile is eligible in the RC2 case, else
+ * reads "Verify this number first" (Verify sits beside it).
+ */
+function primaryOfferOf(row: PhoneRow, exception: boolean): PhonePrimaryOffer {
+  if (row.primary || row.point.label === PRIMARY_LABEL || verifyIdOf(row) === null) return null
+  if (row.type === "Landline") return { reason: CONTACT_MESSAGES.phoneLandlineNotPrimary }
+  if (row.point.isVerified === true) return { reason: undefined }
+  if (row.point.label === CONTACT_LABEL_HOME) return { reason: CONTACT_MESSAGES.phoneHomeNotPrimary }
+  return { reason: exception ? undefined : CONTACT_MESSAGES.phoneVerifyFirst }
+}
+
+/** The phone the open Make primary confirm is about. */
+interface PrimaryConfirm {
+  readonly id: number
+  readonly number: string
+  /** The type's current Primary is relabelled Old by the change (the body's second sentence). */
+  readonly relabelsOld: boolean
+}
+
+/**
+ * The saved phones after Make primary on `id`: that row labelled Primary,
+ * listed first (so it leads `contactPointsToUpdate`), then the others as
+ * saved. The engine relabels the old Primary "Old" and turns the new one's
+ * notifications on.
+ */
+function withPrimary(saved: readonly ContactPoint[], id: number): ContactPoint[] {
+  const target = saved.find((point) => point.id === id)
+  const others = saved.filter((point) => point.id !== id)
+  return target ? [{ ...target, label: PRIMARY_LABEL }, ...others] : others
+}
+
 interface PhoneReadActionsProps {
   readonly row: PhoneRow
   readonly state: PhoneVerifyState | undefined
   readonly showInline: boolean
   readonly removeReason: string | undefined
+  readonly primaryOffer: PhonePrimaryOffer
   readonly onVerify: (id: number) => void
+  readonly onMakePrimary: (id: number) => void
   readonly onEdit: (key: string) => void
   readonly onRemove: (key: string) => void
 }
@@ -206,9 +259,11 @@ interface PhoneReadActionsProps {
 /**
  * A read-view row's actions: Verify / Resend verification (inline and in the
  * kebab; aria-disabled with "Link sent · Resend in {n} s" during the
- * countdown) on a verifiable row, then Edit, then Remove (rows with an id).
+ * countdown) on a verifiable row, then Make primary (inline and in the
+ * kebab; aria-disabled with its reason) where offered, then Edit, then
+ * Remove (rows with an id).
  */
-function PhoneReadActions({ row, state, showInline, removeReason: removeDisabled, onVerify, onEdit, onRemove }: PhoneReadActionsProps) {
+function PhoneReadActions({ row, state, showInline, removeReason: removeDisabled, primaryOffer, onVerify, onMakePrimary, onEdit, onRemove }: PhoneReadActionsProps) {
   const seconds = useResendSeconds(state)
   const id = verifyIdOf(row)
   const verify =
@@ -223,12 +278,17 @@ function PhoneReadActions({ row, state, showInline, removeReason: removeDisabled
           },
         ]
       : []
+  const makePrimary =
+    id !== null && primaryOffer
+      ? [{ id: "make-primary", label: COMMON_MESSAGES.makePrimary, inline: true, disabledReason: primaryOffer.reason, onSelect: () => onMakePrimary(id) }]
+      : []
   return (
     <RowActions
       name={formatPhoneDisplay(row.value, row.point.phoneNumberRegion)}
       showInline={showInline}
       actions={[
         ...verify,
+        ...makePrimary,
         { id: "edit", label: SECTION_MESSAGES.edit, onSelect: () => onEdit(row.key) },
         ...(row.point.id === null
           ? []
@@ -300,6 +360,8 @@ interface EditItem {
 const numberPath = (index: number) => `rows.${index}.phone` as const
 const labelPath = (index: number) => `rows.${index}.label` as const
 const typePath = (index: number) => `rows.${index}.type` as const
+/** The Primary row's notifications switch (Story 3.4). */
+const notificationsPath = (index: number) => `rows.${index}.notifications` as const
 /** The locked number of a saved row (focus only: a kebab Edit on a row with nothing editable). */
 const lockedPath = (index: number) => `rows.${index}.value` as const
 /** The row's Remove / Restore action (focus only: Restore after a read-view Remove). */
@@ -481,6 +543,30 @@ function LockedCell({ section, item, headerId, value, number }: CellProps & { re
   return <InputLocked ref={number ? ref : undefined} value={value} help={number ? CONTACT_MESSAGES.phoneLocked : null} aria-labelledby={headerId} />
 }
 
+/**
+ * The Primary row's Notifications switch (Story 3.4, FR19), named
+ * "Notifications for {formatted number}": a toggle makes the Section dirty
+ * and Save sends only that row. Read-only while saving (it ignores presses).
+ */
+function NotificationsCell({ section, item, read }: Omit<CellProps, "headerId"> & { readonly read: PhoneRow }) {
+  const { ref, ...binding } = section.control(notificationsPath(item.index))
+  // A draft stored before Story 3.4 holds no value: the saved one shows.
+  const checked = typeof binding.value === "boolean" ? binding.value : read.point.isNotificationEnabled === true
+  return (
+    <Switch
+      ref={ref}
+      name={binding.name}
+      checked={checked}
+      aria-label={formatMessage(CONTACT_MESSAGES.notificationsFor, { number: formatPhoneDisplay(read.value, read.point.phoneNumberRegion) })}
+      aria-readonly={binding.readOnly || undefined}
+      onCheckedChange={(next) => {
+        if (!binding.readOnly) binding.onChange(next)
+      }}
+      onBlur={binding.onBlur}
+    />
+  )
+}
+
 interface EditColumnsInput {
   readonly section: PhoneSectionForm
   readonly rows: readonly PhoneEditRow[]
@@ -545,9 +631,11 @@ function phoneEditColumns({ section, rows, labelOptions, saved, primaryKey, veri
     {
       key: "notifications",
       header: NOTIFICATIONS,
-      cell: ({ row }) => {
+      cell: ({ row, index }) => {
         const read = row.isNew ? undefined : saved.get(row.key)
-        return read ? notificationsOf(read) : <NotApplicable />
+        // RC3: only the Primary has a setting; it can change only with an id to update.
+        if (!read?.primary) return <NotApplicable />
+        return row.id === null ? notificationsOf(read) : <NotificationsCell section={section} item={{ row, index }} read={read} />
       },
     },
   ]
@@ -555,7 +643,8 @@ function phoneEditColumns({ section, rows, labelOptions, saved, primaryKey, veri
 
 /**
  * The rows `values` stands for, as the engine reads them: every saved phone
- * (with an id) as read, relabelled or struck through by its edit row (a
+ * (with an id) as read, relabelled, its notifications switched (Story 3.4)
+ * or struck through by its edit row (a
  * saved phone the form doesn't hold, e.g. one a stale draft didn't know, is
  * kept unchanged), then the new rows with their E.164 number and picked region.
  */
@@ -564,7 +653,11 @@ function editedContactPoints(before: readonly ContactPoint[], rows: readonly Pho
     const edit = rows.find((row) => !row.isNew && row.id === point.id)
     if (!edit) return point
     const label = edit.label === "" ? point.label : edit.label
-    return edit.removed ? { ...point, label, removed: true } : { ...point, label }
+    // Only the Primary has a control for them (a restored draft never changes another row's), and a draft stored
+    // before Story 3.4 holds none: unchanged.
+    const isNotificationEnabled =
+      point.label === PRIMARY_LABEL && typeof edit.notifications === "boolean" ? edit.notifications : point.isNotificationEnabled
+    return edit.removed ? { ...point, label, isNotificationEnabled, removed: true } : { ...point, label, isNotificationEnabled }
   })
   const added = rows
     .filter((row) => row.isNew)
@@ -584,7 +677,18 @@ function editedContactPoints(before: readonly ContactPoint[], rows: readonly Pho
 }
 
 /**
- * Phone (Stories 3.1–3.2, FR15–FR16, NG-9023): the user's Mobile and Landline
+ * The Make primary error toast's text: a backend Primary rule's own message,
+ * else "Couldn't save phone. Check your connection." for a network failure,
+ * else "Couldn't save phone.".
+ */
+function makePrimaryFailureText(mapped: MappedError): string {
+  if (mapped.kind === "field" && mapped.field === "primary") return messageFor(mapped.messageKey)
+  const section = SHELL_MESSAGES.sectionPhone.toLowerCase()
+  return formatMessage(mapped.kind === "network" ? SECTION_MESSAGES.networkFailure : SECTION_MESSAGES.saveFailed, { section })
+}
+
+/**
+ * Phone (Stories 3.1–3.4, FR15–FR19, NG-9023): the user's Mobile and Landline
  * numbers from the shared per-type keys `keys.contactPoints("Mobile")` and
  * `("Landline")` (also read by the header and the `/account` pickers),
  * merged in one table: Primary first, then the API order. The landmark
@@ -617,6 +721,19 @@ function editedContactPoints(before: readonly ContactPoint[], rows: readonly Pho
  * cooldown shows as the row's help with Resend available at once; a
  * manual send that can't get through shows an error toast with Retry. The
  * states live here, keyed by id, and a reload forgets them.
+ *
+ * Make primary (Story 3.4, FR18): a read-view row action (inline and in the
+ * kebab, after Verify) on a saved, Verified Mobile that isn't the Primary
+ * (RC2: with no Verified and no Primary phone, an unverified non-Home Mobile
+ * too); elsewhere aria-disabled with its reason. It opens the standard
+ * confirm ("This changes how you sign in", focus on Cancel); Confirm keeps it
+ * busy while the one manage POST goes out (the new Primary with notifications
+ * on, the old one relabelled Old), then refetches both Phone keys and
+ * `myself`, toasts "Phone saved." and focuses the `h2`. A failure closes it,
+ * leaves the view as it was and toasts the mapped error with Retry. The
+ * footnote "Changing your primary phone changes how you sign in." shows
+ * below the table. Notifications (FR19): in edit view the Primary row's
+ * cell is a switch, and Save sends only that row.
  */
 export function PhoneSection() {
   const mobile = useSWR<ContactPoint[] | undefined, ApiResponseError>(keys.contactPoints("Mobile"))
@@ -778,14 +895,19 @@ export function PhoneSection() {
     rowsControl.onChange(current.map((row) => (row.key === key ? { ...row, removed } : row)))
   }
 
-  // The saved rows (and shown phones and verify states) of the latest render: a kebab item runs after its menu closes, from an older render.
+  // The saved rows (and shown phones, verify states, saved points and mode) of the latest render: a kebab item runs after its menu
+  // closes, from an older render, and a toast's Retry later still.
   const latestSaved = useRef(baseline.rows)
   const latestRows = useRef(rows)
   const latestVerify = useRef(verifyStates)
+  const latestPoints = useRef(savedPoints)
+  const latestEditing = useRef(isEditing)
   useLayoutEffect(() => {
     latestSaved.current = baseline.rows
     latestRows.current = rows
     latestVerify.current = verifyStates
+    latestPoints.current = savedPoints
+    latestEditing.current = isEditing
   })
 
   /**
@@ -801,6 +923,99 @@ export function PhoneSection() {
     void sendVerification([id], true).then((unreached) => {
       if (unreached) toastError(CONTACT_MESSAGES.verifyNetwork, { onRetry: () => verifyRow(id) })
     })
+  }
+
+  // --- Make primary (Story 3.4) ---
+  const [primaryConfirm, setPrimaryConfirm] = useState<PrimaryConfirm | null>(null)
+  const [primaryBusy, setPrimaryBusy] = useState(false)
+  /** A Make primary in flight: a second one meanwhile (a repeated Retry) does nothing. */
+  const primarySending = useRef(false)
+  /** The confirm closes after a success: focus goes to the Phone `h2` instead of back to the trigger. */
+  const focusHeadingOnClose = useRef(false)
+
+  /** The shown row `id` stands for, when Make primary is still enabled on it (latest rows, read view only). */
+  function eligibleRow(id: number): PhoneRow | undefined {
+    const shown = latestRows.current
+    if (!shown || latestEditing.current) return undefined
+    const row = shown.find((candidate) => verifyIdOf(candidate) === id)
+    const offer = row ? primaryOfferOf(row, isPrimaryExceptionCase(shown)) : null
+    return offer && offer.reason === undefined ? row : undefined
+  }
+
+  /**
+   * Sends the Make primary on `id` (one manage POST: the new Primary with
+   * notifications on, the old one relabelled Old), if it is still eligible.
+   * On success the two Phone keys and `myself` are refetched (the header and
+   * `/account` follow) before it resolves `true`. On failure the same three
+   * are refetched first (the server may have changed), then the error toast
+   * shows, whose Retry re-checks the latest rows and sends again with no
+   * confirm. A session end shows nothing (the shell owns it). Never throws:
+   * an engine refusal (a programmer error) toasts "Couldn't save phone."
+   * and sends nothing; its Retry only revalidates (the toast API always
+   * shows one).
+   */
+  async function sendMakePrimary(id: number): Promise<boolean> {
+    if (primarySending.current || !eligibleRow(id)) return false
+    primarySending.current = true
+    const refetch = () => Promise.allSettled([mobile.mutate(), landline.mutate(), mutateMyself()])
+    try {
+      const saved = latestPoints.current
+      const dto = contactPointsDiffToManageDTO(saved, withPrimary(saved, id))
+      if (dto === null) return false
+      const result = await saveContactPoints(dto)
+      // Saved or not, a failed refetch is left to the next read.
+      await refetch()
+      if (result.ok) return true
+      const { mapped } = result.error
+      if (mapped.kind !== "session") toastError(makePrimaryFailureText(mapped), { onRetry: () => void retryMakePrimary(id) })
+      return false
+    } catch {
+      toastError(makePrimaryFailureText({ kind: "generic" }), { onRetry: () => void refetch() })
+      return false
+    } finally {
+      primarySending.current = false
+    }
+  }
+
+  /** The success toast, "Phone saved." (focus moves to the Phone `h2` as the confirm closes, or at once after a Retry). */
+  function madePrimary(): void {
+    toastSuccess(formatMessage(SECTION_MESSAGES.saved, { section: SHELL_MESSAGES.sectionPhone }))
+  }
+
+  /** The error toast's Retry: no confirm (the user already confirmed). */
+  async function retryMakePrimary(id: number): Promise<void> {
+    if (!(await sendMakePrimary(id))) return
+    madePrimary()
+    document.getElementById(headingId)?.focus()
+  }
+
+  /** The row action: opens the confirm for an eligible row (a stale or disabled one does nothing). */
+  function openMakePrimary(id: number): void {
+    const row = eligibleRow(id)
+    if (!row) return
+    const saved = latestPoints.current
+    focusHeadingOnClose.current = false
+    setPrimaryConfirm({
+      id,
+      number: formatPhoneDisplay(row.value, row.point.phoneNumberRegion),
+      relabelsOld: saved.some((point) => point.id !== id && point.type === row.type && point.label === PRIMARY_LABEL),
+    })
+  }
+
+  /** Confirm: the dialog stays open and busy until the outcome, then closes (focus: the `h2` on success, else the trigger). */
+  async function confirmMakePrimary(): Promise<void> {
+    if (!primaryConfirm || primaryBusy) return
+    setPrimaryBusy(true)
+    let ok = false
+    try {
+      ok = await sendMakePrimary(primaryConfirm.id)
+    } finally {
+      // Whatever happens, the dialog never stays open and busy.
+      focusHeadingOnClose.current = ok
+      setPrimaryBusy(false)
+      setPrimaryConfirm(null)
+    }
+    if (ok) madePrimary()
   }
 
   /** The read-view kebab's Edit: edit view, focus on that row's Label (or its locked number). */
@@ -831,6 +1046,7 @@ export function PhoneSection() {
   const hadSaved = savedWithId > 0
   const savedByKey = new Map((rows ?? []).map((row) => [row.key, row]))
   const primaryKey = rows?.find((row) => row.primary)?.key
+  const primaryException = rows ? isPrimaryExceptionCase(rows) : false
   const emptyAction = { label: CONTACT_MESSAGES.addPhone, onClick: addPhone, disabledReason: limitReason(isEditing ? editFull : savedFull) }
 
   const headerActions =
@@ -916,7 +1132,9 @@ export function PhoneSection() {
                     state={verifyStateOf(verifyStates, row)}
                     showInline={layout === "table"}
                     removeReason={removeReason({ isNew: false, label: row.point.label ?? "" }, savedWithId, true)}
+                    primaryOffer={primaryOfferOf(row, primaryException)}
                     onVerify={verifyRow}
+                    onMakePrimary={openMakePrimary}
                     onEdit={editRow}
                     onRemove={removeRow}
                   />
@@ -925,7 +1143,33 @@ export function PhoneSection() {
             )}
           </SectionContainer>
         )}
+        {rows && (
+          <p data-slot="phone-footnote" className="text-muted-foreground text-body-sm mt-2">
+            {CONTACT_MESSAGES.phonePrimaryFootnote}
+          </p>
+        )}
       </StateFrame>
+      <ConfirmDialog
+        open={primaryConfirm !== null}
+        variant="standard"
+        title={CONTACT_MESSAGES.makePrimaryTitle}
+        body={
+          primaryConfirm
+            ? formatMessage(primaryConfirm.relabelsOld ? CONTACT_MESSAGES.makePrimaryBody : CONTACT_MESSAGES.makePrimaryBodyNoCurrent, { number: primaryConfirm.number })
+            : null
+        }
+        confirmLabel={COMMON_MESSAGES.makePrimary}
+        busy={primaryBusy}
+        onConfirm={() => void confirmMakePrimary()}
+        onCancel={() => setPrimaryConfirm(null)}
+        onCloseFocus={() => {
+          if (!focusHeadingOnClose.current) return false
+          focusHeadingOnClose.current = false
+          const heading = document.getElementById(headingId)
+          heading?.focus()
+          return heading !== null
+        }}
+      />
       {/* "Link sent", once per send (never each second of the countdown). */}
       <LiveStatus message={announcement} />
     </section>
