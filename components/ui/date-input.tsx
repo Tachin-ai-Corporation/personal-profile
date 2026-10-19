@@ -35,6 +35,13 @@ export interface DateInputProps
   extends Omit<React.ComponentProps<"input">, "value" | "defaultValue" | "onChange" | "type" | "min" | "max" | "inputMode" | "maxLength"> {
   /** The wire value, `YYYY-MM-DD`, or `""` (empty, incomplete or impossible). */
   readonly value: string
+  /**
+   * Optional controlled display text (`MM/DD/YYYY`, partial, impossible or empty).
+   * Use with `value = displayToWireDate(textValue) ?? ""` when restoring drafts.
+   * Update it from `onChange`'s `detail.text`. When supplied, this text also
+   * owns resets; `resetKey` retains its existing behavior when omitted.
+   */
+  readonly textValue?: string
   /** Called on every edit with the wire value (`""` unless the text is a real date) and the shown text. */
   readonly onChange: (value: string, detail: DateInputChangeDetail) => void
   /** Earliest selectable day (`YYYY-MM-DD`, inclusive): bounds the calendar. Typed dates outside it are the caller's schema's error. */
@@ -89,6 +96,7 @@ function clampDate(date: CalendarDate, min: CalendarDate | null, max: CalendarDa
  */
 function DateInput({
   value,
+  textValue,
   onChange,
   min,
   max,
@@ -152,7 +160,7 @@ function DateInput({
       inputMode="numeric"
       maxLength={DISPLAY_DATE_LENGTH}
       data-slot="date-input"
-      value={text}
+      value={textValue ?? text}
       placeholder={placeholder}
       disabled={disabled}
       readOnly={readOnly}
