@@ -98,3 +98,20 @@ describe("PUT v2/user/edit as Team B uses it (contract)", () => {
     expect(parse(body).success).toBe(false)
   })
 })
+
+import { createProxyHandler } from "../handler"
+import { stubServerEnv, testEnv } from "@/test/env-fixture"
+import { makeSession, NOW } from "@/test/session-fixture"
+import { SESSION_COOKIE, sealSession } from "@/lib/server/session/session"
+import { trackAllRequests } from "@/test/msw-server"
+
+it("rejects locale in the real user/edit proxy body before upstream work", async () => {
+  stubServerEnv()
+  const calls = trackAllRequests()
+  const cookie = `${SESSION_COOKIE}=${await sealSession(makeSession())}`
+  const response = await createProxyHandler({ env: testEnv(), now: () => NOW })(new Request("http://localhost:3000/api/1h/v2/user/edit", {
+    method: "PUT", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ firstName: "Bea", locale: "en-US" }),
+  }))
+  expect(response.status).toBe(400)
+  expect(calls()).toBe(0)
+})

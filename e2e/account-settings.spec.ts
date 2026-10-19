@@ -84,7 +84,7 @@ test.describe("Personal account settings read view (Story 7.4)", () => {
     await expect(password).toHaveText("********")
     await expect(password).toHaveCSS("font-family", /mono/i)
     await expect(page.getByText(ACCOUNT_SETTINGS_MYSELF.password, { exact: true })).toHaveCount(0)
-    await expect(section(page).getByRole("button")).toHaveCount(0)
+    await expect(section(page).getByRole("button", { name: "Edit", exact: true })).toBeVisible()
     expect(reads()).toBe(1)
     await expectNoOverflow(page)
   })

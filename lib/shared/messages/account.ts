@@ -16,4 +16,17 @@ export const ACCOUNT_MESSAGES = {
   zoneMountain: "Mountain", // DRAFT COPY (approved time-zone label)
   zoneCentral: "Central", // DRAFT COPY (approved time-zone label)
   zoneEastern: "Eastern", // DRAFT COPY (approved time-zone label)
+  usernameHelp: "Your username can't be changed here.", // DRAFT COPY
+  passwordHelp: "Password changes aren't available here.", // DRAFT COPY
+  aboutBirthDate: "About birth date", // DRAFT COPY
+  birthDateHelp: "Your date of birth is an important identifying factor throughout the healthcare industry. Additionally, 1health requires all users to be over the age of 18.", // DRAFT COPY
+  selectValue: "Select a value", // DRAFT COPY
+  languageRequired: "Select a preferred language", // DRAFT COPY
+  timeZoneRequired: "Select a time zone", // DRAFT COPY
+  localeRequired: "Select a locale", // DRAFT COPY
+  updated: "Personal account updated successfully", // DRAFT COPY
+  detailsPart: "Account details", // DRAFT COPY
+  timeZonePart: "Time zone", // DRAFT COPY
+  localePart: "Preferred locale", // DRAFT COPY
+  partFailed: "{part} was not saved.", // DRAFT COPY
 } as const

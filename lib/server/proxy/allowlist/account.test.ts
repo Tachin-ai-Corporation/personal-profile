@@ -13,8 +13,8 @@ import { entries } from "./account"
  * The shared `PUT v2/user/edit` contract is `user-edit.account.test.ts`.
  */
 describe("account allowlist area", () => {
-  it("has its planned entries (none yet), all aggregated into the shipped allowlist", () => {
-    expect(entries.map((entry) => `${entry.method} ${entry.template}`)).toEqual([])
+  it("has its regional write entries, all aggregated into the shipped allowlist", () => {
+    expect(entries.map((entry) => `${entry.method} ${entry.template}`)).toEqual(["POST v2/user/time-zone", "POST v2/user/locale"])
     for (const entry of entries) expect(ALLOWLIST).toContain(entry)
   })
 
@@ -89,5 +89,29 @@ describe("Story 7.2: account proxy rejections with the shipped allowlist", () =>
     ["POST", "v2/MFA/enable/totp", 403, "NOT_ALLOWED"],
   ])("rejects traversal %s %s → %i %s", async (method, path, status, errorCode) => {
     await expectRejection(method, path, status, errorCode)
+  })
+})
+
+import { buildUpstreamQuery } from "../match"
+import { ACCOUNT_TIME_ZONES } from "@/lib/shared/time-zones"
+
+describe("Account regional query contracts", () => {
+  it("accepts exactly the six shared zones and en-US", () => {
+    for (const zone of ACCOUNT_TIME_ZONES) expect(buildUpstreamQuery(entries[0], new URLSearchParams({ timeZone: zone.value }))?.get("timeZone")).toBe(zone.value)
+    expect(buildUpstreamQuery(entries[1], new URLSearchParams("locale=en-US"))?.toString()).toBe("locale=en-US")
+  })
+  it.each(["", "timeZone=", "timeZone=Europe/Paris", "timeZone=america/Chicago", "timeZone=America/Chicago&timeZone=America/Chicago", "timeZone=America/Chicago&extra=x"])("rejects invalid zone queries %s", (query) => {
+    expect(buildUpstreamQuery(entries[0], new URLSearchParams(query))).toBeNull()
+  })
+  it.each(["", "locale=", "locale=en-us", "locale=fr-FR", "locale=en-US&locale=en-US", "locale=en-US&extra=x"])("rejects invalid locale queries %s", (query) => {
+    expect(buildUpstreamQuery(entries[1], new URLSearchParams(query))).toBeNull()
+  })
+  it.each(["v2/user/time-zone?timeZone=America/Chicago", "v2/user/locale?locale=en-US"])("kill switch rejects %s before session/upstream", async (path) => {
+    stubServerEnv()
+    const calls = trackAllRequests()
+    const handler = createProxyHandler({ env: testEnv({ ACCOUNT_DISABLED: "1" }), now: () => NOW })
+    const response = await handler(new Request(`http://localhost:3000/api/1h/${path}`, { method: "POST" }))
+    expect(response.status).toBe(503)
+    expect(calls()).toBe(0)
   })
 })

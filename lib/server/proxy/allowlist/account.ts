@@ -7,4 +7,9 @@ import type { AllowlistEntry } from "../types"
  * `profile: true`, lands with its story; the shared `PUT v2/user/edit` lives in
  * `personal.ts`.
  */
-export const entries: readonly AllowlistEntry[] = []
+export const entries: readonly AllowlistEntry[] = [
+  { method: "POST", template: "v2/user/time-zone", profile: true,
+    query: { timeZone: { required: true, pattern: /^(Pacific\/Honolulu|America\/(Anchorage|Los_Angeles|Denver|Chicago|New_York))$/ } } },
+  { method: "POST", template: "v2/user/locale", profile: true,
+    query: { locale: { required: true, pattern: /^en-US$/ } } },
+]

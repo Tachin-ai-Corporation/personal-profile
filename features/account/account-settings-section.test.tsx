@@ -87,10 +87,10 @@ describe("AccountSettingsSection (Story 7.4)", () => {
       expect(value.getAttribute("headers")).toBe(key.id)
     })
     expect(valueOf("Password").querySelector(".mono-value")?.textContent).toBe("********")
-    expect(within(section()).queryByRole("button")).toBeNull()
+    expect(within(section()).getByRole("button", { name: "Edit" })).toBeTruthy()
     expect(within(section()).queryByRole("textbox")).toBeNull()
     expect(result.registry.getDirtyCount()).toBe(0)
-    expect(result.registry.get("account")).toBeUndefined()
+    expect(result.registry.get("account")?.draftFields).toEqual(["firstName", "lastName", "birthDate", "preferredLanguage", "timeZone", "locale"])
     expect(requests).toEqual([MYSELF])
   })
 
@@ -396,4 +396,303 @@ describe("AccountSettingsSection (Story 7.4)", () => {
     await screen.findByRole("table", { name: TITLE })
     expect(await axeViolations()).toEqual([])
   })
+})
+
+describe("Account settings editing (Story 7.5)", () => {
+  it.each([360, 1280])("opens all ten rows, locks credentials, preserves Enter/Escape and Cancel focus at %i", async (width) => {
+    stubViewport(width)
+    const user = userEvent.setup()
+    renderInPage(<AccountSettingsSection />, { page: "account" })
+    await user.click(await screen.findByRole("button", { name: "Edit" }))
+    const first = screen.getByRole("textbox", { name: "First name" })
+    expect(document.activeElement).toBe(first)
+    expect(screen.getByRole("textbox", { name: "Username" }).getAttribute("readonly")).not.toBeNull()
+    expect(screen.getByRole("textbox", { name: "Password" }).getAttribute("readonly")).not.toBeNull()
+    await user.type(first, "a{Enter}{Escape}")
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy()
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Edit" }))
+  })
+  it("keeps unchanged Save open and validates invalid dates distinctly from empty dates", async () => {
+    const user = userEvent.setup()
+    renderInPage(<AccountSettingsSection />, { page: "account" })
+    await user.click(await screen.findByRole("button", { name: "Edit" }))
+    await user.click(screen.getByRole("button", { name: "Save" }))
+    expect(await screen.findByText("There are no changes")).toBeTruthy()
+    const date = screen.getByRole("textbox", { name: "Birth date" })
+    await user.clear(date)
+    await user.type(date, "02301990")
+    await user.click(screen.getByRole("button", { name: "Save" }))
+    expect(await screen.findByText("Enter a date as MM/DD/YYYY")).toBeTruthy()
+    expect(document.activeElement).toBe(date)
+    await user.clear(date)
+    await user.click(screen.getByRole("button", { name: "Save" }))
+    expect(await screen.findByText("Birth date is required")).toBeTruthy()
+  })
+  it("acknowledges details despite stale refresh, retries only the failed zone, and focuses heading on success", async () => {
+    const user = userEvent.setup()
+    const details: unknown[] = []
+    let zones = 0
+    const rendered = renderInPage(<AccountSettingsSection />, { page: "account", handlers: [
+      http.put("/api/1h/v2/user/edit", async ({ request }) => { details.push(await request.json()); return new HttpResponse(null, { status: 204 }) }),
+      http.post("/api/1h/v2/user/time-zone", () => { zones++; return zones === 1 ? HttpResponse.json({}, { status: 500 }) : new HttpResponse(null, { status: 204 }) }),
+    ] })
+    await user.click(await screen.findByRole("button", { name: "Edit" }))
+    const first = screen.getByRole("textbox", { name: "First name" })
+    await user.clear(first)
+    await user.type(first, "Bea")
+    await act(async () => {
+      const entry = rendered.registry.get("account")!
+      entry.applyDraft!({ ...entry.getDraftValues!(), timeZone: "America/New_York" })
+    })
+    await user.click(screen.getByRole("button", { name: "Save" }))
+    expect(await screen.findByText("Time zone was not saved.")).toBeTruthy()
+    await user.click(screen.getByRole("button", { name: "Save" }))
+    await screen.findByRole("button", { name: "Edit" })
+    expect(details).toEqual([{ firstName: "Bea" }])
+    expect(zones).toBe(2)
+    expect(valueOf("First name").textContent).toBe("Bea")
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: TITLE }))
+  })
+})
+
+function AccountRevisions() {
+  const { mutate } = useSWRConfig()
+  return <>{["Ann", "Bea", "Cara"].map((firstName) => <button key={firstName} onClick={() => void mutate(keys.myself(), toMyself(myselfWire({ firstName })), false)}>{`Server ${firstName}`}</button>)}</>
+}
+
+it.each([true, false])("retires acknowledged name after confirmation=%s or external replacement, never reviving it on A→B→C→A", async (confirm) => {
+  const user = userEvent.setup()
+  renderInPage(<><AccountSettingsSection /><AccountRevisions /></>, { page: "account", handlers: [http.put("/api/1h/v2/user/edit", () => new HttpResponse(null, { status: 204 }))] })
+  await user.click(await screen.findByRole("button", { name: "Edit" }))
+  await user.clear(screen.getByRole("textbox", { name: "First name" }))
+  await user.type(screen.getByRole("textbox", { name: "First name" }), "Bea")
+  await user.click(screen.getByRole("button", { name: "Save" }))
+  await screen.findByRole("button", { name: "Edit" })
+  expect(valueOf("First name").textContent).toBe("Bea")
+  if (confirm) await user.click(screen.getByRole("button", { name: "Server Bea" }))
+  await user.click(screen.getByRole("button", { name: "Server Cara" }))
+  expect(valueOf("First name").textContent).toBe("Cara")
+  await user.click(screen.getByRole("button", { name: "Server Ann" }))
+  expect(valueOf("First name").textContent).toBe("Ann")
+})
+
+it.each(["02/3", "02/30/1990"])("restores exact invalid draft text %s and retains its validation error", async (birthDate) => {
+  const user = userEvent.setup()
+  const rendered = renderInPage(<AccountSettingsSection />, { page: "account" })
+  await user.click(await screen.findByRole("button", { name: "Edit" }))
+  await act(async () => {
+    const entry = rendered.registry.get("account")!
+    entry.applyDraft!({ ...entry.getDraftValues!(), birthDate })
+  })
+  expect((screen.getByRole("textbox", { name: "Birth date" }) as HTMLInputElement).value).toBe(birthDate)
+  expect(rendered.registry.get("account")?.getDraftValues?.().birthDate).toBe(birthDate)
+  await user.click(screen.getByRole("button", { name: "Save" }))
+  expect(await screen.findByText("Enter a date as MM/DD/YYYY")).toBeTruthy()
+})
+
+it("validates a stored invalid-age date even when Save has no changes", async () => {
+  const user = userEvent.setup()
+  renderInPage(<AccountSettingsSection />, { page: "account", myself: myselfWire({ birthDate: "2020-01-01" }) })
+  await user.click(await screen.findByRole("button", { name: "Edit" }))
+  const date = screen.getByRole("textbox", { name: "Birth date" }) as HTMLInputElement
+  expect(date.value).toBe("01/01/2020")
+  await user.click(screen.getByRole("button", { name: "Save" }))
+  expect(await screen.findByText("You must be between 18 and 120 years old")).toBeTruthy()
+  expect(document.activeElement).toBe(date)
+})
+
+it("shows one valid, focused detailed alert with safely paired part messages and Retry on that banner", async () => {
+  const user = userEvent.setup()
+  let fail = true
+  const messages = { details: "Name <b>rejected</b>", timeZone: "Zone rejected safely", locale: "Locale rejected safely" }
+  const answer = (message: string) => fail ? HttpResponse.json({ message }, { status: 400 }) : new HttpResponse(null, { status: 204 })
+  const rendered = renderInPage(<AccountSettingsSection />, { page: "account", myself: myselfWire({ locale: "fr-FR" }), handlers: [
+    http.put("/api/1h/v2/user/edit", () => answer(messages.details)),
+    http.post("/api/1h/v2/user/time-zone", () => answer(messages.timeZone)),
+    http.post("/api/1h/v2/user/locale", () => answer(messages.locale)),
+  ] })
+  await user.click(await screen.findByRole("button", { name: "Edit" }))
+  await act(async () => {
+    const entry = rendered.registry.get("account")!
+    entry.applyDraft!({ ...entry.getDraftValues!(), firstName: "Bea", timeZone: "America/New_York", locale: "en-US" })
+  })
+  await user.click(screen.getByRole("button", { name: "Save" }))
+  const alert = await screen.findByRole("alert")
+  expect(screen.getAllByRole("alert")).toHaveLength(1)
+  expect([...alert.children].map((node) => node.textContent?.trim())).toEqual([
+    `Account details was not saved. ${messages.details}`,
+    `Time zone was not saved. ${messages.timeZone}`,
+    `Preferred locale was not saved. ${messages.locale}`,
+  ])
+  expect(alert.querySelector("ul,li,b")).toBeNull()
+  const banner = alert.closest('[data-slot="inline-banner"]') as HTMLElement
+  expect(document.activeElement).toBe(banner)
+  expect(within(banner).getByRole("button", { name: "Retry" })).toBeTruthy()
+  expect(section().querySelector('[data-slot="section-footer"] [role="alert"]')).toBeNull()
+  fail = false
+  await user.click(within(banner).getByRole("button", { name: "Retry" }))
+  await screen.findByRole("button", { name: "Edit" })
+  expect(screen.queryByRole("alert")).toBeNull()
+})
+
+it("clears obsolete failed-part outcomes when reverted values are saved unchanged", async () => {
+  const user = userEvent.setup()
+  renderInPage(<AccountSettingsSection />, { page: "account", handlers: [http.put("/api/1h/v2/user/edit", () => HttpResponse.json({}, { status: 500 }))] })
+  await user.click(await screen.findByRole("button", { name: "Edit" }))
+  const first = screen.getByRole("textbox", { name: "First name" })
+  await user.clear(first); await user.type(first, "Bea")
+  await user.click(screen.getByRole("button", { name: "Save" }))
+  await screen.findByRole("alert")
+  await user.clear(first); await user.type(first, "Ann")
+  await user.click(screen.getByRole("button", { name: "Save" }))
+  expect(await screen.findByText("There are no changes")).toBeTruthy()
+  expect(screen.queryByRole("alert")).toBeNull()
+  expect(screen.getByRole("textbox", { name: "First name" })).toBeTruthy()
+})
+
+it("normalizes restored whitespace-only name changes before deciding unchanged Save", async () => {
+  const user = userEvent.setup()
+  let writes = 0
+  const rendered = renderInPage(<AccountSettingsSection />, { page: "account", handlers: [http.put("/api/1h/v2/user/edit", () => { writes++; return new HttpResponse(null, { status: 204 }) })] })
+  await user.click(await screen.findByRole("button", { name: "Edit" }))
+  await act(async () => {
+    const entry = rendered.registry.get("account")!
+    entry.applyDraft!({ ...entry.getDraftValues!(), firstName: " Ann ", lastName: " Lee " })
+  })
+  await user.click(screen.getByRole("button", { name: "Save" }))
+  expect(await screen.findByText("There are no changes")).toBeTruthy()
+  expect(writes).toBe(0)
+  expect((screen.getByRole("textbox", { name: "First name" }) as HTMLInputElement).value).toBe("Ann")
+  expect((screen.getByRole("textbox", { name: "Last name" }) as HTMLInputElement).value).toBe("Lee")
+})
+
+function RetryIdentityRead() {
+  const { retry } = useMyself()
+  return <button onClick={retry}>Revalidate shared identity</button>
+}
+
+it("honors a real upstream myself 403 during editing, retains the draft, and restores controls on read recovery", async () => {
+  const user = userEvent.setup()
+  let forbidden = false
+  const rendered = renderInPage(<><AccountSettingsSection /><RetryIdentityRead /></>, { page: "account", handlers: [
+    http.get(MYSELF, () => forbidden ? HttpResponse.json({}, { status: 403 }) : HttpResponse.json(myselfWire())),
+  ] })
+  await user.click(await screen.findByRole("button", { name: "Edit" }))
+  await user.clear(screen.getByRole("textbox", { name: "First name" }))
+  await user.type(screen.getByRole("textbox", { name: "First name" }), "Bea")
+  forbidden = true
+  await user.click(screen.getByRole("button", { name: "Revalidate shared identity" }))
+  expect(await screen.findByText("You don't have access to this in your current account")).toBeTruthy()
+  expect(within(section()).queryByRole("textbox")).toBeNull()
+  expect(rendered.registry.get("account")?.getDraftValues?.().firstName).toBe("Bea")
+  forbidden = false
+  await user.click(screen.getByRole("button", { name: "Revalidate shared identity" }))
+  const first = await screen.findByRole("textbox", { name: "First name" }) as HTMLInputElement
+  expect(first.value).toBe("Bea")
+  expect(screen.queryByText("You don't have access to this in your current account")).toBeNull()
+})
+
+it.each([false, true])("refreshes a separate shared identity reader after details save with partial failure=%s", async (partial) => {
+  const user = userEvent.setup()
+  let firstName = "Ann"
+  const rendered = renderInPage(<><AccountSettingsSection /><IdentityReader /></>, { page: "account", handlers: [
+    http.get(MYSELF, () => HttpResponse.json(myselfWire({ firstName }))),
+    http.put("/api/1h/v2/user/edit", async ({ request }) => { firstName = (await request.json() as { firstName: string }).firstName; return new HttpResponse(null, { status: 204 }) }),
+    http.post("/api/1h/v2/user/time-zone", () => HttpResponse.json({}, { status: 500 })),
+  ] })
+  await user.click(await screen.findByRole("button", { name: "Edit" }))
+  await act(async () => {
+    const entry = rendered.registry.get("account")!
+    entry.applyDraft!({ ...entry.getDraftValues!(), firstName: "Bea", ...(partial ? { timeZone: "America/New_York" } : {}) })
+  })
+  await user.click(screen.getByRole("button", { name: "Save" }))
+  await waitFor(() => expect(screen.getByLabelText("Shared identity").textContent).toBe("Bea"))
+  if (partial) expect(screen.getByRole("textbox", { name: "First name" })).toBeTruthy()
+  else expect(await screen.findByRole("button", { name: "Edit" })).toBeTruthy()
+})
+
+it("detailed Retry clears old failures when the user reverted the edits", async () => {
+  const user = userEvent.setup()
+  let writes = 0
+  renderInPage(<AccountSettingsSection />, { page: "account", handlers: [http.put("/api/1h/v2/user/edit", () => { writes++; return HttpResponse.json({}, { status: 500 }) })] })
+  await user.click(await screen.findByRole("button", { name: "Edit" }))
+  const first = screen.getByRole("textbox", { name: "First name" })
+  await user.clear(first); await user.type(first, "Bea")
+  await user.click(screen.getByRole("button", { name: "Save" }))
+  await screen.findByRole("alert")
+  await user.clear(first); await user.type(first, "Ann")
+  await user.click(screen.getByRole("button", { name: "Retry" }))
+  expect(await screen.findByText("There are no changes")).toBeTruthy()
+  expect(screen.queryByRole("alert")).toBeNull()
+  expect(writes).toBe(1)
+  expect(screen.getByRole("textbox", { name: "First name" })).toBeTruthy()
+})
+
+it("preserves the second acknowledged save across a preceding held refresh and late A/B snapshots after failed second refresh", async () => {
+  const user = userEvent.setup()
+  let releaseFirstRefresh!: () => void
+  const firstRefresh = new Promise<void>((resolve) => { releaseFirstRefresh = resolve })
+  let releaseSecondPut!: () => void
+  const secondPut = new Promise<void>((resolve) => { releaseSecondPut = resolve })
+  let holdNextRead = false
+  let firstRefreshHeld = false
+  let secondPutHeld = false
+  let failNextRead = false
+  let secondRefreshFailed = false
+  let readName = "Ann"
+  const writes: string[] = []
+  renderInPage(<><AccountSettingsSection /><IdentityReader /><RetryIdentityRead /></>, { page: "account", handlers: [
+    http.get(MYSELF, async () => {
+      if (holdNextRead) {
+        holdNextRead = false
+        firstRefreshHeld = true
+        await firstRefresh
+        return HttpResponse.json(myselfWire({ firstName: "Bea" }))
+      }
+      if (failNextRead) {
+        failNextRead = false
+        secondRefreshFailed = true
+        return HttpResponse.json({}, { status: 500 })
+      }
+      return HttpResponse.json(myselfWire({ firstName: readName }))
+    }),
+    http.put("/api/1h/v2/user/edit", async ({ request }) => {
+      const { firstName } = await request.json() as { firstName: string }
+      writes.push(firstName)
+      if (writes.length === 1) holdNextRead = true
+      else {
+        secondPutHeld = true
+        await secondPut
+        failNextRead = true
+      }
+      return new HttpResponse(null, { status: 204 })
+    }),
+  ] })
+  await user.click(await screen.findByRole("button", { name: "Edit" }))
+  await user.clear(screen.getByRole("textbox", { name: "First name" }))
+  await user.type(screen.getByRole("textbox", { name: "First name" }), "Bea")
+  await user.click(screen.getByRole("button", { name: "Save" }))
+  await screen.findByRole("button", { name: "Edit" })
+  await waitFor(() => expect(firstRefreshHeld).toBe(true))
+  await user.click(screen.getByRole("button", { name: "Edit" }))
+  await user.clear(screen.getByRole("textbox", { name: "First name" }))
+  await user.type(screen.getByRole("textbox", { name: "First name" }), "Cara")
+  await user.click(screen.getByRole("button", { name: "Save" }))
+  await waitFor(() => expect(secondPutHeld).toBe(true))
+  await act(async () => { releaseFirstRefresh() })
+  await waitFor(() => expect(screen.getByLabelText("Shared identity").textContent).toBe("Bea"))
+  await act(async () => { releaseSecondPut() })
+  await waitFor(() => expect(secondRefreshFailed).toBe(true))
+  await screen.findByText("Something went wrong while loading profile information")
+  for (const predecessor of ["Ann", "Bea"]) {
+    readName = predecessor
+    await user.click(screen.getByRole("button", { name: "Revalidate shared identity" }))
+    await waitFor(() => expect(screen.getByLabelText("Shared identity").textContent).toBe(predecessor))
+    await waitFor(() => expect(valueOf("First name").textContent).toBe("Cara"))
+  }
+  await user.click(screen.getByRole("button", { name: "Edit" }))
+  await user.click(screen.getByRole("button", { name: "Save" }))
+  expect(await screen.findByText("There are no changes")).toBeTruthy()
+  expect(writes).toEqual(["Bea", "Cara"])
 })
