@@ -117,6 +117,10 @@
   summary: Flaky under full-suite load: `e2e/profile-phone.spec.ts:324` "axe passes in edit view … with a new row, a struck row and errors" failed once on desktop during the Story 4.4 full run and passed on retry; 8/8 on a repeat run alone. Diagnose from a trace (likely a scan during a transition) before changing the test.
   evidence: Story 4.4 full `CI=1 pnpm test:e2e` run (2026-10-20): 977 passed, 2 flaky (this one and the known `primitives.spec.ts:75`); `--repeat-each=8 --retries=0` on the test alone passed. Story 4.4 doesn't touch Phone.
 
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-1-view-policies-and-card-images.md`
+  summary: Confirm on demo the backend's placeholder values in `GET v2/health/patient/insurance`: a missing Expiration or Cancellation date comes back as `1970-01-01`, and a missing Group ID as `"n/a"`. Story 5.1 shows both as "Not provided", and Story 5.2's editor must load them as empty (or the date-order rules fail on Edit).
+  evidence: Found in 1h-ng-bo-core-be (insurance create/update defaults), not seen in a live response yet (user decision 2026-10-20, spec 5.1). If demo returns null instead, the insurance-local sentinel check is harmless but can go.
+
 ## Team B (`/account`, Epics 7-10)
 
 - source_spec: none
