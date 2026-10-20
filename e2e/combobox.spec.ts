@@ -301,3 +301,62 @@ test.describe("long selected labels", () => {
     await expect(page.getByTestId("npi-value")).toBeEmpty()
   })
 })
+
+test.describe("native capped edit boundaries", () => {
+  async function pickLong(page: Page) {
+    await npi(page).fill("long")
+    await expect(npiList(page).getByRole("option").first()).toBeVisible()
+    await npi(page).press("ArrowDown")
+    await npi(page).press("Enter")
+  }
+
+  for (const edit of ["Backspace", "Delete", "Cut"] as const) {
+    test(`${edit} replaces a partially selected overlong pick with a bounded empty query`, async ({ page, context }) => {
+      await pickLong(page)
+      const before = await log(page).textContent()
+      await npi(page).press("Home")
+      for (let i = 0; i < 5; i++) await page.keyboard.press("ArrowRight")
+      for (let i = 0; i < 3; i++) await page.keyboard.press("Shift+ArrowRight")
+      expect(await npi(page).evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])).toEqual([5, 8])
+      if (edit === "Cut") {
+        await context.grantPermissions(["clipboard-read", "clipboard-write"])
+        await page.keyboard.press("ControlOrMeta+X")
+      } else await page.keyboard.press(edit)
+      await expect(npi(page)).toHaveValue("")
+      await expect(page.getByTestId("npi-value")).toBeEmpty()
+      await expect(log(page)).toHaveText(`${before} |0`)
+    })
+  }
+
+  test("a pick exactly at maxlength accepts a new character", async ({ page }) => {
+    await npi(page).fill("exact")
+    await expect(npiList(page).getByRole("option").first()).toBeVisible()
+    await npi(page).press("ArrowDown")
+    await npi(page).press("Enter")
+    await expect(npi(page)).toHaveValue("E".repeat(100))
+    await npi(page).press("End")
+    await page.keyboard.type("x")
+    await expect(npi(page)).toHaveValue("x")
+    await expect(log(page)).toContainText("x|0")
+  })
+
+  test("ordinary empty and short capped fields defer IME queries and commit intact bounded text", async ({ page, context }) => {
+    const client = await context.newCDPSession(page)
+    for (const initial of ["", "short"]) {
+      await npi(page).fill(initial)
+      if (initial) await expect(log(page)).toContainText(`${initial}|0`)
+      else await expect(npiList(page)).toBeVisible()
+      const before = await log(page).textContent()
+      await npi(page).evaluate((el: HTMLInputElement) => el.select())
+      const text = `a${"😀".repeat(60)}`
+      await client.send("Input.imeSetComposition", { text, selectionStart: text.length, selectionEnd: text.length })
+      await expect(npi(page)).toHaveValue(text)
+      await page.waitForTimeout(650)
+      await expect(log(page)).toHaveText(before!)
+      await client.send("Input.insertText", { text })
+      const expected = `a${"😀".repeat(49)}`
+      await expect(npi(page)).toHaveValue(expected)
+      await expect(log(page)).toContainText(`${expected}|0`)
+    }
+  })
+})

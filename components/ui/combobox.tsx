@@ -157,7 +157,7 @@ export function Combobox<T>(props: ComboboxProps<T>): React.JSX.Element {
   // A full picked label is display text, not a query. Replace it on the first
   // deliberate edit so native maxlength can admit the user's new input.
   const prepareLongSelectionEdit = (input: HTMLInputElement): boolean => {
-    if (longComposition.current || selection === null || maxLength === undefined || input.value.length <= maxLength) return false
+    if (longComposition.current || selection === null || maxLength === undefined || input.value.length < maxLength) return false
     input.select()
     return true
   }
@@ -301,7 +301,8 @@ export function Combobox<T>(props: ComboboxProps<T>): React.JSX.Element {
                 onPaste={(event) => { prepareLongSelectionEdit(event.currentTarget) }}
                 onCut={(event) => { prepareLongSelectionEdit(event.currentTarget) }}
                 onCompositionStart={(event) => {
-                  if (prepareLongSelectionEdit(event.currentTarget)) {
+                  if (maxLength !== undefined) {
+                    prepareLongSelectionEdit(event.currentTarget)
                     combobox.close()
                     retiredComposition.current = false
                     const next = { origin: combobox.text, key: selectedKey, text: event.currentTarget.value }

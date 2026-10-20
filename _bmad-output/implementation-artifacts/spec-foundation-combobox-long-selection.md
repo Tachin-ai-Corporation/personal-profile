@@ -63,3 +63,25 @@ Keep full selected labels visible. A deliberate edit/replacement of an over-limi
 - Root final full gate:6,247 tests /218 files passed with100% enforced coverage; lint, typecheck and forbidden/token gates passed (`/tmp/combobox-long-reviewed-{coverage,lint,types,forbidden}.log`).
 - Root production browser:92 passed, two workers, desktop/mobile360, keyboard/paste/IME and Profile consumer regression (`/tmp/combobox-long-reviewed-browser.log`).
 - Foundation catalog now documents the existing public contract for long display labels and bounded edits. No public API or dependencies changed. Prepared for the approved prerequisite publication/integration before Story9.1 delivery.
+
+### Official Story9.1 review follow-up
+
+- Equality at the native cap now prepares a selected label for replacement. Private buffering applies to all capped IME compositions, including empty/short fields, and bounds Unicode-safe committed queries while uncapped composition keeps prior forwarding.
+- Query results from a settled older query are hidden immediately during the next query's debounce; same-query pagination/error retry retains its options.
+- Directed verification: 73 Combobox unit tests passed (`/tmp/combobox-official-review-unit.log`); 16 production long-selection/capped-edit cases passed across both projects (`/tmp/combobox-official-review-browser-final.log`). Browser Backspace, Delete and real clipboard Cut use a partial selection formed by actual keyboard events; exact-cap and trusted CDP IME cases pass.
+- Foundation checkout is ready for integrator full gates. No story source or public API/dependency changes here.
+
+## Story9.1 consumer review follow-up
+
+The official story review exposed four additional shared-control cases, resolved privately in this same foundation delivery before integration.
+
+| Finding | Verdict | Evidence and resolution |
+| --- | --- | --- |
+| Blind2: exactly-capped pick cannot accept typing | medium; patch | Include equality in the existing replacement boundary; trusted browser100-character pick followed by x passes in both projects. |
+| Blind3: settled prior-query entries selectable during debounce | medium; patch | Only expose async entries whose result query matches current trimmed input. Provider/shared regressions prove old Ann entries disappear before Bob loads; same-query paging/retry remains green. |
+| Blind10: native deletion/Cut coverage missing | medium; patch | Browser keyboard creates an actual partial selection, then Backspace/Delete/native clipboard Cut produce empty bounded query and drop the pick. Both projects pass. |
+| Edge2: ordinary capped composition can exceed query limit | medium; patch | Reuse the existing private composition buffer for capped inputs, retaining complete pre-edit and bounding Unicode-safe commit. Empty/short inputs have trusted CDP IME regressions; uncapped input forwarding remains unchanged. |
+
+Final root verification after these corrections:73 targeted unit tests; modified code47/47 lines,58/58 statements,60/60 branches and11/11 functions covered. Full enforced suite6,252 tests /218files and100% coverage; lint, types and forbidden/token gates pass (`/tmp/combobox-story-review-final-{coverage,lint,types,forbidden}.log`).
+
+Final production browser158 passed across shared Combobox, Profile personal and Profile Addresses, desktop/mobile and both themes (`/tmp/combobox-story-review-final-browser-isolated.log`). Initial overlapping browser runs reused a server on3100 that shut down; isolated3300 rerun passed. No product defect was inferred from those connection failures. All shared review findings are resolved; no public API or dependencies changed.

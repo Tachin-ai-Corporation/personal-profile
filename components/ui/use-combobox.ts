@@ -365,7 +365,7 @@ export function useCombobox<T>(options: UseComboboxOptions<T>): UseComboboxResul
 
   // The selectable rows: results (or filtered static options) plus the Add option.
   const entries: ComboboxEntry<T>[] = []
-  const items: readonly T[] = canSearch ? (results?.items ?? []) : load === undefined && !searchDisabled ? staticItemsFor(trimmedQuery) : []
+  const items: readonly T[] = canSearch ? (results?.query === trimmedQuery ? results.items : []) : load === undefined && !searchDisabled ? staticItemsFor(trimmedQuery) : []
   for (const item of items) entries.push({ kind: "option", key: getKey(item), label: getLabel(item), item })
   const resultsSettled = canSearch ? status.kind === "idle" && results?.query === trimmedQuery : true
   // While more pages exist an exact match may be on one not loaded yet, unless the loader says there is none.

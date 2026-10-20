@@ -755,7 +755,7 @@ describe("Combobox: saved values and state sync", () => {
 })
 
 describe("Combobox: async edge cases", () => {
-  it("doesn't page during a new query's debounce (the loaded list is the old query's)", async () => {
+  it("never pages old results when the keyboard opens a new query during debounce", async () => {
     const { input, calls } = renderNpi()
     fireEvent.focus(input)
     calls[0].resolve({ items: npis(10), hasMore: true })
@@ -764,9 +764,10 @@ describe("Combobox: async edge cases", () => {
     fireEvent.change(input, { target: { value: "lee" } })
     key(input, "ArrowDown")
     key(input, "End")
-    expect(calls).toHaveLength(1)
-    await advance(600)
+    expect(calls).toHaveLength(2)
     expect(calls[1]).toMatchObject({ query: "lee", page: 0 })
+    await advance(600)
+    expect(calls).toHaveLength(2)
   })
 
   it("an empty page with hasMore ends the list (no request loop)", async () => {
@@ -1207,5 +1208,65 @@ describe("Combobox: editing labels beyond the query cap", () => {
     expect(input).toHaveProperty("value", "A")
     key(input, "Enter")
     expect(onSelect).toHaveBeenCalledExactlyOnceWith({ type: "option", item: "Alpha" })
+  })
+})
+
+describe("Combobox: capped edits and settled-query isolation", () => {
+  it("replaces an exactly capped selected label on its first edit", async () => {
+    const item = { npi: "1987654321", name: "Exact cap", city: "Austin" }
+    const cap = npiLabel(item).length
+    const { input, calls, onSelect } = renderNpi({ maxLength: cap, defaultSelection: { type: "option", item } })
+    const field = input as HTMLInputElement
+    field.setSelectionRange(cap, cap)
+    key(field, "x")
+    expect(field.selectionStart).toBe(0)
+    expect(field.selectionEnd).toBe(cap)
+    fireEvent.change(field, { target: { value: "x" } })
+    await advance(600)
+    expect(calls[0].query).toBe("x")
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(null)
+  })
+
+  it.each(["", "short"])("buffers ordinary capped composition from %j until a Unicode-safe bounded commit", async (defaultText) => {
+    const { input, calls } = renderNpi({ defaultText, mode: "free-text", maxLength: 5 })
+    fireEvent.compositionStart(input)
+    const composed = "😀".repeat(4)
+    fireEvent.change(input, { target: { value: composed } })
+    await advance(600)
+    expect(calls).toHaveLength(0)
+    expect(input).toHaveProperty("value", composed)
+    fireEvent.compositionEnd(input, { data: composed })
+    await advance(600)
+    expect(input).toHaveProperty("value", "😀😀")
+    expect(calls[0].query).toBe("😀😀")
+  })
+
+  it("retains uncapped composition text and its existing input forwarding", async () => {
+    const { input, calls } = renderNpi({ maxLength: undefined, mode: "free-text" })
+    const composed = "病院".repeat(80)
+    fireEvent.compositionStart(input)
+    fireEvent.change(input, { target: { value: composed } })
+    await advance(600)
+    expect(calls[0].query).toBe(composed)
+    fireEvent.compositionEnd(input, { data: composed })
+    expect(input).toHaveProperty("value", composed)
+  })
+
+  it("removes settled Ann options immediately while Bob debounces, before Bob can load", async () => {
+    const { input, calls, onSelect } = renderNpi()
+    fireEvent.change(input, { target: { value: "Ann" } })
+    await advance(600)
+    calls[0].resolve({ items: npis(1), hasMore: false })
+    await flush()
+    expect(screen.getByRole("option", { name: npiLabel(npis(1)[0]) })).toBeTruthy()
+    fireEvent.change(input, { target: { value: "Bob" } })
+    expect(screen.queryByRole("option")).toBeNull()
+    expect(input.getAttribute("aria-activedescendant")).toBeNull()
+    key(input, "Enter")
+    expect(onSelect).not.toHaveBeenCalled()
+    await advance(599)
+    expect(calls).toHaveLength(1)
+    await advance(1)
+    expect(calls[1].query).toBe("Bob")
   })
 })
