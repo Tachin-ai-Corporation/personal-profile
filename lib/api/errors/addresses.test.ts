@@ -27,6 +27,7 @@ describe("addresses error table (Story 4.2)", () => {
     ["Operation failed. Location address1 is not provided.", field("line1", "addresses.line1Required")],
     ["Operation failed. Location zip is not provided.", field("zip", "addresses.zipRequired")],
     ["Operation failed. Please, first set another Location as the primary one.", field("primary", "addresses.primaryFirst")],
+    ["Operation failed. Location with id: '12' is not related to 'Person' with id: '7'.", field("row", "addresses.removedElsewhere")],
   ])("maps %j to its field", (message, mapped) => {
     expect(mapApiError("addresses", upstream(message))).toEqual(mapped)
   })
@@ -39,6 +40,7 @@ describe("addresses error table (Story 4.2)", () => {
       if (rule.result.kind === "field") expect(messageFor(rule.result.messageKey)).toBeTruthy()
     }
     expect(messageFor("addresses.primaryFirst")).toBe("Set another address as primary first")
+    expect(messageFor("addresses.removedElsewhere")).toBe("This address was removed elsewhere, so your changes to it weren't saved.")
   })
 
   it.each([
@@ -46,6 +48,10 @@ describe("addresses error table (Story 4.2)", () => {
     "Operation failed. Location zip is not provided. Extra",
     "operation failed. location zip is not provided.",
     "Operation failed. Please, first set another Location as the primary one",
+    "Operation failed. Location with id: '12' is not related to 'Person' with id: '7'",
+    "Operation failed. Location with id: 'x' is not related to 'Person' with id: '7'.",
+    "Operation failed. Location with id: '12' is not related to '' with id: '7'.",
+    "Error: Operation failed. Location with id: '12' is not related to 'Person' with id: '7'.",
   ])("leaves %j generic", (message) => {
     expect(mapApiError("addresses", upstream(message))).toEqual({ kind: "generic", message })
   })

@@ -27,7 +27,7 @@ const addressEditRowSchema = z.object({
   county: z.string(),
   state: z.string(),
   zip: z.string(),
-  /** "Set as primary": sent as `primary` (Story 4.4 adds exclusivity). */
+  /** "Set as primary": sent as `primary`; exclusive across the rows (Story 4.4). */
   primary: z.boolean(),
   /**
    * "Verified" (Story 4.3): the saved row's `validated` to start with (a new
@@ -36,6 +36,12 @@ const addressEditRowSchema = z.object({
    * (never line 2, decision 2a). Save sends it as is.
    */
   validated: z.boolean(),
+  /**
+   * Struck through until Save (Story 4.4): "Removed on save", deleted last.
+   * Only a saved row is ever removed (a new row is deleted outright); absent
+   * when not removed, so a draft stored before Story 4.4 still parses.
+   */
+  removed: z.boolean().optional(),
 })
 
 export type AddressEditRow = z.infer<typeof addressEditRowSchema>
@@ -110,11 +116,17 @@ export function addressOfEditRow(row: AddressEditRow): Address {
 /** The row's one-line address (`formatAddressOneLine`), `""` when nothing is filled. */
 export const addressRowOneLine = (row: AddressEditRow): string => formatAddressOneLine(addressOfEditRow(row))
 
+/** `true` for a row Save can send (Story 4.4): a new row, or a saved row with an id (a repeat's edit row holds none). */
+export const isAddressRowSendable = (row: AddressEditRow): boolean => row.isNew || row.id !== null
+
+/** `true` when the row is struck through ("Removed on save", Story 4.4). */
+export const isAddressRowRemoved = (row: AddressEditRow): boolean => row.removed === true
+
 /**
  * `true` when a saved row differs from its saved values: the type, the
- * "Set as primary" box, "Verified" (a suggestion pick, Story 4.3) or a text
- * part (compared trimmed). A new row always counts; a saved row with nothing
- * saved to compare never does.
+ * "Set as primary" box, "Verified" (a suggestion pick, Story 4.3), a text
+ * part (compared trimmed) or its removal (Story 4.4). A new row always
+ * counts; a saved row with nothing saved to compare never does.
  */
 export function isAddressRowChanged(row: AddressEditRow, saved: AddressEditRow | undefined): boolean {
   if (row.isNew) return true
@@ -123,13 +135,23 @@ export function isAddressRowChanged(row: AddressEditRow, saved: AddressEditRow |
     row.type !== saved.type ||
     row.primary !== saved.primary ||
     row.validated !== saved.validated ||
+    isAddressRowRemoved(row) !== isAddressRowRemoved(saved) ||
     TEXT_FIELDS.some((field) => row[field].trim() !== saved[field].trim())
   )
 }
 
-/** `true` when Save sends the row: a new row (POST), or a changed saved row with an id (PUT). */
+/**
+ * `true` when Save writes the row: a new row (POST), or a changed saved row
+ * with an id (PUT). Never a removed row (it is deleted, Story 4.4), and
+ * never the old Primary just because another row took Primary (decision 1B:
+ * the backend demotes it itself), only when another of its fields changed.
+ */
 export function isAddressRowSent(row: AddressEditRow, saved: AddressEditRow | undefined): boolean {
-  return row.isNew || (row.id !== null && isAddressRowChanged(row, saved))
+  if (isAddressRowRemoved(row)) return false
+  if (row.isNew) return true
+  if (row.id === null) return false
+  const demoted = saved?.primary === true && !row.primary
+  return isAddressRowChanged(demoted ? { ...row, primary: true } : row, saved)
 }
 
 /** The duplicate check's key: country + line 1 + city + zip + type, trimmed, inner spaces collapsed, case-insensitive; every US name is one country. */
@@ -150,7 +172,8 @@ export interface AddressesSchemaContext {
 
 /**
  * The rules of Story 4.2, checked on blur and on Save (nothing is sent while
- * one fails), each at its row's field, for every row Save would send:
+ * one fails), each at its row's field, for every row Save would send (never
+ * a removed one, Story 4.4):
  *
  * - required: Address Type, Country, Address line 1, City and Zip;
  * - a United States Zip must be exactly 5 digits once trimmed: "Enter a
@@ -166,7 +189,8 @@ export function addressesSchemaWith({ saved, countriesFailed }: AddressesSchemaC
   const savedByKey = new Map(saved.map((row) => [row.key, row]))
   return z.object({
     rows: z.array(addressEditRowSchema).superRefine((rows, context) => {
-      const keys = rows.map((row) => (hasDuplicateKey(row) ? duplicateKey(row) : null))
+      // A removed row is never checked and never counts as a duplicate (Story 4.4; the backend has no uniqueness rule).
+      const keys = rows.map((row) => (!isAddressRowRemoved(row) && hasDuplicateKey(row) ? duplicateKey(row) : null))
       rows.forEach((row, index) => {
         const before = savedByKey.get(row.key)
         if (!isAddressRowSent(row, before)) return
@@ -202,10 +226,11 @@ export function addressDraftRows(value: unknown): AddressEditRow[] {
   return parsed.success ? parsed.data : []
 }
 
-/** One row as the draft compare reads it: the one-line address · county · type · Primary · its edit state. */
+/** One row as the draft compare reads it: the one-line address · county · type · Primary · its edit state ("New · not saved", "Removed on save"). */
 function describeRow(row: AddressEditRow | undefined): string {
   if (!row) return ""
-  return [addressRowOneLine(row), row.county.trim(), row.type, row.primary ? COMMON_MESSAGES.primary : "", row.isNew ? SECTION_MESSAGES.newNotSaved : ""]
+  const state = row.isNew ? SECTION_MESSAGES.newNotSaved : isAddressRowRemoved(row) ? SECTION_MESSAGES.removedOnSave : ""
+  return [addressRowOneLine(row), row.county.trim(), row.type, row.primary ? COMMON_MESSAGES.primary : "", state]
     .filter((part) => part !== "")
     .join(" · ")
 }
@@ -213,7 +238,8 @@ function describeRow(row: AddressEditRow | undefined): string {
 /**
  * The draft conflict compare rows (F4): one per address whose stored row
  * differs from the current one (added, edited, its "Set as primary"
- * changed), named by its one-line address ("New address" while empty).
+ * changed, removed), named by its one-line address ("New address" while
+ * empty).
  */
 export function addressDraftDiff(draft: DraftValues, current: DraftValues): readonly DraftDiffRow[] {
   const mine = addressDraftRows(draft.rows)
@@ -228,4 +254,23 @@ export function addressDraftDiff(draft: DraftValues, current: DraftValues): read
     const named = (b ?? a) as AddressEditRow
     return [{ field: `rows.${key}`, label: addressRowOneLine(named) || ADDRESS_MESSAGES.newAddress, mine: left, current: right }]
   })
+}
+
+/**
+ * The rows with the auto-Primary rule applied (Story 4.4): when exactly one
+ * sendable row (`isAddressRowSendable`) is left that isn't removed, it is
+ * the Primary (and the only one). Otherwise the rows as they are (the same
+ * array).
+ */
+export function withAutoPrimary(rows: readonly AddressEditRow[]): AddressEditRow[] {
+  const kept = rows.filter((row) => isAddressRowSendable(row) && !isAddressRowRemoved(row))
+  if (kept.length !== 1 || (kept[0].primary && rows.every((row) => row === kept[0] || !row.primary))) return rows as AddressEditRow[]
+  return rows.map((row) => (row === kept[0] ? (row.primary ? row : { ...row, primary: true }) : row.primary ? { ...row, primary: false } : row))
+}
+
+/** The row as struck through (`removed: true`) or not (no `removed` key, so a remove then Restore leaves the form clean). */
+export function withAddressRemoved(row: AddressEditRow, removed: boolean): AddressEditRow {
+  const next: AddressEditRow = { ...row, removed: true }
+  if (!removed) delete next.removed
+  return next
 }

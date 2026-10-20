@@ -77,7 +77,9 @@ function addressServer(options: ServerOptions = {}) {
   const state = { rows: [...(options.rows ?? ADDRESSES)].map((row) => ({ ...row })), nextId: 31 }
   const writes: { method: string; path: string; body: Wire }[] = []
   const counts = { list: 0, countries: 0 }
+  // As the backend does (`verifyPrimaryLocation`): a write with primary: true unsets the old Primary.
   const apply = (target: Wire, body: Wire) => {
+    if (body.primary === true) for (const row of state.rows) if (row !== target) row.primary = false
     for (const field of WIRE_FIELDS) if (field in body) target[field] = body[field]
   }
   const handlers: HttpHandler[] = [
@@ -213,7 +215,7 @@ afterEach(() => {
 })
 
 describe("AddressesSection: entry points", () => {
-  it("the header has an outline Edit and Add address (plus icon, 44 px); a row kebab holds only Edit", async () => {
+  it("the header has an outline Edit and Add address (plus icon, 44 px); a row kebab holds Make primary (not on the Primary), Edit, Remove", async () => {
     await render()
     for (const name of ["Edit", "Add address"]) {
       const action = button(name)
@@ -222,7 +224,11 @@ describe("AddressesSection: entry points", () => {
     }
     expect(button("Add address").querySelector("svg")?.getAttribute("aria-hidden")).toBe("true")
     const menu = await openKebab("1 Pine St, SF, CA 94105")
-    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Edit"])
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Make primary", "Edit", "Remove"])
+    await act(async () => fireEvent.keyDown(menu, { key: "Escape" }))
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull())
+    const primaryMenu = await openKebab("9 Oak Ave, Apt 4, SF, CA 94105")
+    expect(within(primaryMenu).getAllByRole("menuitem").map((item) => item.textContent?.startsWith("Remove") ? "Remove" : item.textContent)).toEqual(["Edit", "Remove"])
   })
 
   it("the header Edit: every row collapsed (chevron + read columns), focus on the first chevron; Editing; the footer", async () => {
@@ -236,8 +242,9 @@ describe("AddressesSection: entry points", () => {
     expect(first.className).toContain("size-11")
     const cells = editRows().map((row) => [...row.querySelectorAll("td")].map((cell) => cell.textContent))
     expect(cells).toEqual([
-      ["9 Oak Ave, Apt 4, SF, CA 94105", "Primary", "Home", ""],
-      ["1 Pine St, SF, CA 94105", "", "Main Work", "Verified"],
+      // The Primary's Remove is aria-disabled with its reason (Story 4.4).
+      ["9 Oak Ave, Apt 4, SF, CA 94105", "Primary", "Home", "", "RemoveMake another address primary first"],
+      ["1 Pine St, SF, CA 94105", "", "Main Work", "Verified", "Remove"],
     ])
     expect(within(footer()).getAllByRole("button").map((action) => action.textContent)).toEqual(["Add address", "Cancel", "Save"])
   })
@@ -570,12 +577,10 @@ describe("AddressesSection: save", () => {
     expect(writes[0]).toMatchObject({ path: "/api/1h/v2/person/location/1", body: { primary: false } })
   })
 
-  it("Primary rule: unchecking the Primary → 400 → \"Set another address as primary first\" at its box; stays in edit", async () => {
+  it("Primary rule: a PUT answered \"first set another Location as the primary one\" shows at the row's box; stays in edit", async () => {
     const { writes } = await render({ update: upstream("Operation failed. Please, first set another Location as the primary one.") })
-    await kebabEdit("9 Oak Ave, Apt 4, SF, CA 94105")
-    const box = primaryBox(expandedRows()[0])
-    await click(box)
-    expect(box.getAttribute("aria-checked")).toBe("false")
+    await kebabEdit("1 Pine St, SF, CA 94105")
+    await type(textbox(expandedRows()[0], "City"), "Oakland")
     await save()
     await waitFor(() => expect(writes).toHaveLength(1))
     expect(writes[0].body).toMatchObject({ primary: false })

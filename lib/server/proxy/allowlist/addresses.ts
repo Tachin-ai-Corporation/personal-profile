@@ -88,4 +88,11 @@ export const entries: readonly AllowlistEntry[] = [
    * isn't the caller's. No query, JSON only, nothing forced.
    */
   { method: "PUT", template: "v2/person/location/{locationId}", body: addressUpdateBodySchema, maxBytes: ADDRESS_WRITE_MAX_BYTES },
+  /**
+   * Removes one of the caller's addresses (Story 4.4), a soft delete; the id
+   * is numeric (anything else never matches). No query (400 `BAD_QUERY`) and
+   * no body (400 `BAD_BODY`). The backend refuses an address that isn't the
+   * caller's (or is already removed) and the current Primary.
+   */
+  { method: "DELETE", template: "v2/person/location/{locationId}" },
 ]

@@ -9,8 +9,12 @@ import {
   addressOfEditRow,
   addressRowOneLine,
   isAddressRowChanged,
+  isAddressRowRemoved,
+  isAddressRowSendable,
   isAddressRowSent,
   newAddressEditRow,
+  withAddressRemoved,
+  withAutoPrimary,
   type AddressEditRow,
 } from "./schema"
 
@@ -101,6 +105,62 @@ describe("address edit rows", () => {
     expect(isAddressRowSent(saved({ city: "Oakland" }), saved())).toBe(true)
     expect(isAddressRowSent(saved(), saved())).toBe(false)
     expect(isAddressRowSent(saved({ id: null, city: "Oakland" }), saved({ id: null }))).toBe(false)
+  })
+
+  it("Story 4.4: a removal is a change but never a write; a demoted Primary is written only with another change (decision 1B)", () => {
+    expect(isAddressRowChanged(saved({ removed: true }), saved())).toBe(true)
+    expect(isAddressRowChanged(saved({ removed: false }), saved())).toBe(false)
+    expect(isAddressRowSent(saved({ removed: true }), saved())).toBe(false)
+    expect(isAddressRowSent(saved({ removed: true, city: "Oakland" }), saved())).toBe(false)
+    expect(isAddressRowSent(saved({ primary: false }), saved({ primary: true }))).toBe(false)
+    expect(isAddressRowSent(saved({ primary: false, city: "Oakland" }), saved({ primary: true }))).toBe(true)
+    expect(isAddressRowSent(saved({ primary: true }), saved({ primary: false }))).toBe(true)
+  })
+
+  it("Story 4.4: marks a row removed, and a Restore drops the key (so the row equals its saved one again)", () => {
+    expect(withAddressRemoved(saved(), true)).toEqual({ ...saved(), removed: true })
+    expect(withAddressRemoved(saved({ removed: true }), false)).toEqual(saved())
+    expect(isAddressRowRemoved(saved({ removed: true }))).toBe(true)
+    expect(isAddressRowRemoved(saved())).toBe(false)
+  })
+})
+
+describe("withAutoPrimary (Story 4.4)", () => {
+  it("the one row left that isn't removed is the Primary (the First address row)", () => {
+    expect(withAutoPrimary([added()])).toEqual([added({ primary: true })])
+    const rows = [saved({ key: "id-1", id: 1, removed: true }), saved()]
+    expect(withAutoPrimary(rows)).toEqual([rows[0], saved({ primary: true })])
+  })
+
+  it("picks only among sendable rows: an id-less row (a repeat's edit row) never counts and loses a stray Primary", () => {
+    const orphan = saved({ key: "none-0", id: null, primary: true })
+    expect(withAutoPrimary([orphan, saved()])).toEqual([{ ...orphan, primary: false }, saved({ primary: true })])
+    const lone = [saved({ key: "none-0", id: null })]
+    expect(withAutoPrimary(lone)).toBe(lone)
+    expect(isAddressRowSendable(saved({ id: null }))).toBe(false)
+    expect(isAddressRowSendable(added())).toBe(true)
+  })
+
+  it("is exclusive: a removed row loses a stray Primary", () => {
+    expect(withAutoPrimary([saved({ key: "id-1", id: 1, primary: true, removed: true }), saved()])).toEqual([saved({ key: "id-1", id: 1, primary: false, removed: true }), saved({ primary: true })])
+  })
+
+  it("leaves the rows as they are (the same array) with no rows, with two or more left, or when the one left is already the only Primary", () => {
+    const none: AddressEditRow[] = []
+    expect(withAutoPrimary(none)).toBe(none)
+    const two = [saved(), added()]
+    expect(withAutoPrimary(two)).toBe(two)
+    const done = [saved({ key: "id-1", id: 1, removed: true }), saved({ primary: true })]
+    expect(withAutoPrimary(done)).toBe(done)
+  })
+})
+
+describe("addressesSchema (Story 4.4)", () => {
+  it("never checks a removed row, and a removed row is never a duplicate", () => {
+    expect(issues([saved({ city: "", removed: true })])).toEqual([])
+    // A new row equal to a removed one is no duplicate.
+    expect(issues([saved({ removed: true }), added({ line1: "1 Pine St" })])).toEqual([])
+    expect(issues([saved(), added({ line1: "1 Pine St" })])).toEqual([["1.line1", "This address is already on your profile"]])
   })
 })
 
@@ -208,5 +268,12 @@ describe("address drafts (Story 4.2)", () => {
       { field: "rows.id-3", label: "1 Pine St, SF, CA 94105", mine: "", current: "1 Pine St, SF, CA 94105 · Marin · Home" },
     ])
     expect(addressDraftDiff(current, current)).toEqual([])
+  })
+
+  it("Story 4.4: names a removed row \"Removed on save\"; a draft stored before Story 4.4 (no removed key) still parses", () => {
+    expect(addressDraftDiff({ rows: [saved({ removed: true })] }, { rows: [saved()] })).toEqual([
+      { field: "rows.id-2", label: "1 Pine St, SF, CA 94105", mine: "1 Pine St, SF, CA 94105 · Home · Removed on save", current: "1 Pine St, SF, CA 94105 · Home" },
+    ])
+    expect(addressDraftRows([saved({ removed: true })])).toEqual([saved({ removed: true })])
   })
 })

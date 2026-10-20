@@ -30,6 +30,11 @@ export const ADDRESS_MESSAGES = {
   textTooLong: "Up to 255 characters", // DRAFT COPY (spec 4.2 proxy text limit)
   duplicateAddress: "This address is already on your profile", // DRAFT COPY (epics Story 4.2 duplicate)
   primaryFirst: "Set another address as primary first", // DRAFT COPY (backend SET_PRIMARY_LOCATION)
+  // Primary and removal (Story 4.4).
+  makeAnotherPrimaryFirst: "Make another address primary first", // DRAFT COPY (EXPERIENCE.md Voice and Tone, "Disabled Remove (Primary)", the "…address…" variant)
+  onlyAddressPrimary: "Your only address is your primary address", // DRAFT COPY (spec 4.4 review row 5)
+  onlyAddress: "You need at least one address", // DRAFT COPY (EXPERIENCE.md Voice and Tone, "Disabled Remove (last entry)", the "…address" variant)
+  removedElsewhere: "This address was removed elsewhere, so your changes to it weren't saved.", // DRAFT COPY (spec 4.4, decision 2A: backend LOCATION_IS_NOT_RELATED_TO_ERROR)
   // Countries (Story 4.2).
   countriesLoadError: "Couldn't load countries", // DRAFT COPY (epics Story 4.2 countries failure)
   countriesNeeded: "Countries need to load before this address can be saved", // DRAFT COPY (spec 4.2 Save blocked without countries)

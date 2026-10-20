@@ -92,6 +92,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-2-add-and-edit-addresses.md`
   summary: Editing an address that was removed elsewhere (another client) fails its PUT with "Operation failed. Location with id: '…' is not related to '…' with id: '…'.", which is unmapped (generic Section error), and Retry repeats the same PUT. Map it ("This address was removed. Cancel to see your current addresses." DRAFT) and drop the row from the next send.
   evidence: 1h-ng-bo-core-be PersonLocationFactory.java:92-97,149 (`LOCATION_IS_NOT_RELATED_TO_ERROR`); lib/api/errors/addresses.ts; features/addresses/save.ts (`mergeAddressRows` keeps a saved row the refetch no longer has). Review row 10 of spec 4.2.
+  resolution: RESOLVED 2026-10-20 (spec-4-4-primary-address-and-removal, decision 2A): the anchored rule in `lib/api/errors/addresses.ts` maps it to "This address was removed elsewhere, so your changes to it weren't saved." (DRAFT); `mergeAddressRows` now drops a saved row the refetch no longer holds, so Retry never re-sends it; a DELETE answered that way counts as done.
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-2-add-and-edit-addresses.md`
   summary: Rebase a restored Addresses draft onto the current saved rows (`useSectionForm` `transformDraft`, main 6c31204), keeping only the fields the user changed, as `mergeUnsent` does after a failed save. Today a restored draft re-sends values that changed on the server since, and misses addresses added elsewhere. Add a draft-restore test harness, and with it the new-row key collision test (a restored `new-1` row, then Add address).
   evidence: features/addresses/addresses-section.tsx (`draftFields: ["rows"]`, `nextNewKey`), features/addresses/save.ts (`mergeUnsent`), features/shell/use-section-form.ts (`transformDraft`). Review rows 11–12 of spec 4.2.
@@ -107,6 +108,14 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-3-address-suggestions-via-server.md`
   summary: Backend/Foundation follow-up — "Verified" is asserted by the client. The proxy's `POST`/`PUT v2/person/location` body accepts any `validated` boolean and the backend stores it as given, so any caller can mark its address verified without a Places details answer. Options: the backend validates server-side, or a named op ties `validated: true` to a recent details answer for the same session.
   evidence: lib/server/proxy/allowlist/addresses.ts (`validated: z.boolean()`), 1h-ng-bo-core-be PersonLocationFactory (validated stored as given). Review row 13 of spec 4.3.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-4-primary-address-and-removal.md`
+  summary: Untested — after a save where one `DELETE` succeeds, a later step fails and the list refetch also fails, the deleted row leaves the form (`!rebased && … deleted.size > 0`), so Retry doesn't `DELETE` it again.
+  evidence: features/addresses/addresses-section.tsx (the no-rebase branch of `save`); the `addresses-section.primary.test.tsx` server never fails the refetch during a removal. The regression would be masked by "already gone counts as done", so it costs one redundant request. Review row 14 of spec 4.4.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-4-primary-address-and-removal.md`
+  summary: Flaky under full-suite load: `e2e/profile-phone.spec.ts:324` "axe passes in edit view … with a new row, a struck row and errors" failed once on desktop during the Story 4.4 full run and passed on retry; 8/8 on a repeat run alone. Diagnose from a trace (likely a scan during a transition) before changing the test.
+  evidence: Story 4.4 full `CI=1 pnpm test:e2e` run (2026-10-20): 977 passed, 2 flaky (this one and the known `primitives.spec.ts:75`); `--repeat-each=8 --retries=0` on the test alone passed. Story 4.4 doesn't touch Phone.
 
 ## Team B (`/account`, Epics 7-10)
 
@@ -417,3 +426,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-3-address-suggestions-via-server.md`
   summary: (Foundation) Under `next dev`, `logApiCall` prints request and response bodies; `redact()` in `lib/api/log-api-call.ts` doesn't cover the Places `input`, `placeId` or address fields, so typed addresses reach the browser console in local development. Add those keys to the redaction.
   evidence: lib/api/log-api-call.ts (`redact`), lib/api/client.ts; review row 14 of spec 4.3.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-4-primary-address-and-removal.md`
+  summary: (Foundation) `toastError` always shows Retry (`ToastErrorOptions.onRetry` is required), so the Addresses "removed elsewhere" toast after Make primary offers a Retry that only reloads the list. Add an option for an error toast without Retry (or with a custom action label).
+  evidence: features/shell/toasts.ts; features/addresses/addresses-section.tsx (`sendMakePrimary`, `refreshAddresses`). Spec 4.4 asked for no Retry there; review row 20.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-4-primary-address-and-removal.md`
+  summary: (Foundation) `Tooltip` has no `disabled`/`open={false}` option, so the Addresses "Set as primary" checkbox stays wrapped in an always-mounted Tooltip with empty, hidden content while unlocked (to avoid a remount that loses focus). Add an option and drop the workaround.
+  evidence: components/ui/tooltip.tsx; features/addresses/addresses-section.tsx (`PrimaryField`). Review row 25 of spec 4.4.

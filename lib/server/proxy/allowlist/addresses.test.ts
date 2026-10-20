@@ -26,6 +26,7 @@ describe("addresses allowlist area", () => {
       "GET v2/public/countries",
       "POST v2/person/location",
       "PUT v2/person/location/{locationId}",
+      "DELETE v2/person/location/{locationId}",
     ])
     for (const entry of entries) expect(ALLOWLIST).toContain(entry)
   })
@@ -161,7 +162,7 @@ describe("POST v2/person/location and PUT v2/person/location/{id} bodies", () =>
     expect(matchEntry(ALLOWLIST, "PUT", seg("v2/person/location/9999999999999999999")).kind).toBe("matched")
     for (const id of ["abc", "-1", "1.5", "me", "", "12345678901234567890"]) expect(matchEntry(ALLOWLIST, "PUT", seg(`v2/person/location/${id}`)).kind).not.toBe("matched")
     expect(matchEntry(ALLOWLIST, "GET", seg("v2/person/location")).kind).toBe("method-not-allowed")
-    expect(matchEntry(ALLOWLIST, "DELETE", seg("v2/person/location/12")).kind).toBe("method-not-allowed")
+    expect(matchEntry(ALLOWLIST, "DELETE", seg("v2/person/location")).kind).toBe("method-not-allowed")
   })
 
   it("accepts the create body and the update body (with fullAddress), the flags required", () => {
@@ -282,12 +283,73 @@ describe("POST and PUT v2/person/location through the proxy (Story 4.2)", () => 
     ["a 256-character city", { body: JSON.stringify({ ...CREATE, cityName: "x".repeat(256) }) }, 400, "BAD_BODY"],
     ["malformed JSON", { body: "{" }, 400, "BAD_BODY"],
     ["a non-numeric id", { method: "PUT", path: "v2/person/location/abc" }, 403, "NOT_ALLOWED"],
-    ["a DELETE", { method: "DELETE", path: "v2/person/location/12" }, 405, "METHOD_NOT_ALLOWED"],
+    ["a DELETE without an id", { method: "DELETE", path: "v2/person/location" }, 405, "METHOD_NOT_ALLOWED"],
     ["a countries query", { method: "GET", path: "v2/public/countries?all=1" }, 400, "BAD_QUERY"],
     ["a body over 24 KB", { body: JSON.stringify({ ...CREATE, pad: "x".repeat(ADDRESS_WRITE_MAX_BYTES) }) }, 413, "TOO_LARGE"],
   ])("refuses %s before upstream", async (_name, options, status, errorCode) => {
     const upstreamCalls = trackAllRequests()
     const response = await send(options)
+    expect(response.status).toBe(status)
+    expect(await response.json()).toEqual({ errorCode, source: "proxy" })
+    expect(upstreamCalls()).toBe(0)
+  })
+})
+
+/** Story 4.4: the soft delete. */
+describe("DELETE v2/person/location/{id} entry", () => {
+  const match = matchEntry(ALLOWLIST, "DELETE", seg("v2/person/location/12"))
+  if (match.kind !== "matched") throw new Error("expected a match")
+  const { entry } = match
+
+  it("numeric ids only, no query, no body, nothing forced, shared (not profile)", () => {
+    expect(entry.body).toBeUndefined()
+    expect(entry.query).toBeUndefined()
+    expect(entry.fixedQuery).toBeUndefined()
+    expect(entry.upload).toBeUndefined()
+    expect(entry.asImage).toBeUndefined()
+    expect(entry.profile).toBeUndefined()
+    expect(buildUpstreamQuery(entry, q(""))?.toString()).toBe("")
+    expect(buildUpstreamQuery(entry, q("personId=4"))).toBeNull()
+    expect(matchEntry(ALLOWLIST, "DELETE", seg("v2/person/location/9999999999999999999")).kind).toBe("matched")
+    for (const id of ["abc", "-1", "1.5", "me", "", "12345678901234567890"]) expect(matchEntry(ALLOWLIST, "DELETE", seg(`v2/person/location/${id}`)).kind).not.toBe("matched")
+  })
+})
+
+describe("DELETE v2/person/location/{id} through the proxy (Story 4.4)", () => {
+  const proxy = createProxyHandler({ env: testEnv(), now: () => NOW })
+
+  async function remove(options: { readonly path?: string; readonly body?: string; readonly contentType?: string } = {}): Promise<Response> {
+    const cookie = `${SESSION_COOKIE}=${await sealSession(makeSession())}`
+    const headers: Record<string, string> = { cookie }
+    if (options.contentType) headers["Content-Type"] = options.contentType
+    return proxy(new Request(`http://localhost:3000/api/1h/${options.path ?? "v2/person/location/12"}`, { method: "DELETE", headers, body: options.body }))
+  }
+
+  beforeEach(() => stubServerEnv())
+
+  it("forwards the DELETE to the numeric id with no query and no body, and relays the answer", async () => {
+    let seen: { path: string; search: string; body: string } | undefined
+    server.use(
+      http.delete(`${DEMO.apiBase}/v2/person/location/12`, async ({ request }) => {
+        const url = new URL(request.url)
+        seen = { path: url.pathname, search: url.search, body: await request.text() }
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const response = await remove()
+    expect(response.status).toBe(204)
+    expect(seen).toEqual({ path: "/api/v2/person/location/12", search: "", body: "" })
+  })
+
+  it.each<[string, Parameters<typeof remove>[0], number, string]>([
+    ["a non-numeric id", { path: "v2/person/location/abc" }, 403, "NOT_ALLOWED"],
+    ["a negative id", { path: "v2/person/location/-1" }, 403, "NOT_ALLOWED"],
+    ["a query", { path: "v2/person/location/12?personId=4" }, 400, "BAD_QUERY"],
+    ["a JSON body", { body: JSON.stringify({ id: 12 }), contentType: "application/json" }, 400, "BAD_BODY"],
+    ["a text body", { body: "12", contentType: "text/plain" }, 400, "BAD_BODY"],
+  ])("refuses %s before upstream", async (_name, options, status, errorCode) => {
+    const upstreamCalls = trackAllRequests()
+    const response = await remove(options)
     expect(response.status).toBe(status)
     expect(await response.json()).toEqual({ errorCode, source: "proxy" })
     expect(upstreamCalls()).toBe(0)

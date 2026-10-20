@@ -9,12 +9,15 @@ import {
   ADDRESS_TYPES,
   addressCreateBody,
   addressCreatePath,
+  addressDeletePath,
   addressesListPath,
   addressFullAddress,
+  addressPrimaryBody,
   addressUpdateBody,
   addressUpdatePath,
   countriesPath,
   DEFAULT_ADDRESS_COUNTRY,
+  deleteAddress,
   fetchAddresses,
   fetchCountries,
   isUnitedStatesName,
@@ -92,6 +95,8 @@ describe("addresses", () => {
     expect(addressCreatePath()).toBe("/api/1h/v2/person/location")
     expect(addressUpdatePath(12)).toBe("/api/1h/v2/person/location/12")
     for (const id of [0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) expect(addressUpdatePath(id)).toBeNull()
+    expect(addressDeletePath(12)).toBe("/api/1h/v2/person/location/12")
+    for (const id of [0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) expect(addressDeletePath(id)).toBeNull()
   })
 })
 
@@ -406,6 +411,47 @@ describe("saveAddressCreate / saveAddressUpdate (Story 4.2)", () => {
     expect(seen).toEqual([{ path: "/api/1h/v2/person/location/2", body }])
     expect(await saveAddressUpdate(0, body)).toEqual({ success: false, error: "addresses/saveAddressUpdate needs a positive integer id" })
     expect(seen).toHaveLength(1)
+  })
+})
+
+describe("Make primary and removal (Story 4.4)", () => {
+  const ADDRESS = "/api/1h/v2/person/location"
+
+  beforeEach(async () => {
+    server.use(http.get("/api/1h/v2/user/myself", () => HttpResponse.json(myselfWire())))
+    expect((await fetchMyself()).success).toBe(true)
+  })
+
+  it("the Make primary body holds only the two flags", () => {
+    expect(addressPrimaryBody(true, false)).toEqual({ primary: true, validated: false })
+    expect(addressPrimaryBody(true, true)).toEqual({ primary: true, validated: true })
+  })
+
+  it("a Make primary PUTs only the flags", async () => {
+    const seen: unknown[] = []
+    server.use(
+      http.put(`${ADDRESS}/:id`, async ({ request }) => {
+        seen.push(await request.json())
+        return HttpResponse.json({ id: 2 })
+      }),
+    )
+    expect(await saveAddressUpdate(2, addressPrimaryBody(true, true))).toMatchObject({ success: true })
+    expect(seen).toEqual([{ primary: true, validated: true }])
+  })
+
+  it("DELETEs the id with no body; refuses a bad id without a request; never throws", async () => {
+    const seen: { path: string; method: string; body: string }[] = []
+    server.use(
+      http.delete(`${ADDRESS}/:id`, async ({ request }) => {
+        seen.push({ path: new URL(request.url).pathname, method: request.method, body: await request.text() })
+        return seen.length === 1 ? new HttpResponse(null, { status: 204 }) : HttpResponse.json({ message: "nope", code: 400 }, { status: 400 })
+      }),
+    )
+    expect(await deleteAddress(12)).toMatchObject({ success: true })
+    expect(seen).toEqual([{ path: "/api/1h/v2/person/location/12", method: "DELETE", body: "" }])
+    expect(await deleteAddress(12)).toMatchObject({ success: false, statusCode: 400 })
+    expect(await deleteAddress(-1)).toEqual({ success: false, error: "addresses/deleteAddress needs a positive integer id" })
+    expect(seen).toHaveLength(2)
   })
 })
 

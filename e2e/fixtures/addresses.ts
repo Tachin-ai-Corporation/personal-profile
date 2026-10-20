@@ -85,6 +85,26 @@ export async function mockAddressUpdate(page: Page, answer: ProxyResponder = {})
   return () => [...seen]
 }
 
+/**
+ * Mocks `DELETE v2/person/location/{id}` (Story 4.4, numeric ids only, no
+ * body): 200 with `{ id }` by default. Returns the ids it answered, in order.
+ */
+export async function mockAddressDelete(page: Page, answer: ProxyResponder = {}): Promise<() => number[]> {
+  const ids: number[] = []
+  await page.route(
+    (url) => /^\/api\/1h\/v2\/person\/location\/\d+$/.test(url.pathname),
+    (route) => {
+      const request = route.request()
+      if (request.method() !== "DELETE") return route.fallback()
+      const id = Number(new URL(request.url()).pathname.split("/").pop())
+      ids.push(id)
+      const { status = 200, body = { id } } = typeof answer === "function" ? answer(request) : answer
+      return json(route, status, body)
+    },
+  )
+  return () => [...ids]
+}
+
 /** A Places request body (`POST /api/places/autocomplete` or `/details`, Story 4.3). */
 export type PlacesRequestBody = Record<string, unknown>
 

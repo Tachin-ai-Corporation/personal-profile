@@ -4,6 +4,7 @@ import {
   addressesPage,
   addressRow,
   mockAddressCreate,
+  mockAddressDelete,
   mockAddresses,
   mockAddressUpdate,
   mockCountries,
@@ -17,7 +18,7 @@ import {
 } from "./fixtures"
 
 /**
- * Stories 4.1–4.3 (Team A, NG-9026): the Addresses read and edit views and the line 1 suggestions on the real `/`.
+ * Stories 4.1–4.4 (Team A, NG-9026): the Addresses read and edit views, the line 1 suggestions, the Primary address and removal on the real `/`.
  * Every test runs under the fail-fast `test`, starts from
  * `mockProfileDefaults` (an empty Page) and overrides the list
  * (`mockAddresses`, the newest route wins). Desktop asserts run at 1280 px;
@@ -656,5 +657,145 @@ test.describe("Address suggestions (Story 4.3)", () => {
       viewport.dispatchEvent(new Event("resize"))
     })
     await expect(pill).toBeVisible()
+  })
+})
+
+// --- Story 4.4: Primary address and removal ----------------------------------------------------
+
+const OAK = "9 Oak Ave, Apt 4, SF, CA 94105"
+const PINE = "1 Pine St, SF, CA 94105"
+const NOT_RELATED = (id: number) => `Operation failed. Location with id: '${id}' is not related to 'Person' with id: '7'.`
+
+/** An edit-view row (desktop) or card (360 px) holding `text`. */
+const editRow = (page: Page, text: string): Locator => section(page).locator("tbody tr, li[data-slot='section-table-card']").filter({ hasText: text })
+
+/** The mock backend's writes, as the real one: a write with primary: true unsets the old Primary; a DELETE soft-deletes. */
+async function mockAddressWrites(page: Page, rows: Record<string, unknown>[]) {
+  const puts = await mockAddressUpdate(page, (request) => {
+    const id = Number(new URL(request.url()).pathname.split("/").pop())
+    const target = rows.find((row) => row.id === id)
+    if (!target) return { status: 400, body: { message: NOT_RELATED(id), code: 400 } }
+    const body = request.postDataJSON() as Record<string, unknown>
+    if (body.primary === true) for (const row of rows) row.primary = false
+    applyBody(target, body)
+    return { body: { id } }
+  })
+  const deletes = await mockAddressDelete(page, (request) => {
+    const id = Number(new URL(request.url()).pathname.split("/").pop())
+    const at = rows.findIndex((row) => row.id === id)
+    if (at < 0) return { status: 400, body: { message: NOT_RELATED(id), code: 400 } }
+    rows.splice(at, 1)
+    return { body: { id } }
+  })
+  return { puts, deletes }
+}
+
+test.describe("Primary address and removal (Story 4.4)", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 })
+  })
+
+  test("UJ-4 tail: Make primary (one PUT, no confirm) → it moves to the top; Remove the old one → struck through → Save → DELETE", async ({ page }) => {
+    const { rows } = await openEditable(page)
+    const { puts, deletes } = await mockAddressWrites(page, rows)
+    await section(page).getByRole("button", { name: `More actions for ${PINE}` }).click()
+    await expect(page.getByRole("menuitem")).toHaveText(["Make primary", "Edit", "Remove"])
+    await page.getByRole("menuitem", { name: "Make primary" }).click()
+    await expect(toastWith(page, "Addresses saved.")).toBeVisible()
+    await expect(page.getByRole("alertdialog")).toHaveCount(0)
+    expect(puts()).toEqual([{ id: 2, body: { primary: true, validated: true } }])
+    await expect(addressTable(page).locator(`tbody tr:first-child ${CELLS}`).first()).toHaveText(PINE)
+    await expect(page.getByRole("heading", { level: 2, name: "Addresses" })).toBeFocused()
+
+    await section(page).getByRole("button", { name: `More actions for ${OAK}` }).click()
+    await page.getByRole("menuitem", { name: "Remove" }).click()
+    const struck = addressTable(page).locator("tbody tr").filter({ hasText: OAK })
+    await expect(struck).toHaveAttribute("data-state", "removed")
+    await expect(struck.getByText("Removed on save")).toBeVisible()
+    await expect(struck.getByRole("button", { name: "Restore" })).toBeFocused()
+    await saveButton(page).click()
+    await expect(footer(page)).toHaveCount(0)
+    expect(deletes()).toEqual([1])
+    expect(puts()).toHaveLength(1)
+    await expect(addressTable(page).locator("tbody tr")).toHaveCount(1)
+    await expect(sectionMeta(page)).toHaveText("1")
+  })
+
+  test("guards: the Primary's Remove and the only address's Remove are aria-disabled with their reasons; the Primary box can't be unchecked", async ({ page }) => {
+    await openEditable(page)
+    await section(page).getByRole("button", { name: `More actions for ${OAK}` }).click()
+    await expect(page.getByRole("menuitem")).toHaveCount(2)
+    const remove = page.getByRole("menuitem", { name: /^Remove/ })
+    await expect(remove).toHaveAttribute("aria-disabled", "true")
+    await expect(remove).toContainText("Make another address primary first")
+    // Activation does nothing (aria-disabled: Playwright would wait for it to be enabled).
+    await remove.click({ force: true })
+    await expect(footer(page)).toHaveCount(0)
+    await page.keyboard.press("Escape")
+
+    await section(page).getByRole("button", { name: "Edit", exact: true }).click()
+    await expandButton(page, OAK).click()
+    const box = expandedRows(page).first().getByRole("checkbox", { name: "Set as primary" })
+    await expect(box).toHaveAttribute("aria-disabled", "true")
+    await box.click({ force: true })
+    await expect(box).toHaveAttribute("aria-checked", "true")
+    await expect(page.getByRole("tooltip")).toHaveText("Set another address as primary first")
+    // Moving Primary in the draft frees the old one's Remove.
+    await section(page).getByRole("button", { name: `Collapse ${OAK}` }).click()
+    await expandButton(page, PINE).click()
+    await expandedRows(page).first().getByRole("checkbox", { name: "Set as primary" }).click()
+    const oakRow = editRow(page, OAK)
+    await expect(oakRow.getByRole("button", { name: "Remove" })).not.toHaveAttribute("aria-disabled", "true")
+    await oakRow.getByRole("button", { name: "Remove" }).click()
+    // Pine is the one left: its Remove names why it can't go.
+    const pineRemove = expandedRows(page).first().getByRole("button", { name: "Remove" })
+    await expect(pineRemove).toHaveAttribute("aria-disabled", "true")
+    await pineRemove.focus()
+    await expect(page.getByRole("tooltip")).toHaveText("You need at least one address")
+  })
+
+  test("removed elsewhere: the Section says so, the row leaves the form, Retry closes the edit", async ({ page }) => {
+    const { rows } = await openEditable(page)
+    const { puts } = await mockAddressWrites(page, rows)
+    await section(page).getByRole("button", { name: `More actions for ${PINE}` }).click()
+    await page.getByRole("menuitem", { name: "Edit" }).click()
+    await field(expandedRows(page).first(), "City").fill("Oakland")
+    // Removed on another device.
+    rows.splice(
+      rows.findIndex((row) => row.id === 2),
+      1,
+    )
+    await saveButton(page).click()
+    const banner = footer(page).locator('[data-slot~="inline-banner"]')
+    await expect(banner).toContainText("This address was removed elsewhere, so your changes to it weren't saved.")
+    await expect(addressTable(page).locator("tbody tr")).toHaveCount(1)
+    await banner.getByRole("button", { name: "Retry" }).click()
+    await expect(footer(page)).toHaveCount(0)
+    expect(puts()).toHaveLength(1)
+  })
+
+  test("at 360 px: a struck-through card with Restore, the kebab's Make primary, 44 px targets, no horizontal scroll", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 })
+    const { rows } = await openEditable(page)
+    await mockAddressWrites(page, rows)
+    await section(page).getByRole("button", { name: `More actions for ${PINE}` }).click()
+    await expect(page.getByRole("menuitem", { name: "Make primary" })).toBeVisible()
+    await page.getByRole("menuitem", { name: "Remove" }).click()
+    const card = addressCards(page).getByRole("listitem").filter({ hasText: PINE })
+    await expect(card).toHaveAttribute("data-state", "removed")
+    const restore = card.getByRole("button", { name: "Restore" })
+    await expect(restore).toBeFocused()
+    expect((await restore.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+    expect((await addressCards(page).getByRole("listitem").filter({ hasText: OAK }).getByRole("button", { name: "Remove" }).boundingBox())?.height).toBeGreaterThanOrEqual(44)
+    await expectNoHorizontalScroll(page)
+  })
+
+  test("axe passes in light and dark with a struck row, a locked Primary box and disabled Removes", async ({ page }) => {
+    await openEditable(page)
+    await section(page).getByRole("button", { name: `More actions for ${PINE}` }).click()
+    await page.getByRole("menuitem", { name: "Remove" }).click()
+    await expect(saveButton(page)).toBeVisible()
+    await expandButton(page, OAK).click()
+    await axe(page, "Addresses Primary and removal")
   })
 })

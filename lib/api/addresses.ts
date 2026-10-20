@@ -14,7 +14,8 @@
  * Story 4.2 adds the writes: the body builders (`addressCreateBody`,
  * `addressUpdateBody`, decisions 1a–3a), `saveAddressCreate` /
  * `saveAddressUpdate` (never throw) and the countries loader. Story 4.3
- * sends the form's `validated` as is.
+ * sends the form's `validated` as is. Story 4.4 adds `deleteAddress` and the
+ * Make primary body (`addressPrimaryBody`).
  */
 
 import { z } from "zod"
@@ -80,6 +81,11 @@ export function addressCreatePath(): string {
 /** `PUT v2/person/location/{id}` (Story 4.2), for a positive integer id; `null` for anything else. */
 export function addressUpdatePath(id: number): string | null {
   return Number.isSafeInteger(id) && id > 0 ? proxyPath(`v2/person/location/${id}`) : null
+}
+
+/** `DELETE v2/person/location/{id}` (Story 4.4), for a positive integer id; `null` for anything else. */
+export function addressDeletePath(id: number): string | null {
+  return addressUpdatePath(id)
 }
 
 /**
@@ -275,6 +281,22 @@ export interface AddressUpdateBody extends AddressCreateBody {
   readonly fullAddress: string
 }
 
+/** The body of a Make primary `PUT v2/person/location/{id}` (Story 4.4): only the two flags, every other part left as saved. */
+export interface AddressPrimaryBody {
+  readonly primary: boolean
+  readonly validated: boolean
+}
+
+/**
+ * The Make primary body (Story 4.4, decision 1B): `primary` and the row's
+ * saved `validated` (always sent: a missing one would change it). The
+ * backend leaves the parts it isn't sent unchanged and demotes the old
+ * Primary itself when `primary` is `true`.
+ */
+export function addressPrimaryBody(primary: boolean, validated: boolean): AddressPrimaryBody {
+  return { primary, validated }
+}
+
 /** What a cleared optional part of a saved address is sent as (decision 2a): the backend reads `""` as "unchanged". */
 export const ADDRESS_CLEARED_VALUE = "n/a"
 
@@ -362,9 +384,16 @@ export async function saveAddressCreate(body: AddressCreateBody): Promise<ApiRes
   return { ...res, data: { id: created.success ? created.data.id : null } }
 }
 
-/** Sends one changed address (`PUT v2/person/location/{id}`); never throws. A bad id is refused without a request. */
-export async function saveAddressUpdate(id: number, body: AddressUpdateBody): Promise<ApiResponse<unknown>> {
+/** Sends one changed address (`PUT v2/person/location/{id}`), or a Make primary; never throws. A bad id is refused without a request. */
+export async function saveAddressUpdate(id: number, body: AddressUpdateBody | AddressPrimaryBody): Promise<ApiResponse<unknown>> {
   const path = addressUpdatePath(id)
   if (path === null) return { success: false, error: "addresses/saveAddressUpdate needs a positive integer id" }
   return callApi<unknown>("addresses/saveAddressUpdate", path, { method: "PUT", body: JSON.stringify(body) })
+}
+
+/** Removes one saved address (`DELETE v2/person/location/{id}`, a soft delete; Story 4.4); never throws. A bad id is refused without a request. */
+export async function deleteAddress(id: number): Promise<ApiResponse<unknown>> {
+  const path = addressDeletePath(id)
+  if (path === null) return { success: false, error: "addresses/deleteAddress needs a positive integer id" }
+  return callApi<unknown>("addresses/deleteAddress", path, { method: "DELETE" })
 }

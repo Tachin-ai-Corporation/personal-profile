@@ -14,9 +14,11 @@ import { Input } from "@/components/ui/input"
 import { LiveStatus, useAnnounce } from "@/components/ui/live-status"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { StatusBadge } from "@/components/ui/status-badge"
+import { Tooltip } from "@/components/ui/tooltip"
 import {
   RowActions,
   RowEditStatus,
+  RowRemoval,
   runSaveSteps,
   SECTION_COLUMNS,
   SectionContainer,
@@ -25,10 +27,13 @@ import {
   SectionTable,
   StateFrame,
   sectionHeadingId,
+  toastError,
+  toastSuccess,
   useReportSectionCount,
   useSectionForm,
   useSectionFrame,
   type FrameState,
+  type RowEditState,
   type SaveResult,
   type SectionDataStatus,
   type SectionForm,
@@ -37,9 +42,12 @@ import {
 import {
   ADDRESS_TYPES,
   addressCreateBody,
+  addressPrimaryBody,
   addressUpdateBody,
+  deleteAddress,
   fetchAddresses,
   keys,
+  mapApiError,
   mapFetchError,
   newPlacesLookupId,
   placesAutocomplete,
@@ -53,16 +61,20 @@ import {
   type MappedError,
 } from "@/lib/api"
 import type { PlaceSuggestion } from "@/lib/shared/bff-contract"
-import { ADDRESS_MESSAGES, COMBOBOX_MESSAGES, COMMON_MESSAGES, formatMessage, PLACES_MESSAGES, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
+import { ADDRESS_MESSAGES, COMBOBOX_MESSAGES, COMMON_MESSAGES, formatMessage, messageFor, PLACES_MESSAGES, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
 import { formatAddressOneLine } from "./format"
-import { addressRowsToSend, mergeAddressRows } from "./save"
+import { addressRowsToDelete, addressRowsToSend, mergeAddressRows } from "./save"
 import {
   addressDraftDiff,
   addressEditRowOf,
   addressesSchemaWith,
   addressRowOneLine,
+  isAddressRowRemoved,
+  isAddressRowSendable,
   newAddressEditRow,
+  withAddressRemoved,
+  withAutoPrimary,
   type AddressEditRow,
   type AddressValues,
 } from "./schema"
@@ -132,6 +144,21 @@ const ADDRESS_READ_COLUMNS: SectionTableColumn<AddressRow>[] = [
 /** A read failure without cached data, mapped for the frame. */
 const addressesLoadError = (failure: unknown): MappedError | undefined => (failure === undefined ? undefined : mapFetchError("addresses", failure))
 
+/** The backend's "not related" answer (Story 4.4, decision 2A): the address was removed elsewhere (`lib/api/errors/addresses.ts`). */
+const isRemovedElsewhere = (mapped: MappedError): boolean => mapped.kind === "field" && mapped.messageKey === "addresses.removedElsewhere"
+
+/**
+ * Why a row's Remove is unavailable, if it is (Story 4.4), against the rows
+ * as they stand (the form's while editing, so a Primary moved in the draft
+ * frees the old one): the last address left ("You need at least one
+ * address"; only when the person had saved addresses, so a first new row can
+ * still go), else the Primary ("Make another address primary first").
+ */
+function removeReasonOf(primary: boolean, remaining: number, hadSaved: boolean): string | undefined {
+  if (remaining <= 1) return hadSaved ? ADDRESS_MESSAGES.onlyAddress : undefined
+  return primary ? ADDRESS_MESSAGES.makeAnotherPrimaryFirst : undefined
+}
+
 // --- Edit view --------------------------------------------------------------------------------
 
 type AddressSectionForm = SectionForm<AddressValues>
@@ -148,11 +175,23 @@ const fieldPath = (index: number, field: keyof AddressEditRow) => `rows.${index}
 /** The row's chevron (focus only: the header Edit's first stop, and focus kept across a toggle). */
 const togglePath = (index: number) => fieldPath(index, "key")
 
+/** The row's Remove / Restore (focus only: Restore after a Remove, Story 4.4). */
+const removalPath = (index: number) => fieldPath(index, "removed")
+
 /** The DOM id of a row's chevron. */
 const toggleId = (key: string) => `addresses-toggle-${key}`
 
-/** A row that can be expanded and edited: a new row, or a saved row with an id (an id-less row has nothing to send). */
-const isExpandable = (row: AddressEditRow): boolean => row.isNew || row.id !== null
+/** The id of a row's edit status ("New · not saved", "Removed on save"): its Restore is described by it. */
+const statusIdOf = (key: string) => `addresses-row-${key}-status`
+
+/** A row that can be removed (Story 4.4): a new row, or a saved row with an id (an id-less row or a repeat has nothing to send). */
+const isRemovable = (row: AddressEditRow): boolean => isAddressRowSendable(row)
+
+/** A row that can be expanded and edited: a removable row that isn't struck through. */
+const isExpandable = (row: AddressEditRow): boolean => isRemovable(row) && !isAddressRowRemoved(row)
+
+/** The row's place in the edit view: new, struck through or saved. */
+const rowStateOf = (row: AddressEditRow): RowEditState => (row.isNew ? "new" : isAddressRowRemoved(row) ? "removed" : "saved")
 
 /** The fields an expanded row holds (a collapsed row is expanded to show one of them). */
 const EXPANDED_FIELDS: ReadonlySet<string> = new Set(["type", "country", "primary", "line1", "line2", "city", "county", "state", "zip"])
@@ -538,32 +577,62 @@ function AddressSelectField({ section, index, field, label, options, placeholder
   )
 }
 
-/** "Set as primary": a 44 px checkbox with its label after it (sent as `primary`; Story 4.4 adds exclusivity). Read-only while saving. */
-function PrimaryField({ section, index, className }: FieldProps) {
+interface PrimaryFieldProps extends FieldProps {
+  /** The box was checked: every other row's box is unchecked (Story 4.4). */
+  readonly onChecked: (index: number) => void
+  /** This is the only sendable row left: its locked box says so instead of "Set another address as primary first". */
+  readonly onlyRow: boolean
+}
+
+/**
+ * "Set as primary" (Story 4.4): a 44 px checkbox with its label after it,
+ * sent as `primary`. Exclusive: checking it unchecks every other row's box
+ * (`onChecked`). A checked box can't be unchecked (another row is made
+ * Primary instead): it is aria-disabled, stays focusable and is described
+ * by its reason, "Set another address as primary first" ("Your only
+ * address is your primary address" for the only row left), also in a
+ * Tooltip that a press keeps open. Read-only while saving.
+ */
+function PrimaryField({ section, index, onChecked, onlyRow, className }: PrimaryFieldProps) {
   const path = fieldPath(index, "primary")
   const { ref, ...binding } = section.control(path)
   const id = useId()
   const errorId = `${id}-error`
+  const reasonId = `${id}-reason`
   const error = section.errorFor(path)
+  const locked = binding.value === true
+  const reason = onlyRow ? ADDRESS_MESSAGES.onlyAddressPrimary : ADDRESS_MESSAGES.primaryFirst
+  const describedBy = [locked ? reasonId : null, error ? errorId : null].filter(Boolean).join(" ") || undefined
   return (
     <div data-slot="address-primary" className={cn("flex min-w-0 flex-col gap-1.5", className)}>
       <div className="flex items-center">
-        <Checkbox
-          ref={ref}
-          id={id}
-          checked={binding.value === true}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? errorId : undefined}
-          aria-readonly={binding.readOnly || undefined}
-          onCheckedChange={(next) => {
-            if (!binding.readOnly) binding.onChange((next === true) as PathValue<AddressValues, Path<AddressValues>>)
-          }}
-          onBlur={binding.onBlur}
-          className="-ml-3"
-        />
+        {/* Always wrapped (an empty, hidden tooltip while unlocked), so the box never remounts and keeps focus when checked. */}
+        <Tooltip content={locked ? reason : <></>} contentClassName={locked ? undefined : "hidden"} keepOpenOnPress>
+          <Checkbox
+            ref={ref}
+            id={id}
+            checked={locked}
+            ariaDisabled={locked}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={describedBy}
+            aria-readonly={binding.readOnly || undefined}
+            onCheckedChange={(next) => {
+              if (binding.readOnly || next !== true) return
+              binding.onChange(true as PathValue<AddressValues, Path<AddressValues>>)
+              onChecked(index)
+            }}
+            onBlur={binding.onBlur}
+            className="-ml-3"
+          />
+        </Tooltip>
         <label htmlFor={id} className="text-body-sm text-foreground font-medium">
           {ADDRESS_MESSAGES.setAsPrimary}
         </label>
+        {locked ? (
+          <span id={reasonId} className="sr-only">
+            {reason}
+          </span>
+        ) : null}
       </div>
       <div aria-live="polite">{error ? <FieldError id={errorId}>{error}</FieldError> : null}</div>
     </div>
@@ -577,6 +646,11 @@ interface ExpandedRowProps {
   readonly onToggle: (key: string) => void
   readonly countries: CountriesState
   readonly places: PlacesState
+  /** The row's Remove (Story 4.4; an expanded row is one full-width cell, so it sits in the row's header line). */
+  readonly removal: ReactNode
+  readonly onPrimaryChecked: (index: number) => void
+  /** The row is the only sendable row left (its Primary box's reason). */
+  readonly onlyRow: boolean
 }
 
 /**
@@ -586,7 +660,7 @@ interface ExpandedRowProps {
  * ×2][Address line 2 ×2] / [City][County][State/Province][Zip] with 16 px
  * gaps; below 768 px every field is full width.
  */
-function AddressExpandedRow({ section, item, name, onToggle, countries, places }: ExpandedRowProps) {
+function AddressExpandedRow({ section, item, name, onToggle, countries, places, removal, onPrimaryChecked, onlyRow }: ExpandedRowProps) {
   const { row, index } = item
   const countryOptions = countries.names.map((country) => ({ value: country, label: country }))
   const countriesHelper = countries.failed ? (
@@ -613,6 +687,7 @@ function AddressExpandedRow({ section, item, name, onToggle, countries, places }
         ) : (
           <span className="cell-strong text-foreground min-w-0">{name}</span>
         )}
+        {removal ? <div className="ml-auto shrink-0">{removal}</div> : null}
       </div>
       <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-4">
         <AddressSelectField
@@ -637,7 +712,7 @@ function AddressExpandedRow({ section, item, name, onToggle, countries, places }
             if (placesCountryCodeOf(next) !== placesCountryCodeOf(row.country)) places.lookups.end(row.key)
           }}
         />
-        <PrimaryField section={section} index={index} className="md:col-span-2 md:pt-7" />
+        <PrimaryField section={section} index={index} onChecked={onPrimaryChecked} onlyRow={onlyRow} className="md:col-span-2 md:pt-7" />
         <AddressLine1Field section={section} index={index} row={row} places={places} className="md:col-span-2" />
         <AddressTextField section={section} index={index} field="line2" label={ADDRESS_MESSAGES.line2Label} optional autoComplete="address-line2" className="md:col-span-2" />
         <AddressTextField section={section} index={index} field="city" label={ADDRESS_MESSAGES.cityLabel} autoComplete="address-level2" />
@@ -678,9 +753,10 @@ function addressEditColumns({ section, expanded, onToggle, nameOf }: EditColumns
     {
       key: "status",
       header: STATUS,
-      // The row's form "Verified" (Story 4.3): as saved, set by a complete pick, cleared by a manual edit.
+      // The row's form "Verified" (Story 4.3): as saved, set by a complete pick, cleared by a manual edit; "New · not saved" or "Removed on save" (Story 4.4).
       cell: ({ row }) => {
-        if (row.isNew) return <RowEditStatus state="new" />
+        const state = rowStateOf(row)
+        if (state !== "saved") return <RowEditStatus state={state} id={statusIdOf(row.key)} />
         return row.validated ? <StatusBadge status="verified">{COMMON_MESSAGES.verified}</StatusBadge> : null
       },
     },
@@ -688,7 +764,7 @@ function addressEditColumns({ section, expanded, onToggle, nameOf }: EditColumns
 }
 
 /**
- * Addresses (Stories 4.1–4.2, FR25–FR26, NG-9026): the user's addresses from
+ * Addresses (Stories 4.1–4.4, FR25–FR27, NG-9026): the user's addresses from
  * `keys.addresses()` (`GET v2/person/location/list?page=0&size=100`): the
  * Primary first, then the API order (newest updated first). The landmark
  * renders from the first render and is never remounted (F6-1); the header
@@ -713,8 +789,17 @@ function addressEditColumns({ section, expanded, onToggle, nameOf }: EditColumns
  * refetches, rebuilds the rows from the fresh data (`mergeAddressRows`) and
  * shows the error at the failed row's field (`createFailedRowTarget`,
  * `failedRow.errorFields`) or at
- * Section level, so Retry sends only what is left. Make primary and Remove
- * arrive with Story 4.4.
+ * Section level, so Retry sends only what is left.
+ *
+ * Primary and removal (Story 4.4): "Set as primary" is exclusive, the
+ * checked box can't be unchecked, and the one row left is always the
+ * Primary. A read-view kebab offers Make primary (a non-Primary row: one PUT
+ * at once, no confirm; decision 1B), Edit and Remove; Remove (and the edit
+ * view's Remove / Restore) strikes a saved row through until Save, which
+ * deletes it after every write, and deletes a new row outright. Remove is
+ * aria-disabled on the Primary and on the last address, checked against the
+ * draft. An address removed elsewhere (the backend's "not related" answer)
+ * shows its own message and leaves the form, so Retry sends only the rest.
  *
  * Suggestions (Story 4.3): line 1 of an expanded row is the address
  * `Combobox` (`AddressLine1Field`) on `POST /api/places/autocomplete`, for a
@@ -766,6 +851,18 @@ export function AddressesSection() {
   const latestCountries = useRef<readonly string[]>([])
   const latestRows = useRef<readonly AddressEditRow[]>(baseline.rows)
   const latestSaved = useRef<readonly AddressEditRow[]>(baseline.rows)
+  /** The shown (read view) rows of the latest render: Make primary and its toast's Retry run later. */
+  const latestShown = useRef<readonly AddressRow[] | undefined>(rows)
+  /** A Make primary in flight: a second one meanwhile (a repeated press or Retry) does nothing. */
+  const sendingPrimary = useRef(false)
+  /** A new row was deleted outright: the next commit focuses the Section h2. */
+  const focusHeadingAfterRender = useRef(false)
+  const [, setFocusTick] = useState(0)
+  useEffect(() => {
+    if (!focusHeadingAfterRender.current) return
+    focusHeadingAfterRender.current = false
+    document.getElementById(sectionHeadingId("addresses"))?.focus()
+  })
 
   /** Refetches the list into the cache; throws when it fails (the save's baseline then stays). */
   async function refetchAddresses(): Promise<Address[]> {
@@ -777,40 +874,65 @@ export function AddressesSection() {
 
   async function save(values: AddressValues, before: AddressValues): Promise<SaveResult> {
     failedRow.setRow(null)
+    // The one row left is the Primary (Story 4.4), e.g. a legacy sole non-Primary address, fixed on its next save.
+    const rows = withAutoPrimary(values.rows)
+    if (rows !== values.rows) formRef.current?.setValue("rows", rows)
     const savedByKey = new Map(before.rows.map((row) => [row.key, row]))
-    const queue = addressRowsToSend(values.rows, before.rows)
-    if (queue.length === 0) return { ok: true }
+    // The newly Primary row first, then the other writes, then the deletes (Story 4.4).
+    const queue = addressRowsToSend(rows, before.rows)
+    const removals = addressRowsToDelete(rows)
+    if (queue.length === 0 && removals.length === 0) return { ok: true }
     const listedCountries = new Set(latestCountries.current)
     const succeeded = new Set<string>()
     const created = new Map<string, number | null>()
-    let current = values.rows
+    const deleted = new Set<string>()
+    /** The row whose request went out last: with `stop`, the failed one when the save fails. */
+    let attempted: AddressEditRow | undefined
+    let current = rows
     /** The refetch after a failure ran and rebuilt the rows (`mergeAddressRows`). */
     let rebased = false
     const result = await runSaveSteps<string, Address[]>(
-      queue.map((row) => ({
-        part: row.key,
-        run: async () => {
-          if (row.isNew) {
-            // `validated` as the form holds it: true only after a complete suggestion pick (Story 4.3).
-            const res = await saveAddressCreate(addressCreateBody(row))
-            if (res.success) {
-              succeeded.add(row.key)
-              created.set(row.key, res.data?.id ?? null)
+      [
+        ...queue.map((row) => ({
+          part: row.key,
+          run: async () => {
+            attempted = row
+            if (row.isNew) {
+              // `validated` as the form holds it: true only after a complete suggestion pick (Story 4.3).
+              const res = await saveAddressCreate(addressCreateBody(row))
+              if (res.success) {
+                succeeded.add(row.key)
+                created.set(row.key, res.data?.id ?? null)
+              }
+              return res
+            }
+            const res = await saveAddressUpdate(row.id as number, addressUpdateBody(row, savedByKey.get(row.key) as AddressEditRow, { listedCountries }))
+            if (res.success) succeeded.add(row.key)
+            return res
+          },
+        })),
+        ...removals.map((row) => ({
+          part: row.key,
+          run: async () => {
+            attempted = row
+            const res = await deleteAddress(row.id as number)
+            if (res.success) deleted.add(row.key)
+            // Already gone (removed elsewhere, decision 2A): the delete is done.
+            else if (isRemovedElsewhere(mapApiError("addresses", res))) {
+              deleted.add(row.key)
+              return { success: true }
             }
             return res
-          }
-          const res = await saveAddressUpdate(row.id as number, addressUpdateBody(row, savedByKey.get(row.key) as AddressEditRow, { listedCountries }))
-          if (res.success) succeeded.add(row.key)
-          return res
-        },
-      })),
+          },
+        })),
+      ],
       {
         scope: "addresses",
         mode: "stop",
         refetch: refetchAddresses,
         rebase: (fresh) => {
           const freshRows = editRowsOf(addressRowsOf(fresh))
-          current = mergeAddressRows({ rows: values.rows, before: before.rows, fresh: freshRows, succeeded, created })
+          current = mergeAddressRows({ rows, before: before.rows, fresh: freshRows, succeeded, created, deleted })
           formRef.current?.setValue("rows", current)
           rebaseRef.current({ rows: freshRows })
           rebased = true
@@ -818,9 +940,12 @@ export function AddressesSection() {
       },
     )
     // No rebuild (a session end, or the refetch failed): the created rows are saved all the same, so Retry must never
-    // POST them again. Each becomes a saved row with its new id; one whose id is unknown leaves the form.
-    if (!rebased && created.size > 0) {
-      current = values.rows.flatMap((row) => {
+    // POST them again. Each becomes a saved row with its new id; one whose id is unknown leaves the form. A deleted row
+    // leaves the form too, and so does the failed row when it was removed elsewhere (Retry never re-sends it).
+    const gone = !result.ok && isRemovedElsewhere(result.error.mapped) ? attempted?.key : undefined
+    if (!rebased && (created.size > 0 || deleted.size > 0 || gone !== undefined)) {
+      current = rows.flatMap((row) => {
+        if (deleted.has(row.key) || row.key === gone) return []
         if (!row.isNew || !created.has(row.key)) return [row]
         const id = created.get(row.key) ?? null
         return id === null ? [] : [{ ...row, key: `id-${id}`, id, isNew: false }]
@@ -836,9 +961,10 @@ export function AddressesSection() {
       }
       return { ok: true }
     }
-    // `stop`: the steps before the failed one all succeeded.
-    const failedKey = queue[succeeded.size]?.key
-    const index = current.findIndex((row) => row.key === failedKey)
+    // `stop`: the last request sent is the one that failed. A failed DELETE (a struck-through row, never expanded) and a
+    // row that left the form (removed elsewhere) show their error at Section level.
+    const failed = attempted
+    const index = failed && !isAddressRowRemoved(failed) ? current.findIndex((row) => row.key === failed.key) : -1
     failedRow.setRow(index < 0 ? null : index)
     return { ok: false, error: { code: result.error.code, mapped: result.error.mapped } }
   }
@@ -927,6 +1053,7 @@ export function AddressesSection() {
     latestCountries.current = countries.data ?? []
     latestRows.current = formRows
     latestSaved.current = baseline.rows
+    latestShown.current = rows
   })
 
   // Back in read view (saved or cancelled): the baseline is the server's again (no stale saved-values override).
@@ -951,24 +1078,149 @@ export function AddressesSection() {
     document.getElementById(toggleId(key))?.focus()
   }
 
-  /** "Add address" (header, empty row, footer): one new row, expanded, focus on its Address Type. */
+  /**
+   * "Add address" (header, empty row, footer): one new row, expanded, focus
+   * on its Address Type. The first address (the only row left) is the
+   * Primary (Story 4.4).
+   */
   function addAddress(): void {
-    if (isSaving) return
+    // Never while a Make primary is in flight (its success would toast and focus the h2 over the edit view).
+    if (isSaving || sendingPrimary.current) return
     const current = isEditing ? form.getValues("rows") : latestSaved.current
     const key = nextNewKey(current, newKeys)
     setExpanded((previous) => new Set([...(isEditing ? previous : []), key]))
     section.startEdit({ focus: fieldPath(current.length, "type") })
-    rowsControl.onChange([...current, newAddressEditRow(key)])
+    rowsControl.onChange(withAutoPrimary([...current, newAddressEditRow(key)]))
+  }
+
+  /** "Set as primary" checked on a row: every other row's box is unchecked (Story 4.4). */
+  function uncheckOtherPrimaries(index: number): void {
+    form.getValues("rows").forEach((row, at) => {
+      if (at !== index && row.primary) setRowField(form, at, "primary", false)
+    })
+  }
+
+  /**
+   * Remove / Restore in edit view (Story 4.4): a saved row is struck through
+   * (collapsed, "Removed on save") until Save, Restore undoes it; a new row
+   * is deleted outright. No confirm, toast or undo. The one row left is the
+   * Primary. Focus lands on the row's Restore (its Remove may have been in
+   * the expanded row, which collapses).
+   */
+  function setRemoved(key: string, removed: boolean): void {
+    if (isSaving) return
+    const current = form.getValues("rows")
+    const index = current.findIndex((row) => row.key === key)
+    if (index < 0) return
+    const target = current[index]
+    if (target.isNew) {
+      // A new row goes outright; errors are re-read from the schema, never left on a shifted index.
+      form.clearErrors("rows")
+      rowsControl.onChange(withAutoPrimary(current.filter((row) => row.key !== key)))
+      // Its Remove is gone: focus the Section h2 (never <body>) once the row has unmounted, so none of its fields blurs
+      // (and validates) after it left the form.
+      focusHeadingAfterRender.current = true
+      setFocusTick((tick) => tick + 1)
+      return
+    }
+    if (removed) {
+      setExpanded((previous) => {
+        if (!previous.has(key)) return previous
+        const next = new Set(previous)
+        next.delete(key)
+        return next
+      })
+      form.clearErrors(`rows.${index}` as Path<AddressValues>)
+    }
+    rowsControl.onChange(withAutoPrimary(current.map((row) => (row.key === key ? withAddressRemoved(row, removed) : row))))
+    if (removed) section.startEdit({ focus: removalPath(index) })
+  }
+
+  /** The read-view kebab's Remove (Story 4.4): edit view with that row struck through, focus on its Restore (never while a Make primary is in flight). */
+  function removeRow(key: string): void {
+    const saved = latestSaved.current
+    const index = saved.findIndex((row) => row.key === key)
+    // A revalidation between the kebab press and the item run may have dropped the row; the reasons are re-checked.
+    if (sendingPrimary.current || index < 0 || saved[index].id === null || saved.filter(isRemovable).length <= 1 || saved[index].primary) return
+    setExpanded(EMPTY_KEYS)
+    section.startEdit({ focus: removalPath(index) })
+    rowsControl.onChange(withAutoPrimary(saved.map((row) => (row.key === key ? withAddressRemoved(row, true) : row))))
+  }
+
+  /** The Make primary error toast's text: its catalog message for a mapped field rule, else the Section's save failure. */
+  function makePrimaryFailureText(mapped: MappedError): string {
+    if (mapped.kind === "field") return messageFor(mapped.messageKey)
+    const sectionName = SHELL_MESSAGES.sectionAddresses.toLowerCase()
+    return formatMessage(mapped.kind === "network" ? SECTION_MESSAGES.networkFailure : SECTION_MESSAGES.saveFailed, { section: sectionName })
+  }
+
+  /** Revalidates the list; when the refetch fails, it revalidates through SWR instead. */
+  async function refreshAddresses(): Promise<void> {
+    try {
+      await refetchAddresses()
+    } catch {
+      void addresses.mutate()
+    }
+  }
+
+  /**
+   * Sends the Make primary on the row keyed `key` against the latest rows:
+   * `true` once it is the Primary (nothing is sent when it already is).
+   * Read view only, one at a time. One PUT of the row with `primary: true`
+   * (decision 1B: the backend demotes the old Primary), then the list is
+   * refetched whatever the outcome. A failure toasts with Retry (this again,
+   * `reread`: the list is re-read first, so only what is still needed is
+   * sent); an address removed elsewhere (or gone from the list) toasts its own
+   * text, whose Retry only reloads the list; a session end shows nothing.
+   */
+  async function sendMakePrimary(key: string, reread: boolean): Promise<boolean> {
+    if (sendingPrimary.current || editState.current.editing) return false
+    sendingPrimary.current = true
+    try {
+      let shown = latestShown.current
+      if (reread) {
+        try {
+          shown = addressRowsOf(await refetchAddresses())
+        } catch {
+          void addresses.mutate()
+        }
+      }
+      const target = shown?.find((row) => row.key === key)
+      if (!target || target.address.id === null || target.repeat) {
+        toastError(ADDRESS_MESSAGES.removedElsewhere, { onRetry: () => void refreshAddresses() })
+        return false
+      }
+      if (target.primary) return true
+      const res = await saveAddressUpdate(target.address.id, addressPrimaryBody(true, target.address.validated))
+      await refreshAddresses()
+      if (res.success) return true
+      const mapped = mapApiError("addresses", res)
+      if (mapped.kind === "session") return false
+      if (isRemovedElsewhere(mapped)) toastError(ADDRESS_MESSAGES.removedElsewhere, { onRetry: () => void refreshAddresses() })
+      else toastError(makePrimaryFailureText(mapped), { onRetry: () => void makePrimary(key, true) })
+      return false
+    } finally {
+      sendingPrimary.current = false
+    }
+  }
+
+  /** The read-view kebab's Make primary (Story 4.4): no confirm; once saved, "Addresses saved." and focus on the `h2`. */
+  async function makePrimary(key: string, reread = false): Promise<void> {
+    if (!(await sendMakePrimary(key, reread))) return
+    toastSuccess(formatMessage(SECTION_MESSAGES.saved, { section: SHELL_MESSAGES.sectionAddresses }))
+    document.getElementById(sectionHeadingId("addresses"))?.focus()
   }
 
   /** The header Edit: every row collapsed, focus on the first chevron. */
   function editAll(): void {
+    if (sendingPrimary.current) return
     setExpanded(EMPTY_KEYS)
     section.startEdit()
   }
 
   /** A read-view kebab's Edit: that row expanded (the others collapsed), focus on its Address Type. */
   function editRow(key: string): void {
+    if (sendingPrimary.current) return
     const saved = latestSaved.current
     const index = saved.findIndex((row) => row.key === key)
     // A revalidation between the kebab press and the item run may have dropped the row.
@@ -995,6 +1247,28 @@ export function AddressesSection() {
   const nameOf = (row: AddressEditRow): string =>
     row.isNew ? ADDRESS_MESSAGES.newAddress : shownByKey.get(row.key)?.oneLine || addressRowOneLine(row) || COMMON_MESSAGES.notProvided
   const emptyAction = { label: ADDRESS_MESSAGES.addAddress, onClick: addAddress }
+  /** The shown addresses that can be sent or removed: with an id, not a repeat (the read view's "last address" count). */
+  const sendableShown = (rows ?? []).filter((row) => row.address.id !== null && !row.repeat).length
+  // Remove's reasons (Story 4.4), against the draft while editing: only rows that aren't struck through count.
+  // Only rows that can be sent count: new rows and saved rows with an id (a repeat's edit row has none), not struck through.
+  const remaining = formRows.filter((row) => isRemovable(row) && !isAddressRowRemoved(row)).length
+  const hadSaved = baseline.rows.some((row) => row.id !== null)
+
+  /** A row's Remove / Restore in edit view (a saved row without an id has nothing to send: none). */
+  function removalOf({ row, index }: EditItem): ReactNode {
+    if (!isRemovable(row)) return null
+    const { ref: removalRef } = section.control(removalPath(index))
+    return (
+      <RowRemoval
+        ref={removalRef}
+        state={rowStateOf(row)}
+        statusId={statusIdOf(row.key)}
+        disabledReason={isAddressRowRemoved(row) ? undefined : removeReasonOf(row.primary, remaining, hadSaved)}
+        onRemove={() => setRemoved(row.key, true)}
+        onRestore={() => setRemoved(row.key, false)}
+      />
+    )
+  }
 
   const headerActions =
     rows && !isEditing ? (
@@ -1036,12 +1310,24 @@ export function AddressesSection() {
                   getRowKey={({ row }) => row.key}
                   labelledBy={headingId}
                   editing
-                  rowState={({ row }) => (row.isNew ? "new" : "saved")}
+                  rowState={({ row }) => rowStateOf(row)}
                   renderExpanded={(item) =>
                     isExpandable(item.row) && expanded.has(item.row.key) ? (
-                      <AddressExpandedRow section={section} item={item} name={nameOf(item.row)} onToggle={toggleRow} countries={countriesState} places={placesState} />
+                      <AddressExpandedRow
+                        section={section}
+                        item={item}
+                        name={nameOf(item.row)}
+                        onToggle={toggleRow}
+                        countries={countriesState}
+                        places={placesState}
+                        removal={removalOf(item)}
+                        onPrimaryChecked={uncheckOtherPrimaries}
+                        onlyRow={remaining === 1}
+                      />
                     ) : null
                   }
+                  // An expanded row holds its Remove in its own header line.
+                  actions={(item) => (isExpandable(item.row) && expanded.has(item.row.key) ? null : removalOf(item))}
                   empty={{ message: ADDRESS_MESSAGES.addressesEmpty, action: emptyAction }}
                 />
                 <SectionFooter {...section.footerProps} addRow={{ label: ADDRESS_MESSAGES.addAddress, onClick: addAddress }} />
@@ -1058,8 +1344,22 @@ export function AddressesSection() {
                   <RowActions
                     name={row.oneLine || COMMON_MESSAGES.notProvided}
                     showInline={false}
-                    // Only a saved row with an id (not a repeat) can change; Make primary and Remove arrive with Story 4.4.
-                    actions={row.address.id === null || row.repeat ? [] : [{ id: "edit", label: SECTION_MESSAGES.edit, onSelect: () => editRow(row.key) }]}
+                    // Only a saved row with an id (not a repeat) can change: Make primary (not on the Primary), Edit, Remove (Story 4.4).
+                    actions={
+                      row.address.id === null || row.repeat
+                        ? []
+                        : [
+                            ...(row.primary ? [] : [{ id: "make-primary", label: COMMON_MESSAGES.makePrimary, onSelect: () => void makePrimary(row.key) }]),
+                            { id: "edit", label: SECTION_MESSAGES.edit, onSelect: () => editRow(row.key) },
+                            {
+                              id: "remove",
+                              label: COMMON_MESSAGES.remove,
+                              destructive: true,
+                              disabledReason: removeReasonOf(row.primary, sendableShown, true),
+                              onSelect: () => removeRow(row.key),
+                            },
+                          ]
+                    }
                   />
                 )}
               />

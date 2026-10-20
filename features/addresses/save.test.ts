@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { addressRowsToSend, mergeAddressRows } from "./save"
+import { addressRowsToDelete, addressRowsToSend, mergeAddressRows } from "./save"
 import { newAddressEditRow, type AddressEditRow } from "./schema"
 
-/** Story 4.2 (NG-9026): the send order and the rows rebuilt after a failed step. */
+/** Stories 4.2, 4.4 (NG-9026): the send order and the rows rebuilt after a failed step. */
 
 const saved = (id: number, overrides: Partial<AddressEditRow> = {}): AddressEditRow => ({
   key: `id-${id}`,
@@ -43,6 +43,27 @@ describe("addressRowsToSend", () => {
   it("never sends a saved row without an id", () => {
     const orphan = saved(4, { key: "none-0", id: null })
     expect(addressRowsToSend([{ ...orphan, city: "LA" }], [orphan])).toEqual([])
+  })
+
+  it("Story 4.4: never writes a removed row, even a changed one", () => {
+    const before = [saved(1, { primary: true }), saved(2)]
+    expect(addressRowsToSend([saved(1, { primary: true }), saved(2, { city: "LA", removed: true })], before)).toEqual([])
+  })
+
+  it("Story 4.4, decision 1B (the Move Primary row): the old Primary is written only when another of its fields changed, after the new one", () => {
+    const before = [saved(1, { primary: true }), saved(2)]
+    expect(addressRowsToSend([saved(1), saved(2, { primary: true })], before).map((row) => row.key)).toEqual(["id-2"])
+    expect(addressRowsToSend([saved(1, { city: "LA" }), saved(2, { primary: true })], before).map((row) => row.key)).toEqual(["id-2", "id-1"])
+    // The Remove the Primary after moving row: the old Primary is removed, so only the new one is written.
+    expect(addressRowsToSend([saved(1, { removed: true }), saved(2, { primary: true })], before).map((row) => row.key)).toEqual(["id-2"])
+  })
+})
+
+describe("addressRowsToDelete (Story 4.4)", () => {
+  it("deletes the removed saved rows with an id, in table order; nothing else", () => {
+    const rows = [saved(1, { primary: true }), saved(2, { removed: true }), saved(3), saved(4, { removed: true, city: "LA" }), saved(5, { key: "none-1", id: null, removed: true }), added("new-1")]
+    expect(addressRowsToDelete(rows).map((row) => row.key)).toEqual(["id-2", "id-4"])
+    expect(addressRowsToDelete([saved(1), saved(2, { removed: false })])).toEqual([])
   })
 })
 
@@ -95,12 +116,31 @@ describe("mergeAddressRows", () => {
     ])
   })
 
-  it("keeps a saved row the refetch no longer has, and a whitespace-only edit counts as unchanged", () => {
+  it("drops a saved row the refetch no longer has (removed elsewhere, decision 2A), and a whitespace-only edit counts as unchanged", () => {
     const before = [saved(1), saved(2)]
     const rows = [saved(1, { city: "Oakland" }), saved(2, { city: " SF " })]
     const fresh = [saved(2, { state: "NV" })]
-    expect(mergeAddressRows({ rows, before, fresh, succeeded: new Set(), created: new Map() })).toEqual([saved(1, { city: "Oakland" }), saved(2, { state: "NV" })])
+    expect(mergeAddressRows({ rows, before, fresh, succeeded: new Set(), created: new Map() })).toEqual([saved(2, { state: "NV" })])
     // A row with no saved values to compare is taken fresh.
     expect(mergeAddressRows({ rows: [saved(2, { city: "LA" })], before: [], fresh, succeeded: new Set(), created: new Map() })).toEqual([saved(2, { state: "NV" })])
+  })
+
+  it("Story 4.4: drops the rows whose DELETE succeeded (also from the refetch) and keeps the unsent removals struck through", () => {
+    const before = [saved(1, { primary: true }), saved(2), saved(3), saved(4)]
+    // Save: PUT 4 (ok), DELETE 2 (ok), DELETE 3 (failed); the refetch still lists 2 (a slow soft delete).
+    const rows = [saved(1, { primary: true }), saved(2, { removed: true }), saved(3, { removed: true }), saved(4, { city: "LA" })]
+    const fresh = [saved(1, { primary: true }), saved(2), saved(3, { county: "Marin" }), saved(4, { city: "LA" })]
+    expect(mergeAddressRows({ rows, before, fresh, succeeded: new Set(["id-4"]), created: new Map(), deleted: new Set(["id-2"]) })).toEqual([
+      saved(1, { primary: true }),
+      saved(3, { county: "Marin", removed: true }),
+      saved(4, { city: "LA" }),
+    ])
+  })
+
+  it("Story 4.4: a Restore (no removed key) and an unchanged removal flag merge as unchanged", () => {
+    const before = [saved(1, { primary: true }), saved(2)]
+    const rows = [saved(1, { primary: true }), saved(2)]
+    const fresh = [saved(1, { primary: true }), saved(2, { county: "Marin" })]
+    expect(mergeAddressRows({ rows, before, fresh, succeeded: new Set(), created: new Map() })).toEqual(fresh)
   })
 })
