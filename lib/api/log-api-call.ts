@@ -3,6 +3,8 @@
  * silent unless `isLocalDev()` (never in a Vercel build or under test).
  * Redacts SSN-shaped values, MFA `code`, `qrCode`, `lpl`, token-like keys and
  * `authorization`. There is no in-app API Inspector.
+ * NPI registration reads and searches log metadata only: their query strings
+ * and all request/response payloads stay out of the console, including errors.
  */
 
 import { isLocalDev } from "@/lib/shared/app-env"
@@ -48,7 +50,23 @@ export function bodyForLog(text: string | undefined): unknown {
 
 export function logApiCall(entry: ApiCallLog): void {
   if (!isLocalDev()) return
-  console.groupCollapsed(`[api] ${entry.method} ${entry.path} → ${entry.status ?? "network error"} (${entry.durationMs} ms)`)
+  // Match the decoded route too: the proxy accepts percent-encoded segments.
+  // Only ASCII route bytes matter here; replacement cannot throw on malformed input.
+  const pathname = entry.path
+    // Fetch's URL parser strips leading/trailing C0 controls and spaces,
+    // then removes ASCII tabs/newlines anywhere in the URL.
+    .replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, "")
+    .replace(/[\t\n\r]/g, "")
+    .split(/[?#]/, 1)[0]
+    .replace(/%([0-9a-f]{2})/gi, (_match, byte: string) => String.fromCharCode(Number.parseInt(byte, 16)))
+    .replace(/\/{2,}/g, "/")
+    .replace(/\/$/, "")
+  const metadataOnly = pathname === "/api/1h/v2/user/npi" || pathname === "/api/1h/v2/public/npi/list"
+  console.groupCollapsed(`[api] ${entry.method} ${metadataOnly ? pathname : entry.path} → ${entry.status ?? "network error"} (${entry.durationMs} ms)`)
+  if (metadataOnly) {
+    console.groupEnd()
+    return
+  }
   console.log("request", redact(entry.requestBody))
   console.log("response", redact(entry.responseBody))
   console.groupEnd()
