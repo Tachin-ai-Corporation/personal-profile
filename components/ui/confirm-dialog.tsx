@@ -106,7 +106,7 @@ export function ConfirmDialog({
           onPointerDownOutside={blockWhileBusy}
           onInteractOutside={blockWhileBusy}
           className={cn(
-            "bg-popover text-popover-foreground fixed top-1/2 left-1/2 z-50 grid w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border p-6 shadow-lg",
+            "bg-popover text-popover-foreground fixed top-1/2 left-1/2 z-50 grid w-[calc(100%-2rem)] md:max-w-md -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border p-6 shadow-lg",
             // ease-premium entrance, 250 ms (none under reduced motion).
             "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 [animation-duration:250ms] [animation-timing-function:var(--ease-premium)] motion-reduce:animate-none",
           )}
