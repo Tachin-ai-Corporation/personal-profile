@@ -22,8 +22,8 @@ export function addressRowsToSend(rows: readonly AddressEditRow[], saved: readon
   return [...first, ...sent.filter((row) => !first.includes(row))]
 }
 
-/** The fields a user edits (each merged on its own). */
-const EDITED_FIELDS = ["type", "country", "line1", "line2", "city", "county", "state", "zip", "primary"] as const
+/** The fields a user edits (each merged on its own; `validated` follows a suggestion pick or a manual edit, Story 4.3). */
+const EDITED_FIELDS = ["type", "country", "line1", "line2", "city", "county", "state", "zip", "primary", "validated"] as const
 
 const sameValue = (a: string | boolean, b: string | boolean): boolean => (typeof a === "string" && typeof b === "string" ? a.trim() === b.trim() : a === b)
 

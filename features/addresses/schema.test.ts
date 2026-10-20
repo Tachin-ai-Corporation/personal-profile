@@ -84,9 +84,11 @@ describe("address edit rows", () => {
     expect(addressRowOneLine(newAddressEditRow("new-1"))).toBe("")
   })
 
-  it("a saved row changes with its type, Set as primary or a text part (trimmed); a new row always counts", () => {
+  it("a saved row changes with its type, Set as primary, Verified or a text part (trimmed); a new row always counts", () => {
     expect(isAddressRowChanged(saved({ city: " SF " }), saved())).toBe(false)
-    expect(isAddressRowChanged(saved({ validated: false }), saved())).toBe(false)
+    // Story 4.3: a suggestion pick (or a manual edit) changes Verified, which Save sends.
+    expect(isAddressRowChanged(saved({ validated: true }), saved({ validated: false }))).toBe(true)
+    expect(isAddressRowChanged(saved({ validated: false }), saved({ validated: true }))).toBe(true)
     expect(isAddressRowChanged(saved({ type: "Main Work" }), saved())).toBe(true)
     expect(isAddressRowChanged(saved({ primary: true }), saved())).toBe(true)
     expect(isAddressRowChanged(saved({ county: "Marin" }), saved())).toBe(true)

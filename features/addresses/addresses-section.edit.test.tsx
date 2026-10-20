@@ -102,6 +102,8 @@ function addressServer(options: ServerOptions = {}) {
       state.rows.push(row)
       return HttpResponse.json(row)
     }),
+    // Story 4.3: line 1 searches a US row; suggestions are off here (`PLACES_ENABLED` off), the Places tests are their own file.
+    http.post("/api/places/autocomplete", () => HttpResponse.json({ enabled: false, suggestions: [] })),
     http.put(`${CREATE}/:id`, async ({ request, params }) => {
       const body = (await request.json()) as Wire
       const id = Number(params.id)
@@ -129,7 +131,9 @@ const editRows = (): HTMLElement[] => [...section().querySelectorAll<HTMLElement
 const expandedRows = (): HTMLElement[] => [...section().querySelectorAll<HTMLElement>('[data-slot="address-expanded"]')]
 const typeTrigger = (row: HTMLElement): HTMLElement => within(row).getByRole("combobox", { name: "Address Type" })
 const countryTrigger = (row: HTMLElement): HTMLElement => within(row).getByRole("combobox", { name: "Country" })
-const textbox = (row: HTMLElement, name: string): HTMLInputElement => within(row).getByRole("textbox", { name }) as HTMLInputElement
+/** A text field by its label; line 1 is the address combobox (Story 4.3). */
+const textbox = (row: HTMLElement, name: string): HTMLInputElement =>
+  within(row).getByRole(name === "Address line 1" ? "combobox" : "textbox", { name }) as HTMLInputElement
 const primaryBox = (row: HTMLElement): HTMLElement => within(row).getByRole("checkbox", { name: "Set as primary" })
 /** The ids an element's `aria-describedby` names, as their text. */
 const described = (element: HTMLElement): (string | undefined)[] =>

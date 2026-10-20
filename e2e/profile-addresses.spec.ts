@@ -1,9 +1,23 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, type Locator, type Page, type Request } from "@playwright/test"
-import { addressesPage, addressRow, mockAddressCreate, mockAddresses, mockAddressUpdate, mockCountries, mockProfileDefaults, mockProxy, setTheme, signIn, test } from "./fixtures"
+import {
+  addressesPage,
+  addressRow,
+  mockAddressCreate,
+  mockAddresses,
+  mockAddressUpdate,
+  mockCountries,
+  mockPlacesAutocomplete,
+  mockPlacesDetails,
+  mockProfileDefaults,
+  mockProxy,
+  setTheme,
+  signIn,
+  test,
+} from "./fixtures"
 
 /**
- * Stories 4.1–4.2 (Team A, NG-9026): the Addresses read and edit views on the real `/`.
+ * Stories 4.1–4.3 (Team A, NG-9026): the Addresses read and edit views and the line 1 suggestions on the real `/`.
  * Every test runs under the fail-fast `test`, starts from
  * `mockProfileDefaults` (an empty Page) and overrides the list
  * (`mockAddresses`, the newest route wins). Desktop asserts run at 1280 px;
@@ -211,7 +225,8 @@ const expandedRows = (page: Page): Locator => section(page).locator('[data-slot=
 const toastWith = (page: Page, text: string): Locator => page.getByRole("region", { name: /Notifications/ }).locator("li").filter({ hasText: text })
 const typeSelect = (row: Locator): Locator => row.getByRole("combobox", { name: "Address Type" })
 const countrySelect = (row: Locator): Locator => row.getByRole("combobox", { name: "Country" })
-const field = (row: Locator, name: string): Locator => row.getByRole("textbox", { name, exact: true })
+/** A text field by its label; line 1 is the address combobox (Story 4.3). */
+const field = (row: Locator, name: string): Locator => row.getByRole(name === "Address line 1" ? "combobox" : "textbox", { name, exact: true })
 
 async function pick(page: Page, trigger: Locator, option: string): Promise<void> {
   await trigger.click()
@@ -450,5 +465,196 @@ test.describe("Addresses edit (Story 4.2)", () => {
     await field(added, "City").focus()
     await expect(added.getByText("Enter a 5-digit ZIP code")).toBeVisible()
     await axe(page, "Addresses edit")
+  })
+})
+
+// --- Story 4.3: address suggestions via server --------------------------------------------------
+
+const PLACES_SUGGESTIONS = [1, 2, 3].map((n) => ({ placeId: `ChIJ-place-${n}`, mainText: `${n} Pine Street`, secondaryText: "San Francisco, CA, USA", matches: [{ start: 0, end: 5 }] }))
+
+const PLACE_COMPLETE = {
+  enabled: true,
+  addressLine1: "1 Pine Street",
+  cityName: "San Francisco",
+  county: "San Francisco County",
+  stateName: "California",
+  postalCode: "94104",
+  countryCode: "US",
+  country: "United States",
+  fullAddress: "1 Pine Street, San Francisco, CA 94104, USA",
+  complete: true,
+}
+
+const suggestionsList = (page: Page): Locator => page.getByRole("listbox", { name: "Address line 1" })
+const suggestionOptions = (page: Page): Locator => suggestionsList(page).locator('[role="option"]:not([aria-disabled="true"])')
+const HELP = "Pick a suggestion to fill the rest and verify the address."
+
+/** A new row, expanded, Home picked; the list mocked as a small backend that records POSTs. */
+/**
+ * Types into line 1 for a search, after centring it: with room under it the list opens below, and the page doesn't
+ * scroll under the open popup while typing (a scroll closes it, which flaked under load on mobile-360).
+ */
+async function searchLine1(row: Locator, text: string): Promise<void> {
+  const line1 = field(row, "Address line 1")
+  await line1.evaluate((element) => element.scrollIntoView({ block: "center" }))
+  await line1.pressSequentially(text)
+}
+
+async function newRowWithSuggestions(page: Page) {
+  const { rows } = await openEditable(page)
+  const posts = await mockAddressCreate(page, (request) => {
+    const created = addressRow({ id: 31, ...request.postDataJSON(), addressLine2: null })
+    rows.push(created)
+    return { body: created }
+  })
+  await section(page).getByRole("button", { name: "Add address" }).click()
+  const row = expandedRows(page).first()
+  await pick(page, typeSelect(row), "Home")
+  return { rows, posts, row }
+}
+
+test.describe("Address suggestions (Story 4.3)", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 })
+  })
+
+  test("suggest → pick (keyboard) → the row fills → Save → \"Verified\"", async ({ page }) => {
+    const { posts, row } = await newRowWithSuggestions(page)
+    const searches = await mockPlacesAutocomplete(page, { body: { enabled: true, suggestions: PLACES_SUGGESTIONS } })
+    const details = await mockPlacesDetails(page, { body: PLACE_COMPLETE })
+    // No answer yet: no help line.
+    await expect(row.getByText(HELP)).toHaveCount(0)
+    // Room under line 1 for the list (with no room below, the popup flips above).
+    await searchLine1(row, "1 Pin")
+    await expect(suggestionOptions(page)).toHaveCount(3)
+    await expect(row.getByText(HELP)).toBeVisible()
+    expect(searches()).toHaveLength(1)
+    expect(searches()[0]).toMatchObject({ input: "1 Pin", countryCode: "US" })
+    await expect(suggestionOptions(page).first()).toHaveAccessibleName("1 Pine Street, San Francisco, CA, USA")
+    await expect(suggestionOptions(page).first().locator(".font-semibold")).toHaveText("1 Pin")
+    await expect(suggestionsList(page).getByText("Powered by Google")).toBeVisible()
+    for (const option of await suggestionOptions(page).all()) expect((await option.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+    // The listbox opens directly under line 1.
+    const inputBox = await field(row, "Address line 1").boundingBox()
+    const listBox = await suggestionsList(page).boundingBox()
+    expect(listBox!.y).toBeGreaterThanOrEqual(inputBox!.y + inputBox!.height - 1)
+    await page.keyboard.press("ArrowDown")
+    await page.keyboard.press("Enter")
+    await expect(field(row, "City")).toHaveValue("San Francisco")
+    expect(details()).toEqual([{ placeId: "ChIJ-place-1", lookupId: searches()[0].lookupId }])
+    await expect(field(row, "Address line 1")).toHaveValue("1 Pine Street")
+    await expect(field(row, "County (optional)")).toHaveValue("San Francisco County")
+    await expect(field(row, "State/Province (optional)")).toHaveValue("California")
+    await expect(field(row, "Zip")).toHaveValue("94104")
+    await saveButton(page).click()
+    await expect(footer(page)).toHaveCount(0)
+    expect(posts()).toEqual([
+      {
+        personLocationType: "Home",
+        addressLine1: "1 Pine Street",
+        cityName: "San Francisco",
+        county: "San Francisco County",
+        stateName: "California",
+        postalCode: "94104",
+        country: "United States",
+        primary: false,
+        validated: true,
+      },
+    ])
+    const saved = addressTable(page).locator("tbody tr").filter({ hasText: "1 Pine Street" })
+    await expect(saved.locator('[data-slot="status-badge"]')).toHaveText("Verified")
+  })
+
+  test("partial: the zip stays empty, not verified; Save shows \"Enter a ZIP code\" and sends nothing", async ({ page }) => {
+    const { posts, row } = await newRowWithSuggestions(page)
+    await mockPlacesAutocomplete(page, { body: { enabled: true, suggestions: PLACES_SUGGESTIONS } })
+    await mockPlacesDetails(page, { body: { ...PLACE_COMPLETE, postalCode: "", complete: false } })
+    await searchLine1(row, "1 Pin")
+    await suggestionOptions(page).first().click()
+    await expect(field(row, "City")).toHaveValue("San Francisco")
+    await expect(field(row, "Zip")).toHaveValue("")
+    await saveButton(page).click()
+    await expect(field(row, "Zip")).toBeFocused()
+    await expect(row.getByText("Enter a ZIP code")).toBeVisible()
+    expect(posts()).toEqual([])
+  })
+
+  test("other country: a Germany row makes no request and shows no listbox or help line", async ({ page }) => {
+    const { row } = await newRowWithSuggestions(page)
+    const searches = await mockPlacesAutocomplete(page, { body: { enabled: true, suggestions: PLACES_SUGGESTIONS } })
+    await pick(page, countrySelect(row), "Germany")
+    await expect(row.getByText(HELP)).toHaveCount(0)
+    await field(row, "Address line 1").pressSequentially("Hauptstr 1")
+    await page.waitForTimeout(600)
+    await expect(suggestionsList(page)).toHaveCount(0)
+    expect(searches()).toEqual([])
+  })
+
+  test("off: enabled false hides the listbox and help line; manual entry and Save work", async ({ page }) => {
+    const { posts, row } = await newRowWithSuggestions(page)
+    // mockProfileDefaults answers `{ enabled: false }` (PLACES_ENABLED off): the help line never shows.
+    await expect(row.getByText(HELP)).toHaveCount(0)
+    await field(row, "Address line 1").fill("7 Bay Rd")
+    await page.waitForTimeout(600)
+    await expect(row.getByText(HELP)).toHaveCount(0)
+    await expect(suggestionsList(page)).toHaveCount(0)
+    await field(row, "City").fill("Tahoe")
+    await field(row, "Zip").fill("96150")
+    await saveButton(page).click()
+    await expect(footer(page)).toHaveCount(0)
+    expect(posts()).toEqual([expect.objectContaining({ addressLine1: "7 Bay Rd", validated: false })])
+  })
+
+  test("axe passes in light and dark with the suggestions open", async ({ page }) => {
+    const { row } = await newRowWithSuggestions(page)
+    await mockPlacesAutocomplete(page, { body: { enabled: true, suggestions: PLACES_SUGGESTIONS } })
+    await searchLine1(row, "1 Pin")
+    await expect(suggestionOptions(page)).toHaveCount(3)
+    await page.keyboard.press("ArrowDown")
+    for (const theme of ["light", "dark"] as const) {
+      await setTheme(page, theme)
+      await expect(suggestionsList(page)).toBeVisible()
+      const results = await new AxeBuilder({ page }).include("#addresses").include('[data-slot="combobox-popup"]').withTags(WCAG).analyze()
+      expect(results.violations, `Addresses suggestions (${theme})`).toEqual([])
+    }
+  })
+
+  test("at 360 px: the suggestions show under line 1, the Save all pill hides while the keyboard is open, no horizontal scroll", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 })
+    const { row } = await newRowWithSuggestions(page)
+    await mockPlacesAutocomplete(page, { body: { enabled: true, suggestions: PLACES_SUGGESTIONS } })
+    const pill = page.locator('[data-slot="save-all-pill"]')
+    // The new row is a change: the pill shows.
+    await field(row, "City").fill("San Francisco")
+    await expect(pill).toBeVisible()
+    // The phone scrolls the focused field up, leaving room for the list under it inside the visible area (the popup
+    // is placed within the visual viewport and flips above when there is no room below).
+    await field(row, "Address line 1").evaluate((element) => {
+      element.scrollIntoView({ block: "start" })
+      window.scrollBy(0, -120)
+    })
+    await field(row, "Address line 1").focus()
+    // An on-screen keyboard: the visual viewport shrinks by 300 px.
+    await page.evaluate(() => {
+      const viewport = window.visualViewport!
+      Object.defineProperty(viewport, "height", { configurable: true, get: () => window.innerHeight - 300 })
+      viewport.dispatchEvent(new Event("resize"))
+    })
+    await field(row, "Address line 1").pressSequentially("1 Pin")
+    await expect(suggestionOptions(page)).toHaveCount(3)
+    await expect(pill).toHaveCount(0)
+    const inputBox = await field(row, "Address line 1").boundingBox()
+    const listBox = await suggestionsList(page).boundingBox()
+    expect(listBox!.y).toBeGreaterThanOrEqual(inputBox!.y + inputBox!.height - 1)
+    expect(listBox!.x + listBox!.width).toBeLessThanOrEqual(360)
+    for (const option of await suggestionOptions(page).all()) expect((await option.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+    await expectNoHorizontalScroll(page)
+    // The keyboard closes: the pill is back.
+    await page.evaluate(() => {
+      const viewport = window.visualViewport!
+      delete (viewport as unknown as { height?: number }).height
+      viewport.dispatchEvent(new Event("resize"))
+    })
+    await expect(pill).toBeVisible()
   })
 })

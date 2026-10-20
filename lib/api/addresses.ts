@@ -13,7 +13,8 @@
  *
  * Story 4.2 adds the writes: the body builders (`addressCreateBody`,
  * `addressUpdateBody`, decisions 1a–3a), `saveAddressCreate` /
- * `saveAddressUpdate` (never throw) and the countries loader.
+ * `saveAddressUpdate` (never throw) and the countries loader. Story 4.3
+ * sends the form's `validated` as is.
  */
 
 import { z } from "zod"
@@ -34,6 +35,21 @@ export const PINNED_COUNTRY_CODES = ["US", "CA", "AU"] as const
  * list carries no ISO code, so the Country select pins them by name.
  */
 export const PINNED_COUNTRY_NAMES = ["United States", "Canada", "Australia"] as const
+
+/** The names and codes that mean the United States, as compared (`comparable`: "U. S. A." → "usa", "United  States" → "unitedstates"). */
+const US_NAMES: ReadonlySet<string> = new Set(["us", "usa", "unitedstates", "unitedstatesofamerica"])
+
+/** A country name or code as compared: dots and all whitespace removed, lower-cased. */
+const comparableCountry = (value: string): string => value.replace(/[.\s]/g, "").toLowerCase()
+
+/**
+ * `true` for a country name or code that means the United States ("United
+ * States", "USA", "U.S.A", "US", any case or spacing). Story 4.2; moved here
+ * by Story 4.3 so `places.ts` maps every US spelling to "US".
+ */
+export function isUnitedStatesName(value: string): boolean {
+  return US_NAMES.has(comparableCountry(value))
+}
 
 /** The longest text an address field may hold (Story 4.2; the proxy refuses more). */
 export const ADDRESS_FIELD_MAX_LENGTH = 255
@@ -262,14 +278,6 @@ export interface AddressUpdateBody extends AddressCreateBody {
 /** What a cleared optional part of a saved address is sent as (decision 2a): the backend reads `""` as "unchanged". */
 export const ADDRESS_CLEARED_VALUE = "n/a"
 
-/** The address parts (`validated` holds only while none of them changes). */
-const ADDRESS_PARTS = ["country", "line1", "line2", "city", "county", "state", "zip"] as const
-
-/** `true` when an address part (country, lines, city, county, state, zip) differs, compared trimmed. */
-export function isAddressPartChanged(next: AddressFields, saved: AddressFields): boolean {
-  return ADDRESS_PARTS.some((part) => next[part].trim() !== saved[part].trim())
-}
-
 /** `fullAddress` the way the backend builds it on create (`OneHealthUtil.buildFullAddress`): `"{line 1}, {city}, {zip}, {country}"`. */
 export function addressFullAddress(fields: Pick<AddressFields, "line1" | "city" | "zip" | "country">): string {
   return [fields.line1, fields.city, fields.zip, fields.country].map((part) => part.trim()).join(", ")
@@ -314,8 +322,9 @@ export interface AddressUpdateOptions {
  *   Mailing or Temporary is never re-sent), the country only when changed or
  *   listed;
  * - `primary` always (a missing one demotes the current Primary), and
- *   `validated` always: `true` only if the saved address was validated and
- *   no address part changed;
+ *   `validated` always, as the form holds it (Story 4.3: true only after a
+ *   complete suggestion pick or as saved, cleared by any manual edit of an
+ *   address part but line 2);
  * - `fullAddress` rebuilt (`addressFullAddress`).
  */
 export function addressUpdateBody(next: AddressFields, saved: AddressFields, options: AddressUpdateOptions): AddressUpdateBody {
@@ -332,7 +341,7 @@ export function addressUpdateBody(next: AddressFields, saved: AddressFields, opt
     postalCode: filled(next.zip),
     country: countryChanged || options.listedCountries.has(next.country.trim()) ? filled(next.country) : undefined,
     primary: next.primary,
-    validated: saved.validated && !isAddressPartChanged(next, saved),
+    validated: next.validated,
     fullAddress: addressFullAddress(next),
   }
   return Object.fromEntries(Object.entries(body).filter(([, value]) => value !== undefined)) as unknown as AddressUpdateBody

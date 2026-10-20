@@ -36,7 +36,7 @@
   evidence: allowlist/personal.ts, allowlist/insurance.ts; backend follow-up already recorded (OneHealthServiceImpl.java:4552-4562). Stories 2.4 / 5.3 should resolve ids from myself / the user's own insurance list, or a named op should verify ownership.
   resolution: Signature part RESOLVED 2026-10-16 (spec-2-4-signature, human decision): the `POST v2/file/{fileId}/version` entry is removed (the proxy answers 403 `NOT_ALLOWED`); a Signature replace is the upload to the caller's own person (`me`) followed by the ownership-checked delete of the old file (`DELETE /api/pp/file/{fileId}`), with the old id taken only from `myself.signature`. The insurance uploads stay open for Story 5.3.
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-0a-bff-foundation-and-tooling.md` (code review, 2026-10-14)
-  summary: CSP has no Google Maps hosts for `PLACES_ENABLED=1`; decide with the Places epic (AD-14 proxies Places through `/api/places`).
+  summary: CSP has no Google Maps hosts for `PLACES_ENABLED=1`; decide with the Places epic (AD-14 proxies Places through `/api/places`). (resolved 2026-10-19, spec-4-3-address-suggestions-via-server: no CSP change. The browser never contacts Google; the app calls only `/api/places/*` and loads no Google script, image or font, so `connect-src 'self'` holds. The attribution is text.)
   evidence: moved from the spec-7-0a code-review list by spec F6-3; Story 4.3 decides.
 - source_spec: `_bmad-output/implementation-artifacts/spec-f6-3-data-server-tests.md` (review, 2026-10-14)
   summary: Two sources of truth for Person options: the `GET v2/type/key/Person` VALUE_LIST values (what the Section offers) vs the fixed `RACES` / `ETHNICITIES` / `BIOLOGICAL_GENDERS` enums the proxy's `PUT v2/user/edit` schema accepts. A value the platform adds to the type would show in the picker and then fail with 400 `BAD_BODY`. (resolved 2026-10-16, spec-2-2-edit-and-save-personal-information: the UI intersects, the schema stays. The pickers offer `usePersonOptions` ∩ the enum copies in `lib/shared/person-options.ts` (`offeredOptions`; an empty intersection uses the fallback, the preselect is always offered); a drift test in `allowlist/personal.test.ts` keeps the copies equal to the proxy enums; a saved platform-only value shows through `Select unlistedValue` and is never sent unchanged. A value the platform adds is therefore not offered until the enums (backend `PersonConstants`) and the proxy schema add it.)
@@ -95,6 +95,18 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-2-add-and-edit-addresses.md`
   summary: Rebase a restored Addresses draft onto the current saved rows (`useSectionForm` `transformDraft`, main 6c31204), keeping only the fields the user changed, as `mergeUnsent` does after a failed save. Today a restored draft re-sends values that changed on the server since, and misses addresses added elsewhere. Add a draft-restore test harness, and with it the new-row key collision test (a restored `new-1` row, then Add address).
   evidence: features/addresses/addresses-section.tsx (`draftFields: ["rows"]`, `nextNewKey`), features/addresses/save.ts (`mergeUnsent`), features/shell/use-section-form.ts (`transformDraft`). Review rows 11–12 of spec 4.2.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-3-address-suggestions-via-server.md`
+  summary: Release blocker before `PLACES_ENABLED=1` — decide on a server-side throttle for `/api/places/autocomplete` (paid Google calls). None exists: Team B dropped the shared limiter (the proposal on `feat/foundation-mfa-validation-throttle` was superseded 2026-10-19), and the backend's 500/min limit doesn't cover our server's Google calls. The client debounces at 250 ms with a 3-character minimum, which doesn't stop a crafted caller. Human decision 1a: nothing now, decide before enabling.
+  evidence: lib/server/named-ops/places.ts (no limiter); the earlier "No per-session throttle on /api/places/autocomplete" item in this file; spec 4.3 decision 1a.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-3-address-suggestions-via-server.md`
+  summary: PM/legal, before `PLACES_ENABLED=1` — confirm the Google attribution. The suggestions show "Powered by Google" as text (human decision 3a). Google's Places policies may require the Google logo image when suggestions show without a Google map; if so, add a local SVG following Google's brand rules (`img-src 'self'` holds, no CSP change).
+  evidence: features/addresses (the line 1 Combobox `endMessage`); spec 4.3 decision 3a.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-3-address-suggestions-via-server.md`
+  summary: Restored Addresses drafts now also carry `validated` (Story 4.3). When the draft rebase (the 4.2 `transformDraft` item above) is built, it must reset `validated` to the saved value for any row whose address parts changed on the server since the draft, so a stale draft can't re-send `validated: true`.
+  evidence: features/addresses/schema.ts (`validated` is form state since 4.3), the 4.2 draft-rebase entry. Review row 12 of spec 4.3.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-3-address-suggestions-via-server.md`
+  summary: Backend/Foundation follow-up — "Verified" is asserted by the client. The proxy's `POST`/`PUT v2/person/location` body accepts any `validated` boolean and the backend stores it as given, so any caller can mark its address verified without a Places details answer. Options: the backend validates server-side, or a named op ties `validated: true` to a recent details answer for the same session.
+  evidence: lib/server/proxy/allowlist/addresses.ts (`validated: z.boolean()`), 1h-ng-bo-core-be PersonLocationFactory (validated stored as given). Review row 13 of spec 4.3.
 
 ## Team B (`/account`, Epics 7-10)
 
@@ -399,3 +411,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-1-view-addresses.md`
   summary: (Foundation) `SectionTable`'s stacked card prints a screen-reader "{header}: " prefix for every line-2 column, even when the cell is empty, so a plain address reads "Label: Type: Home Status:" (and an Email Home row an empty "Status:"). Skip the prefix when the cell renders nothing.
   evidence: features/shell/section-table.tsx (mobile card, `sr-only` header prefix); review row 6 of spec 4.1.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-3-address-suggestions-via-server.md`
+  summary: (Foundation) `Combobox` needs `autoComplete` and `readOnly` props. The address line 1 combobox hardcodes `autoComplete="off"` (a WCAG 1.3.5 regression for the user's own address) and has no read-only state for a saving Section; Story 4.3 sets both on the input through its ref as a Team A workaround.
+  evidence: components/ui/combobox.tsx (the input's `autoComplete="off"`); features/addresses/addresses-section.tsx (`AddressLine1Field` effect). Review rows 4 and 15 of spec 4.3.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-3-address-suggestions-via-server.md`
+  summary: (Foundation) Under `next dev`, `logApiCall` prints request and response bodies; `redact()` in `lib/api/log-api-call.ts` doesn't cover the Places `input`, `placeId` or address fields, so typed addresses reach the browser console in local development. Add those keys to the redaction.
+  evidence: lib/api/log-api-call.ts (`redact`), lib/api/client.ts; review row 14 of spec 4.3.

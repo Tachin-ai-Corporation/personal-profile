@@ -8,8 +8,10 @@ import useSWR from "swr"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Chip } from "@/components/ui/chip"
+import { Combobox, type ComboboxLoadResult } from "@/components/ui/combobox"
 import { FieldError, FormField } from "@/components/ui/form-field"
 import { Input } from "@/components/ui/input"
+import { LiveStatus, useAnnounce } from "@/components/ui/live-status"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { StatusBadge } from "@/components/ui/status-badge"
 import {
@@ -37,9 +39,12 @@ import {
   addressCreateBody,
   addressUpdateBody,
   fetchAddresses,
-  isAddressPartChanged,
   keys,
   mapFetchError,
+  newPlacesLookupId,
+  placesAutocomplete,
+  placesCountryCodeOf,
+  placesDetails,
   saveAddressCreate,
   saveAddressUpdate,
   type Address,
@@ -47,7 +52,8 @@ import {
   type ErrorField,
   type MappedError,
 } from "@/lib/api"
-import { ADDRESS_MESSAGES, COMMON_MESSAGES, formatMessage, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
+import type { PlaceSuggestion } from "@/lib/shared/bff-contract"
+import { ADDRESS_MESSAGES, COMBOBOX_MESSAGES, COMMON_MESSAGES, formatMessage, PLACES_MESSAGES, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
 import { formatAddressOneLine } from "./format"
 import { addressRowsToSend, mergeAddressRows } from "./save"
@@ -60,6 +66,7 @@ import {
   type AddressEditRow,
   type AddressValues,
 } from "./schema"
+import { placeAddressFill, suggestionLabel, suggestionStreet } from "./suggestion"
 
 /** One shown address: the row as read. */
 interface AddressRow {
@@ -197,6 +204,99 @@ function createFailedRowTarget(): FailedRowTarget {
   }
 }
 
+type AddressForm = UseFormReturn<AddressValues, unknown, AddressValues>
+
+/** Sets a row field the way a suggestion pick does: dirty and validated, but not a user change. */
+function setRowField<K extends keyof AddressEditRow>(form: AddressForm, index: number, field: K, value: AddressEditRow[K]): void {
+  const path = fieldPath(index, field)
+  form.setValue(path, value as PathValue<AddressValues, typeof path>, { shouldDirty: true, shouldValidate: true })
+}
+
+/** A manual edit of an address part (line 1, city, county, state, zip, country; never line 2, decision 2a) clears the row's "Verified" (Story 4.3). */
+function clearVerified(form: AddressForm, index: number): void {
+  const path = fieldPath(index, "validated")
+  if (form.getValues(path) === true) form.setValue(path, false as PathValue<AddressValues, typeof path>, { shouldDirty: true })
+}
+
+/** A row's typed line 1 and "Verified" before a pick (a failed pick puts them back); never a pending pick's street. */
+interface Line1Snapshot {
+  readonly line1: string
+  readonly validated: boolean
+}
+
+/**
+ * The address lookups (Story 4.3): one lookup id per row, reused for every
+ * keystroke until its details call (a pick), until line 1 is emptied or the
+ * row's Places country changes; and the row's pending pick (its details call
+ * not answered yet).
+ */
+interface PlacesLookups {
+  /** The row's current lookup id (a new one when it has none). */
+  readonly lookupFor: (rowKey: string) => string
+  /** Ends the row's lookup: its next search starts a new one. */
+  readonly end: (rowKey: string) => void
+  /** A pick's details call starts: returns its token (a newer pick in the row supersedes it). */
+  readonly startPick: (rowKey: string, street: string, before: Line1Snapshot) => number
+  /** The pending pick's snapshot while line 1 still shows its street (`text`), else none. */
+  readonly pendingBefore: (rowKey: string, text: string) => Line1Snapshot | undefined
+  /** The pick's details answered: `true` when it is still the row's latest pick (then it is no longer pending). */
+  readonly finishPick: (rowKey: string, token: number) => boolean
+  /** Ends every lookup and pending pick (the edit ended). */
+  readonly clear: () => void
+}
+
+/** The Section's lookups, kept for its lifetime. */
+function createPlacesLookups(): PlacesLookups {
+  const ids = new Map<string, string>()
+  const picks = new Map<string, { readonly token: number; readonly street: string; readonly before: Line1Snapshot }>()
+  let tokens = 0
+  return {
+    lookupFor: (rowKey) => {
+      const existing = ids.get(rowKey)
+      if (existing !== undefined) return existing
+      const id = newPlacesLookupId()
+      ids.set(rowKey, id)
+      return id
+    },
+    end: (rowKey) => {
+      ids.delete(rowKey)
+    },
+    startPick: (rowKey, street, before) => {
+      tokens += 1
+      picks.set(rowKey, { token: tokens, street, before })
+      return tokens
+    },
+    pendingBefore: (rowKey, text) => {
+      const pick = picks.get(rowKey)
+      return pick && pick.street === text ? pick.before : undefined
+    },
+    finishPick: (rowKey, token) => {
+      if (picks.get(rowKey)?.token !== token) return false
+      picks.delete(rowKey)
+      return true
+    },
+    clear: () => {
+      ids.clear()
+      picks.clear()
+    },
+  }
+}
+
+/** What the server said about suggestions in this Section: nothing yet, `enabled: true` seen, or `enabled: false` (off for the Section's lifetime). */
+type PlacesStatus = "unknown" | "on" | "off"
+
+/** What line 1's suggestions need from the Section. */
+interface PlacesState {
+  readonly status: PlacesStatus
+  /** An answer said `enabled: true` (the help line shows from now on, unless suggestions are off). */
+  readonly markOn: () => void
+  /** An answer said `enabled: false` (`PLACES_ENABLED` off): suggestions stay off for the Section's lifetime. */
+  readonly markOff: () => void
+  readonly lookups: PlacesLookups
+  /** A suggestion was picked in the row: line 1 shows its street, then its details fill the row (`before` is put back when they fail). */
+  readonly onPick: (rowKey: string, suggestion: PlaceSuggestion, before: Line1Snapshot) => void
+}
+
 /** The countries the Country select offers, and their load state (read only in edit view). */
 interface CountriesState {
   readonly names: readonly string[]
@@ -246,19 +346,123 @@ interface FieldProps {
 }
 
 interface TextFieldProps extends FieldProps {
-  readonly field: "line1" | "line2" | "city" | "county" | "state" | "zip"
+  readonly field: "line2" | "city" | "county" | "state" | "zip"
   readonly label: string
   readonly optional?: boolean
   readonly autoComplete: string
 }
 
-/** A text field (44 px, 16 px text), labelled, validated on blur; optional ones end in "(optional)". */
+/**
+ * A text field (44 px, 16 px text), labelled, validated on blur; optional
+ * ones end in "(optional)". Typing in any but line 2 clears "Verified".
+ */
 function AddressTextField({ section, index, field, label, optional = false, autoComplete, className }: TextFieldProps) {
   const path = fieldPath(index, field)
+  const registered = section.field(path)
   return (
     <FormField label={label} optional={optional} required={!optional} error={section.errorFor(path)} className={cn("min-w-0", className)}>
-      {(control) => <Input {...control} {...section.field(path)} autoComplete={autoComplete} />}
+      {(control) => (
+        <Input
+          {...control}
+          {...registered}
+          onChange={(event) => {
+            const changed = registered.onChange(event)
+            if (field !== "line2") clearVerified(section.form, index)
+            return changed
+          }}
+          autoComplete={autoComplete}
+        />
+      )}
     </FormField>
+  )
+}
+
+interface Line1FieldProps extends FieldProps {
+  readonly row: AddressEditRow
+  readonly places: PlacesState
+}
+
+const NO_SUGGESTIONS: ComboboxLoadResult<PlaceSuggestion> = { items: [], hasMore: false }
+
+/**
+ * Address line 1 (Story 4.3): the address `Combobox` variant. Free text
+ * (Tab keeps it), suggestions from 3 characters after 250 ms, at most 5,
+ * the typed text in 600, no loading or error rows, "Powered by Google" under
+ * them. Search is on only for a US/CA/AU row while the server hasn't answered
+ * `enabled: false`; then the help line shows too. Typing is a user change
+ * (drafts, dirty) and clears "Verified"; a pick hands the suggestion to the
+ * Section (`places.onPick`). Read-only while saving.
+ */
+function AddressLine1Field({ section, index, row, places, className }: Line1FieldProps) {
+  const path = fieldPath(index, "line1")
+  const { ref, ...binding } = section.control(path)
+  const text = String(binding.value ?? "")
+  const countryCode = placesCountryCodeOf(row.country)
+  const searchOn = countryCode !== null && places.status !== "off"
+  // Unknown → hidden: with Places off (production until the BAA) the help line never shows.
+  const helpOn = countryCode !== null && places.status === "on"
+  /** The row before the latest text change: a pick's own text change is undone from it when its details fail. */
+  const before = useRef<Line1Snapshot>({ line1: text, validated: row.validated })
+  const input = useRef<HTMLInputElement | null>(null)
+  // The form's ref (first invalid field, mapped errors) plus our own, for the read-only state below.
+  const inputRef = (element: HTMLInputElement | null): void => {
+    input.current = element
+    ref(element)
+  }
+  // The Combobox has no read-only state and turns autofill off: the input is made read-only while saving, as the
+  // other fields are, and keeps its `address-line1` autofill purpose (WCAG 1.3.5).
+  useLayoutEffect(() => {
+    const element = input.current
+    if (!element) return
+    element.setAttribute("autocomplete", "address-line1")
+    element.readOnly = binding.readOnly
+    if (binding.readOnly) element.setAttribute("aria-readonly", "true")
+    else element.removeAttribute("aria-readonly")
+  })
+
+  async function load(query: string, _page: number, signal: AbortSignal): Promise<ComboboxLoadResult<PlaceSuggestion>> {
+    if (countryCode === null) return NO_SUGGESTIONS
+    const answer = await placesAutocomplete({ input: query, countryCode, lookupId: places.lookups.lookupFor(row.key) }, signal)
+    if (answer.enabled) places.markOn()
+    else places.markOff()
+    return { items: answer.suggestions, hasMore: false }
+  }
+
+  return (
+    <Combobox<PlaceSuggestion>
+      // A new Places country starts over: no suggestions of the old one stay pickable.
+      key={countryCode ?? "none"}
+      label={ADDRESS_MESSAGES.line1Label}
+      required
+      help={helpOn ? COMBOBOX_MESSAGES.addressHelp : undefined}
+      error={section.errorFor(path)}
+      className={cn("min-w-0", className)}
+      inputRef={inputRef}
+      mode="free-text"
+      minChars={3}
+      debounceMs={250}
+      maxResults={5}
+      quiet
+      highlightMatch
+      searchDisabled={!searchOn || binding.readOnly}
+      endMessage={PLACES_MESSAGES.poweredByGoogle}
+      load={load}
+      getKey={(suggestion) => suggestion.placeId}
+      getLabel={suggestionLabel}
+      text={text}
+      onTextChange={(next) => {
+        if (binding.readOnly) return
+        // A pick's own text change starts from a pending pick's street: keep that pick's typed snapshot instead.
+        before.current = places.lookups.pendingBefore(row.key, text) ?? { line1: text, validated: section.form.getValues(fieldPath(index, "validated")) === true }
+        binding.onChange(next as PathValue<AddressValues, Path<AddressValues>>)
+        clearVerified(section.form, index)
+        if (next.trim() === "") places.lookups.end(row.key)
+      }}
+      onSelect={(selection) => {
+        if (selection?.type === "option") places.onPick(row.key, selection.item, before.current)
+      }}
+      onBlur={binding.onBlur}
+    />
   )
 }
 
@@ -269,6 +473,8 @@ interface SelectFieldProps extends FieldProps {
   readonly placeholder: string
   readonly loading?: boolean
   readonly helper?: ReactNode
+  /** A user change of the value (after the form holds it). */
+  readonly onUserChange?: (value: string) => void
 }
 
 /**
@@ -276,7 +482,7 @@ interface SelectFieldProps extends FieldProps {
  * offer still shows on the trigger (`unlistedValue`) until changed.
  * Read-only while saving: it doesn't open and ignores changes.
  */
-function AddressSelectField({ section, index, field, label, options, placeholder, loading = false, helper, className }: SelectFieldProps) {
+function AddressSelectField({ section, index, field, label, options, placeholder, loading = false, helper, onUserChange, className }: SelectFieldProps) {
   const path = fieldPath(index, field)
   const { ref, ...binding } = section.control(path)
   // Opening the list moves focus off the trigger: validate when the list closes (or the trigger loses focus while closed),
@@ -295,7 +501,10 @@ function AddressSelectField({ section, index, field, label, options, placeholder
             if (!next) binding.onBlur()
           }}
           onValueChange={(next) => {
-            if (!binding.readOnly) binding.onChange(next as PathValue<AddressValues, Path<AddressValues>>)
+            if (binding.readOnly) return
+            binding.onChange(next as PathValue<AddressValues, Path<AddressValues>>)
+            if (field === "country") clearVerified(section.form, index)
+            onUserChange?.(next)
           }}
           placeholder={placeholder}
           unlistedValue={unlisted}
@@ -367,6 +576,7 @@ interface ExpandedRowProps {
   readonly name: string
   readonly onToggle: (key: string) => void
   readonly countries: CountriesState
+  readonly places: PlacesState
 }
 
 /**
@@ -376,7 +586,7 @@ interface ExpandedRowProps {
  * ×2][Address line 2 ×2] / [City][County][State/Province][Zip] with 16 px
  * gaps; below 768 px every field is full width.
  */
-function AddressExpandedRow({ section, item, name, onToggle, countries }: ExpandedRowProps) {
+function AddressExpandedRow({ section, item, name, onToggle, countries, places }: ExpandedRowProps) {
   const { row, index } = item
   const countryOptions = countries.names.map((country) => ({ value: country, label: country }))
   const countriesHelper = countries.failed ? (
@@ -422,9 +632,13 @@ function AddressExpandedRow({ section, item, name, onToggle, countries }: Expand
           placeholder={ADDRESS_MESSAGES.chooseCountry}
           loading={countries.loading}
           helper={countriesHelper}
+          onUserChange={(next) => {
+            // Another Places country: the row's lookup ends (its suggestions belong to the old country).
+            if (placesCountryCodeOf(next) !== placesCountryCodeOf(row.country)) places.lookups.end(row.key)
+          }}
         />
         <PrimaryField section={section} index={index} className="md:col-span-2 md:pt-7" />
-        <AddressTextField section={section} index={index} field="line1" label={ADDRESS_MESSAGES.line1Label} autoComplete="address-line1" className="md:col-span-2" />
+        <AddressLine1Field section={section} index={index} row={row} places={places} className="md:col-span-2" />
         <AddressTextField section={section} index={index} field="line2" label={ADDRESS_MESSAGES.line2Label} optional autoComplete="address-line2" className="md:col-span-2" />
         <AddressTextField section={section} index={index} field="city" label={ADDRESS_MESSAGES.cityLabel} autoComplete="address-level2" />
         <AddressTextField section={section} index={index} field="county" label={ADDRESS_MESSAGES.countyLabel} optional autoComplete="off" />
@@ -441,12 +655,10 @@ interface EditColumnsInput {
   readonly onToggle: (key: string) => void
   /** How each row is named (`nameOf`). */
   readonly nameOf: (row: AddressEditRow) => string
-  /** The saved rows, by key (Verified holds only while no address part changed). */
-  readonly savedByKey: ReadonlyMap<string, AddressEditRow>
 }
 
 /** A collapsed row in edit view: the chevron, then the read columns with the form's current values. */
-function addressEditColumns({ section, expanded, onToggle, nameOf, savedByKey }: EditColumnsInput): SectionTableColumn<EditItem>[] {
+function addressEditColumns({ section, expanded, onToggle, nameOf }: EditColumnsInput): SectionTableColumn<EditItem>[] {
   return [
     {
       key: "address",
@@ -466,10 +678,10 @@ function addressEditColumns({ section, expanded, onToggle, nameOf, savedByKey }:
     {
       key: "status",
       header: STATUS,
+      // The row's form "Verified" (Story 4.3): as saved, set by a complete pick, cleared by a manual edit.
       cell: ({ row }) => {
         if (row.isNew) return <RowEditStatus state="new" />
-        const saved = savedByKey.get(row.key)
-        return saved?.validated && !isAddressPartChanged(row, saved) ? <StatusBadge status="verified">{COMMON_MESSAGES.verified}</StatusBadge> : null
+        return row.validated ? <StatusBadge status="verified">{COMMON_MESSAGES.verified}</StatusBadge> : null
       },
     },
   ]
@@ -503,6 +715,14 @@ function addressEditColumns({ section, expanded, onToggle, nameOf, savedByKey }:
  * `failedRow.errorFields`) or at
  * Section level, so Retry sends only what is left. Make primary and Remove
  * arrive with Story 4.4.
+ *
+ * Suggestions (Story 4.3): line 1 of an expanded row is the address
+ * `Combobox` (`AddressLine1Field`) on `POST /api/places/autocomplete`, for a
+ * US/CA/AU row only; a pick fills the row from `/api/places/details` and a
+ * complete address sets its `validated`, which any later manual edit of an
+ * address part (never line 2) clears. Save sends `validated` as the form
+ * holds it. An `enabled: false` answer (`PLACES_ENABLED` off) turns
+ * suggestions and their help line off for the Section's lifetime.
  */
 export function AddressesSection() {
   const addresses = useSWR<Address[] | undefined, ApiResponseError>(keys.addresses())
@@ -535,8 +755,13 @@ export function AddressesSection() {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(EMPTY_KEYS)
   const newKeys = useRef(0)
   const [failedRow] = useState(createFailedRowTarget)
+  const [placesStatus, setPlacesStatus] = useState<PlacesStatus>("unknown")
+  const { message: placesMessage, announce: announcePlaces } = useAnnounce()
+  /** The edit state when a details answer arrives (it applies only while editing and not saving). */
+  const editState = useRef({ editing: false, saving: false })
+  const [lookups] = useState(createPlacesLookups)
   // The latest render's form, rebase, countries and rows: the save, `revealField` and kebab items run later.
-  const formRef = useRef<UseFormReturn<AddressValues, unknown, AddressValues> | null>(null)
+  const formRef = useRef<AddressForm | null>(null)
   const rebaseRef = useRef<(next: AddressValues) => void>(() => undefined)
   const latestCountries = useRef<readonly string[]>([])
   const latestRows = useRef<readonly AddressEditRow[]>(baseline.rows)
@@ -566,8 +791,8 @@ export function AddressesSection() {
         part: row.key,
         run: async () => {
           if (row.isNew) {
-            // A manual new address is never validated (Story 4.3 adds suggestions).
-            const res = await saveAddressCreate(addressCreateBody({ ...row, validated: false }))
+            // `validated` as the form holds it: true only after a complete suggestion pick (Story 4.3).
+            const res = await saveAddressCreate(addressCreateBody(row))
             if (res.success) {
               succeeded.add(row.key)
               created.set(row.key, res.data?.id ?? null)
@@ -618,6 +843,45 @@ export function AddressesSection() {
     return { ok: false, error: { code: result.error.code, mapped: result.error.mapped } }
   }
 
+  /**
+   * A picked suggestion (Story 4.3): line 1 shows its street (so a Save
+   * meanwhile sends the street, never the whole label), then its details
+   * (same lookup id; the row's next search starts a new lookup) fill the row
+   * (`placeAddressFill`), with `validated` true only for a complete address
+   * whose country the Select can show, and a polite announcement. The answer
+   * applies only to the row's latest pick, while the Section is editing and
+   * not saving and line 1 still shows the street; a failure then puts the
+   * typed text back silently, and `enabled: false` turns suggestions off.
+   */
+  async function pickSuggestion(rowKey: string, suggestion: PlaceSuggestion, before: Line1Snapshot): Promise<void> {
+    const form = formRef.current
+    const at = form?.getValues("rows").findIndex((row) => row.key === rowKey) ?? -1
+    if (!form || at < 0) return
+    const street = suggestionStreet(suggestion)
+    const lookupId = lookups.lookupFor(rowKey)
+    lookups.end(rowKey)
+    const token = lookups.startPick(rowKey, street, before)
+    setRowField(form, at, "line1", street)
+    const answer = await placesDetails({ placeId: suggestion.placeId, lookupId })
+    if (!lookups.finishPick(rowKey, token)) return
+    const latest = formRef.current
+    const index = latest?.getValues("rows").findIndex((row) => row.key === rowKey) ?? -1
+    const { editing, saving } = editState.current
+    if (!latest || index < 0 || !editing || saving || latest.getValues(fieldPath(index, "line1")) !== street) return
+    if (answer === null || !answer.enabled) {
+      if (answer !== null) setPlacesStatus("off")
+      setRowField(latest, index, "line1", before.line1)
+      setRowField(latest, index, "validated", before.validated)
+      return
+    }
+    const fill = placeAddressFill(answer.address, latestCountries.current, street)
+    for (const field of ["line1", "city", "county", "state", "zip", "country", "validated"] as const) {
+      const value = fill[field]
+      if (value !== undefined) setRowField(latest, index, field, value)
+    }
+    announcePlaces(fill.validated ? PLACES_MESSAGES.addressFilledVerified : PLACES_MESSAGES.addressFilled)
+  }
+
   const [toggleOrder, setToggleOrder] = useState<readonly Path<AddressValues>[]>([])
 
   const section = useSectionForm<AddressValues>({
@@ -659,6 +923,7 @@ export function AddressesSection() {
   useLayoutEffect(() => {
     formRef.current = form
     rebaseRef.current = rebase
+    editState.current = { editing: isEditing, saving: isSaving }
     latestCountries.current = countries.data ?? []
     latestRows.current = formRows
     latestSaved.current = baseline.rows
@@ -669,8 +934,10 @@ export function AddressesSection() {
   useEffect(() => {
     const leftEdit = wasEditing.current && !isEditing
     wasEditing.current = isEditing
-    if (leftEdit) rebase(baseline)
-  }, [isEditing, baseline, rebase])
+    if (!leftEdit) return
+    rebase(baseline)
+    lookups.clear()
+  }, [isEditing, baseline, rebase, lookups])
 
   /** A chevron: the row swaps between its cells and its expanded body (a new chevron), and focus follows it. */
   function toggleRow(key: string): void {
@@ -716,8 +983,14 @@ export function AddressesSection() {
     failed: countriesFailed,
     retry: () => void countries.mutate(),
   }
+  const placesState: PlacesState = {
+    status: placesStatus,
+    markOn: () => setPlacesStatus((previous) => (previous === "off" ? previous : "on")),
+    markOff: () => setPlacesStatus("off"),
+    lookups,
+    onPick: (rowKey, suggestion, before) => void pickSuggestion(rowKey, suggestion, before),
+  }
   const shownByKey = new Map((rows ?? []).map((row) => [row.key, row]))
-  const savedByKey = new Map(baseline.rows.map((row) => [row.key, row]))
   /** A row's name: its saved one-line address, "New address" for a new row. */
   const nameOf = (row: AddressEditRow): string =>
     row.isNew ? ADDRESS_MESSAGES.newAddress : shownByKey.get(row.key)?.oneLine || addressRowOneLine(row) || COMMON_MESSAGES.notProvided
@@ -739,6 +1012,7 @@ export function AddressesSection() {
   const headingId = sectionHeadingId("addresses")
   return (
     <section id="addresses" aria-labelledby={headingId} className="min-w-0">
+      <LiveStatus message={placesMessage} />
       <SectionHeader id="addresses" title={SHELL_MESSAGES.sectionAddresses} count={rows?.length} editing={isEditing} actions={headerActions} className="mb-2" />
       <StateFrame
         state={state}
@@ -758,14 +1032,14 @@ export function AddressesSection() {
               <>
                 <SectionTable<EditItem>
                   rows={formRows.map((row, index) => ({ row, index }))}
-                  columns={addressEditColumns({ section, expanded, onToggle: toggleRow, nameOf, savedByKey })}
+                  columns={addressEditColumns({ section, expanded, onToggle: toggleRow, nameOf })}
                   getRowKey={({ row }) => row.key}
                   labelledBy={headingId}
                   editing
                   rowState={({ row }) => (row.isNew ? "new" : "saved")}
                   renderExpanded={(item) =>
                     isExpandable(item.row) && expanded.has(item.row.key) ? (
-                      <AddressExpandedRow section={section} item={item} name={nameOf(item.row)} onToggle={toggleRow} countries={countriesState} />
+                      <AddressExpandedRow section={section} item={item} name={nameOf(item.row)} onToggle={toggleRow} countries={countriesState} places={placesState} />
                     ) : null
                   }
                   empty={{ message: ADDRESS_MESSAGES.addressesEmpty, action: emptyAction }}

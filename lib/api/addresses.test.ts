@@ -17,7 +17,7 @@ import {
   DEFAULT_ADDRESS_COUNTRY,
   fetchAddresses,
   fetchCountries,
-  isAddressPartChanged,
+  isUnitedStatesName,
   keys,
   loadAddresses,
   loadCountries,
@@ -305,16 +305,8 @@ describe("address write bodies (Story 4.2)", () => {
     expect(addressFullAddress(fields({ line1: " 1 Pine St", zip: "94105 " }))).toBe("1 Pine St, SF, 94105, United States")
   })
 
-  it("compares the address parts trimmed (the type and the flags are not parts)", () => {
-    expect(isAddressPartChanged(fields({ city: " SF " }), fields())).toBe(false)
-    expect(isAddressPartChanged(fields({ type: "Main Work", primary: true, validated: false }), fields())).toBe(false)
-    for (const part of ["country", "line1", "line2", "city", "county", "state", "zip"] as const) {
-      expect(isAddressPartChanged(fields({ [part]: "x" }), fields())).toBe(true)
-    }
-  })
-
-  it("an address part changed: every field, validated false, primary as saved, fullAddress rebuilt (the Edit row)", () => {
-    expect(addressUpdateBody(fields({ city: "Oakland" }), fields(), { listedCountries: LISTED })).toEqual({
+  it("an address part changed by hand: every field, validated false (as the form holds it), primary as saved, fullAddress rebuilt (the Edit row)", () => {
+    expect(addressUpdateBody(fields({ city: "Oakland", validated: false }), fields(), { listedCountries: LISTED })).toEqual({
       personLocationType: "Home",
       addressLine1: "1 Pine St",
       cityName: "Oakland",
@@ -327,6 +319,16 @@ describe("address write bodies (Story 4.2)", () => {
     })
   })
 
+  it("sends the form's validated as is (Story 4.3): a picked address is true even with its parts changed, a manual new one false", () => {
+    expect(addressUpdateBody(fields({ line1: "2 Pine St", city: "Oakland", validated: true }), fields({ validated: false }), { listedCountries: LISTED })).toMatchObject({
+      addressLine1: "2 Pine St",
+      cityName: "Oakland",
+      validated: true,
+    })
+    expect(addressCreateBody(fields({ validated: true }))).toMatchObject({ validated: true })
+    expect(addressCreateBody(fields({ validated: false }))).toMatchObject({ validated: false })
+  })
+
   it("only the type changed: validated stays true (the Label only row); an unvalidated address stays false", () => {
     expect(addressUpdateBody(fields({ type: "Main Work" }), fields(), { listedCountries: LISTED })).toMatchObject({ personLocationType: "Main Work", validated: true })
     expect(addressUpdateBody(fields({ type: "Main Work", validated: false }), fields({ validated: false }), { listedCountries: LISTED })).toMatchObject({ validated: false })
@@ -334,7 +336,7 @@ describe("address write bodies (Story 4.2)", () => {
 
   it("sends a cleared optional part as n/a, leaves out one that stays empty, and trims the rest", () => {
     const saved = fields({ line2: "Apt 4", county: "Marin", state: "" })
-    expect(addressUpdateBody(fields({ line2: " ", county: "", state: "", primary: true }), saved, { listedCountries: LISTED })).toEqual({
+    expect(addressUpdateBody(fields({ line2: " ", county: "", state: "", primary: true, validated: false }), saved, { listedCountries: LISTED })).toEqual({
       personLocationType: "Home",
       addressLine1: "1 Pine St",
       addressLine2: "n/a",
@@ -404,5 +406,15 @@ describe("saveAddressCreate / saveAddressUpdate (Story 4.2)", () => {
     expect(seen).toEqual([{ path: "/api/1h/v2/person/location/2", body }])
     expect(await saveAddressUpdate(0, body)).toEqual({ success: false, error: "addresses/saveAddressUpdate needs a positive integer id" })
     expect(seen).toHaveLength(1)
+  })
+})
+
+describe("isUnitedStatesName (Story 4.2, moved here by Story 4.3)", () => {
+  it.each(["United States", "united  states", "USA", "U.S.A.", "US", "United States of America"])("%j is the United States", (name) => {
+    expect(isUnitedStatesName(name)).toBe(true)
+  })
+
+  it.each(["Canada", "", "United Kingdom", "U.S. Virgin Islands"])("%j is not", (name) => {
+    expect(isUnitedStatesName(name)).toBe(false)
   })
 })

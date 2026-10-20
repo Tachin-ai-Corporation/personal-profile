@@ -84,3 +84,33 @@ export async function mockAddressUpdate(page: Page, answer: ProxyResponder = {})
   )
   return () => [...seen]
 }
+
+/** A Places request body (`POST /api/places/autocomplete` or `/details`, Story 4.3). */
+export type PlacesRequestBody = Record<string, unknown>
+
+/** Mocks one Places named op (`/api/places/<op>`); returns the bodies it answered, in order. */
+async function mockPlacesOp(page: Page, op: "autocomplete" | "details", answer: ProxyResponder): Promise<() => PlacesRequestBody[]> {
+  const bodies: PlacesRequestBody[] = []
+  await page.route(`**/api/places/${op}`, (route) => {
+    const request = route.request()
+    if (request.method() !== "POST") return route.fallback()
+    bodies.push(request.postDataJSON() as PlacesRequestBody)
+    const { status = 200, body = {} } = typeof answer === "function" ? answer(request) : answer
+    return json(route, status, body)
+  })
+  return () => [...bodies]
+}
+
+/**
+ * Mocks `POST /api/places/autocomplete` (Story 4.3). Default: suggestions
+ * off (`{ enabled: false, suggestions: [] }`, as with `PLACES_ENABLED` off,
+ * which `mockProfileDefaults` installs). Returns the request bodies.
+ */
+export async function mockPlacesAutocomplete(page: Page, answer: ProxyResponder = { body: { enabled: false, suggestions: [] } }): Promise<() => PlacesRequestBody[]> {
+  return mockPlacesOp(page, "autocomplete", answer)
+}
+
+/** Mocks `POST /api/places/details` (Story 4.3). Default: `{ enabled: false }`. Returns the request bodies. */
+export async function mockPlacesDetails(page: Page, answer: ProxyResponder = { body: { enabled: false } }): Promise<() => PlacesRequestBody[]> {
+  return mockPlacesOp(page, "details", answer)
+}

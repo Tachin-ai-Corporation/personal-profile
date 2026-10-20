@@ -29,7 +29,12 @@ const addressEditRowSchema = z.object({
   zip: z.string(),
   /** "Set as primary": sent as `primary` (Story 4.4 adds exclusivity). */
   primary: z.boolean(),
-  /** The saved row's `validated` (a new row's is `false`). */
+  /**
+   * "Verified" (Story 4.3): the saved row's `validated` to start with (a new
+   * row's is `false`); `true` only after a complete suggestion pick, `false`
+   * after any manual edit of line 1, city, county, state, zip or country
+   * (never line 2, decision 2a). Save sends it as is.
+   */
   validated: z.boolean(),
 })
 
@@ -107,13 +112,19 @@ export const addressRowOneLine = (row: AddressEditRow): string => formatAddressO
 
 /**
  * `true` when a saved row differs from its saved values: the type, the
- * "Set as primary" box or a text part (compared trimmed). A new row always
- * counts; a saved row with nothing saved to compare never does.
+ * "Set as primary" box, "Verified" (a suggestion pick, Story 4.3) or a text
+ * part (compared trimmed). A new row always counts; a saved row with nothing
+ * saved to compare never does.
  */
 export function isAddressRowChanged(row: AddressEditRow, saved: AddressEditRow | undefined): boolean {
   if (row.isNew) return true
   if (!saved) return false
-  return row.type !== saved.type || row.primary !== saved.primary || TEXT_FIELDS.some((field) => row[field].trim() !== saved[field].trim())
+  return (
+    row.type !== saved.type ||
+    row.primary !== saved.primary ||
+    row.validated !== saved.validated ||
+    TEXT_FIELDS.some((field) => row[field].trim() !== saved[field].trim())
+  )
 }
 
 /** `true` when Save sends the row: a new row (POST), or a changed saved row with an id (PUT). */

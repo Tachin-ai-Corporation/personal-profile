@@ -1,16 +1,8 @@
-import type { Address } from "@/lib/api"
+import { isUnitedStatesName, type Address } from "@/lib/api"
 import { isNotProvided, joinProvided } from "@/lib/shared/display-value"
 
-/** The names and codes that mean the United States, as compared (`comparable`: "U. S. A." → "usa", "United  States" → "unitedstates"). */
-const US_NAMES: ReadonlySet<string> = new Set(["us", "usa", "unitedstates", "unitedstatesofamerica"])
-
-/** A country name or code as compared: dots and all whitespace removed, lower-cased. */
-const comparable = (value: string): string => value.replace(/[.\s]/g, "").toLowerCase()
-
-/** `true` for a country name or code that means the United States ("United States", "USA", "U.S.A", "US", any case or spacing). */
-export function isUnitedStatesName(value: string): boolean {
-  return US_NAMES.has(comparable(value))
-}
+/** "United States", "USA", "U.S.A", "US", any case or spacing (Story 4.2; it lives in `lib/api/addresses.ts` since Story 4.3, which maps it to "US"). */
+export { isUnitedStatesName }
 
 /**
  * The United States: its addresses show no country. The name decides when

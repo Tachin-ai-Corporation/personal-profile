@@ -84,6 +84,17 @@ describe("mergeAddressRows", () => {
     ])
   })
 
+  it("an unsent saved row keeps the Verified the user's pick or edit set (Story 4.3)", () => {
+    const before = [saved(1), saved(2, { validated: true })]
+    // Row 1 was picked from a suggestion (Verified), row 2 edited by hand (Verified cleared); neither was sent.
+    const rows = [saved(1, { line1: "1 Pine Street", validated: true }), saved(2, { city: "Oakland" })]
+    const fresh = [saved(1, { county: "Marin" }), saved(2, { validated: true })]
+    expect(mergeAddressRows({ rows, before, fresh, succeeded: new Set(), created: new Map() })).toEqual([
+      saved(1, { line1: "1 Pine Street", county: "Marin", validated: true }),
+      saved(2, { city: "Oakland", validated: false }),
+    ])
+  })
+
   it("keeps a saved row the refetch no longer has, and a whitespace-only edit counts as unchanged", () => {
     const before = [saved(1), saved(2)]
     const rows = [saved(1, { city: "Oakland" }), saved(2, { city: " SF " })]
