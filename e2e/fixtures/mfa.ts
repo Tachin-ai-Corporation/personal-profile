@@ -28,3 +28,19 @@ export async function mockMfaEnrollment(page: Page, options: { baseMfaOff?: bool
   })
   return state
 }
+
+/** Synthetic TOTP-only removal; base MFA remains enabled in every status read. */
+export async function mockMfaDisable(page: Page, options: { failure?: "error" | "forbidden" | "session" } = {}) {
+  const state = { disables: 0, enables: 0, linked: true, mfaEnabled: true }
+  await page.route("**/api/1h/v2/user/myself", (route) => route.fulfill({ json: { ...ANN, mfaEnabled: state.mfaEnabled, totpEnabled: state.linked } }))
+  await page.route("**/api/1h/v2/mfa/enable/totp", (route) => { state.enables++; return route.fulfill({ json: { qrCode: MFA_TEST_QR } }) })
+  await page.route("**/api/1h/v2/mfa/disable/totp", async (route) => {
+    state.disables++
+    if (options.failure === "session") { await route.fulfill({ status: 401, json: { errorCode: "SESSION_EXPIRED", source: "proxy" } }); return }
+    if (options.failure === "forbidden") { await route.fulfill({ status: 403, json: { message: "Denied" } }); return }
+    if (options.failure === "error") { await route.fulfill({ status: 500, json: { message: "Private upstream text" } }); return }
+    state.linked = false
+    await route.fulfill({ status: 200, body: "" })
+  })
+  return state
+}

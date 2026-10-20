@@ -214,6 +214,9 @@ describe("Authenticator enrollment", () => {
     const user = userEvent.setup()
     await user.type(codeField(), "123456{Enter}")
     await waitFor(() => expect(calls).toBe(1))
+    // Stress a queued paste after readOnly commits; the pending request must retain its submitted code.
+    fireEvent.paste(codeField(), { clipboardData: { getData: () => "654321" } })
+    expect(codeField()).toHaveProperty("value", "123456")
     await user.click(submit())
     fireEvent.submit(codeField().closest("form")!)
     await user.keyboard("{Escape}")

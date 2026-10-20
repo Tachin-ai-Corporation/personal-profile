@@ -9,7 +9,7 @@ import { entries } from "./mfa"
  */
 describe("mfa allowlist area", () => {
   it("has its planned enable entry, all aggregated into the shipped allowlist", () => {
-    expect(entries.map((entry) => `${entry.method} ${entry.template}`)).toEqual(["POST v2/mfa/enable/totp"])
+    expect(entries.map((entry) => `${entry.method} ${entry.template}`)).toEqual(["POST v2/mfa/enable/totp", "POST v2/mfa/disable/totp"])
     for (const entry of entries) expect(ALLOWLIST).toContain(entry)
   })
 
@@ -32,20 +32,27 @@ async function send(path: string, body?: string, disabled = false, method = "POS
   const handler = createProxyHandler({ env: testEnv(disabled ? { ACCOUNT_DISABLED: "1" } : {}), now: () => NOW })
   return handler(new Request(`http://localhost:3000/api/1h/${path}`, { method, body, headers: { cookie: `${SESSION_COOKIE}=${await sealSession(makeSession())}` } }))
 }
-it("forwards only the bodyless, queryless enable POST with private no-store", async () => {
+it.each(["enable", "disable"])("forwards only the bodyless, queryless %s POST with private no-store", async (action) => {
   let calls = 0
-  server.use(http.post(`${DEMO.apiBase}/v2/mfa/enable/totp`, async ({ request }) => {
+  server.use(http.post(`${DEMO.apiBase}/v2/mfa/${action}/totp`, async ({ request }) => {
     calls++
     expect(new URL(request.url).search).toBe("")
     expect(await request.text()).toBe("")
-    return HttpResponse.json({ qrCode: "redacted" })
+    return action === "disable" ? new HttpResponse(null, { status: 200 }) : HttpResponse.json({ qrCode: "redacted" })
   }))
-  const response = await send("v2/mfa/enable/totp")
+  const response = await send(`v2/mfa/${action}/totp`)
   expect(response.status).toBe(200)
+  if (action === "disable") expect(await response.text()).toBe("")
   expect(calls).toBe(1)
   expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0")
 })
 it.each([
+  ["v2/mfa/disable/totp?code=123456", undefined, false, "POST", 400, "BAD_QUERY"],
+  ["v2/mfa/disable/totp", "{}", false, "POST", 400, "BAD_BODY"],
+  ["v2/mfa/disable/totp", undefined, true, "POST", 503, "SERVICE_DISABLED"],
+  ["v2/mfa/disable/totp", undefined, false, "GET", 405, "METHOD_NOT_ALLOWED"],
+  ["v2/mfa/disable", undefined, false, "POST", 403, "NOT_ALLOWED"],
+  ["v2/mfa/disable/123", undefined, false, "POST", 403, "NOT_ALLOWED"],
   ["v2/mfa/enable/totp?code=123456", undefined, false, "POST", 400, "BAD_QUERY"],
   ["v2/mfa/enable/totp", "{}", false, "POST", 400, "BAD_BODY"],
   ["v2/mfa/enable/totp", undefined, true, "POST", 503, "SERVICE_DISABLED"],
