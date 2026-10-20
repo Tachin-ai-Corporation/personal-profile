@@ -250,3 +250,54 @@ test.describe("Address, insurer and gender identity variants", () => {
     await expect(page.getByTestId("gender-value")).toHaveText("Nonbinary")
   })
 })
+
+test.describe("long selected labels", () => {
+  const longLabel = `1987654321, ${"Synthetic practice organization ".repeat(5).trim()} Clinic, Austin, TX`
+  async function selectLong(page: Page) {
+    await npi(page).fill("long")
+    await expect(page.getByRole("option", { name: longLabel, exact: true })).toBeVisible()
+    await npi(page).press("ArrowDown")
+    await npi(page).press("Enter")
+    await expect(npi(page)).toHaveValue(longLabel)
+    await expect(npi(page)).toHaveAttribute("maxlength", "100")
+    await npi(page).press("End")
+  }
+
+  for (const theme of ["light", "dark"] as const) {
+    test(`${theme}: keyboard and paste replace a full long pick with bounded new queries`, async ({ page, context }) => {
+      await setTheme(page, theme)
+      await selectLong(page)
+      await page.keyboard.type("x")
+      await expect(npi(page)).toHaveValue("x")
+      await expect(log(page)).toContainText("x|0")
+      await expect(page.getByTestId("npi-value")).toBeEmpty()
+      await expect(npi(page)).toBeFocused()
+      await selectLong(page)
+      const pasted = "New pasted practice ".repeat(10)
+      await context.grantPermissions(["clipboard-read", "clipboard-write"])
+      await page.evaluate(async (text) => navigator.clipboard.writeText(text), pasted)
+      await page.keyboard.press("ControlOrMeta+V")
+      await expect(npi(page)).toHaveValue(pasted.slice(0, 100))
+      await expect(log(page)).toContainText(`${pasted.slice(0, 100).trim()}|0`)
+      await expect(page.getByTestId("npi-value")).toBeEmpty()
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+      await expectNoAxeViolations(page, "edited long selection")
+    })
+  }
+
+  test("IME commits new text without replacing it with the old label or searching partial composition", async ({ page, context }) => {
+    await selectLong(page)
+    const client = await context.newCDPSession(page)
+    const text = "病院".repeat(60)
+    const beforeComposition = await log(page).textContent()
+    await client.send("Input.imeSetComposition", { text, selectionStart: text.length, selectionEnd: text.length })
+    await expect(npi(page)).toHaveValue(text)
+    // Wait past debounce while composition is active: no partial/oversized query.
+    await page.waitForTimeout(700)
+    await expect(log(page)).toHaveText(beforeComposition!)
+    await client.send("Input.insertText", { text })
+    await expect(npi(page)).toHaveValue(text.slice(0, 100))
+    await expect(log(page)).toContainText(`${text.slice(0, 100)}|0`)
+    await expect(page.getByTestId("npi-value")).toBeEmpty()
+  })
+})

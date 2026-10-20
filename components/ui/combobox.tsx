@@ -142,11 +142,40 @@ export function Combobox<T>(props: ComboboxProps<T>): React.JSX.Element {
   // A disabled input searches nothing either (pending work is cancelled, the popup closes).
   const combobox = useCombobox({ ...props, searchDisabled: props.searchDisabled === true || disabled })
   const { entries, statusRow, activeIndex, expanded, selection } = combobox
+  const selectedKey = selection?.type === "option" ? props.getKey(selection.item) : selection?.type === "add" ? `add:${selection.text.toLowerCase()}` : null
+  type Composition = { readonly origin: string; readonly key: string | null; readonly text: string }
+  const [composition, setComposition] = React.useState<Composition | null>(null)
+  const activeComposition = composition?.origin === combobox.text && composition.key === selectedKey ? composition : null
+  if (composition && !activeComposition) setComposition(null)
+  const longComposition = React.useRef<Composition | null>(null)
+  const retiredComposition = React.useRef(false)
+  React.useLayoutEffect(() => {
+    if (longComposition.current && !activeComposition) retiredComposition.current = true
+    longComposition.current = activeComposition
+  }, [activeComposition])
+
+  // A full picked label is display text, not a query. Replace it on the first
+  // deliberate edit so native maxlength can admit the user's new input.
+  const prepareLongSelectionEdit = (input: HTMLInputElement): boolean => {
+    if (longComposition.current || selection === null || maxLength === undefined || input.value.length <= maxLength) return false
+    input.select()
+    return true
+  }
 
   const listboxId = `${React.useId()}-listbox`
   const optionId = (index: number): string => `${listboxId}-option-${index}`
   const wrapperRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
+  // React's before-input prop is synthesized from other events. Observe the
+  // actual native event as well (mobile replacements and deletion have no key).
+  React.useLayoutEffect(() => {
+    const input = inputRef.current!
+    const prepare = (event: InputEvent): void => {
+      if (!event.isComposing && /^(insert|delete)/.test(event.inputType)) prepareLongSelectionEdit(input)
+    }
+    input.addEventListener("beforeinput", prepare)
+    return () => input.removeEventListener("beforeinput", prepare)
+  })
   const setInputRef = React.useCallback(
     (element: HTMLInputElement | null) => {
       inputRef.current = element
@@ -158,9 +187,6 @@ export function Combobox<T>(props: ComboboxProps<T>): React.JSX.Element {
   const scrollerRef = React.useRef<HTMLDivElement>(null)
   const retryRef = React.useRef<HTMLButtonElement>(null)
   const lastOptionRef = React.useRef<HTMLDivElement | null>(null)
-
-  const selectedKey =
-    selection?.type === "option" ? props.getKey(selection.item) : selection?.type === "add" ? `add:${selection.text.toLowerCase()}` : null
 
   // Keep the active option visible while arrowing through the list.
   React.useEffect(() => {
@@ -249,7 +275,7 @@ export function Combobox<T>(props: ComboboxProps<T>): React.JSX.Element {
                 type="text"
                 role="combobox"
                 name={name}
-                value={combobox.text}
+                value={activeComposition?.text ?? combobox.text}
                 placeholder={placeholder}
                 maxLength={maxLength}
                 disabled={disabled}
@@ -266,9 +292,42 @@ export function Combobox<T>(props: ComboboxProps<T>): React.JSX.Element {
                   searchIcon && "pl-9 aria-invalid:pl-[35px]",
                   combobox.text !== "" && !disabled && "pr-11 aria-invalid:pr-[43px]",
                 )}
-                onChange={(event) => combobox.onInputChange(event.target.value)}
+                onChange={(event) => {
+                  if (retiredComposition.current) event.target.value = combobox.text
+                  else if (longComposition.current) setComposition({ ...longComposition.current, text: event.target.value })
+                  else combobox.onInputChange(event.target.value)
+                }}
+                onBeforeInput={(event) => { prepareLongSelectionEdit(event.currentTarget) }}
+                onPaste={(event) => { prepareLongSelectionEdit(event.currentTarget) }}
+                onCut={(event) => { prepareLongSelectionEdit(event.currentTarget) }}
+                onCompositionStart={(event) => {
+                  if (prepareLongSelectionEdit(event.currentTarget)) {
+                    combobox.close()
+                    retiredComposition.current = false
+                    const next = { origin: combobox.text, key: selectedKey, text: event.currentTarget.value }
+                    longComposition.current = next
+                    setComposition(next)
+                  }
+                }}
+                onCompositionEnd={(event) => {
+                  if (retiredComposition.current) {
+                    retiredComposition.current = false
+                    event.currentTarget.value = combobox.text
+                    return
+                  }
+                  const previous = longComposition.current
+                  if (!previous) return
+                  longComposition.current = null
+                  setComposition(null)
+                  if (event.currentTarget.value === previous.origin) return
+                  const query = event.currentTarget.value.slice(0, maxLength).replace(/[\uD800-\uDBFF]$/, "")
+                  event.currentTarget.value = query
+                  combobox.onInputChange(query)
+                }}
                 onFocus={combobox.onInputFocus}
                 onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing || longComposition.current) return
+                  if ((event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) || event.key === "Backspace" || event.key === "Delete") prepareLongSelectionEdit(event.currentTarget)
                   if (combobox.onInputKeyDown(event)) return
                   if (event.key === "Tab" && !event.shiftKey && expanded && statusRow === "error" && retryRef.current) {
                     event.preventDefault()

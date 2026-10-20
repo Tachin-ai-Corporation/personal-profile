@@ -409,6 +409,8 @@ A single request needs no runner. Map the failure yourself: `{ ok: false, error:
 
 ### 4.4 A Combobox variant (NPI)
 
+Selected labels may exceed `maxLength`; that limit applies to queries. The first deliberate edit of an overlong pick replaces the display label with the new bounded query. Long-pick composition waits for commit, preserves unchanged/cancelled selections, and yields to controlled resets. Keyboard, paste, cut and native text edits share this behavior; callers need no workaround.
+
 **Live searches do not use SWR** (spec F6-3 decision): the insurer search (5.2), NPI search (9.1) and address suggestions (4.3) load through the Combobox `load(query, page, signal)` callback with `callApi` and the module's path builder (`personalNpiSearchPath`, `practiceNpiSearchPath`, `placesAutocompletePath`, the insurer path of `insurance.ts`). Never add a search key to `lib/api/keys.ts`; nothing is cached across searches, and NPI results are never cached or drafted (PNFR1).
 
 ```tsx

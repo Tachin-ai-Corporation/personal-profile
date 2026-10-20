@@ -1019,3 +1019,193 @@ describe("Combobox: inputRef (F6-2)", () => {
     expect(document.activeElement).toBe(second.input)
   })
 })
+
+describe("Combobox: editing labels beyond the query cap", () => {
+  const long = { npi: "1987654321", name: "Synthetic practice organization ".repeat(5), city: "Austin, TX" }
+  const pick = { type: "option" as const, item: long }
+
+  it.each(["x", "Backspace", "Delete"])("prepares the whole long label for %s without changing the native cap", (pressed) => {
+    const { input } = renderNpi({ defaultSelection: pick })
+    const field = input as HTMLInputElement
+    field.setSelectionRange(field.value.length, field.value.length)
+    key(input, "End")
+    expect(field.selectionStart).toBe(field.value.length)
+    key(input, pressed)
+    expect(field.selectionStart).toBe(0)
+    expect(field.selectionEnd).toBe(npiLabel(long).length)
+    expect(field.maxLength).toBe(100)
+  })
+
+  it("preserves typed content as the new query and drops the pick", async () => {
+    const { input, calls, onSelect } = renderNpi({ defaultSelection: pick })
+    key(input, "x")
+    fireEvent.change(input, { target: { value: "x" } })
+    await advance(600)
+    expect(calls[0].query).toBe("x")
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(null)
+    expect(input).toHaveProperty("value", "x")
+  })
+
+  it("prepares paste and bounds the newly pasted query instead of keeping the old label", async () => {
+    const { input, calls, onSelect } = renderNpi({ defaultSelection: pick })
+    fireEvent.paste(input)
+    expect((input as HTMLInputElement).selectionStart).toBe(0)
+    const pasted = "New pasted practice ".repeat(10)
+    // jsdom does not apply the native paste/default maxlength behavior.
+    fireEvent.change(input, { target: { value: pasted.slice(0, 100) } })
+    await advance(600)
+    expect(input).toHaveProperty("value", pasted.slice(0, 100))
+    expect(calls[0].query).toBe(pasted.slice(0, 100).trim())
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(null)
+  })
+
+  it.each([
+    ["病院".repeat(60), "病院".repeat(50)],
+    [`a${"😀".repeat(60)}`, `a${"😀".repeat(49)}`],
+  ])("buffers long-pick composition and commits a bounded intact query", async (composed, expected) => {
+    const { input, calls, onSelect } = renderNpi({ defaultSelection: pick })
+    fireEvent.compositionStart(input)
+    expect((input as HTMLInputElement).selectionStart).toBe(0)
+    fireEvent.change(input, { target: { value: composed } })
+    key(input, "Enter", { isComposing: true })
+    key(input, "Enter")
+    fireEvent.keyPress(input, { key: "x", charCode: 120, which: 120 })
+    await advance(600)
+    expect(calls).toHaveLength(0)
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(input).toHaveProperty("value", composed)
+    fireEvent.compositionEnd(input, { data: composed })
+    await advance(600)
+    expect(input).toHaveProperty("value", expected)
+    expect(calls[0].query).toBe(expected)
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(null)
+  })
+
+  it("keeps ordinary short selections and uncapped free text edit semantics", async () => {
+    const { input } = renderNpi({ defaultSelection: { type: "option", item: npis(1)[0] } })
+    const field = input as HTMLInputElement
+    field.setSelectionRange(field.value.length, field.value.length)
+    fireEvent.compositionStart(input)
+    fireEvent.compositionEnd(input)
+    key(input, "x")
+    expect(field.selectionStart).toBe(field.value.length)
+    const ordinaryComposition = "病院".repeat(60)
+    fireEvent.compositionStart(input)
+    fireEvent.change(input, { target: { value: ordinaryComposition } })
+    expect(input).toHaveProperty("value", ordinaryComposition)
+    fireEvent.compositionEnd(input)
+    cleanup()
+    const free = renderNpi({ mode: "free-text", maxLength: undefined, defaultSelection: pick })
+    const uncapped = free.input as HTMLInputElement
+    uncapped.setSelectionRange(uncapped.value.length, uncapped.value.length)
+    key(free.input, "x")
+    expect(uncapped.selectionStart).toBe(uncapped.value.length)
+    fireEvent.change(free.input, { target: { value: `${npiLabel(long)}x` } })
+    expect(free.input).toHaveProperty("value", `${npiLabel(long)}x`)
+  })
+
+  it.each(["insertReplacementText", "deleteContentBackward"])("prepares real native %s edits without keyboard fallbacks", async (inputType) => {
+    const { input, calls, onSelect } = renderNpi({ defaultSelection: pick })
+    const field = input as HTMLInputElement
+    field.setSelectionRange(7, 9)
+    field.dispatchEvent(new InputEvent("beforeinput", { inputType, data: "new", bubbles: true, cancelable: true }))
+    expect(field.selectionStart).toBe(0)
+    expect(field.selectionEnd).toBe(npiLabel(long).length)
+    const replacement = inputType.startsWith("insert") ? "new" : ""
+    field.setRangeText(replacement, field.selectionStart!, field.selectionEnd!, "end")
+    fireEvent.input(field, { inputType })
+    await advance(600)
+    expect(calls[0].query).toBe(replacement)
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(null)
+  })
+
+  it("leaves ordinary free-text and composing native events untouched", () => {
+    const { input } = renderNpi({ mode: "free-text", defaultText: "ordinary" })
+    const field = input as HTMLInputElement
+    field.setSelectionRange(3, 3)
+    field.dispatchEvent(new InputEvent("beforeinput", { inputType: "insertReplacementText", bubbles: true }))
+    expect(field.selectionStart).toBe(3)
+    cleanup()
+    const picked = renderNpi({ defaultSelection: pick }).input as HTMLInputElement
+    picked.setSelectionRange(3, 3)
+    picked.dispatchEvent(new InputEvent("beforeinput", { inputType: "historyUndo", bubbles: true }))
+    picked.dispatchEvent(new InputEvent("beforeinput", { inputType: "insertCompositionText", isComposing: true, bubbles: true }))
+    expect(picked.selectionStart).toBe(3)
+  })
+
+  it("preserves the full valid pick when a composition is unchanged or cancelled", async () => {
+    const { input, calls, onSelect } = renderNpi({ defaultSelection: pick })
+    fireEvent.compositionStart(input)
+    fireEvent.compositionEnd(input)
+    expect(input).toHaveProperty("value", npiLabel(long))
+    fireEvent.compositionStart(input)
+    fireEvent.change(input, { target: { value: "pre-edit" } })
+    fireEvent.compositionEnd(input, { target: { value: npiLabel(long) }, data: "" })
+    await advance(600)
+    expect(input).toHaveProperty("value", npiLabel(long))
+    expect(calls).toHaveLength(0)
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it.each(["text", "selection"])("retires composition when its controlled %s is reset", (reset) => {
+    const onTextChange = vi.fn()
+    const onSelect = vi.fn()
+    const label = npiLabel(long)
+    function Controlled({ cleared }: { cleared: boolean }) {
+      return <Combobox label="Controlled long pick" mode="select-only" maxLength={100} getKey={(item: string) => item} getLabel={(item: string) => item} text={cleared && reset === "text" ? "" : label} selection={cleared ? null : { type: "option", item: label }} onTextChange={onTextChange} onSelect={onSelect} />
+    }
+    const view = render(<Controlled cleared={false} />)
+    const input = screen.getByRole("combobox")
+    fireEvent.compositionStart(input)
+    fireEvent.change(input, { target: { value: "pre-edit" } })
+    view.rerender(<Controlled cleared />)
+    const expected = reset === "text" ? "" : label
+    expect(input).toHaveProperty("value", expected)
+    fireEvent.change(input, { target: { value: "stale pre-edit" } })
+    fireEvent.compositionEnd(input, { target: { value: "stale commit" }, data: "stale commit" })
+    expect(input).toHaveProperty("value", expected)
+    expect(onTextChange).not.toHaveBeenCalled()
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it("bounds a partial Cut by preparing the whole overlong pick", async () => {
+    const { input, calls, onSelect } = renderNpi({ defaultSelection: pick })
+    const field = input as HTMLInputElement
+    field.setSelectionRange(3, 5)
+    fireEvent.cut(field)
+    field.setRangeText("", field.selectionStart!, field.selectionEnd!, "end")
+    fireEvent.input(field, { inputType: "deleteByCut" })
+    await advance(600)
+    expect(field.value).toBe("")
+    expect(calls[0].query).toBe("")
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(null)
+  })
+
+  it("closes and aborts a reopened pending search when long-pick composition begins", async () => {
+    const { input, calls, onSelect } = renderNpi({ defaultSelection: pick })
+    key(input, "ArrowDown")
+    expect(calls).toHaveLength(1)
+    fireEvent.compositionStart(input)
+    expect(calls[0].signal.aborted).toBe(true)
+    expect(input.getAttribute("aria-expanded")).toBe("false")
+    calls[0].resolve({ items: npis(2), hasMore: false })
+    await flush()
+    expect(screen.queryByRole("option")).toBeNull()
+    fireEvent.compositionEnd(input)
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(input).toHaveProperty("value", npiLabel(long))
+  })
+
+  it("ordinary composing Enter keeps an active static free-text option unselected", () => {
+    const onSelect = vi.fn()
+    render(<Combobox label="Static free text" mode="free-text" defaultText="A" staticOptions={["Alpha", "Beta"]} getKey={(item) => item} getLabel={(item) => item} onSelect={onSelect} />)
+    const input = screen.getByRole("combobox")
+    key(input, "ArrowDown")
+    expect(input.getAttribute("aria-activedescendant")).toBeTruthy()
+    key(input, "Enter", { isComposing: true })
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(input).toHaveProperty("value", "A")
+    key(input, "Enter")
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith({ type: "option", item: "Alpha" })
+  })
+})
