@@ -50,14 +50,16 @@ export function bodyForLog(text: string | undefined): unknown {
 
 export function logApiCall(entry: ApiCallLog): void {
   if (!isLocalDev()) return
-  // Match the decoded route too: the proxy accepts percent-encoded segments.
-  // Only ASCII route bytes matter here; replacement cannot throw on malformed input.
-  const pathname = entry.path
-    // Fetch's URL parser strips leading/trailing C0 controls and spaces,
-    // then removes ASCII tabs/newlines anywhere in the URL.
-    .replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, "")
-    .replace(/[\t\n\r]/g, "")
-    .split(/[?#]/, 1)[0]
+  // Use fetch's WHATWG parser before proxy segment decoding: controls can
+  // hide dot segments that are resolved by the browser before the request.
+  let pathname: string
+  try {
+    pathname = new URL(entry.path, "http://pp.invalid").pathname
+  } catch {
+    // Preserve the existing raw-path/body logging for malformed, unrelated URLs.
+    pathname = ""
+  }
+  pathname = pathname
     .replace(/%([0-9a-f]{2})/gi, (_match, byte: string) => String.fromCharCode(Number.parseInt(byte, 16)))
     .replace(/\/{2,}/g, "/")
     .replace(/\/$/, "")
