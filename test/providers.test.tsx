@@ -82,11 +82,25 @@ describe("renderInPage (spec F7-1)", () => {
     expect(await get("/api/pp/profile-picture-id")).toEqual({ status: 200, body: { fileId: null } })
   })
 
-  it("account defaults: NPI 404, practice support 404 NO_PRACTICE, an empty organizations page, the picture id", async () => {
+  it("Account defaults handle all area reads and compose with the shared picture read", async () => {
     renderInPage(<ProbeSection />, { page: "account" })
-    expect((await get("/api/1h/v2/user/npi")).status).toBe(404)
+    const npi = await get("/api/1h/v2/user/npi")
+    expect(npi.body).toEqual(expect.any(Object))
     expect(await get("/api/pp/practice-support")).toEqual({ status: 404, body: { errorCode: "NO_PRACTICE", source: "proxy" } })
     expect(await get("/api/1h/v2/user/organization/portal?page=0&size=12")).toEqual({ status: 200, body: expect.objectContaining({ content: [] }) })
+    expect(await get("/api/pp/profile-picture-id")).toEqual({ status: 200, body: { fileId: null } })
+  })
+
+  it("Account handler overrides compose with the shell defaults; Team B owns its actual default states", async () => {
+    renderInPage(<ProbeSection />, { page: "account", handlers: [
+      http.get("/api/1h/v2/user/npi", () => HttpResponse.json({ probe: "npi override" })),
+      http.get("/api/pp/practice-support", () => HttpResponse.json({ probe: "support override" })),
+      http.get("/api/1h/v2/user/organization/portal", () => HttpResponse.json({ probe: "organizations override" })),
+    ] })
+    await screen.findByText("name:Ann Lee")
+    expect(await get("/api/1h/v2/user/npi")).toEqual({ status: 200, body: { probe: "npi override" } })
+    expect(await get("/api/pp/practice-support")).toEqual({ status: 200, body: { probe: "support override" } })
+    expect(await get("/api/1h/v2/user/organization/portal?page=0&size=12")).toEqual({ status: 200, body: { probe: "organizations override" } })
     expect(await get("/api/pp/profile-picture-id")).toEqual({ status: 200, body: { fileId: null } })
   })
 

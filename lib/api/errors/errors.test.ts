@@ -206,6 +206,9 @@ describe("error-code ownership", () => {
   const CLIENT_DIRS = ["lib", "features", "components", "hooks", "contexts", "app"]
   const SERVER_PATHS = new Set(["lib/server", "app/api"])
   const ERROR_FIELD_READ = /\b(errorCode|upstreamCode|platformMessage)\b|\.source\s*===|\bsource\s*:\s*["'`]proxy["'`]/
+  const UPSTREAM_TEXT = /Mfa is not enabled|Mfa config is missing|Totp is already enabled|NPI Number|already belongs to another person|already has contact point|Duplicate Contact Points|User with email/
+  const NPI_SEARCH_LABEL = "Search for your practice's (hospital, clinic, lab, etc.) NPI Number"
+  const hasUpstreamText = (code: string): boolean => UPSTREAM_TEXT.test(code.replaceAll(NPI_SEARCH_LABEL, ""))
 
   function sources(dir: string): string[] {
     let entries: string[]
@@ -249,10 +252,23 @@ describe("error-code ownership", () => {
   })
 
   it("no module outside lib/api/errors matches upstream message text", () => {
-    const UPSTREAM_TEXT = /Mfa is not enabled|Mfa config is missing|Totp is already enabled|NPI Number|already belongs to another person|already has contact point|Duplicate Contact Points|User with email/
     const offenders = CLIENT_DIRS.flatMap(sources)
       .filter((path) => !path.startsWith("lib/api/errors/"))
-      .filter((path) => UPSTREAM_TEXT.test(readFileSync(join(root, path), "utf8")))
+      .filter((path) => hasUpstreamText(readFileSync(join(root, path), "utf8")))
     expect(offenders).toEqual([])
+  })
+
+  it.each(["Personal", "Practice"])("the upstream-text guard detects the actual %s NPI rejection", (kind) => {
+    expect(hasUpstreamText(`Operation failed. The chosen ${kind} NPI Number: 1234567890 is already registered.`)).toBe(true)
+    expect(hasUpstreamText(`/^Operation failed\\. The chosen ${kind} NPI Number: \\d+ is already registered\\.$/`)).toBe(true)
+  })
+
+  it("the required practice-search label is UI copy, not an upstream matcher", () => {
+    expect(hasUpstreamText(NPI_SEARCH_LABEL)).toBe(false)
+  })
+
+  it.each(['message.includes("NPI Number")', '/NPI Number/.test(response.error)'])("the upstream guard still catches generic matching: %s", (code) => {
+    expect(hasUpstreamText(code)).toBe(true)
+    expect(hasUpstreamText(`${NPI_SEARCH_LABEL}\n${code}`)).toBe(true)
   })
 })

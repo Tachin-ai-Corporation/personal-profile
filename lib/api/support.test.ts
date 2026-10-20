@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import { server } from "@/test/msw-server"
 import { proxyPath } from "./config"
 import { parseErrorBody } from "./errors-codes"
-import { ApiResponseError, registerFetcher, swrFetcher, unregisterFetcher, unwrap } from "./fetcher"
+import { unwrap } from "./fetcher"
 import { isSwrKey, keys } from "./keys"
 import { browserLocks, createRefreshCoordinator, REFRESH_LOCK } from "./refresh-coordinator"
 import { activity } from "./activity"
@@ -190,6 +190,8 @@ describe("fetcher", () => {
   })
 
   it("dispatches SWR keys to the loader each module registered", async () => {
+    vi.resetModules()
+    const { ApiResponseError, registerFetcher, swrFetcher, unregisterFetcher } = await import("./fetcher")
     const load = async (key: readonly unknown[]) => ["loaded", ...key]
     registerFetcher("npi", load)
     registerFetcher("npi", load)
@@ -203,7 +205,9 @@ describe("fetcher", () => {
 })
 
 describe("registerFetcher", () => {
-  it("throws on a second, different loader for a family, except under next dev", () => {
+  it("throws on a second, different loader for a family, except under next dev", async () => {
+    vi.resetModules()
+    const { registerFetcher, unregisterFetcher } = await import("./fetcher")
     const first = async () => 1
     registerFetcher("orgs", first)
     expect(() => registerFetcher("orgs", async () => 2)).toThrow("A fetcher is already registered for orgs")
