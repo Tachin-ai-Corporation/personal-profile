@@ -37,6 +37,82 @@ function writerClient() {
 
 beforeEach(() => configureApiClient({ portalUrl: "https://portal.test" }))
 
+describe("callApi NPI development logging privacy", () => {
+  it.each([
+    "/api/1h/v2/user/npi",
+    "/api/1h/v2/public/npi/list?entityTypeCode=1&searchText=Private+Person&page=0&limit=10",
+    "/api/1h/v2/public/npi/list?entityTypeCode=2&searchText=Private+Practice&page=1&limit=10",
+    "/api/1h/v2/u\tser/npi?searchText=Private+Person",
+    "/api/1h/v2/public/np\ni/list?searchText=Private+Person",
+    "/api/1h/v2/user/npi\r?searchText=Private+Person",
+    "/api/1h/v2/user/npi \t\r\n",
+    "/api/1h/v2/public/npi/list\u0000\u001f ",
+  ])("keeps queries and payloads out of real transport logs for %s", async (path) => {
+    vi.stubEnv("NODE_ENV", "development")
+    const group = vi.spyOn(console, "groupCollapsed").mockImplementation(() => undefined)
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined)
+    const end = vi.spyOn(console, "groupEnd").mockImplementation(() => undefined)
+    const route = new URL(path, "http://localhost").pathname
+    const call = freshClient()
+    const privateBody = { id: 789, npi: 1234567890, name: "Private Person", practice: "Private Practice" }
+    for (const status of [200, 403, 500]) {
+      server.use(http.get(route, () => HttpResponse.json(privateBody, { status })))
+      const response = await call("npi/read", path)
+      expect(response.success).toBe(status === 200)
+      if (status === 200) expect(response.data).toEqual(privateBody)
+      expect(group).toHaveBeenLastCalledWith(expect.stringMatching(new RegExp(`^\\[api\\] GET ${route} → ${status} \\(\\d+ ms\\)$`)))
+    }
+    server.use(http.get(route, () => HttpResponse.error()))
+    expect(await call("npi/read", path)).toMatchObject({ success: false, errorCode: "NETWORK_ERROR" })
+    expect(group).toHaveBeenLastCalledWith(expect.stringContaining(`GET ${route} → network error`))
+    expect(group).toHaveBeenCalledTimes(4)
+    expect(end).toHaveBeenCalledTimes(4)
+    expect(log).not.toHaveBeenCalled()
+    expect(JSON.stringify(group.mock.calls)).not.toMatch(/searchText|Private|1234567890/)
+  })
+
+  it.each(["/api/1h/v2/user/npi", "/api/1h/v2/public/npi/list"])("preserves caller error metadata without logging sensitive error bodies for %s", async (route) => {
+    vi.stubEnv("NODE_ENV", "development")
+    const group = vi.spyOn(console, "groupCollapsed").mockImplementation(() => undefined)
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined)
+    const end = vi.spyOn(console, "groupEnd").mockImplementation(() => undefined)
+    const message = "Private Person 1234567890 at Private Practice"
+    const cases = [
+      {
+        answer: () => HttpResponse.json({ message, code: 789, details: { name: "Private Person" } }, { status: 400 }),
+        expected: { success: false, statusCode: 400, error: message, platformMessage: message, upstreamCode: 789, details: { name: "Private Person" } },
+        mapped: { kind: "generic", message },
+      },
+      {
+        answer: () => HttpResponse.json({ message, code: 789 }, { status: 403 }),
+        expected: { success: false, statusCode: 403, error: message, platformMessage: message, upstreamCode: 789 },
+        mapped: { kind: "forbidden" },
+      },
+      {
+        answer: () => HttpResponse.json({ errorCode: "NOT_ALLOWED", source: "proxy", message, retryable: false }, { status: 403 }),
+        expected: { success: false, statusCode: 403, error: "npi/read failed (403)", errorCode: "NOT_ALLOWED", source: "proxy", userMessage: message, retryable: false },
+        mapped: { kind: "generic" },
+      },
+      {
+        answer: () => HttpResponse.text(message, { status: 500 }),
+        expected: { success: false, statusCode: 500, error: "npi/read failed (500)" },
+        mapped: { kind: "generic" },
+      },
+    ]
+    for (const { answer, expected, mapped } of cases) {
+      server.use(http.get(route, answer))
+      const response = await freshClient()("npi/read", `${route}?searchText=Private+Person`)
+      expect(response).toMatchObject(expected)
+      expect(mapApiError("provider", response)).toEqual(mapped)
+      expect(group).toHaveBeenLastCalledWith(expect.stringMatching(new RegExp(`^\\[api\\] GET ${route} → ${expected.statusCode} \\(\\d+ ms\\)$`)))
+    }
+    expect(group).toHaveBeenCalledTimes(cases.length)
+    expect(end).toHaveBeenCalledTimes(cases.length)
+    expect(log).not.toHaveBeenCalled()
+    expect(JSON.stringify(group.mock.calls)).not.toMatch(/searchText|Private|1234567890|NOT_ALLOWED|retryable/)
+  })
+})
+
 describe("callApi transport", () => {
   it("sends same-origin, with no session-binding header (D5), and parses JSON", async () => {
     let seen: Request | undefined

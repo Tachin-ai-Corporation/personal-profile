@@ -37,6 +37,43 @@ describe("logApiCall (D6)", () => {
     expect(JSON.stringify(redact(deep))).toContain("[redacted]")
   })
 
+  it.each([
+    ["/api/1h/v2/user/npi", "/api/1h/v2/user/npi"],
+    ["/api/1h/v2/user/npi?unexpected=private#private", "/api/1h/v2/user/npi"],
+    ["/api/1h/v2/public/npi/list?searchText=private&entityTypeCode=1", "/api/1h/v2/public/npi/list"],
+    ["/api/1h/v2/%75ser/npi?private", "/api/1h/v2/user/npi"],
+    ["/api/1h/v2/public/%6Epi/list/?private", "/api/1h/v2/public/npi/list"],
+    ["/api//1h/v2/public/npi/list?private", "/api/1h/v2/public/npi/list"],
+    ["/api/1h/v2/u\tser/npi?private", "/api/1h/v2/user/npi"],
+    ["/api/1h/v2/public/np\ni/list?private", "/api/1h/v2/public/npi/list"],
+    ["/api/1h/v2/user/npi\r?private", "/api/1h/v2/user/npi"],
+    ["/api/1h/v2/user/npi \t\r\n", "/api/1h/v2/user/npi"],
+    ["/api/1h/v2/public/npi/list\u0000\u001f ", "/api/1h/v2/public/npi/list"],
+  ])("logs only metadata for %s, even with sensitive errors or request bodies", (path, route) => {
+    vi.stubEnv("NODE_ENV", "development")
+    const group = vi.spyOn(console, "groupCollapsed").mockImplementation(() => undefined)
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined)
+    const end = vi.spyOn(console, "groupEnd").mockImplementation(() => undefined)
+    for (const status of [200, 403, 500, undefined]) {
+      logApiCall({ method: "GET", path, status, durationMs: 7, requestBody: { searchText: "private" }, responseBody: { npi: 1234567890, name: "Private Person", message: "private error" } })
+      expect(group).toHaveBeenLastCalledWith(`[api] GET ${route} → ${status ?? "network error"} (7 ms)`)
+    }
+    expect(log).not.toHaveBeenCalled()
+    expect(end).toHaveBeenCalledTimes(4)
+    expect(JSON.stringify(group.mock.calls)).not.toMatch(/private|1234567890|Private Person/)
+  })
+
+  it("preserves ordinary route logging, including URL whitespace", () => {
+    vi.stubEnv("NODE_ENV", "development")
+    const group = vi.spyOn(console, "groupCollapsed").mockImplementation(() => undefined)
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined)
+    vi.spyOn(console, "groupEnd").mockImplementation(() => undefined)
+    const path = "/api/1h/v2/u\tser/myself?field=name "
+    logApiCall({ method: "GET", path, status: 200, durationMs: 2, responseBody: { firstName: "Ann" } })
+    expect(group).toHaveBeenCalledWith(`[api] GET ${path} → 200 (2 ms)`)
+    expect(log).toHaveBeenCalledWith("response", { firstName: "Ann" })
+  })
+
   it("parses bodies for display", () => {
     expect(bodyForLog(undefined)).toBeUndefined()
     expect(bodyForLog("")).toBeUndefined()
