@@ -31,7 +31,8 @@ const PEOPLE: readonly Npi[] = Array.from({ length: 25 }, (_, i) => ({
   state: "TX",
 }))
 const NPI_PAGE = 10
-const npiLabel = (item: Npi): string => `${item.npi}, ${item.first} ${item.last}, ${item.city}, ${item.state}`
+const LONG_NPI: Npi = { npi: "1987654321", first: "Synthetic practice organization ".repeat(5).trim(), last: "Clinic", city: "Austin", state: "TX" }
+const npiLabel = (item: Npi): string => item.first === "exact" ? "E".repeat(100) : `${item.npi}, ${item.first} ${item.last}, ${item.city}, ${item.state}`
 
 const STREETS = ["12 Main St", "12 Main Ave", "12 Main Rd", "12 Main Ct", "12 Main Ln", "12 Main Way", "40 Oak St"]
 const INSURERS = ["Aetna", "Acme Health", "Blue Cross", "Cigna", "Humana", "United Healthcare"]
@@ -75,7 +76,7 @@ export function ComboboxFixture() {
       return { error: true }
     }
     const lower = query === "error" ? "" : query.toLowerCase()
-    const matches = PEOPLE.filter((p) => p.npi.startsWith(lower) || `${p.first} ${p.last}`.toLowerCase().includes(lower))
+    const matches = lower === "long" ? [LONG_NPI] : lower === "exact" ? [{ ...PEOPLE[0], first: "exact" }] : PEOPLE.filter((p) => p.npi.startsWith(lower) || `${p.first} ${p.last}`.toLowerCase().includes(lower))
     const items = matches.slice(page * NPI_PAGE, (page + 1) * NPI_PAGE)
     return { items, hasMore: (page + 1) * NPI_PAGE < matches.length }
   }
