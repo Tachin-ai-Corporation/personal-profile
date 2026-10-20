@@ -3,8 +3,7 @@ import { http, HttpResponse } from "msw"
 import type { ReactNode } from "react"
 import useSWR, { SWRConfig, useSWRConfig } from "swr"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { keys, registerFetcher } from "@/lib/api"
-import { unregisterFetcher } from "@/lib/api/fetcher"
+import { keys } from "@/lib/api"
 import { server } from "@/test/msw-server"
 import { myselfWire } from "@/test/myself-fixture"
 import { setTestUrl } from "@/test/next-navigation"
@@ -220,19 +219,17 @@ describe("useMyself auto-retry", () => {
   })
 
   it("leaves every other key without automatic retries (root shouldRetryOnError: false)", async () => {
+    // Every key family has its loader now (Story 4.2 registered countries): fail the real one at the `/api` boundary.
     let calls = 0
-    const load = async () => {
-      calls += 1
-      throw new Error("boom")
-    }
-    registerFetcher("countries", load)
-    try {
-      const { result } = renderHook(() => useSWR(keys.countries()), { wrapper })
-      await waitFor(() => expect(result.current.error).toBeDefined())
-      await act(() => new Promise((resolve) => setTimeout(resolve, 100)))
-      expect(calls).toBe(1)
-    } finally {
-      unregisterFetcher("countries")
-    }
+    server.use(
+      http.get("/api/1h/v2/public/countries", () => {
+        calls += 1
+        return upstream502()
+      }),
+    )
+    const { result } = renderHook(() => useSWR(keys.countries()), { wrapper })
+    await waitFor(() => expect(result.current.error).toBeDefined())
+    await act(() => new Promise((resolve) => setTimeout(resolve, 100)))
+    expect(calls).toBe(1)
   })
 })

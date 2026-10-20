@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test"
-import { mockAddresses, mockCountries } from "./addresses"
+import { mockAddresses, mockCountries, mockPlacesAutocomplete, mockPlacesDetails } from "./addresses"
 import { mockShellDefaults, mockTypeKey } from "./core"
 import { mockInsurance } from "./insurance"
 
@@ -18,5 +18,8 @@ export async function mockProfileDefaults(page: Page): Promise<void> {
   await mockTypeKey(page, "Insurance")
   await mockAddresses(page)
   await mockCountries(page)
+  // Story 4.3: typing in a US address line 1 searches; suggestions are off by default (`PLACES_ENABLED` off).
+  await mockPlacesAutocomplete(page)
+  await mockPlacesDetails(page)
   await mockInsurance(page)
 }

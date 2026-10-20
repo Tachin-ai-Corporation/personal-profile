@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, type Page } from "@playwright/test"
-import { test, mockAccountDefaults, mockMyself, mockContacts, mockProxy, mockUserEdit, mockAccountTimeZone, ACCOUNT_SETTINGS_MYSELF, ACCOUNT_PRIMARY_CONTACTS, signIn, setTheme } from "./fixtures"
+import { test, mockAccountDefaults, mockMyself, mockContacts, mockProxy, mockAddresses, mockUserEdit, mockAccountTimeZone, ACCOUNT_SETTINGS_MYSELF, ACCOUNT_PRIMARY_CONTACTS, signIn, setTheme } from "./fixtures"
 const section = (page: Page) => page.getByRole("region", { name: "Personal account settings", exact: true })
 const email = (page: Page) => section(page).getByRole("combobox", { name: "Primary email address", exact: true })
 const phone = (page: Page) => section(page).getByRole("combobox", { name: "Primary phone number", exact: true })
@@ -96,6 +96,8 @@ test(`${hash} empty alternatives helper runs dirty leave guard and passes axe`, 
   await mockProxy(page, "v2/type/key/Person", { body: {} })
   // The helper ends on `/?tab=contacts`, whose Email and Phone Sections read the Contact Point labels (Epic 3).
   await mockProxy(page, "v2/type/key/ContactPoint", { body: {} })
+  // …and its Addresses Section reads the address list (Story 4.1).
+  await mockAddresses(page)
   await edit(page)
   await expect(email(page)).toHaveAttribute("aria-disabled", "true")
   await email(page).focus()
