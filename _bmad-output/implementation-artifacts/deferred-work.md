@@ -121,6 +121,16 @@
   summary: Confirm on demo the backend's placeholder values in `GET v2/health/patient/insurance`: a missing Expiration or Cancellation date comes back as `1970-01-01`, and a missing Group ID as `"n/a"`. Story 5.1 shows both as "Not provided", and Story 5.2's editor must load them as empty (or the date-order rules fail on Edit).
   evidence: Found in 1h-ng-bo-core-be (insurance create/update defaults), not seen in a live response yet (user decision 2026-10-20, spec 5.1). If demo returns null instead, the insurance-local sentinel check is harmless but can go.
 
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-2-add-and-edit-a-policy.md`
+  summary: Security/PM, backend — editing an insurance subscriber overwrites another person's 1health profile. On `PUT v2/health/patient/insurance/{id}`, when the subscriber (found by email) has a different name, phone or birth date from the one sent, the backend calls `userService.editUser` on that other user. Any patient can change someone else's profile data this way. Story 5.2 never sends a typed subscriber on Edit: a saved one is locked and re-sent unchanged (decision 2C), and any other non-Self Edit is blocked until the policy is removed and added again (decision 3A); Add (POST) doesn't reach this path. Ask the backend to stop editing the subscriber's own profile from a policy write (or to require that person's consent), and the PM to confirm the intended behaviour.
+  evidence: 1h-ng-bo-core-be OneHealthServiceImpl.java:3115-3116 (`editUser` on a differing subscriber), :3136-3160 (subscriber found by email in the default tenant); user decision 2026-10-20, spec 5.2.
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-2-add-and-edit-a-policy.md`
+  summary: Security/PM, backend — an insurance subscriber email that matches no 1health person makes the backend create that person and send an invitation email (`userService.invite(…, !skipNotification)`), on behalf of the patient adding the policy. Any patient can make 1health email an arbitrary address. Story 5.2 tells the user ("If {first name} isn't on 1health yet, we'll invite them by email.", DRAFT). Ask the PM to confirm that this is intended and acceptable, and the backend whether it should be rate-limited or confirmed.
+  evidence: 1h-ng-bo-core-be OneHealthServiceImpl.java:3173-3218 (invite with notification on no email match); user decision 2026-10-20, spec 5.2.
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-2-add-and-edit-a-policy.md`
+  summary: Backend — `POST v2/health/patient/insurance` may return an existing tenant policy with the same insurance company and member ID instead of creating one (`createOrFetchInsurance`), so an "Add" can silently link the patient to someone else's policy record. Story 5.2 just shows what the refetch returns. Ask the backend whether this fetch-or-create is intended for patient adds.
+  evidence: 1h-ng-bo-core-be OneHealthRepository.java:2104-2115 (`createOrFetchInsurance`); spec 5.2 Design Notes "Duplicate on POST".
+
 ## Team B (`/account`, Epics 7-10)
 
 - source_spec: none
@@ -441,6 +451,15 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-4-primary-address-and-removal.md`
   summary: (Foundation) `Tooltip` has no `disabled`/`open={false}` option, so the Addresses "Set as primary" checkbox stays wrapped in an always-mounted Tooltip with empty, hidden content while unlocked (to avoid a remount that loses focus). Add an option and drop the workaround.
   evidence: components/ui/tooltip.tsx; features/addresses/addresses-section.tsx (`PrimaryField`). Review row 25 of spec 4.4.
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-2-add-and-edit-a-policy.md`
+  summary: (Foundation, unverified) `valueListOptions` (lib/api/type-keys.ts, decision 1A of spec 5.2) now also searches a type's relation attributes when an attrKey isn't among its own attributes. If the Person or ContactPoint type key carries `label` (or another attrKey the Personal, Phone or Email Sections read) under `relationships[]` only, those Sections would start offering the platform's list instead of their fallback. Check both type keys on demo; if so, confirm the platform list is the wanted one.
+  evidence: lib/api/type-keys.ts (`valueListOptions`); consumers features/personal/use-person-options.ts:55, features/contacts/email-section.tsx:467, phone-section.tsx:549; their tests carry no `relationships`. Review row 17 of spec 5.2 (maybe-false, medium if true).
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-2-add-and-edit-a-policy.md`
+  summary: (Foundation) Tooltip and DropdownMenu are still on older Radix internals than Dialog 1.3.1, so they would break inside a Dialog or Sheet the way Popover and Select did (pointer-events, outside click closing the modal, Escape, focus trap). Align them (`@radix-ui/react-tooltip`, `@radix-ui/react-dropdown-menu`) before either is used inside a modal.
+  evidence: package.json; the Radix Popover/Select alignment PR (`feat/foundation-radix-popover-select`) fixed the same class of bug found in Story 5.2. Review row 18 of spec 5.2.
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-2-add-and-edit-a-policy.md`
+  summary: (Team B / Foundation) The 1health backend answers its paged lists as its own `PageImpl`, serialized `{ data, pageNumber, pageSize, offset, emptyPage, firstPage, lastPage, numberOfElements, totalElements, totalPages }`, never Spring's `{ content, last }`. The organizations fixtures use `{ content: [] … }`, so Story 10.1's parser for `v2/user/organization/portal` (also a `PageImpl`, 1h-ng-bo-core-be UserResource.java:214-217) would inherit the wrong shape. Fix the fixtures before Story 10.1 reads the list.
+  evidence: test/page-handlers/account.ts:22, e2e/fixtures/orgs.ts:13, test/providers.test.tsx:89, e2e/fixtures.spec.ts:43; `lib/server/named-ops/org-logo.ts:32-33,58` already reads `data`/`lastPage` correctly. Found 2026-10-20 while fixing the same bug in the file-delete named op (`feat/foundation-file-delete-page-shape`), the Addresses loader (`feat/NG-9026-epic-4`) and the Insurance loader (Story 5.2).
 
 ## Deferred from: integrated code review (2026-10-21)
 

@@ -3,9 +3,9 @@
 import { useId, useRef, useState, type JSX } from "react"
 import { Chip } from "@/components/ui/chip"
 import { FallbackImage } from "@/components/ui/fallback-image"
-import { KeyValueTable, RowActions } from "@/features/shell"
+import { KeyValueTable, RowActions, type RowAction } from "@/features/shell"
 import { INSURANCE_CARD_SIDES, insuranceCardDownloadPath, type InsuranceCardSide, type InsurancePolicy, type Myself } from "@/lib/api"
-import { formatMessage, INSURANCE_MESSAGES } from "@/lib/shared/messages"
+import { formatMessage, INSURANCE_MESSAGES, SECTION_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
 import { InsuranceImageMissing } from "./card-image"
 import { InsuranceCardViewer } from "./card-viewer"
@@ -78,21 +78,29 @@ function Thumbnail({ side, src, policyName, onOpen, onFailed, buttonRef }: Thumb
   )
 }
 
+/** The kebab's items: Edit for a saved (id) policy. */
+function cardActions(policy: InsurancePolicy, onEdit: () => void): RowAction[] {
+  return policy.id === null ? [] : [{ id: "edit", label: SECTION_MESSAGES.edit, onSelect: onEdit }]
+}
+
 export interface InsurancePolicyCardProps {
   readonly policy: InsurancePolicy
   readonly myself: Myself | undefined
+  /** The kebab's "Edit" (Story 5.2): opens the editor on this policy. */
+  readonly onEdit: () => void
 }
 
 /**
  * One policy (Story 5.1, DESIGN.md Insurance card): a flat bordered
  * `rounded-md` card. The title row (≥ 52 px, bottom hairline) holds
  * "{Type} Insurance", the chip and the kebab ("More actions for {Insurer}
- * {Type} Insurance"; empty until Stories 5.2 and 5.5, so `RowActions`
- * renders nothing, decision 1A). Below: the key/value grid, and the
+ * {Type} Insurance": Edit, Story 5.2; Delete comes with Story 5.5). A
+ * Deleted card has no kebab (the backend would accept a `PUT` to it), and a
+ * policy without an id has nothing to edit. Below: the key/value grid, and the
  * Front/Back thumbnails behind a left hairline (under the grid below
  * 768 px). A Deleted card is muted, with no kebab and no thumbnail action.
  */
-export function InsurancePolicyCard({ policy, myself }: InsurancePolicyCardProps): JSX.Element {
+export function InsurancePolicyCard({ policy, myself, onEdit }: InsurancePolicyCardProps): JSX.Element {
   const titleId = useId()
   const title = insurancePolicyTitle(policy)
   const name = insurancePolicyName(policy)
@@ -125,7 +133,7 @@ export function InsurancePolicyCard({ policy, myself }: InsurancePolicyCardProps
           {title}
         </h3>
         {chip ? <Chip variant={chip.variant}>{chip.label}</Chip> : null}
-        {policy.deleted ? null : <RowActions actions={[]} name={name} className="ml-auto" />}
+        {policy.deleted ? null : <RowActions actions={cardActions(policy, onEdit)} name={name} className="ml-auto" />}
       </div>
       <div className="flex flex-col md:flex-row">
         <div className="min-w-0 flex-1">

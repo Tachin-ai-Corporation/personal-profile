@@ -219,7 +219,8 @@ describe("InsuranceSection: cards", () => {
   it("shows the dashed tile for a side with no file (Dental: both)", async () => {
     await renderLoaded()
     const dental = card("Dental Insurance")
-    expect(within(dental).queryAllByRole("button")).toEqual([])
+    // Only the kebab (Story 5.2): no thumbnail buttons.
+    expect(within(dental).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["More actions for Delta Dental Dental Insurance"])
     const tiles = within(dental).getAllByRole("img")
     expect(tiles.map((tile) => tile.getAttribute("aria-label"))).toEqual(["Front image not uploaded", "Back image not uploaded"])
     for (const tile of tiles) {
@@ -282,10 +283,48 @@ describe("InsuranceSection: cards", () => {
     expect(document.querySelector('[data-slot="insurance-card-viewer"]')).toBeNull()
   })
 
-  it("renders no kebab on an active card until it has items (decision 1A), and no Add insurance", async () => {
+  it("shows the kebab on active cards only and the outline \"Add insurance\" (plus icon) in the header (Story 5.2)", async () => {
     await renderLoaded()
-    expect(within(section()).queryByRole("button", { name: /^More actions for/ })).toBeNull()
+    expect(within(section()).getAllByRole("button", { name: /^More actions for/ }).map((button) => button.getAttribute("aria-label"))).toEqual([
+      "More actions for UnitedHealthcare Medical Insurance",
+      "More actions for Delta Dental Dental Insurance",
+    ])
+    const add = within(section()).getByRole("button", { name: "Add insurance" })
+    expect(add.closest('[data-slot="section-header"]')).not.toBeNull()
+    expect(add.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true")
+    expect(add.className).toContain("border")
+  })
+
+  it("an active policy without an id gets no kebab (nothing to edit)", async () => {
+    await renderLoaded(ok(page([wire({ id: undefined }), DENTAL])))
+    const medical = card("Medical Insurance")
+    expect(within(medical).queryByRole("button", { name: /^More actions for/ })).toBeNull()
+    expect(within(card("Dental Insurance")).getByRole("button", { name: /^More actions for/ })).toBeTruthy()
+  })
+
+  it("\"Add insurance\" shows only once the list is ready: not while loading, after a failure or without access", async () => {
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const view = renderInPage(<InsuranceSection />, {
+      page: "profile",
+      handlers: listServer(async () => {
+        await gate
+        return HttpResponse.json(CARDS)
+      }).handlers,
+    })
+    expect(frame()?.getAttribute("data-state")).toBe("loading")
     expect(within(section()).queryByRole("button", { name: "Add insurance" })).toBeNull()
+    release()
+    await within(section()).findByRole("button", { name: "Add insurance" })
+    view.unmount()
+    for (const status of [500, 403]) {
+      const failed = renderInPage(<InsuranceSection />, { page: "profile", handlers: listServer(fail(status)).handlers })
+      await waitFor(() => expect(frame()?.getAttribute("data-state")).not.toBe("loading"))
+      expect(within(section()).queryByRole("button", { name: "Add insurance" })).toBeNull()
+      failed.unmount()
+    }
   })
 
   it("moves the thumbnails below the grid under 768 px", async () => {
@@ -370,13 +409,13 @@ describe("InsuranceSection: empty, error and no access", () => {
   it.each([
     ["an empty Page", page([])],
     ["an empty list (the page defaults)", []],
-  ])("%s: the dashed empty card with the copy and no action; count 0", async (_case, body) => {
+  ])("%s: the dashed empty card with the copy and the primary \"Add insurance\"; count 0", async (_case, body) => {
     await renderLoaded(ok(body))
     const empty = section().querySelector('[data-slot="empty-state"]')
     expect(empty?.getAttribute("data-variant")).toBe("card")
     expect(empty?.className).toContain("border-dashed")
-    expect(empty?.textContent).toBe("No insurance on file. Add a policy before your next visit.")
-    expect(within(empty as HTMLElement).queryByRole("button")).toBeNull()
+    expect(within(empty as HTMLElement).getByText("No insurance on file. Add a policy before your next visit.")).toBeTruthy()
+    expect(within(empty as HTMLElement).getByRole("button", { name: "Add insurance" })).toBeTruthy()
     expect(meta()).toBe("0")
   })
 
@@ -444,9 +483,9 @@ describe("InsuranceSection: empty, error and no access", () => {
 })
 
 describe("InsuranceSection: registration", () => {
-  it("registers guard-only: never in Save all or the dirty count, no save, no draft fields", async () => {
+  it("registers guard-only: never in Save all or the dirty count, no draft fields; the editor supplies its save (Story 5.2)", async () => {
     const { registry } = await renderLoaded()
-    expect(registry.get("insurance")).toMatchObject({ id: "insurance", label: "Insurance", displayOrder: 6, isDirty: false, saveAll: false, canSave: false })
+    expect(registry.get("insurance")).toMatchObject({ id: "insurance", label: "Insurance", displayOrder: 6, isDirty: false, saveAll: false, canSave: true })
     expect(registry.get("insurance")?.draftFields ?? []).toEqual([])
     expect(registry.getDirtyCount()).toBe(0)
     expect(registry.isAnyDirty()).toBe(false)

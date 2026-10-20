@@ -1,18 +1,20 @@
 "use client"
 
+import { Plus } from "lucide-react"
 import { useMemo, useState, type JSX } from "react"
 import useSWR from "swr"
+import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
 import { SectionHeader, sectionHeadingId, StateFrame, useMyself, useRegisterSection, useSectionFrame, type FrameState } from "@/features/shell"
 import { keys, mapFetchError, type ApiResponseError, type InsurancePolicy } from "@/lib/api"
 import { INSURANCE_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 import { insuranceActiveCount, sortInsurancePolicies } from "./format"
 import { InsurancePolicyCard } from "./policy-card"
+import { InsurancePolicyEditor } from "./policy-editor"
+import { useInsuranceEditor } from "./use-insurance-editor"
 
 /** After Addresses (5) in the page's Section order. */
 const INSURANCE_DISPLAY_ORDER = 6
-
-const noop = (): void => undefined
 
 /**
  * The shared `cards` skeleton as policy cards: one column, two cards (the
@@ -24,13 +26,15 @@ const SKELETON_AS_POLICIES = "[&_[data-slot=frame-skeleton]]:grid-cols-1 [&_[dat
 const FRAME_WITHOUT_CONTAINER = "overflow-visible rounded-none border-0 bg-transparent"
 
 /**
- * The Insurance Section (Story 5.1, FR28, FR31): one read of the policy list
- * (`keys.insurance()`), one card per policy (active first, then Deleted), the
- * card image viewer, and the loading, empty, error and no-access states. It
- * registers as a guard-only participant (never in Save all, the dirty count
- * or drafts); the Story 5.2 editor supplies its validate, save and discard.
- * "Add insurance" and the card kebab stay hidden until Stories 5.2 and 5.5
- * add what they open (decision 1A). The tab has no Section index.
+ * The Insurance Section (Stories 5.1–5.2, FR28, FR29, FR31): one read of the
+ * policy list (`keys.insurance()`), one card per policy (active first, then
+ * Deleted), the card image viewer, the loading, empty, error and no-access
+ * states, and the Add / Edit drawer ("Add insurance" in the header and on the
+ * empty card, the card kebab's "Edit"). The editor's state lives here, so the
+ * Section's one registration is a guard-only participant (never in Save all,
+ * the dirty count or drafts) whose dirtiness, validate, save and discard are
+ * the editor's: the leave guard and page navigation protect unsaved edits.
+ * The tab has no Section index.
  */
 export function InsuranceSection(): JSX.Element {
   const read = useSWR<InsurancePolicy[] | undefined, ApiResponseError>(keys.insurance())
@@ -38,13 +42,18 @@ export function InsuranceSection(): JSX.Element {
   const { onReady } = useSectionFrame("insurance")
   const headingId = sectionHeadingId("insurance")
 
+  const { editor, refs } = useInsuranceEditor(() => void read.mutate())
+  const { addButton } = refs
+
   useRegisterSection({
     id: "insurance",
     label: SHELL_MESSAGES.profileTabInsurance,
     displayOrder: INSURANCE_DISPLAY_ORDER,
     saveAll: false,
-    isDirty: false,
-    discard: noop,
+    isDirty: editor.isDirty,
+    validate: editor.validate,
+    save: editor.save,
+    discard: editor.discard,
   })
 
   const failure = read.data === undefined ? read.error : undefined
@@ -67,6 +76,15 @@ export function InsuranceSection(): JSX.Element {
         count={policies ? insuranceActiveCount(policies) : undefined}
         editing={false}
         className="mb-2"
+        // Only once the list is there (not while loading, failed or without access).
+        actions={
+          state !== "ready" ? undefined : (
+          <Button ref={addButton} type="button" variant="outline" size="touch" onClick={editor.openAdd}>
+            <Plus aria-hidden="true" />
+            {INSURANCE_MESSAGES.addInsurance}
+          </Button>
+          )
+        }
       />
       <StateFrame
         state={state}
@@ -79,15 +97,23 @@ export function InsuranceSection(): JSX.Element {
         onReady={onReady}
         className={state === "loading" ? `${FRAME_WITHOUT_CONTAINER} ${SKELETON_AS_POLICIES}` : state === "ready" ? FRAME_WITHOUT_CONTAINER : undefined}
       >
-        {policies && policies.length === 0 ? <EmptyState variant="card" message={INSURANCE_MESSAGES.emptyMessage} /> : null}
+        {policies && policies.length === 0 ? (
+          <EmptyState variant="card" message={INSURANCE_MESSAGES.emptyMessage} action={{ label: INSURANCE_MESSAGES.addInsurance, onClick: editor.openAdd }} />
+        ) : null}
         {policies && policies.length > 0 ? (
           <div data-slot="insurance-cards" className="flex flex-col gap-4">
             {policies.map((policy, index) => (
-              <InsurancePolicyCard key={policy.id === null ? `none-${index}` : `id-${policy.id}`} policy={policy} myself={myself} />
+              <InsurancePolicyCard
+                key={policy.id === null ? `none-${index}` : `id-${policy.id}`}
+                policy={policy}
+                myself={myself}
+                onEdit={() => editor.openEdit(policy)}
+              />
             ))}
           </div>
         ) : null}
       </StateFrame>
+      <InsurancePolicyEditor editor={editor} refs={refs} />
     </section>
   )
 }

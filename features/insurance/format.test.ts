@@ -23,6 +23,7 @@ const policy = (overrides: Partial<InsurancePolicy> = {}): InsurancePolicy => ({
   relationship: "SELF",
   deleted: false,
   insurer: "UnitedHealthcare",
+  insurerId: 7,
   subscriber: null,
   memberId: "948221037",
   groupId: "704512",
@@ -116,7 +117,8 @@ describe("insuranceChip", () => {
 })
 
 describe("insuranceSubscriberName", () => {
-  const sam = { firstName: "Sam", lastName: "Lee" }
+  const contact = { email: null, phoneNumber: null, phoneNumberRegion: null, birthDate: null }
+  const sam = { firstName: "Sam", lastName: "Lee", ...contact }
 
   it("Self: the user's own name (the platform's subscriber until myself is there)", () => {
     expect(insuranceSubscriberName(policy({ subscriber: sam }), AVERY)).toBe("Avery Lee")
@@ -126,7 +128,7 @@ describe("insuranceSubscriberName", () => {
 
   it("anyone else: the subscriber's first + last name", () => {
     expect(insuranceSubscriberName(policy({ relationship: "SPOUSE", subscriber: sam }), AVERY)).toBe("Sam Lee")
-    expect(insuranceSubscriberName(policy({ relationship: "CHILD", subscriber: { firstName: "Sam", lastName: "n/a" } }), AVERY)).toBe("Sam")
+    expect(insuranceSubscriberName(policy({ relationship: "CHILD", subscriber: { firstName: "Sam", lastName: "n/a", ...contact } }), AVERY)).toBe("Sam")
     expect(insuranceSubscriberName(policy({ relationship: "SPOUSE", subscriber: null }), AVERY)).toBeNull()
   })
 })
