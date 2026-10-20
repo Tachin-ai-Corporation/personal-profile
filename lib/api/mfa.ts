@@ -45,3 +45,9 @@ export async function validateTotp(code: string): Promise<ApiResponse<boolean>> 
   if (typeof response.data !== "boolean") return { success: false, statusCode: response.statusCode }
   return { success: true, statusCode: response.statusCode, data: response.data }
 }
+
+/** Imperative TOTP-only removal; an empty 200 is a successful result. */
+export async function disableTotp(): Promise<ApiResponse<void>> {
+  const response = await callApi<void>("mfa/disableTotp", mfaDisableTotpPath(), { method: "POST" })
+  return { ...response, data: undefined }
+}

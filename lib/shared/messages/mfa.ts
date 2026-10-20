@@ -16,6 +16,11 @@ export const MFA_MESSAGES = {
   baseUnavailable: "Your account doesn't have multi-factor authentication turned on, so an authenticator app can't be linked yet. Contact support.",
   startFailed: "Couldn't start linking your authenticator app. Try again.", // DRAFT COPY
   validateFailed: "Couldn't check the code. Try again.", // DRAFT COPY
+  disableTitle: "Turn off authenticator app?",
+  disableBody: "You'll no longer be asked for a code from your authenticator app when you sign in.",
+  turnOff: "Turn off",
+  disabled: "Authenticator app disabled",
+  disableFailed: "Couldn't turn off the authenticator app. Try again.", // DRAFT COPY
   google: "Google", // DRAFT COPY: vendor name.
   microsoft: "Microsoft", // DRAFT COPY: vendor name.
   authy: "Authy", // DRAFT COPY: vendor name.

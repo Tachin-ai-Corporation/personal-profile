@@ -8,6 +8,9 @@ import { DialogOverlay, DialogPortal } from "@/components/ui/dialog"
 import { COMMON_MESSAGES, SECTION_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
 
+// Text enlargement can wrap action labels without reducing the touch target.
+const ACTION_STYLES = "h-auto min-h-11 max-w-full whitespace-normal"
+
 export interface ConfirmDialogExtraAction {
   readonly label: string
   readonly onClick: () => void
@@ -85,6 +88,8 @@ export function ConfirmDialog({
           role="alertdialog"
           data-slot="confirm-dialog"
           aria-busy={busy || undefined}
+          // Radix wraps focus with preventScroll; reveal the newly focused action.
+          onFocusCapture={(event) => event.target.scrollIntoView({ block: "nearest", inline: "nearest" })}
           onOpenAutoFocus={(event) => {
             event.preventDefault()
             cancelRef.current?.focus()
@@ -106,7 +111,7 @@ export function ConfirmDialog({
           onPointerDownOutside={blockWhileBusy}
           onInteractOutside={blockWhileBusy}
           className={cn(
-            "bg-popover text-popover-foreground fixed top-1/2 left-1/2 z-50 grid w-[calc(100%-2rem)] md:max-w-md -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border p-6 shadow-lg",
+            "bg-popover text-popover-foreground fixed top-[50dvh] left-[50dvw] z-50 grid max-h-[calc(100dvh-2rem)] w-[calc(100dvw-2rem)] md:max-w-md -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto [overflow-wrap:anywhere] rounded-lg border p-6 shadow-lg",
             // ease-premium entrance, 250 ms (none under reduced motion).
             "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 [animation-duration:250ms] [animation-timing-function:var(--ease-premium)] motion-reduce:animate-none",
           )}
@@ -121,6 +126,7 @@ export function ConfirmDialog({
               type="button"
               variant="secondary"
               size="touch"
+              className={ACTION_STYLES}
               aria-disabled={busy || undefined}
               onClick={onCancel}
             >
@@ -131,6 +137,7 @@ export function ConfirmDialog({
                 type="button"
                 variant="outline"
                 size="touch"
+                className={ACTION_STYLES}
                 aria-disabled={busy || undefined}
                 onClick={extraAction.onClick}
               >
@@ -142,6 +149,7 @@ export function ConfirmDialog({
                 type="button"
                 variant={variant === "destructive" ? "destructive" : "default"}
                 size="touch"
+                className={ACTION_STYLES}
                 busy={busy}
                 busyLabel={busyLabel}
                 onClick={onConfirm}
