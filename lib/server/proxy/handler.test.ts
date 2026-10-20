@@ -78,7 +78,7 @@ describe("proxy: rejections before upstream", () => {
     [";x", "v2/user/myself;x", 400, "BAD_PATH"],
     ["trailing /", "v2/user/myself/", 400, "BAD_PATH"],
     ["mixed case", "V2/User/Myself", 403, "NOT_ALLOWED"],
-    ["not allowlisted", "v2/user/npi", 403, "NOT_ALLOWED"],
+    ["not allowlisted", "v2/test-only-unallowlisted-resource", 403, "NOT_ALLOWED"],
     ["denied", "v2/tenant/sys-config", 403, "NOT_ALLOWED"],
     ["owner id instead of me", "v2/person/4242/ssn/expose", 403, "NOT_ALLOWED"],
     ["unknown query param", "v2/user/myself?x=1", 400, "BAD_QUERY"],
