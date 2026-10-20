@@ -46,6 +46,9 @@ describe("callApi NPI development logging privacy", () => {
     "/api/1h/v2/public/np\ni/list?searchText=Private+Person",
     "/api/1h/v2/user/npi\r?searchText=Private+Person",
     "/api/1h/v2/user/npi \t\r\n",
+    "/api/1h/v2/user/.\t/npi?searchText=Private+Person",
+    "/api/1h/v2/public/old/..\n/npi/list?searchText=Private+Practice",
+    "/api/1h/v2/user/%2e\r/npi?searchText=Private+Person",
     "/api/1h/v2/public/npi/list\u0000\u001f ",
   ])("keeps queries and payloads out of real transport logs for %s", async (path) => {
     vi.stubEnv("NODE_ENV", "development")
@@ -71,7 +74,8 @@ describe("callApi NPI development logging privacy", () => {
     expect(JSON.stringify(group.mock.calls)).not.toMatch(/searchText|Private|1234567890/)
   })
 
-  it.each(["/api/1h/v2/user/npi", "/api/1h/v2/public/npi/list"])("preserves caller error metadata without logging sensitive error bodies for %s", async (route) => {
+  it.each(["/api/1h/v2/user/npi", "/api/1h/v2/public/npi/list", "/api/1h/v2/user/.\t/npi", "/api/1h/v2/public/old/..\r/npi/list"])("preserves caller error metadata without logging sensitive error bodies for %s", async (path) => {
+    const route = new URL(path, "http://localhost").pathname
     vi.stubEnv("NODE_ENV", "development")
     const group = vi.spyOn(console, "groupCollapsed").mockImplementation(() => undefined)
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined)
@@ -101,7 +105,7 @@ describe("callApi NPI development logging privacy", () => {
     ]
     for (const { answer, expected, mapped } of cases) {
       server.use(http.get(route, answer))
-      const response = await freshClient()("npi/read", `${route}?searchText=Private+Person`)
+      const response = await freshClient()("npi/read", `${path}?searchText=Private+Person`)
       expect(response).toMatchObject(expected)
       expect(mapApiError("provider", response)).toEqual(mapped)
       expect(group).toHaveBeenLastCalledWith(expect.stringMatching(new RegExp(`^\\[api\\] GET ${route} → ${expected.statusCode} \\(\\d+ ms\\)$`)))

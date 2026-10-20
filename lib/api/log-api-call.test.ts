@@ -49,6 +49,9 @@ describe("logApiCall (D6)", () => {
     ["/api/1h/v2/user/npi\r?private", "/api/1h/v2/user/npi"],
     ["/api/1h/v2/user/npi \t\r\n", "/api/1h/v2/user/npi"],
     ["/api/1h/v2/public/npi/list\u0000\u001f ", "/api/1h/v2/public/npi/list"],
+    ["/api/1h/v2/user/.\t/npi?private", "/api/1h/v2/user/npi"],
+    ["/api/1h/v2/public/old/..\n/npi/list?private", "/api/1h/v2/public/npi/list"],
+    ["/api/1h/v2/user/%2e\r/npi?private", "/api/1h/v2/user/npi"],
   ])("logs only metadata for %s, even with sensitive errors or request bodies", (path, route) => {
     vi.stubEnv("NODE_ENV", "development")
     const group = vi.spyOn(console, "groupCollapsed").mockImplementation(() => undefined)
@@ -72,6 +75,16 @@ describe("logApiCall (D6)", () => {
     logApiCall({ method: "GET", path, status: 200, durationMs: 2, responseBody: { firstName: "Ann" } })
     expect(group).toHaveBeenCalledWith(`[api] GET ${path} → 200 (2 ms)`)
     expect(log).toHaveBeenCalledWith("response", { firstName: "Ann" })
+  })
+
+  it.each(["http://[", "http://invalid:port/api/x"])("preserves malformed-path logging for %s", (path) => {
+    vi.stubEnv("NODE_ENV", "development")
+    const group = vi.spyOn(console, "groupCollapsed").mockImplementation(() => undefined)
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined)
+    vi.spyOn(console, "groupEnd").mockImplementation(() => undefined)
+    expect(() => logApiCall({ method: "GET", path, status: 400, durationMs: 2, responseBody: { name: "Ann" } })).not.toThrow()
+    expect(group).toHaveBeenCalledWith(`[api] GET ${path} → 400 (2 ms)`)
+    expect(log).toHaveBeenCalledWith("response", { name: "Ann" })
   })
 
   it("parses bodies for display", () => {
