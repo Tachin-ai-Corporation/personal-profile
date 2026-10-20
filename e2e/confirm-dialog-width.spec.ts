@@ -63,11 +63,14 @@ for (const theme of ["light", "dark"] as const) {
         const confirm = dialog.getByRole("button", { name: variant === "standard" ? "Save" : "Turn off", exact: true })
         await expect(cancel).toBeFocused()
         const assertFits = async (height: number) => {
-          const box = await dialog.boundingBox()
-          expect(box).not.toBeNull()
-          expect(box!.y).toBeGreaterThanOrEqual(16)
-          expect(box!.y + box!.height).toBeLessThanOrEqual(height - 16)
-          expect(Math.abs(box!.x + box!.width / 2 - viewport.width / 2)).toBeLessThan(1)
+          // Viewport changes can resolve before dynamic viewport units finish relayout.
+          await expect(async () => {
+            const box = await dialog.boundingBox()
+            expect(box).not.toBeNull()
+            expect(box!.y).toBeGreaterThanOrEqual(16)
+            expect(box!.y + box!.height).toBeLessThanOrEqual(height - 16)
+            expect(Math.abs(box!.x + box!.width / 2 - viewport.width / 2)).toBeLessThan(1)
+          }).toPass({ timeout: 5_000 })
         }
         await assertFits(viewport.height)
         await page.setViewportSize({ ...viewport, height: viewport.height + 160 })

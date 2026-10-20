@@ -48,3 +48,10 @@ The blind reviewer inspected the focus-scrolling follow-up and found no addition
 - Final full suite: **5,767 passed / 209 files**, **100% statements, branches, functions and lines** in the enforced library coverage (`/tmp/confirm-height-coverage-final.log`).
 - Final ESLint, TypeScript and forbidden/token gates passed (`/tmp/confirm-height-{lint,types,forbidden}-final.log`).
 - Final production browser regressions: **156 passed** across shared confirmation, authenticator disable, Profile email and Profile phone (`/tmp/confirm-height-browser-final.log`). Includes 16 enlarged-text cases covering both themes, standard/destructive consumers, 600x240 and 360x320, desktop/mobile projects, resize, wheel input, all keyboard actions and held busy requests. Axe reports no violations in the tested dialogs.
+
+### CI follow-up: wait for layout after resizing
+
+- CI exposed a timing race in the new resize assertions: after shrinking by 160px, a single bounding-box read could still return the prior enlarged layout (bottom 448 instead of at most 304, or 368 instead of at most 224). Failures point to the assertion immediately after restoring the short viewport. The original test passed 48 repeated cases locally; that did not reproduce CI's timing.
+- Wrap the complete bounding-box read and unchanged bounds/centering assertions in Playwright's `expect(...).toPass({ timeout: 5_000 })`. Every attempt remeasures the dialog; a persistent containment regression still fails. No fixed sleeps, relaxed geometry limits or product changes.
+- Corrected enlarged-text matrix: **80 passed** (five repetitions of all 16 cases, two workers), without test retries (`/tmp/confirm-resize-after.log`). Targeted ESLint, TypeScript and diff checks passed.
+- Complete production browser suite: **975 passed / 11 expected skips**, no failures or flaky cases, two workers (`/tmp/confirm-resize-full.log`, 6.5 minutes). All 986 scheduled tests completed.
