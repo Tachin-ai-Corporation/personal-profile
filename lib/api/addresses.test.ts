@@ -79,7 +79,19 @@ const wire = (overrides: Record<string, unknown> = {}): Record<string, unknown> 
   ...overrides,
 })
 
-const page = (content: unknown[]) => ({ content, totalElements: content.length, totalPages: 1, number: 0, size: ADDRESS_LIST_PAGE_SIZE })
+/** The backend's `PageImpl` (`com.sirma.bocore.common.repository.PageImpl`), as `GET v2/person/location/list` answers. */
+const page = (data: unknown[]) => ({
+  data,
+  pageNumber: 0,
+  pageSize: ADDRESS_LIST_PAGE_SIZE,
+  offset: 0,
+  emptyPage: data.length === 0,
+  firstPage: true,
+  lastPage: true,
+  numberOfElements: data.length,
+  totalElements: data.length,
+  totalPages: data.length === 0 ? 0 : 1,
+})
 
 describe("addresses", () => {
   it("paths and constants", () => {
@@ -101,7 +113,7 @@ describe("addresses", () => {
 })
 
 describe("toAddresses (Story 4.1)", () => {
-  it("maps a Spring Page's rows in API order: the type from personLocationType, the booleans from primary / validated", () => {
+  it("maps a PageImpl's rows in API order: the type from personLocationType, the booleans from primary / validated", () => {
     expect(
       toAddresses(
         page([
@@ -160,14 +172,31 @@ describe("toAddresses (Story 4.1)", () => {
     expect(toAddresses(page([wire({ id: 1, active: false }), wire({ id: 2, active: null }), wire({ id: 3, active: undefined })]))?.map((row) => row.id)).toEqual([2, 3])
   })
 
+  it("reads the real backend body: PageImpl<PersonLocationResponseDTO> with the rows under data", () => {
+    const body = {
+      data: [wire({ id: 5, primary: true, validated: true })],
+      pageNumber: 0,
+      pageSize: 100,
+      offset: 0,
+      emptyPage: false,
+      firstPage: true,
+      lastPage: true,
+      numberOfElements: 1,
+      totalElements: 1,
+      totalPages: 1,
+    }
+    expect(toAddresses(body)).toEqual([address({ id: 5, primary: true, validated: true })])
+  })
+
   it("reads an empty Page and an empty list as no addresses", () => {
     expect(toAddresses(page([]))).toEqual([])
     expect(toAddresses([])).toEqual([])
   })
 
   it.each([
-    ["an object without content", { totalElements: 0 }],
-    ["a Page whose content is not a list", { content: null }],
+    ["an object without data", { totalElements: 0 }],
+    ["a Page whose data is not a list", { data: null }],
+    ["a Spring Page (content, not the backend's data)", { content: [], totalElements: 0 }],
     ["a row with a string id", [{ id: "1" }]],
     ["a row with a string flag", [{ primary: "true" }]],
     ["a string", "nope"],

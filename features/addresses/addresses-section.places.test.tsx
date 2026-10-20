@@ -100,7 +100,7 @@ function placesServer(options: ServerOptions = {}) {
     for (const field of WIRE_FIELDS) if (field in body) target[field] = body[field]
   }
   const handlers: HttpHandler[] = [
-    http.get(LIST, () => HttpResponse.json({ content: state.rows, totalElements: state.rows.length })),
+    http.get(LIST, () => HttpResponse.json({ data: state.rows, totalElements: state.rows.length, lastPage: true })),
     http.get(COUNTRIES, () => HttpResponse.json(COUNTRY_LIST)),
     http.post(CREATE, async ({ request }) => {
       const body = (await request.json()) as Wire

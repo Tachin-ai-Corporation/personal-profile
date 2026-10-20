@@ -89,7 +89,7 @@ function addressServer(options: ServerOptions = {}) {
       counts.list += 1
       const answer = options.list?.()
       if (answer) return answer
-      return HttpResponse.json({ content: live(), totalElements: live().length })
+      return HttpResponse.json({ data: live(), totalElements: live().length, lastPage: true })
     }),
     http.get(COUNTRIES, () => HttpResponse.json([{ id: 1, name: "United States" }, { id: 2, name: "Canada" }])),
     http.post("/api/places/autocomplete", () => HttpResponse.json({ enabled: false, suggestions: [] })),
