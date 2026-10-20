@@ -24,7 +24,23 @@ const policy = (front: number | null, back: number | null) => ({
   frontSideCardFile: front === null ? null : { id: front, name: "front.png", publicURL: "x" },
   backSideCardFile: back === null ? null : { id: back, name: "back.png" },
 })
-const page = (content: unknown[], last = true) => ({ content, last, number: 0 })
+/**
+ * One `GET v2/health/patient/insurance` page as the backend serializes its own
+ * `PageImpl` (`com.sirma.bocore.common.repository.PageImpl`, Jackson names
+ * `isLastPage()` → `lastPage`), not Spring's `{ content, last }`.
+ */
+const page = (data: unknown[], lastPage = true, pageNumber = 0) => ({
+  data,
+  pageNumber,
+  pageSize: 100,
+  offset: pageNumber * 100,
+  emptyPage: data.length === 0,
+  firstPage: pageNumber === 0,
+  lastPage,
+  numberOfElements: data.length,
+  totalElements: pageNumber * 100 + data.length,
+  totalPages: lastPage ? pageNumber + 1 : pageNumber + 2,
+})
 
 interface Seen {
   myself: number
@@ -196,11 +212,32 @@ describe("DELETE /api/pp/file/[fileId] (spec F7-2)", () => {
   })
 
   it("deletes a front or back card of the caller's own policies, reading pages until the last", async () => {
-    const seen = upstream({ pages: [page([policy(1, null)], false), page([policy(null, 77), policy(null, null)], true)] })
+    const seen = upstream({ pages: [page([policy(1, null)], false, 0), page([policy(null, 77), policy(null, null)], true, 1)] })
     const response = await del("77")
     expect(response.status).toBe(204)
     expect(seen.insurance).toEqual(["page=0&size=100", "page=1&size=100"])
     expect(seen.deletes).toEqual(["/api/v2/file/77?hardDelete=true"])
+  })
+
+  it("follows a multi-page backend PageImpl (lastPage false, false, then true) to a front card on the last page", async () => {
+    const seen = upstream({
+      pages: [page([policy(1, 2)], false, 0), page([policy(3, null)], false, 1), page([policy(88, 4)], true, 2), page([policy(99, null)], true, 3)],
+    })
+    const response = await del("88")
+    expect(response.status).toBe(204)
+    expect(seen.insurance).toEqual(["page=0&size=100", "page=1&size=100", "page=2&size=100"])
+    expect(seen.deletes).toEqual(["/api/v2/file/88?hardDelete=true"])
+  })
+
+  it.each([
+    ["lastPage is true", [page([policy(1, 2)], true, 0), page([policy(66, null)], true, 1)]],
+    ["lastPage is missing", [{ data: [policy(1, 2)] }, page([policy(66, null)], true, 1)]],
+    ["data is empty although lastPage is false", [page([], false, 0), page([policy(66, null)], true, 1)]],
+  ])("stops reading insurance pages when %s", async (_label, pages) => {
+    const seen = upstream({ pages })
+    await expectBffError(await del("66"), 404, "NO_FILE")
+    expect(seen.insurance).toEqual(["page=0&size=100"])
+    expect(seen.deletes).toEqual([])
   })
 
   it("deletes an older Signature of the caller (a replaced one) found in its Signature relations, read last", async () => {
@@ -242,7 +279,7 @@ describe("DELETE /api/pp/file/[fileId] (spec F7-2)", () => {
   it.each([
     ["a foreign id", "999", {}],
     ["an id that is only another person's Signature (not in the caller's relations)", "41", { signatureRelations: [57] }],
-    ["a foreign id while the user has no picture, signature or policy", "5", { pages: [{ content: [] , last: false }] }],
+    ["a foreign id while the user has no picture, signature or policy", "5", { pages: [page([], false)] }],
     ["a string signature id that isn't the one asked", "8", { signature: { id: "9" } }],
     ["a signature without an id", "8", { signature: { name: "x" } }],
   ])("refuses %s with 404 NO_FILE and deletes nothing", async (_label, id, options) => {
@@ -275,6 +312,8 @@ describe("DELETE /api/pp/file/[fileId] (spec F7-2)", () => {
       ["insurance 403", () => server.use(http.get(INSURANCE, () => HttpResponse.json({ message: "No" }, { status: 403 }))), 502, "UPSTREAM_ERROR"],
       ["insurance 500", () => server.use(http.get(INSURANCE, () => new HttpResponse(null, { status: 500 }))), 502, "UPSTREAM_ERROR"],
       ["insurance not a page", () => server.use(http.get(INSURANCE, () => HttpResponse.json([policy(5, 5)]))), 502, "UPSTREAM_ERROR"],
+      ["insurance as a Spring page ({ content, last }), not the backend's PageImpl", () => server.use(http.get(INSURANCE, () => HttpResponse.json({ content: [policy(5, 5)], last: true }))), 502, "UPSTREAM_ERROR"],
+      ["insurance page data null", () => server.use(http.get(INSURANCE, () => HttpResponse.json({ ...page([]), data: null }))), 502, "UPSTREAM_ERROR"],
       ["more insurance pages than the cap", () => server.use(http.get(INSURANCE, () => HttpResponse.json(page([policy(1, 2)], false)))), 502, "UPSTREAM_ERROR"],
       ["Signature relations GraphQL errors", () => signatureGraphql(() => HttpResponse.json({ errors: [{ message: "x" }] })), 502, "UPSTREAM_ERROR"],
       ["Signature relations 400", () => signatureGraphql(() => HttpResponse.json({ message: "x" }, { status: 400 })), 502, "UPSTREAM_ERROR"],
@@ -288,7 +327,7 @@ describe("DELETE /api/pp/file/[fileId] (spec F7-2)", () => {
     })
 
     it("stops at the page cap", async () => {
-      const seen = upstream({ pages: Array.from({ length: INSURANCE_MAX_PAGES + 2 }, () => page([policy(1, 2)], false)) })
+      const seen = upstream({ pages: Array.from({ length: INSURANCE_MAX_PAGES + 2 }, (_, n) => page([policy(1, 2)], false, n)) })
       await expectBffError(await del("5"), 502, "UPSTREAM_ERROR")
       expect(seen.insurance).toHaveLength(INSURANCE_MAX_PAGES)
       expect(seen.insurance).toEqual(Array.from({ length: INSURANCE_MAX_PAGES }, (_, page) => `page=${page}&size=100`))
