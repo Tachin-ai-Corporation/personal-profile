@@ -160,3 +160,7 @@ Footprint: Team B MFA files, including a controller hook and cache coordinator. 
 ## Verification
 
 Targeted MFA API/allowlist/feature tests, lint/typecheck/forbidden, full enforced coverage, then production Account Playwright with two workers. Coverage and browser runs sequentially. Include empty response, generic/coded errors, late mutation results, held identity refresh, shell focus and negative base-MFA-call assertions. Run BMAD review on the final diff.
+
+### Follow-up: shared dialog height resolved
+
+The user explicitly authorized resolving I-B9 on the same story branch on 2026-10-20, overriding the separate-foundation-PR constraint for this follow-up. [Short viewport fix](spec-confirm-dialog-short-viewport.md) bounds and centers ConfirmDialog using dynamic viewport units, scrolls its content and wraps enlarged labels. Standard/destructive confirmations at 600x240 and 360x320 with 200% text pass in both themes and browser projects. The corresponding Team B deferred entry is marked resolved; no height follow-up remains after this fix's final verification and review.

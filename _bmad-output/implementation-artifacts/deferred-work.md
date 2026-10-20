@@ -117,6 +117,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-3-turn-off-the-authenticator-app.md`
   summary: Account follow-up: request a separate foundation fix for ConfirmDialog content clipping in a short viewport with enlarged text; the shared dialog needs a bounded height and reachable scrolling actions.
   evidence: Integrated BMAD review reproduced the pre-existing layout at 600x240 with 200% root text: dialog top -89 / bottom 329, action bottom 280 versus viewport 240, overflow-y visible. Normal text fits at top 25 / bottom 215. Height/overflow styling is unchanged by PR #24 or Story 8.3; any shared fix must ship through foundation. Local evidence: /tmp/story83-short-enlarged-viewport-probe.log.
+  resolution: RESOLVED 2026-10-20 — user explicitly authorized the shared fix on feat/NG-9038-disable-authenticator. ConfirmDialog now uses dynamic-viewport bounds/centering, vertical scrolling and wrapping content/actions. Standard/destructive browser regressions at 600x240 and 360x320 with 200% text pass in both themes/projects; see spec-confirm-dialog-short-viewport.md.
 
 ## Foundation (shared or cross-team)
 
