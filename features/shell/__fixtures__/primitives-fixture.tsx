@@ -114,6 +114,23 @@ export function PrimitivesFixture() {
           )}
         </FormField>
       </section>
+
+      <section aria-label="Tooltip focus scrolling" className="flex flex-col gap-6">
+        <div data-testid="tooltip-nested-scroller" className="h-48 overflow-auto">
+          <button type="button">Before nested tooltip</button>
+          <div className="h-screen" aria-hidden="true" />
+          <Tooltip content="Nested scroll description">
+            <InfoIconButton aria-label="Nested scroll help" />
+          </Tooltip>
+          <button type="button">After nested tooltip</button>
+        </div>
+        <button type="button">Before root tooltip</button>
+        <div className="h-screen" aria-hidden="true" />
+        <Tooltip content="Root scroll description">
+          <InfoIconButton aria-label="Root scroll help" />
+        </Tooltip>
+        <button type="button">After root tooltip</button>
+      </section>
     </main>
   )
 }

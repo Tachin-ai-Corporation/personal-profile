@@ -1,0 +1,26 @@
+diff --git a/dist/index.js b/dist/index.js
+index 0fd24d22e5030c52269d146fd3553b60670a776c..20d72cee9b78beb00cf05a137b7ca2f0db9e08d8 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -362,7 +362,7 @@ var TooltipContentImpl = /* @__PURE__ */ React.forwardRef(
+     React.useEffect(() => {
+       if (context.trigger) {
+         const handleScroll = /* @__PURE__ */ __name((event) => {
+-          if (event.target instanceof Node && event.target.contains(context.trigger)) {
++          if (event.target instanceof Node && event.target.contains(context.trigger) && context.trigger.ownerDocument.activeElement !== context.trigger) {
+             onClose();
+           }
+         }, "handleScroll");
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 073c04431b4d9dba896f13d64afcc99476d0bf87..419375e572f2b0457917830216dbdb7f3c275795 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -316,7 +316,7 @@ var TooltipContentImpl = /* @__PURE__ */ React.forwardRef(
+     React.useEffect(() => {
+       if (context.trigger) {
+         const handleScroll = /* @__PURE__ */ __name((event) => {
+-          if (event.target instanceof Node && event.target.contains(context.trigger)) {
++          if (event.target instanceof Node && event.target.contains(context.trigger) && context.trigger.ownerDocument.activeElement !== context.trigger) {
+             onClose();
+           }
+         }, "handleScroll");

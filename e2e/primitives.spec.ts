@@ -26,9 +26,7 @@ test.describe("F3-1 primitives", () => {
     await page.getByRole("button", { name: "Show success" }).click()
     await page.getByRole("button", { name: "Show partial" }).click()
     await page.getByRole("button", { name: "Show error" }).click()
-    // Radix closes a tooltip when its trigger's scroller scrolls, so bring it into view before focusing it.
     const addPhone = page.getByRole("button", { name: "Add phone" })
-    await addPhone.scrollIntoViewIfNeeded()
     await addPhone.focus()
     await expect(page.getByRole("tooltip")).toHaveText("You've reached the limit of 20 phones")
     await expectNoAxeViolations(page, "primitives with tooltip and toasts")
@@ -74,7 +72,18 @@ test.describe("F3-1 primitives", () => {
 
   test("DisabledAction: Enter, Space and a click do nothing (its form is never submitted), focus stays, the reason is announced and shown", async ({ page }) => {
     const action = page.getByRole("button", { name: "Add phone" })
+    // Scroll away from the trigger; focusing it must perform the return scroll.
+    await page.evaluate(() => new Promise<void>((resolve) => {
+      document.addEventListener("scrollend", () => resolve(), { once: true })
+      window.scrollTo(0, document.documentElement.scrollHeight)
+    }))
+    await expect.poll(() => action.evaluate((el) => el.getBoundingClientRect().bottom)).toBeLessThanOrEqual(0)
+    await page.evaluate(() => {
+      document.documentElement.removeAttribute("data-scroll-settled")
+      document.addEventListener("scrollend", () => document.documentElement.setAttribute("data-scroll-settled", "true"), { once: true })
+    })
     await action.focus()
+    await expect(page.locator("html")).toHaveAttribute("data-scroll-settled", "true")
     // Focus must have landed before the keys (a slow runner can still be hydrating).
     await expect(action).toBeFocused()
     await page.keyboard.press("Enter")
@@ -102,6 +111,62 @@ test.describe("F3-1 primitives", () => {
       // Hoverable content (WCAG 1.4.13): it closes once the pointer has left both the trigger and the tooltip.
       await page.mouse.move(0, 0, { steps: 5 })
     }
+    await expect(page.getByRole("tooltip")).toHaveCount(0)
+  })
+
+  for (const scrollArea of ["root", "nested"] as const) {
+    test(`Tooltip: keyboard focus survives ${scrollArea} focus scrolling and explicit dismissal`, async ({ page }) => {
+      const nested = scrollArea === "nested"
+      const trigger = page.getByRole("button", { name: nested ? "Nested scroll help" : "Root scroll help", exact: true })
+      const before = page.getByRole("button", { name: nested ? "Before nested tooltip" : "Before root tooltip" })
+      const after = page.getByRole("button", { name: nested ? "After nested tooltip" : "After root tooltip" })
+      const description = nested ? "Nested scroll description" : "Root scroll description"
+      const scroller = nested ? page.getByTestId("tooltip-nested-scroller") : page.locator("html")
+      for (const theme of ["light", "dark"] as const) {
+        await setTheme(page, theme)
+        for (let traversal = 0; traversal < 3; traversal += 1) {
+          await before.focus()
+          // The target remains off-screen. Only Tab may bring it into view.
+          expect(await trigger.evaluate((el) => {
+            const bounds = el.getBoundingClientRect()
+            const ancestor = el.closest("[data-testid='tooltip-nested-scroller']")
+            return bounds.top >= (ancestor?.getBoundingClientRect().bottom ?? innerHeight)
+          })).toBe(true)
+          await scroller.evaluate((el, isNested) => {
+            el.removeAttribute("data-scroll-settled")
+            const target = isNested ? el : document
+            target.addEventListener("scrollend", () => el.setAttribute("data-scroll-settled", "true"), { once: true })
+          }, nested)
+          await page.keyboard.press("Tab")
+          await expect(scroller).toHaveAttribute("data-scroll-settled", "true")
+          await expect(trigger).toBeFocused()
+          await expect(page.getByRole("tooltip", { name: description, exact: true })).toBeVisible()
+          await expect(trigger).toHaveAccessibleDescription(description)
+          await expect.poll(() => page.locator("[data-slot='tooltip-content']").evaluate((el) => {
+            const bounds = el.getBoundingClientRect()
+            return bounds.width > 0 && bounds.height > 0 && bounds.top >= 0 && bounds.left >= 0
+              && bounds.bottom <= innerHeight && bounds.right <= innerWidth
+          })).toBe(true)
+          if (traversal === 0) {
+            await page.keyboard.press("Escape")
+          } else if (traversal === 1) {
+            await page.keyboard.press("Tab")
+            await expect(after).toBeFocused()
+          } else {
+            await page.getByRole("heading", { level: 1 }).click()
+          }
+          await expect(page.getByRole("tooltip")).toHaveCount(0)
+        }
+      }
+    })
+  }
+
+  test("Tooltip: hover-only content still closes on ancestor scroll", async ({ page }) => {
+    const trigger = page.getByRole("button", { name: "Nested scroll help", exact: true })
+    await trigger.hover()
+    await expect(trigger).not.toBeFocused()
+    await expect(page.getByRole("tooltip", { name: "Nested scroll description", exact: true })).toBeVisible()
+    await page.getByTestId("tooltip-nested-scroller").evaluate((el) => { el.scrollTop -= 20 })
     await expect(page.getByRole("tooltip")).toHaveCount(0)
   })
 
