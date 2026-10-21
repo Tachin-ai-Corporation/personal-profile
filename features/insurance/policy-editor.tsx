@@ -1,11 +1,12 @@
 "use client"
 
+import { Check } from "lucide-react"
 import { useId, useRef, useState, type JSX, type ReactNode } from "react"
 import { useWatch, type FieldPath, type PathValue } from "react-hook-form"
 import { Button } from "@/components/ui/button"
 import { Combobox, type ComboboxSelection } from "@/components/ui/combobox"
 import { DateInput } from "@/components/ui/date-input"
-import { FormField, type FieldControlProps } from "@/components/ui/form-field"
+import { FieldError, FormField, type FieldControlProps } from "@/components/ui/form-field"
 import { InlineBanner } from "@/components/ui/inline-banner"
 import { Input } from "@/components/ui/input"
 import { PhoneInput } from "@/components/ui/phone-input"
@@ -112,7 +113,18 @@ function ChoiceField({ editor, name, label }: ChoiceFieldProps): JSX.Element {
           unlistedValue={unlisted}
           loading={editor.options.state === "loading"}
         >
-          <SelectTrigger {...wiring} ref={register} onBlur={binding.onBlur} aria-readonly={editor.saving || undefined} className="w-full">
+          <SelectTrigger
+            {...wiring}
+            ref={register}
+            onBlur={(event) => {
+              // Opening the list moves focus into it: not a blur of the field (no "Choose a value" while picking;
+              // that line, removed again as focus moves on, would make the Sheet's focus trap pull focus to the dialog).
+              if (event.relatedTarget instanceof Element && event.relatedTarget.closest('[role="listbox"]')) return
+              binding.onBlur()
+            }}
+            aria-readonly={editor.saving || undefined}
+            className="w-full"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -316,6 +328,64 @@ function SubscriberGroup({ editor, refs }: FieldProps & { readonly refs: Insuran
   )
 }
 
+/**
+ * Story 5.4: the offer to make the other Primary policy (or policies) of the
+ * type Secondary, right after Type + Precedence. The outline button accepts it
+ * (`aria-pressed`, the note "The change saves with this policy.") and takes it
+ * back; a Save without the acceptance shows the error line under the banner
+ * and focuses the button.
+ */
+function DemotionOffer({ editor, refs }: FieldProps & { readonly refs: InsuranceEditorRefs }): JSX.Element | null {
+  const noteId = useId()
+  const errorId = useId()
+  const { demotion } = editor
+  const { demoteButton } = refs
+  if (demotion === null) return null
+  const names = { Type: demotion.type, insurer: demotion.insurers }
+  return (
+    <div data-slot="insurance-demotion" className="flex min-w-0 flex-col gap-1.5">
+      <InlineBanner
+        variant="info"
+        data-slot="insurance-demotion-banner"
+        className="rounded-md"
+        action={
+          <Button
+            ref={demoteButton}
+            type="button"
+            variant="outline"
+            size="touch"
+            aria-pressed={demotion.accepted}
+            // Inert while saving (focusable, never `disabled`).
+            aria-disabled={editor.saving || undefined}
+            aria-describedby={describedBy(demotion.accepted ? noteId : undefined, demotion.error ? errorId : undefined)}
+            // Long or several insurer names wrap instead of widening the drawer (360 px).
+            className="h-auto min-h-11 max-w-full text-left whitespace-normal"
+            onClick={editor.toggleDemotion}
+          >
+            {demotion.accepted ? <Check aria-hidden="true" /> : null}
+            {formatMessage(INSURANCE_MESSAGES.makeSecondary, { insurer: demotion.insurers })}
+          </Button>
+        }
+      >
+        {formatMessage(INSURANCE_MESSAGES.primaryConflict, names)}
+      </InlineBanner>
+      <div aria-live="polite">
+        {demotion.accepted ? (
+          <p id={noteId} data-slot="insurance-demotion-note" className="text-muted-foreground text-body-sm">
+            {INSURANCE_MESSAGES.demotionNote}
+          </p>
+        ) : null}
+      </div>
+      {/* Read once, as the focused button's description (no second live announcement). */}
+      {demotion.error ? (
+        <FieldError id={errorId} className="[overflow-wrap:anywhere]">
+          {formatMessage(INSURANCE_MESSAGES.primaryConflictUnaccepted, names)}
+        </FieldError>
+      ) : null}
+    </div>
+  )
+}
+
 /** The form, in the spec's field order; remounted on every open (`key`), so its local text starts over. */
 function EditorBody({ editor, refs, onInsurerInput }: FieldProps & { readonly refs: InsuranceEditorRefs; readonly onInsurerInput: (element: HTMLInputElement | null) => void }): JSX.Element {
   const datesHelpId = useId()
@@ -362,7 +432,7 @@ function EditorBody({ editor, refs, onInsurerInput }: FieldProps & { readonly re
         <ChoiceField editor={editor} name="type" label={SHELL_MESSAGES.columnType} />
         <ChoiceField editor={editor} name="precedence" label={INSURANCE_MESSAGES.precedence} />
       </div>
-      {/* Story 5.4: the Primary-per-type demotion offer goes here. */}
+      <DemotionOffer editor={editor} refs={refs} />
       <ChoiceField editor={editor} name="relationship" label={INSURANCE_MESSAGES.relationship} />
       <div className={PAIR}>
         <TextField editor={editor} name="memberId" label={INSURANCE_MESSAGES.memberId} />

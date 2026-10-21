@@ -48,9 +48,16 @@ export function insurancePage(rows: readonly Record<string, unknown>[] = []): Re
   }
 }
 
-/** `GET v2/health/patient/insurance?page=0&size=100` (Story 5.1); default an empty Page (no policies). */
-export async function mockInsurance(page: Page, answer: ProxyAnswer = {}): Promise<() => Request[]> {
-  return mockProxy(page, "v2/health/patient/insurance?**", { status: answer.status ?? 200, body: answer.body ?? insurancePage() })
+/**
+ * `GET v2/health/patient/insurance?page=0&size=100` (Story 5.1); default an
+ * empty Page (no policies). `answer` may be a function of the request (Story
+ * 5.4: a list that changes once a write went).
+ */
+export async function mockInsurance(page: Page, answer: ProxyResponder = {}): Promise<() => Request[]> {
+  return mockProxy(page, "v2/health/patient/insurance?**", (request) => {
+    const { status = 200, body = insurancePage() } = typeof answer === "function" ? answer(request) : answer
+    return { status, body }
+  })
 }
 
 /**
@@ -255,4 +262,47 @@ export async function mockInsuranceFileDelete(page: Page, status = 204): Promise
     return status === 204 ? route.fulfill({ status }) : json(route, status, { errorCode: "NO_FILE", source: "proxy" })
   })
   return () => [...deleted]
+}
+
+/** Story 5.4: the write log; `stop()` detaches it (it also detaches when the page closes). */
+export type InsuranceWriteLog = (() => string[]) & { readonly stop: () => void }
+
+/** The JSON body of a request, or `{}` when it has none or it isn't JSON. */
+function insuranceJsonBody(request: Request): Record<string, unknown> {
+  try {
+    const body: unknown = request.postDataJSON()
+    return body !== null && typeof body === "object" ? (body as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Story 5.4: every insurance write the page sends, in order, as
+ * `PUT 55 SECONDARY` (the id and the body's precedence), `POST`,
+ * `upload 60 front`, or `DELETE file 900` (the file-delete named op). Only
+ * records; the answers come from the write mocks.
+ */
+export function insuranceWriteLog(page: Page): InsuranceWriteLog {
+  const log: string[] = []
+  const listener = (request: Request): void => {
+    const path = new URL(request.url()).pathname
+    const method = request.method()
+    const deleted = /^\/api\/pp\/file\/([^/]+)$/.exec(path)
+    if (method === "DELETE" && deleted) {
+      log.push(`DELETE file ${deleted[1]}`)
+      return
+    }
+    if (!path.startsWith("/api/1h/v2/health/")) return
+    const upload = /\/type\/Insurance\/(\d+)\/relation\/InsuranceHas(Front|Back)SideCardFile\/file\/upload$/.exec(path)
+    if (method === "POST" && upload) log.push(`upload ${upload[1]} ${upload[2].toLowerCase()}`)
+    else if (method === "POST" && path === "/api/1h/v2/health/patient/insurance") log.push("POST")
+    else if (method === "PUT") log.push(`PUT ${path.split("/").pop() ?? ""} ${String(insuranceJsonBody(request).insurancePrecedence)}`)
+  }
+  const stop = (): void => {
+    page.off("request", listener)
+  }
+  page.on("request", listener)
+  page.once("close", stop)
+  return Object.assign(() => [...log], { stop })
 }

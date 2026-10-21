@@ -731,7 +731,7 @@ describe("Insurance editor: save failures (I/O rows Server field error, Network)
     expect(within(banner.closest('[data-slot~="insurance-save-error"]') as HTMLElement).queryByRole("button")).toBeNull()
   })
 
-  it("the Primary rule shows at Precedence (until Story 5.4)", async () => {
+  it("the Primary rule shows at Precedence (Story 5.4 keeps it for a race: another device made a Primary meanwhile)", async () => {
     await renderSection([], fail("You can not have multiple insurance records from same type with precedence field set to Primary."))
     await openAdd()
     await fillSelf()

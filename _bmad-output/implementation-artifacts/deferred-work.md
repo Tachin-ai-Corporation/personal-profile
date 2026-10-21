@@ -155,6 +155,14 @@
   summary: (Foundation) No telemetry events for the card upload, Retry and replace-delete outcomes, so the demo check of the card delete (decision 1A) has no signal. Add events (no ids, no file names) through `lib/shared/telemetry.ts` in a foundation PR.
   evidence: features/insurance/card-upload.ts, card-retry.tsx; lib/shared/telemetry.ts (`TelemetryEvents`); spec 5.3 review row 18.
 
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-4-primary-per-type-with-demote-offer.md`
+  summary: (Team A) A session that ends after a demotion succeeded leaves the other policy Secondary: once the session ended no request can be sent, so there is no rollback. After the relaunch the user must make it Primary again. Consider telling the user on relaunch.
+  evidence: features/insurance/use-insurance-editor.ts (`sendOnce`, `rollBack`: no rollback after a session failure); spec 5.4 review row 7.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-4-primary-per-type-with-demote-offer.md`
+  summary: Flaky under full-suite load: `e2e/profile-insurance.spec.ts` "Add and edit a policy (Story 5.2) › keyboard only, from the empty card …" (desktop). After Enter on a Radix Select option the trigger still reads empty ("Precedence" expected "Secondary"); it passes on retry. Seen in the Story 5.3 and 5.4 full runs. Story 5.4's `ChoiceField` change (moving focus into a Select's own list is no longer a blur) fixed a related focus loss but not this. Diagnose from a trace (likely Enter landing before the list's highlighted option is set), e.g. wait for the option's `data-highlighted` before Enter.
+  evidence: Story 5.4 full `CI=1 pnpm test:e2e` run (2026-10-21): 1134 passed, 1 flaky (this test, line 351, `toHaveText("Secondary")` got ""); `profile-insurance.spec.ts --repeat-each=3` alone had no failures.
+
 ## Team B (`/account`, Epics 7-10)
 
 - source_spec: none

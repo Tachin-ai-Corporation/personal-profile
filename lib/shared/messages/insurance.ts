@@ -57,7 +57,7 @@ export const INSURANCE_MESSAGES = {
   subscriberPhoneRequired: "Phone is required", // DRAFT COPY (spec 5.2 required subscriber phone)
   subscriberAge: "You must be 18 to 120 years old", // verbatim: EXPERIENCE.md Voice and Tone, "Validation"
   duplicatePolicy: "This policy is already on your profile", // DRAFT COPY (spec 5.2 backend duplicate on POST / PUT)
-  primaryTaken: "You already have a primary policy of this type", // DRAFT COPY (spec 5.2 backend one Primary per type, until Story 5.4)
+  primaryTaken: "You already have a primary policy of this type", // DRAFT COPY (spec 5.2 backend one Primary per type; after Story 5.4 only a race reaches it)
   policyMissing: "This policy is no longer on your profile.", // DRAFT COPY (spec 5.2 backend "does not have an insurance", error toast)
   subscriberIncomplete: "The saved policyholder is incomplete. To change the policyholder, remove this policy and add it again.", // DRAFT COPY (spec 5.2 review: a backend subscriber rule on a locked subscriber)
   // Story 5.3: the editor's card image slots ("Replace" / "Remove" are `COMMON_MESSAGES`), the uploads and "Retry upload".
@@ -78,4 +78,15 @@ export const INSURANCE_MESSAGES = {
   retryUpload: "Retry upload", // verbatim: EXPERIENCE.md Voice and Tone, "Card image failed"
   retryUploadName: "Retry upload of the {side} image", // DRAFT COPY (spec 5.3 card "Retry upload", accessible name)
   imageUploaded: "Card image uploaded.", // DRAFT COPY (spec 5.3 Retry success toast)
+  // Story 5.4: one Primary per type, the demotion offer ({insurer} may name several, joined with `insurerList`).
+  primaryConflict: "Only one primary {Type} policy. Make {insurer} secondary?", // verbatim: EXPERIENCE.md Voice and Tone, "Primary policy demotion"
+  makeSecondary: "Make {insurer} secondary", // verbatim: EXPERIENCE.md Voice and Tone, "Primary policy demotion" (button)
+  demotionNote: "The change saves with this policy.", // verbatim: EXPERIENCE.md Voice and Tone, "Primary policy demotion" (note)
+  insurerList: "{insurers} and {last}", // DRAFT COPY (spec 5.4 several insurers: "Aetna and Cigna", "Aetna, Cigna and Humana")
+  insurerListSeparator: ", ", // DRAFT COPY (spec 5.4 between the insurers before the last: "Aetna, Cigna and Humana")
+  primaryConflictUnaccepted: "Only one primary {Type} policy is allowed. Make {insurer} secondary, or don't make this policy primary.", // DRAFT COPY (spec 5.4 Save without the acceptance; "choose another precedence" reworded: the catalog keeps "precedence" out of sentences)
+  demotionUnbuildable: "Couldn't make {insurer} secondary. Edit that policy first.", // DRAFT COPY (spec 5.4 the other policy's saved values can't be sent)
+  demotionNotRolledBack: "{insurer} is now secondary.", // DRAFT COPY (spec 5.4 decision 2A: a rollback that failed; also after "Insurance saved." when a demotion ran)
+  demotionNoPolicyholder: "Couldn't make {insurer} secondary: its policyholder is missing. Remove that policy and add it again.", // DRAFT COPY (spec 5.4 review: a non-Self policy without a saved subscriber)
+  demotionPolicyGone: "{insurer} is no longer on your profile. Save again.", // DRAFT COPY (spec 5.4 review: the other policy went before its demotion)
 } as const

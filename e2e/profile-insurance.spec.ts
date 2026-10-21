@@ -13,6 +13,7 @@ import {
   mockInsurers,
   mockInsuranceTypeKey,
   mockInsuranceUpdate,
+  insuranceWriteLog,
   mockMyself,
   mockProfileDefaults,
   setTheme,
@@ -21,10 +22,11 @@ import {
 } from "./fixtures"
 
 /**
- * Stories 5.1–5.3 (Team A, NG-9029): the Insurance Section on the real
+ * Stories 5.1–5.4 (Team A, NG-9029): the Insurance Section on the real
  * `/?tab=insurance`, on desktop and at 360 px: the policy cards (5.1), the
- * Add / Edit drawer with its leave guard (5.2), and the card images with
- * their uploads and "Retry upload" (5.3, real-browser checks and re-encode). Every test runs under the
+ * Add / Edit drawer with its leave guard (5.2), the card images with
+ * their uploads and "Retry upload" (5.3, real-browser checks and re-encode),
+ * and the Primary-per-type demotion offer (5.4). Every test runs under the
  * fail-fast `test`, starts from `mockProfileDefaults` (no policies) and
  * overrides the policy list and the card images. The image headers of the
  * download entry are unit-tested (`allowlist/insurance.test.ts`); here the
@@ -824,5 +826,254 @@ test.describe("Card image upload with retry (Story 5.3)", () => {
     const overflow = await sheet.locator('[data-slot="sheet-body"]').evaluate((body) => body.scrollWidth - body.clientWidth)
     expect(overflow).toBeLessThanOrEqual(0)
     await expectNoHorizontalScroll(page)
+  })
+})
+
+// --- Story 5.4: primary per type with demote offer ---------------------------------------------
+
+/** UnitedHealthcare (`MEDICAL`, id 55) is the Primary Medical policy on file. */
+const UHC = insurancePolicy({ frontSideCardFile: null, backSideCardFile: null })
+const UHC_PRIMARY = insurancePage([UHC])
+const UHC_SECONDARY = insurancePolicy({ insurancePrecedence: "SECONDARY", frontSideCardFile: null, backSideCardFile: null })
+const demotionOffer = (sheet: Locator): Locator => sheet.locator('[data-slot="insurance-demotion"]')
+const demoteButton = (sheet: Locator, insurer = "UnitedHealthcare"): Locator => sheet.getByRole("button", { name: `Make ${insurer} secondary` })
+const saveErrorOf = (sheet: Locator): Locator => sheet.locator('[data-slot~="insurance-save-error"]')
+const BOOM = { status: 500, body: { message: "Boom", code: 500 } }
+
+/** Presses Tab until `target` has focus (keyboard only; fails after `max` presses). */
+async function tabTo(page: Page, target: Locator, max = 40): Promise<void> {
+  for (let press = 0; press < max; press += 1) {
+    if (await target.evaluate((element) => element === document.activeElement)) return
+    await page.keyboard.press("Tab")
+  }
+  await expect(target).toBeFocused()
+}
+
+/** Picks `option` in the Select whose trigger has focus, with the keyboard only. */
+async function chooseFocused(page: Page, trigger: Locator, option: string): Promise<void> {
+  await expect(trigger).toBeFocused()
+  await page.keyboard.press("Enter")
+  const listbox = page.getByRole("listbox")
+  const options = listbox.getByRole("option")
+  await expect(options.first()).toBeVisible()
+  await page.keyboard.press("Home")
+  await expect(options.first()).toBeFocused()
+  const index = (await options.allTextContents()).indexOf(option)
+  for (let step = 1; step <= index; step += 1) {
+    await page.keyboard.press("ArrowDown")
+    await expect(options.nth(step)).toBeFocused()
+  }
+  await page.keyboard.press("Enter")
+  await expect(listbox).toHaveCount(0)
+  await expect(trigger).toHaveText(option)
+  // The list closes, then hands focus back to its trigger: wait for that before the next key.
+  await expect(trigger).toBeFocused()
+}
+
+test.describe("Primary per type with demote offer (Story 5.4)", () => {
+  test("the banner, Save blocked without the acceptance, then demotion → policy → image; the list shows the new Primary and the old Secondary", async ({ page }) => {
+    await openEditor(page, UHC_PRIMARY)
+    await mockInsuranceUpdate(page)
+    let posted = false
+    await mockInsuranceCreate(page, () => {
+      posted = true
+      return {}
+    })
+    await mockInsuranceCardUpload(page)
+    const writes = insuranceWriteLog(page)
+    await headerAdd(page).click()
+    const sheet = drawer(page)
+    await fillSelf(page, sheet)
+    const offer = demotionOffer(sheet)
+    await expect(offer.getByRole("status")).toHaveText("Only one primary Medical policy. Make UnitedHealthcare secondary?")
+    const button = demoteButton(sheet)
+    await expect(button).toHaveAttribute("aria-pressed", "false")
+    expect((await button.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+    // Not accepted: nothing is sent; focus on the button; the error line.
+    await sheet.getByRole("button", { name: "Save" }).click()
+    await expect(button).toBeFocused()
+    await expect(offer.locator('[data-slot="field-error"]')).toHaveText(
+      "Only one primary Medical policy is allowed. Make UnitedHealthcare secondary, or don't make this policy primary.",
+    )
+    await axe(page, "drawer with the demotion error", '[data-slot="insurance-editor"]')
+    expect(writes()).toEqual([])
+    await button.click()
+    await expect(button).toHaveAttribute("aria-pressed", "true")
+    await expect(offer.getByText("The change saves with this policy.")).toBeVisible()
+    await expect(offer.locator('[data-slot="field-error"]')).toHaveCount(0)
+    await axe(page, "drawer with the demotion accepted", '[data-slot="insurance-editor"]')
+    await expectNoHorizontalScroll(page)
+    await slotInput(sheet, "front").setInputFiles(png("front.png"))
+    await expect(slotOf(sheet, "Front").getByRole("img", { name: "Chosen front image" })).toBeVisible()
+    // The list read at send time still holds UnitedHealthcare as Primary; after the POST it is Secondary.
+    const after = insurancePage([UHC_SECONDARY, insurancePolicy({ id: 60, insuranceOrganizationDTO: { insuranceCompanyName: "Blue Shield", insuranceCompanyId: 7 }, backSideCardFile: null })])
+    await mockInsurance(page, () => ({ body: posted ? after : UHC_PRIMARY }))
+    await sheet.getByRole("button", { name: "Save" }).click()
+    await expect(sheet).toBeHidden()
+    expect(writes()).toEqual(["PUT 55 SECONDARY", "POST", "upload 60 front"])
+    await expect(toastWith(page, "Insurance saved. UnitedHealthcare is now secondary.")).toBeVisible()
+    await expect(section(page).locator('[data-slot="chip"]')).toHaveText(["Secondary", "Primary"])
+    writes.stop()
+  })
+
+  test("re-evaluated: accepting, then Precedence Secondary hides the banner; back on Primary it is no longer accepted", async ({ page }) => {
+    await openEditor(page, UHC_PRIMARY)
+    await headerAdd(page).click()
+    const sheet = drawer(page)
+    await fillSelf(page, sheet)
+    await demoteButton(sheet).click()
+    await expect(demoteButton(sheet)).toHaveAttribute("aria-pressed", "true")
+    await pickOption(page, field(sheet, "Precedence"), "Secondary")
+    await expect(demotionOffer(sheet)).toHaveCount(0)
+    await pickOption(page, field(sheet, "Precedence"), "Primary")
+    await expect(demoteButton(sheet)).toHaveAttribute("aria-pressed", "false")
+  })
+
+  test("Edit of a Secondary made Primary: the banner, then the demotion PUT, then the policy's PUT", async ({ page }) => {
+    const humana = insurancePolicy({ id: 59, insurancePrecedence: "SECONDARY", memberIdNumber: "HUM-1001", insuranceOrganizationDTO: { insuranceCompanyName: "Humana", insuranceCompanyId: 13 }, frontSideCardFile: null, backSideCardFile: null })
+    await openEditor(page, insurancePage([UHC, humana]))
+    const puts = await mockInsuranceUpdate(page)
+    const writes = insuranceWriteLog(page)
+    await section(page).getByRole("button", { name: "More actions for Humana Medical Insurance" }).click()
+    await page.getByRole("menuitem", { name: "Edit" }).click()
+    const sheet = drawer(page, "Edit insurance")
+    await expect(demotionOffer(sheet)).toHaveCount(0)
+    await pickOption(page, field(sheet, "Precedence"), "Primary")
+    await expect(demotionOffer(sheet).getByRole("status")).toHaveText("Only one primary Medical policy. Make UnitedHealthcare secondary?")
+    await demoteButton(sheet).click()
+    await sheet.getByRole("button", { name: "Save" }).click()
+    await expect(sheet).toBeHidden()
+    expect(writes()).toEqual(["PUT 55 SECONDARY", "PUT 59 PRIMARY"])
+    expect(puts().map((put) => put.url)).toEqual(["/api/1h/v2/health/patient/insurance/55", "/api/1h/v2/health/patient/insurance/59"])
+    expect(puts()[0].body).toMatchObject({ insurancePrecedence: "SECONDARY", memberIdNumber: "948221037", insuranceOrganizationDTO: { insuranceCompanyId: 7 } })
+    writes.stop()
+  })
+
+  test("the demotion fails: the policy isn't sent; the error with Retry; Retry demotes again and saves", async ({ page }) => {
+    await openEditor(page, UHC_PRIMARY)
+    let demotions = 0
+    await mockInsuranceUpdate(page, () => (++demotions === 1 ? BOOM : {}))
+    await mockInsuranceCreate(page)
+    const writes = insuranceWriteLog(page)
+    await headerAdd(page).click()
+    const sheet = drawer(page)
+    await fillSelf(page, sheet)
+    await demoteButton(sheet).click()
+    await sheet.getByRole("button", { name: "Save" }).click()
+    const banner = saveErrorOf(sheet)
+    await expect(banner.getByRole("alert")).toHaveText("Couldn't save insurance.")
+    await expect(banner).toBeFocused()
+    expect(writes()).toEqual(["PUT 55 SECONDARY"])
+    await banner.getByRole("button", { name: "Retry" }).click()
+    await expect(sheet).toBeHidden()
+    expect(writes()).toEqual(["PUT 55 SECONDARY", "PUT 55 SECONDARY", "POST"])
+    writes.stop()
+  })
+
+  test("the policy save fails at a field after the demotion: the rollback runs; the error shows at Member ID", async ({ page }) => {
+    await openEditor(page, UHC_PRIMARY)
+    await mockInsuranceUpdate(page)
+    await mockInsuranceCreate(page, { status: 400, body: { message: "Member Id Number should be at least 3 symbols.", code: 400 } })
+    const writes = insuranceWriteLog(page)
+    await headerAdd(page).click()
+    const sheet = drawer(page)
+    await fillSelf(page, sheet)
+    await demoteButton(sheet).click()
+    await sheet.getByRole("button", { name: "Save" }).click()
+    await expect(fieldError(sheet, "Member ID")).toHaveText("Member ID must be 3 to 32 characters")
+    await expect(field(sheet, "Member ID")).toBeFocused()
+    await expect.poll(writes).toEqual(["PUT 55 SECONDARY", "POST", "PUT 55 PRIMARY"])
+    await expect(saveErrorOf(sheet)).toHaveCount(0)
+    writes.stop()
+  })
+
+  test("the policy save fails after the demotion: the rollback; a failed rollback is named; the refetch drops the banner and Retry sends only the policy", async ({ page }) => {
+    await openEditor(page, UHC_PRIMARY)
+    let rolledBack = false
+    await mockInsuranceUpdate(page, (request) => {
+      if ((request.postDataJSON() as Record<string, unknown>).insurancePrecedence !== "PRIMARY") return {}
+      rolledBack = true
+      return BOOM
+    })
+    let posts = 0
+    await mockInsuranceCreate(page, () => (++posts === 1 ? BOOM : {}))
+    const writes = insuranceWriteLog(page)
+    await headerAdd(page).click()
+    const sheet = drawer(page)
+    await fillSelf(page, sheet)
+    await demoteButton(sheet).click()
+    await mockInsurance(page, () => ({ body: rolledBack ? insurancePage([UHC_SECONDARY]) : UHC_PRIMARY }))
+    await sheet.getByRole("button", { name: "Save" }).click()
+    const banner = saveErrorOf(sheet)
+    await expect(banner.getByRole("alert")).toHaveText("Couldn't save insurance. UnitedHealthcare is now secondary.")
+    await expect(demotionOffer(sheet)).toHaveCount(0)
+    expect(writes()).toEqual(["PUT 55 SECONDARY", "POST", "PUT 55 PRIMARY"])
+    await axe(page, "drawer with the rollback error", '[data-slot="insurance-editor"]')
+    await banner.getByRole("button", { name: "Retry" }).click()
+    await expect(sheet).toBeHidden()
+    expect(writes()).toEqual(["PUT 55 SECONDARY", "POST", "PUT 55 PRIMARY", "POST"])
+    writes.stop()
+  })
+
+  test("legacy data with two Primaries: the banner names both and wraps at 360 px with no horizontal scroll", async ({ page }) => {
+    const long = (id: number, name: string) =>
+      insurancePolicy({ id, memberIdNumber: `M-${id}`, insuranceOrganizationDTO: { insuranceCompanyName: name, insuranceCompanyId: id }, frontSideCardFile: null, backSideCardFile: null })
+    await openEditor(page, insurancePage([long(57, "Blue Cross Blue Shield of Massachusetts"), long(58, "UnitedHealthcare Community Plan")]))
+    await headerAdd(page).click()
+    const sheet = drawer(page)
+    await fillSelf(page, sheet)
+    const both = "Blue Cross Blue Shield of Massachusetts and UnitedHealthcare Community Plan"
+    await expect(demotionOffer(sheet).getByRole("status")).toHaveText(`Only one primary Medical policy. Make ${both} secondary?`)
+    const button = demoteButton(sheet, both)
+    await expect(button).toBeVisible()
+    const [box, body] = await Promise.all([button.boundingBox(), sheet.locator('[data-slot="sheet-body"]').boundingBox()])
+    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual((body?.x ?? 0) + (body?.width ?? 0) + 0.5)
+    expect(box?.height).toBeGreaterThanOrEqual(44)
+    const overflow = await sheet.locator('[data-slot="sheet-body"]').evaluate((element) => element.scrollWidth - element.clientWidth)
+    expect(overflow).toBeLessThanOrEqual(0)
+    await expectNoHorizontalScroll(page)
+    await axe(page, "drawer with two insurers in the banner", '[data-slot="insurance-editor"]')
+  })
+
+  test("keyboard only: Tab from Precedence reaches the demote button, then Relationship; Save focuses the button; Space accepts; Save goes", async ({ page, isMobile }) => {
+    test.skip(isMobile, "keyboard-only journey runs on desktop")
+    await openEditor(page, UHC_PRIMARY)
+    await mockInsuranceUpdate(page)
+    await mockInsuranceCreate(page)
+    const writes = insuranceWriteLog(page)
+    await headerAdd(page).click()
+    const sheet = drawer(page)
+    await expect(field(sheet, "Insurer")).toBeFocused()
+    await page.keyboard.type("Blu")
+    await expect(page.getByRole("option", { name: "Blue Shield", exact: true })).toBeVisible()
+    await page.keyboard.press("ArrowDown")
+    await page.keyboard.press("Enter")
+    await expect(field(sheet, "Insurer")).toHaveValue("Blue Shield")
+    await tabTo(page, field(sheet, "Type"))
+    await chooseFocused(page, field(sheet, "Type"), "Medical")
+    await page.keyboard.press("Tab")
+    await chooseFocused(page, field(sheet, "Precedence"), "Primary")
+    const button = demoteButton(sheet)
+    await page.keyboard.press("Tab")
+    await expect(button).toBeFocused()
+    await page.keyboard.press("Tab")
+    await expect(field(sheet, "Relationship")).toBeFocused()
+    await chooseFocused(page, field(sheet, "Relationship"), "Self")
+    await tabTo(page, field(sheet, "Member ID"), 10)
+    await page.keyboard.type("XKH123")
+    await tabTo(page, field(sheet, "Effective date"))
+    await page.keyboard.type("01012025")
+    const save = sheet.getByRole("button", { name: "Save" })
+    await tabTo(page, save, 60)
+    await page.keyboard.press("Enter")
+    await expect(button).toBeFocused()
+    expect(writes()).toEqual([])
+    await page.keyboard.press("Space")
+    await expect(button).toHaveAttribute("aria-pressed", "true")
+    await tabTo(page, save, 60)
+    await page.keyboard.press("Enter")
+    await expect(sheet).toBeHidden()
+    expect(writes()).toEqual(["PUT 55 SECONDARY", "POST"])
+    writes.stop()
   })
 })

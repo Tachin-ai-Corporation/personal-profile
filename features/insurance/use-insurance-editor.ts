@@ -8,6 +8,7 @@ import { requestLeave, toastError, toastPartial, toastSuccess, useMyself, type S
 import {
   INSURANCE_CARD_SIDES,
   INSURANCE_TYPE_KEY,
+  fetchInsurance,
   insuranceSavedPolicyId,
   insuranceValueOptions,
   keys,
@@ -19,6 +20,7 @@ import {
   type ErrorField,
   type InsuranceCardSide,
   type InsurancePolicy,
+  type InsurancePolicyInput,
   type InsuranceSubscriber,
   type MappedError,
   type TypeInfo,
@@ -29,6 +31,8 @@ import { telemetry } from "@/lib/shared/telemetry"
 import { checkInsuranceCardFile, type InsuranceCardImage } from "./card-file"
 import { insurancePartialToast, uploadInsuranceCardImage, type InsuranceCardResult } from "./card-upload"
 import { EMPTY_INSURANCE_FORM, insuranceLockedSubscriber, toInsuranceFormValues, toInsurancePolicyInput } from "./dto"
+import { insuranceEnumLabel } from "./format"
+import { insuranceConflictName, insuranceDemotionInput, insuranceDemotionLacksPolicyholder, insuranceJoinNames, insurancePrimaryConflicts } from "./primary-conflict"
 import { INSURANCE_FIELD_ORDER, insuranceSchema, needsSubscriber, type InsuranceFormField, type InsuranceFormValues, type InsuranceSchemaContext } from "./schema"
 
 /** A server error mapped to a form field (`lib/api/errors/insurance.ts` `Field`); `policy` shows at drawer level. */
@@ -81,6 +85,43 @@ export interface InsuranceChosenImage extends InsuranceCardImage {
   readonly previewUrl: string
 }
 
+/**
+ * Story 5.4: the Primary-per-type demotion offer, shown when the form's Type +
+ * Precedence would make a second Primary of a type.
+ */
+export interface InsuranceDemotionOffer {
+  /** The type as the banner names it ("Medical"). */
+  readonly type: string
+  /** The conflicting policies' insurers, joined ("Aetna and Cigna"). */
+  readonly insurers: string
+  /** The user accepted the demotion: it saves with this policy (before it, decision 1A). */
+  readonly accepted: boolean
+  /** Save was tried without the acceptance: the error line under the banner. */
+  readonly error: boolean
+}
+
+/** The acceptance of the demotion, for the Type + Precedence (and open) it was given for. */
+interface DemotionState {
+  /** The open session, Type and Precedence: any change clears the acceptance and the error line. */
+  readonly key: string
+  /** The ids of the policies the user agreed to make Secondary, or `null`. */
+  readonly accepted: readonly (number | null)[] | null
+  readonly error: boolean
+}
+
+/** A demotion the save sends: the other policy (from the list read at send time) and its body. */
+interface SentDemotion {
+  readonly other: InsurancePolicy
+  readonly id: number
+  readonly input: InsurancePolicyInput
+}
+
+/** The rollback's outcome: the notes naming the policies left Secondary, and whether the session ended (no more requests). */
+interface RollbackOutcome {
+  readonly notes: string[]
+  readonly sessionEnded: boolean
+}
+
 /** One value per card side. */
 export type InsuranceBySide<T> = Readonly<Record<InsuranceCardSide, T>>
 
@@ -114,6 +155,10 @@ export interface InsuranceEditor {
   readonly locked: InsuranceSubscriber | null
   readonly drawerError: InsuranceDrawerError | null
   readonly options: InsuranceOptions
+  /** Story 5.4: the demotion offer, or `null` when the form's Type + Precedence clash with no other Primary. */
+  readonly demotion: InsuranceDemotionOffer | null
+  /** Accepts the demotion, or (pressed again) takes the acceptance back. */
+  readonly toggleDemotion: () => void
   /** The card images chosen in this session of the drawer (Story 5.3); they upload after the policy saves. */
   readonly images: InsuranceBySide<InsuranceChosenImage | null>
   /** A rejected file's inline error per side (the slot keeps its previous state). */
@@ -159,22 +204,37 @@ export interface InsuranceEditorRefs {
   readonly addButton: RefObject<HTMLButtonElement | null>
   /** The policyholder reason of a non-Self Edit without a saved subscriber (decision 3A): Save focuses it. */
   readonly policyholder: RefObject<HTMLParagraphElement | null>
+  /** Story 5.4: the banner's "Make {insurer} secondary": Save without the acceptance focuses it. */
+  readonly demoteButton: RefObject<HTMLButtonElement | null>
 }
 
 const CLOSED: EditorSession = { open: false, policy: null, opening: EMPTY_INSURANCE_FORM, session: 0, today: new Date(0) }
 
 const UNEXPECTED: SaveResult = { ok: false, error: { code: "UNEXPECTED", mapped: { kind: "generic" } } }
 
+/** The ids that identify a conflict for the acceptance. */
+const conflictIds = (conflicts: readonly InsurancePolicy[]): (number | null)[] => conflicts.map((policy) => policy.id)
+
+/** The conflicting policies as the copy names them. */
+const conflictNames = (conflicts: readonly InsurancePolicy[]): string => insuranceJoinNames(conflicts.map(insuranceConflictName))
+
 /**
  * The Insurance editor's state (Story 5.2), lifted into `InsuranceSection` so
  * its one `useRegisterSection("insurance")` call can guard it: the drawer's
  * open state and policy, the react-hook-form form (zod, on blur and Save),
- * the type key's value lists, the save (one `POST` or `PUT`, then the card
- * images of Story 5.3: front, then back, each replaced file deleted after its
- * new image uploads), focus and the error display. `refresh` revalidates
- * `keys.insurance()` after a save.
+ * the type key's value lists, the save (Story 5.4's demotions of the other
+ * Primary policies of the type first, decision 1A; then one `POST` or `PUT`;
+ * then the card images of Story 5.3: front, then back, each replaced file
+ * deleted after its new image uploads), focus and the error display.
+ * `policies` is the Section's list (`keys.insurance()`), which decides the
+ * Primary conflict; `refresh()` revalidates it (after a save, and after a
+ * failed save that sent a demotion, so a Retry sends only what is left), and
+ * `refresh(fresh)` puts the list a save just read into the key.
  */
-export function useInsuranceEditor(refresh: () => void): { readonly editor: InsuranceEditor; readonly refs: InsuranceEditorRefs } {
+export function useInsuranceEditor(
+  refresh: (fresh?: InsurancePolicy[]) => Promise<unknown>,
+  policies: readonly InsurancePolicy[] | undefined,
+): { readonly editor: InsuranceEditor; readonly refs: InsuranceEditorRefs } {
   const { myself } = useMyself()
   const [editing, setEditing] = useState<EditorSession>(CLOSED)
   const [saving, setSaving] = useState(false)
@@ -188,6 +248,7 @@ export function useInsuranceEditor(refresh: () => void): { readonly editor: Insu
   const saveButtonRef = useRef<HTMLButtonElement | null>(null)
   const addButtonRef = useRef<HTMLButtonElement | null>(null)
   const policyholderRef = useRef<HTMLParagraphElement | null>(null)
+  const demoteButtonRef = useRef<HTMLButtonElement | null>(null)
   const [focusBanner, setFocusBanner] = useState(0)
   const [images, setImages] = useState<InsuranceBySide<InsuranceChosenImage | null>>(NO_IMAGES)
   const [imageErrors, setImageErrors] = useState<InsuranceBySide<string | null>>(NO_IMAGE_ERRORS)
@@ -216,6 +277,30 @@ export function useInsuranceEditor(refresh: () => void): { readonly editor: Insu
   const form = useForm<InsuranceFormValues, unknown, InsuranceFormValues>({ resolver, mode: "onBlur", defaultValues: EMPTY_INSURANCE_FORM, shouldFocusError: false })
   const watched = useWatch({ control: form.control })
   const isDirty = editing.open && (!deepEqual({ ...editing.opening, ...watched }, editing.opening) || images.front !== null || images.back !== null)
+
+  // Story 5.4: the other Primary policies of the form's type (re-evaluated on every change and every refetch).
+  const watchedType = typeof watched.type === "string" ? watched.type : ""
+  const watchedPrecedence = typeof watched.precedence === "string" ? watched.precedence : ""
+  const conflicts = editing.open ? insurancePrimaryConflicts(policies, editing.policy?.id ?? null, watchedType, watchedPrecedence) : []
+  const choiceKey = `${editing.session}|${watchedType}|${watchedPrecedence}`
+  const [demotionState, setDemotionState] = useState<DemotionState>({ key: choiceKey, accepted: null, error: false })
+  // Changing Type or Precedence (or opening again) clears the acceptance and the error line (adjusted while rendering).
+  let demotionNow = demotionState
+  if (demotionState.key !== choiceKey) {
+    demotionNow = { key: choiceKey, accepted: null, error: false }
+    setDemotionState(demotionNow)
+  }
+  // The acceptance holds while the conflict is what was accepted, or less (a refetch after a failed save may shrink it).
+  const accepted = conflicts.length > 0 && demotionNow.accepted !== null && conflictIds(conflicts).every((id) => demotionNow.accepted?.includes(id))
+  const demotion: InsuranceDemotionOffer | null =
+    conflicts.length === 0
+      ? null
+      : { type: insuranceEnumLabel(watchedType) ?? watchedType, insurers: conflictNames(conflicts), accepted, error: demotionNow.error && !accepted }
+  /** The latest conflict and acceptance, for the save (it runs after renders it didn't start in). */
+  const demotionRef = useRef({ conflicts, accepted, acceptedIds: demotionNow.accepted })
+  useEffect(() => {
+    demotionRef.current = { conflicts, accepted, acceptedIds: demotionNow.accepted }
+  })
 
   // The value lists load with the drawer (never on the tab alone).
   const typeKey = useSWR<TypeInfo | undefined, ApiResponseError>(editing.open ? keys.typeKey(INSURANCE_TYPE_KEY) : null)
@@ -328,18 +413,56 @@ export function useInsuranceEditor(refresh: () => void): { readonly editor: Insu
     if (editing.policy !== null && locked === null && needsSubscriber(form.getValues("relationship"))) {
       return { valid: false, invalidCount: 1, focusFirstInvalid: () => policyholderRef.current?.focus() }
     }
-    if (await form.trigger()) return { valid: true }
-    return { valid: false, invalidCount: Math.max(1, invalidCount()), focusFirstInvalid }
+    // Story 5.4: a conflict without the acceptance blocks Save; the error line shows under the banner.
+    const blocked = demotionRef.current.conflicts.length > 0 && !demotionRef.current.accepted
+    if (blocked) setDemotionState((current) => ({ ...current, error: true }))
+    const fieldsValid = await form.trigger()
+    if (fieldsValid && !blocked) return { valid: true }
+    if (!blocked) return { valid: false, invalidCount: Math.max(1, invalidCount()), focusFirstInvalid }
+    // The banner sits after Type + Precedence: only the Insurer comes before it (a conflict needs a valid Type and Primary).
+    const insurerFirst = !fieldsValid && form.getFieldState("insurer").invalid
+    return {
+      valid: false,
+      invalidCount: (fieldsValid ? 0 : Math.max(1, invalidCount())) + 1,
+      focusFirstInvalid: () => (insurerFirst ? focusFirstInvalid() : demoteButtonRef.current?.focus()),
+    }
   }
 
-  function showFailure(mapped: MappedError, withUi: boolean): void {
+  /** Shows a drawer-level error (a new one is announced again); with UI, focus moves to it. */
+  function showDrawerError(error: Omit<InsuranceDrawerError, "key">, withUi: boolean): void {
+    errorCount.current += 1
+    setDrawerError({ ...error, key: errorCount.current })
+    if (withUi) setFocusBanner((tick) => tick + 1)
+  }
+
+  /** A sentence and the notes after it (Story 5.4: the policies now Secondary), each note once. */
+  const withNotes = (message: string, notes: readonly string[]): string => [message, ...new Set(notes)].join(" ")
+
+  /** "{insurer} is now secondary." for each policy (once per name). */
+  const nowSecondary = (others: readonly InsurancePolicy[]): string[] =>
+    others.map((other) => formatMessage(INSURANCE_MESSAGES.demotionNotRolledBack, { insurer: insuranceConflictName(other) }))
+
+  /** The transport errors every failure shares: no access, network, anything else. */
+  function transportError(mapped: MappedError): Omit<InsuranceDrawerError, "key"> {
+    const section = SHELL_MESSAGES.profileTabInsurance.toLowerCase()
+    if (mapped.kind === "forbidden") return { message: STATE_MESSAGES.noAccess, retry: false }
+    if (mapped.kind === "network") return { message: formatMessage(SECTION_MESSAGES.networkFailure, { section }), retry: true }
+    return { message: formatMessage(SECTION_MESSAGES.saveFailed, { section }), retry: true }
+  }
+
+  /**
+   * The policy's own save failed (mapped as in Story 5.2). `notes` name the
+   * demoted policies a rollback couldn't make Primary again (Story 5.4): they
+   * show at drawer level, after the error's sentence or beside a field error.
+   */
+  function showFailure(mapped: MappedError, withUi: boolean, notes: readonly string[] = []): void {
     if (mapped.kind === "session") return
     if (mapped.kind === "field" && mapped.field === "policy") {
       // The policy is gone: the drawer closes (nothing left to save) and the list shows what is left.
-      const reload = (): void => refresh()
+      const reload = (): void => void refresh()
       reload()
       close()
-      toastError(messageFor(mapped.messageKey), { onRetry: reload })
+      toastError(withNotes(messageFor(mapped.messageKey), notes), { onRetry: reload })
       return
     }
     const target = mapped.kind === "field" ? SERVER_FIELDS[mapped.field] : undefined
@@ -347,20 +470,77 @@ export function useInsuranceEditor(refresh: () => void): { readonly editor: Insu
     const editable = target !== undefined && controls.current.has(target) && !(locked !== null && SUBSCRIBER_FIELDS.has(target))
     if (mapped.kind === "field" && target !== undefined && editable) {
       form.setError(target, { type: "server", message: messageFor(mapped.messageKey) })
+      // The rollback notes still show at drawer level, without taking focus from the field.
+      if (notes.length > 0) showDrawerError({ message: [...new Set(notes)].join(" "), retry: false }, false)
       if (withUi) controls.current.get(target)?.focus()
       return
     }
-    const section = SHELL_MESSAGES.profileTabInsurance.toLowerCase()
     let error: Omit<InsuranceDrawerError, "key">
     if (mapped.kind === "field") {
       const incomplete = locked !== null && target !== undefined && SUBSCRIBER_FIELDS.has(target)
       error = { message: incomplete ? INSURANCE_MESSAGES.subscriberIncomplete : messageFor(mapped.messageKey), retry: false }
-    } else if (mapped.kind === "forbidden") error = { message: STATE_MESSAGES.noAccess, retry: false }
-    else if (mapped.kind === "network") error = { message: formatMessage(SECTION_MESSAGES.networkFailure, { section }), retry: true }
-    else error = { message: formatMessage(SECTION_MESSAGES.saveFailed, { section }), retry: true }
-    errorCount.current += 1
-    setDrawerError({ ...error, key: errorCount.current })
-    if (withUi) setFocusBanner((tick) => tick + 1)
+    } else error = transportError(mapped)
+    showDrawerError({ ...error, message: withNotes(error.message, notes) }, withUi)
+  }
+
+  /**
+   * A demotion failed (Story 5.4): always at drawer level (its error is about
+   * the other policy, never this form's fields). The other policy is gone
+   * ("… is no longer on your profile. Save again.", with Retry: the refetch
+   * already dropped it), a refused body ("Edit that policy first", no Retry),
+   * or the transport error with Retry; `notes` name the earlier demotions a
+   * rollback couldn't undo.
+   */
+  function showDemotionFailure(mapped: MappedError, other: InsurancePolicy, notes: readonly string[], withUi: boolean): void {
+    if (mapped.kind === "session") return
+    const insurer = insuranceConflictName(other)
+    let error: Omit<InsuranceDrawerError, "key">
+    if (mapped.kind === "field" && mapped.field === "policy") error = { message: formatMessage(INSURANCE_MESSAGES.demotionPolicyGone, { insurer }), retry: true }
+    else if (mapped.kind === "field") error = { message: formatMessage(INSURANCE_MESSAGES.demotionUnbuildable, { insurer }), retry: false }
+    else error = transportError(mapped)
+    showDrawerError({ ...error, message: withNotes(error.message, notes) }, withUi)
+  }
+
+  /**
+   * Decision 2A: makes each demoted policy Primary again (its body as
+   * demoted, the precedence restored), and answers the sentences naming those
+   * a rollback couldn't restore ("{insurer} is now secondary."). A session
+   * failure stops it: no request can go any more (the shell's dialog takes over).
+   */
+  async function rollBack(demoted: readonly SentDemotion[]): Promise<RollbackOutcome> {
+    const failed: InsurancePolicy[] = []
+    for (const { other, id } of demoted) {
+      const input = insuranceDemotionInput(other, "PRIMARY")
+      const res = input === null ? null : await saveInsuranceUpdate(id, input)
+      if (res !== null && !res.success && mapApiError("insurance", res).kind === "session") return { notes: nowSecondary(failed), sessionEnded: true }
+      if (res === null || !res.success) failed.push(other)
+    }
+    return { notes: nowSecondary(failed), sessionEnded: false }
+  }
+
+  /**
+   * After a failure that may have left policies Secondary: rolls them back,
+   * refetches, then shows the failure with the notes (nothing once the
+   * session ended).
+   */
+  async function undoDemotions(demoted: readonly SentDemotion[], show: (notes: readonly string[]) => void): Promise<void> {
+    const { notes, sessionEnded } = await rollBack(demoted)
+    if (sessionEnded) return
+    await refetch()
+    show(notes)
+  }
+
+  /**
+   * The list again after a partial outcome (or `fresh`, a list the save just
+   * read, put into the key): the conflict, and so the next Save, follows what
+   * the backend now holds.
+   */
+  async function refetch(fresh?: InsurancePolicy[]): Promise<void> {
+    try {
+      await refresh(fresh)
+    } catch {
+      // A failed refetch keeps the old list: the next Save may demote again, which the backend accepts.
+    }
   }
 
   /** Sends the policy once (a second caller joins the send in flight). */
@@ -377,6 +557,9 @@ export function useInsuranceEditor(refresh: () => void): { readonly editor: Insu
     const { policy } = editing
     setSaving(true)
     setDrawerError(null)
+    // Kept outside the `try`, so an unexpected throw still rolls back what was demoted.
+    const demoted: SentDemotion[] = []
+    let policySaved = false
     try {
       // A file chosen just before Save is still being checked: it goes with this save, and if it is refused
       // nothing is sent: the drawer stays open with the slot's inline error.
@@ -385,21 +568,82 @@ export function useInsuranceEditor(refresh: () => void): { readonly editor: Insu
         if (withUi) imageActions.current.get(rejected.side)?.focus()
         return { ok: false, error: { code: "FIELD" } }
       }
+      // Story 5.4: the other Primary policies of the type (accepted, `validate`) go Secondary first (decision 1A).
+      let others = demotionRef.current.conflicts
+      if (others.length > 0) {
+        // The list again, now: a demotion is a full replace, so it is built from the other policy's current values,
+        // and a Primary added elsewhere since is never demoted without consent.
+        const fresh = await fetchInsurance()
+        if (!fresh.success || fresh.data === undefined) {
+          const mapped = mapApiError("insurance", fresh)
+          const code = mappedErrorCode(mapped)
+          telemetry.track("section_save", { sectionId: "insurance", ok: false, code })
+          if (mapped.kind !== "session") showDrawerError(transportError(mapped), withUi)
+          return { ok: false, error: { code, mapped } }
+        }
+        await refetch(fresh.data)
+        const values = form.getValues()
+        others = insurancePrimaryConflicts(fresh.data, policy?.id ?? null, values.type, values.precedence)
+        const acceptedIds = demotionRef.current.acceptedIds ?? []
+        if (others.some((other) => !acceptedIds.includes(other.id))) {
+          // Not what was accepted: the banner names the new policies; nothing is sent.
+          setDemotionState((current) => ({ ...current, error: true }))
+          if (withUi) demoteButtonRef.current?.focus()
+          return { ok: false, error: { code: "FIELD" } }
+        }
+      }
+      const demotions: SentDemotion[] = []
+      const unbuildable: InsurancePolicy[] = []
+      for (const other of others) {
+        const demotion = insuranceDemotionInput(other)
+        // `insuranceDemotionInput` answers a body only for a policy with a usable id.
+        if (demotion === null || other.id === null) unbuildable.push(other)
+        else demotions.push({ other, id: other.id, input: demotion })
+      }
+      if (unbuildable.length > 0) {
+        // Their saved values can't make a valid body: nothing is sent.
+        const orphaned = unbuildable.filter(insuranceDemotionLacksPolicyholder)
+        const invalid = unbuildable.filter((other) => !orphaned.includes(other))
+        const sentences = [
+          orphaned.length > 0 ? formatMessage(INSURANCE_MESSAGES.demotionNoPolicyholder, { insurer: conflictNames(orphaned) }) : null,
+          invalid.length > 0 ? formatMessage(INSURANCE_MESSAGES.demotionUnbuildable, { insurer: conflictNames(invalid) }) : null,
+        ].filter((sentence) => sentence !== null)
+        telemetry.track("section_save", { sectionId: "insurance", ok: false, code: "FIELD" })
+        showDrawerError({ message: sentences.join(" "), retry: false }, withUi)
+        return { ok: false, error: { code: "FIELD" } }
+      }
+      for (const sent of demotions) {
+        const { other } = sent
+        const res = await saveInsuranceUpdate(sent.id, sent.input)
+        if (res.success) {
+          demoted.push(sent)
+          continue
+        }
+        // Nothing else is sent: the earlier demotions are rolled back, the list refetched.
+        const mapped = mapApiError("insurance", res)
+        const code = mappedErrorCode(mapped)
+        telemetry.track("section_save", { sectionId: "insurance", ok: false, code })
+        if (mapped.kind !== "session") await undoDemotions(demoted, (notes) => showDemotionFailure(mapped, other, notes, withUi))
+        return { ok: false, error: { code, mapped } }
+      }
       // Only Add sends a typed subscriber (decision 3A); an Edit sends the saved one or none.
       const input = toInsurancePolicyInput(form.getValues(), locked, policy === null)
       const editId = policy && policy.id !== null ? policy.id : null
       const res = editId !== null ? await saveInsuranceUpdate(editId, input) : await saveInsuranceCreate(input)
       if (res.success) {
+        policySaved = true
         telemetry.track("section_save", { sectionId: "insurance", ok: true, code: null })
         // Story 5.3: the images upload only after the policy saved, front then back; they never fail the save.
         const results = await uploadImages(editId ?? insuranceSavedPolicyId(res.data), editId === null ? null : policy)
-        refresh()
+        void refresh()
         const partial = insurancePartialToast(results)
         // An upload that ended the session: the shell's dialog takes over, so no toast.
         const sessionEnded = Object.values(results).some((result) => result.outcome === "session")
         if (!sessionEnded) {
-          if (partial) toastPartial(partial)
-          else toastSuccess(formatMessage(SECTION_MESSAGES.saved, { section: SHELL_MESSAGES.profileTabInsurance }))
+          // Story 5.4: the toast also says which policy is now Secondary.
+          const demotedNotes = nowSecondary(demoted.map((sent) => sent.other))
+          if (partial) toastPartial(withNotes(partial, demotedNotes))
+          else toastSuccess(withNotes(formatMessage(SECTION_MESSAGES.saved, { section: SHELL_MESSAGES.profileTabInsurance }), demotedNotes))
         }
         // A new policy: the empty card's button may go with the refetch, so focus lands on the header's "Add insurance".
         if (policy === null && addButtonRef.current) returnFocus.current = addButtonRef.current
@@ -409,11 +653,15 @@ export function useInsuranceEditor(refresh: () => void): { readonly editor: Insu
       const mapped = mapApiError("insurance", res)
       const code = mappedErrorCode(mapped)
       telemetry.track("section_save", { sectionId: "insurance", ok: false, code })
-      showFailure(mapped, withUi)
+      // Decision 2A: the demoted policies go back to Primary, then the list is refetched (no rollback once the session ended).
+      if (demoted.length > 0 && mapped.kind !== "session") await undoDemotions(demoted, (notes) => showFailure(mapped, withUi, notes))
+      else showFailure(mapped, withUi)
       return { ok: false, error: { code, mapped } }
     } catch {
       telemetry.track("section_save", { sectionId: "insurance", ok: false, code: "UNEXPECTED" })
-      showFailure({ kind: "generic" }, withUi)
+      // A throw before the policy saved: what was demoted goes back to Primary (decision 2A).
+      if (demoted.length > 0 && !policySaved) await undoDemotions(demoted, (notes) => showFailure({ kind: "generic" }, withUi, notes))
+      else showFailure({ kind: "generic" }, withUi)
       return UNEXPECTED
     } finally {
       setSaving(false)
@@ -472,6 +720,11 @@ export function useInsuranceEditor(refresh: () => void): { readonly editor: Insu
     locked,
     drawerError,
     options,
+    demotion,
+    toggleDemotion: () => {
+      if (saving || conflicts.length === 0) return
+      setDemotionState((current) => ({ ...current, accepted: accepted ? null : conflictIds(conflicts), error: false }))
+    },
     images,
     imageErrors,
     imageChecking,
@@ -510,5 +763,8 @@ export function useInsuranceEditor(refresh: () => void): { readonly editor: Insu
       target.focus()
     },
   }
-  return { editor, refs: { banner: bannerRef, optionsBanner: optionsBannerRef, saveButton: saveButtonRef, addButton: addButtonRef, policyholder: policyholderRef } }
+  return {
+    editor,
+    refs: { banner: bannerRef, optionsBanner: optionsBannerRef, saveButton: saveButtonRef, addButton: addButtonRef, policyholder: policyholderRef, demoteButton: demoteButtonRef },
+  }
 }

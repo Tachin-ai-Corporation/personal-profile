@@ -54,7 +54,8 @@ export const rules: readonly MessageRule<Field>[] = [
     "memberId",
     "insurance.duplicatePolicy",
   ),
-  // One Primary per type (`PRIMARY_INSURANCE_ALREADY_EXIST`): on Precedence until Story 5.4's demotion offer.
+  // One Primary per type (`PRIMARY_INSURANCE_ALREADY_EXIST`): on Precedence. Story 5.4's demotion offer avoids it; it still shows
+  // there for a race (another device made a Primary meanwhile).
   field(/^You can not have multiple insurance records from same type with precedence field set to Primary\.$/, "precedence", "insurance.primaryTaken"),
   // The subscriber (Relationship ≠ Self).
   field(/^Please provide subscriber's first name\.$/, "subscriberFirstName", "person.firstNameRequired"),
