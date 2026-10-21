@@ -555,12 +555,19 @@ export function useSectionForm<T extends FieldValues>(options: UseSectionFormOpt
     latestSubmit.current = submit
   })
 
-  /** The leave guard / Save all path: joins an in-flight save; sends the schema-parsed values (raw if they don't parse). */
+  /** Re-check the current edit after batch validation; a later edit may have become invalid. */
   function registeredSave(): Promise<SaveResult> {
     if (inFlight.current) return inFlight.current
     const raw = form.getValues()
     const parsed = schema.safeParse(raw)
-    return send(parsed.success ? parsed.data : raw, false)
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        form.setError(issue.path.map(String).join(".") as Path<T>, { type: "schema", message: issue.message })
+      }
+      invalidState().focusFirst(false)
+      return Promise.resolve({ ok: false, error: { code: "GENERIC" } })
+    }
+    return send(parsed.data, false)
   }
 
   useRegisterSection({

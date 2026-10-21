@@ -2,7 +2,7 @@ import { delay, http, HttpResponse } from "msw"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 import { setLogSink } from "@/lib/server/log"
-import { SESSION_COOKIE, sealSession } from "@/lib/server/session/session"
+import { SESSION_COOKIE, sealSession, unsealSession } from "@/lib/server/session/session"
 import type { SessionPayload } from "@/lib/server/session/types"
 import { stubServerEnv, testEnv } from "@/test/env-fixture"
 import { server, trackAllRequests } from "@/test/msw-server"
@@ -382,5 +382,31 @@ describe("relayClientError", () => {
     [{ code: "E_X" }, { code: "E_X" }],
   ])("%j → %j", async (data, body) => {
     expect(await relayClientError(400, data).json()).toEqual(body)
+  })
+})
+
+
+describe("named-op user activity", () => {
+  it.each(["POST", "DELETE"] as const)("records a marked %s and preserves its operation result", async (method) => {
+    const response = await call(op({ method }), { method, headers: { "X-PP-Activity": "user" }, session: makeSession({ lastSeen: NOW - 120_000 }) })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true })
+    expect(response.headers.get("X-PP-Activity-At")).toBe(String(NOW))
+    const cookie = response.headers.get("Set-Cookie")!.split(";")[0].split("=").slice(1).join("=")
+    expect(await unsealSession(cookie)).toMatchObject({ lastSeen: NOW })
+  })
+  it("keeps automatic reads inert and avoids renewing a token rejected upstream", async () => {
+    for (const response of [await call(op()), await call(op({ method: "POST", handle: async () => Response.json({ errorCode: "TOKEN_EXPIRED", source: "proxy" }, { status: 401 }) }), { method: "POST", headers: { "X-PP-Activity": "user" } })]) {
+      expect(response.headers.get("X-PP-Activity-At")).toBeNull()
+      expect(response.headers.get("Set-Cookie")).toBeNull()
+    }
+  })
+  it("skips resealing when a long operation enters the token rotation window", async () => {
+    let at = NOW
+    const handler = createNamedOp({ route: "/api/pp/x", killSwitch: "pp", method: "POST", upstream: "1health", handle: async () => { at += 60_000; return Response.json({ ok: true }) } }, { now: () => at })
+    const response = await call(handler, { method: "POST", headers: { "X-PP-Activity": "user" }, session: makeSession({ accessExpiresAt: NOW + 100_000 }) })
+    expect(response.status).toBe(200)
+    expect(response.headers.get("Set-Cookie")).toBeNull()
+    expect(response.headers.get("X-PP-Activity-At")).toBeNull()
   })
 })

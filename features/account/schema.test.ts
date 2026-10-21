@@ -58,3 +58,11 @@ it("rejects changed selections after failed, unresolved or no-longer-verified li
     if (!result.success) expect(result.error.issues.map((issue) => issue.path[0])).toEqual(["primaryEmail", "primaryPhone"])
   }
 })
+
+it.each(["n/a", " N/A ", "-1", " -1 "])("rejects edited required names containing absence sentinel %s", (value) => {
+  for (const field of ["firstName", "lastName"] as const) {
+    const result = accountSchema([], today).safeParse({ ...base, [field]: value })
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues).toContainEqual(expect.objectContaining({ path: [field], message: field === "firstName" ? "First name is required" : "Last name is required" }))
+  }
+})

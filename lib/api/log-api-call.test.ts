@@ -39,6 +39,10 @@ describe("logApiCall (D6)", () => {
 
   it.each([
     ["/api/1h/v2/user/npi", "/api/1h/v2/user/npi"],
+    ["/api/places/autocomplete", "/api/places/autocomplete"],
+    ["/api/places/details?unexpected=private", "/api/places/details"],
+    ["/api/places/%64etails", "/api/places/details"],
+    ["/api/places/auto\tcomplete", "/api/places/autocomplete"],
     ["/api/1h/v2/user/npi?unexpected=private#private", "/api/1h/v2/user/npi"],
     ["/api/1h/v2/public/npi/list?searchText=private&entityTypeCode=1", "/api/1h/v2/public/npi/list"],
     ["/api/1h/v2/%75ser/npi?private", "/api/1h/v2/user/npi"],

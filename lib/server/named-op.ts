@@ -16,6 +16,7 @@ import { validateQuery } from "@/lib/server/proxy/match"
 import type { QueryParamRule } from "@/lib/server/proxy/types"
 import { isAccessTokenFresh } from "@/lib/server/session/refresh"
 import { getSession } from "@/lib/server/session/session"
+import { recordSessionActivity } from "@/lib/server/session/activity"
 import { sessionExpiredResponse } from "@/lib/server/session/session-routes"
 import type { SessionPayload } from "@/lib/server/session/types"
 
@@ -263,7 +264,8 @@ export function createNamedOp<B = undefined, P = undefined>(
       if (config.upstream === "1health" && !isAccessTokenFresh(session, now)) return fail(tokenExpired)
 
       const upstream = createUpstreamClient(session, requestId)
-      return done(await config.handle({ request, requestId, session, env, now, query, params, body, upstream, setOutcome }))
+      const response = await config.handle({ request, requestId, session, env, now, query, params, body, upstream, setOutcome })
+      return done(await recordSessionActivity(request, response, session, now, clock()))
     } catch (error) {
       const errorName = error instanceof Error ? error.name : "UnknownError"
       logError({ requestId, routeTemplate: config.route, status: 500, errorName })

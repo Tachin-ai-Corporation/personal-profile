@@ -1,0 +1,74 @@
+{
+  "branch": "chore/integrated-work-status-and-code-review",
+  "baseline": "ec0f45048bd7ac95dafdb399e26f6df2cf49e427",
+  "review_order": [
+    "grouped",
+    "complete unified integration block"
+  ],
+  "patch_groups_applied": 17,
+  "story_status": {
+    "done": 40,
+    "backlog": 11,
+    "review_to_done": 13
+  },
+  "unit_tests": {
+    "command": "corepack pnpm vitest run --coverage",
+    "files_passed": 220,
+    "tests_passed": 6449,
+    "library_coverage_percent": {
+      "statements": 100,
+      "branches": 100,
+      "functions": 100,
+      "lines": 100
+    }
+  },
+  "last_personal_schema_cleanup": {
+    "command": "corepack pnpm vitest run features/personal/personal-section.test.tsx",
+    "tests_passed": 97
+  },
+  "static_gates": [
+    "corepack pnpm lint",
+    "corepack pnpm typecheck",
+    "corepack pnpm check:forbidden",
+    "git diff --check"
+  ],
+  "standards_assets": {
+    "template_version": 2,
+    "up_to_date": 27,
+    "differ": 0,
+    "missing": 0,
+    "hook_scripts_activated": false
+  },
+  "production_audit": {
+    "command": "corepack pnpm audit --prod --audit-level high",
+    "passed": true
+  },
+  "full_audit": {
+    "command": "corepack pnpm audit --audit-level high",
+    "passed": false,
+    "remaining_advisory": "GHSA-vfj7-8cjw-p6xm",
+    "package": "braces@3.0.3",
+    "dependency_scope": "development ESLint glob chain",
+    "published_patch": null
+  },
+  "e2e": {
+    "command": "PP_E2E_PORT=3520 corepack pnpm test:e2e --workers=2",
+    "status": "passed",
+    "cases_scheduled": 1084,
+    "passed": 1072,
+    "skipped": 12,
+    "failed": 0,
+    "duration": "8.5m"
+  },
+  "limits": [
+    "No live-upstream acceptance run",
+    "No manual assistive-technology audit",
+    "Complete-block pass targeted integration and changed surfaces; not every source/test line exhaustively re-read",
+    "Pending asynchronous draft hashes cannot finish after browsing context destruction",
+    "Blind complete-block reviewer established two findings below the requested artificial floor of ten"
+  ],
+  "production_build": "passed",
+  "static_gate_results": "all passed",
+  "published_at_initial_review_completion": false,
+  "follow_up": "User authorized braces mitigation, commit and branch publication; see braces-mitigation-validation.json"
+}

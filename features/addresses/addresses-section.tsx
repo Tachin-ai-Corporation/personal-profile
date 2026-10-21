@@ -61,6 +61,7 @@ import {
   type MappedError,
 } from "@/lib/api"
 import type { PlaceSuggestion } from "@/lib/shared/bff-contract"
+import { deepEqual } from "@/lib/shared/deep-equal"
 import { ADDRESS_MESSAGES, COMBOBOX_MESSAGES, COMMON_MESSAGES, formatMessage, messageFor, PLACES_MESSAGES, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
 import { formatAddressOneLine } from "./format"
@@ -830,12 +831,17 @@ export function AddressesSection() {
   useReportSectionCount("addresses", rows?.length)
 
   const baseline = useMemo<AddressValues>(() => ({ rows: editRowsOf(rows ?? []) }), [rows])
+  // A failed recovery read cannot undo acknowledged writes. Use the same saved
+  // rows for validation and retry diffs until the server list changes or edit ends.
+  const [recovery, setRecovery] = useState<{ source: AddressValues; value: AddressValues } | null>(null)
+  if (recovery && !deepEqual(recovery.source, baseline)) setRecovery(null)
+  const editBaseline = recovery?.value ?? baseline
 
   // Countries load only in edit view (`wantCountries` follows the edit mode, adjusted while rendering below).
   const [wantCountries, setWantCountries] = useState(false)
   const countries = useSWR<string[] | undefined, ApiResponseError>(wantCountries ? keys.countries() : null)
   const countriesFailed = wantCountries && countries.data === undefined && countries.error !== undefined
-  const schema = useMemo(() => addressesSchemaWith({ saved: baseline.rows, countriesFailed }), [baseline.rows, countriesFailed])
+  const schema = useMemo(() => addressesSchemaWith({ saved: editBaseline.rows, countriesFailed }), [editBaseline.rows, countriesFailed])
 
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(EMPTY_KEYS)
   const newKeys = useRef(0)
@@ -943,7 +949,7 @@ export function AddressesSection() {
     // POST them again. Each becomes a saved row with its new id; one whose id is unknown leaves the form. A deleted row
     // leaves the form too, and so does the failed row when it was removed elsewhere (Retry never re-sends it).
     const gone = !result.ok && isRemovedElsewhere(result.error.mapped) ? attempted?.key : undefined
-    if (!rebased && (created.size > 0 || deleted.size > 0 || gone !== undefined)) {
+    if (!rebased && (succeeded.size > 0 || deleted.size > 0 || gone !== undefined)) {
       current = rows.flatMap((row) => {
         if (deleted.has(row.key) || row.key === gone) return []
         if (!row.isNew || !created.has(row.key)) return [row]
@@ -951,6 +957,20 @@ export function AddressesSection() {
         return id === null ? [] : [{ ...row, key: `id-${id}`, id, isNew: false }]
       })
       formRef.current?.setValue("rows", current)
+      const createdIds = new Set([...created.values()].filter((id) => id !== null))
+      const acknowledged = current.filter((row) => !row.isNew && (succeeded.has(row.key) || (row.id !== null && createdIds.has(row.id))))
+      const primary = acknowledged.find((row) => row.primary)
+      const acknowledgedByKey = new Map(acknowledged.map((row) => [row.key, row]))
+      const saved = before.rows
+        .filter((row) => !deleted.has(row.key) && row.key !== gone)
+        .map((row) => acknowledgedByKey.get(row.key) ?? row)
+      const savedKeys = new Set(saved.map((row) => row.key))
+      const next = {
+        rows: [...saved, ...acknowledged.filter((row) => !savedKeys.has(row.key))]
+          .map((row) => primary && row.key !== primary.key && row.primary ? { ...row, primary: false } : row),
+      }
+      setRecovery({ source: baseline, value: next })
+      rebaseRef.current(next)
     }
     if (result.ok) {
       try {
@@ -976,7 +996,7 @@ export function AddressesSection() {
    * (`placeAddressFill`), with `validated` true only for a complete address
    * whose country the Select can show, and a polite announcement. The answer
    * applies only to the row's latest pick, while the Section is editing and
-   * not saving and line 1 still shows the street; a failure then puts the
+   * not saving and no address part has changed since the pick; a failure then puts the
    * typed text back silently, and `enabled: false` turns suggestions off.
    */
   async function pickSuggestion(rowKey: string, suggestion: PlaceSuggestion, before: Line1Snapshot): Promise<void> {
@@ -988,12 +1008,18 @@ export function AddressesSection() {
     lookups.end(rowKey)
     const token = lookups.startPick(rowKey, street, before)
     setRowField(form, at, "line1", street)
+    // Keep billing-session handling above unchanged. A details answer belongs
+    // to this address snapshot, including parts that Places does not fill.
+    const picked = { ...form.getValues("rows")[at] }
     const answer = await placesDetails({ placeId: suggestion.placeId, lookupId })
     if (!lookups.finishPick(rowKey, token)) return
     const latest = formRef.current
     const index = latest?.getValues("rows").findIndex((row) => row.key === rowKey) ?? -1
     const { editing, saving } = editState.current
-    if (!latest || index < 0 || !editing || saving || latest.getValues(fieldPath(index, "line1")) !== street) return
+    if (!latest || index < 0 || !editing || saving) return
+    const current = latest.getValues("rows")[index]
+    const parts = ["line1", "line2", "city", "county", "state", "zip", "country", "validated"] as const
+    if (parts.some((part) => current[part] !== picked[part])) return
     if (answer === null || !answer.enabled) {
       if (answer !== null) setPlacesStatus("off")
       setRowField(latest, index, "line1", before.line1)
@@ -1015,7 +1041,7 @@ export function AddressesSection() {
     label: SHELL_MESSAGES.sectionAddresses,
     displayOrder: 5,
     schema,
-    baseline,
+    baseline: editBaseline,
     save,
     onNoChanges: "close",
     cancelFocus: "heading",
@@ -1062,6 +1088,7 @@ export function AddressesSection() {
     const leftEdit = wasEditing.current && !isEditing
     wasEditing.current = isEditing
     if (!leftEdit) return
+    setRecovery(null)
     rebase(baseline)
     lookups.clear()
   }, [isEditing, baseline, rebase, lookups])

@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label"
 import { environmentConfig, environmentFromReferrer, type Environment } from "@/lib/shared/environments"
 import { consumeLaunchIntent } from "@/lib/shared/login-intent"
 import { LAUNCH_MESSAGES as M } from "@/lib/shared/messages"
+import { startSession } from "@/lib/api"
 import { normalizeLpl, runLaunchFlow, type LaunchFlowDeps } from "./launch-flow"
 
 /** D9: "Success!" stays on screen this long before the hard navigation. */
@@ -81,6 +82,7 @@ export function AuthScreen({ rememberedEnvironment, environments, flowDeps, navi
   const [view, setView] = useState<View>({ name: "idle" })
   const [manualLpl, setManualLpl] = useState("")
   const started = useRef(false)
+  const mounted = useRef(true)
   const redirectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   const shown: Environment = environment ?? rememberedEnvironment ?? "prod"
@@ -88,7 +90,14 @@ export function AuthScreen({ rememberedEnvironment, environments, flowDeps, navi
   const portalUrl = environmentConfig(shown).portalUrl
 
   async function launch(lpl: string) {
-    const result = await runLaunchFlow(lpl, { ...flowDeps, onAttempt: (attempt) => setView({ name: "loading", attempt }) })
+    const attempt = flowDeps?.attempt ?? startSession
+    const result = await runLaunchFlow(lpl, {
+      ...flowDeps,
+      // A disposed screen cannot start another exchange after its retry delay.
+      attempt: (value) => mounted.current ? attempt(value) : Promise.resolve({ kind: "failed", retryable: false }),
+      onAttempt: (attempt) => { if (mounted.current) setView({ name: "loading", attempt }) },
+    })
+    if (!mounted.current) return
     if (result.kind === "error") {
       setView({ name: "error", title: result.title, message: result.message })
       return
@@ -108,7 +117,10 @@ export function AuthScreen({ rememberedEnvironment, environments, flowDeps, navi
   })
 
   // Never navigate after the screen has unmounted.
-  useEffect(() => () => clearTimeout(redirectTimer.current), [])
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false; clearTimeout(redirectTimer.current) }
+  }, [])
 
   useEffect(() => {
     if (started.current) return

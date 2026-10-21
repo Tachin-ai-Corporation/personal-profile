@@ -47,7 +47,7 @@ export function createActivity(): Activity {
       try {
         listener(value)
       } catch (error) {
-        console.error("[activity] listener failed", error)
+        console.error("[activity] listener failed", error instanceof Error ? error.name : typeof error)
       }
     }
   }

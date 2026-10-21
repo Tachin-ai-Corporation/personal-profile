@@ -21,6 +21,13 @@ export type SignaturePadChange = { readonly kind: "drawn" } | { readonly kind: "
 /** The image under the strokes: the saved Signature (its same-origin URL) or an accepted upload. */
 export type SignaturePadImage = { readonly kind: "saved"; readonly src: string } | { readonly kind: "upload"; readonly blob: Blob }
 
+interface ImageBounds {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
 /**
  * What the pad shows, kept by the Section across a remount of the pad (the
  * edit table swaps its layout at 768 px, e.g. on a tablet's rotation), so the
@@ -31,6 +38,8 @@ export interface SignaturePadMemory {
   readonly touched: boolean
   readonly strokes: readonly PointGroup[]
   readonly image: SignaturePadImage | null
+  /** The CSS drawing domain, retained unchanged between user edits to avoid resize drift. Older memories use the mounting pad's size. */
+  readonly dimensions?: { readonly width: number; readonly height: number; readonly image?: ImageBounds }
 }
 
 /** A pad the user hasn't changed in this edit. */
@@ -58,27 +67,45 @@ type ShownImage = HTMLImageElement
 
 /**
  * Sizes the canvas for `devicePixelRatio` and redraws it: the shown image
- * (contained and centred), then the strokes when `keepStrokes`. Skipped while
- * the canvas has no layout size.
+ * (contained and centred), then the strokes. Both use the same drawing
+ * domain, so strokes over an image remain aligned. Always derives from the
+ * remembered domain, rather than scaling the previous resize's output.
  */
-function paintPad(canvas: HTMLCanvasElement, pad: SignaturePad, image: ShownImage | null, keepStrokes: boolean): void {
+function paintPad(canvas: HTMLCanvasElement, pad: SignaturePad, image: ShownImage | null, memory: SignaturePadMemory): ImageBounds | undefined {
   const width = canvas.offsetWidth
   const height = canvas.offsetHeight
   if (width === 0 || height === 0) return
   const ratio = Math.max(window.devicePixelRatio || 1, 1)
-  const strokes = keepStrokes ? pad.toData() : []
+  const domain: NonNullable<SignaturePadMemory["dimensions"]> = memory.dimensions ?? { width, height }
+  const scale = Math.min(width / domain.width, height / domain.height)
+  const x = (width - domain.width * scale) / 2
+  const y = (height - domain.height * scale) / 2
   canvas.width = Math.round(width * ratio)
   canvas.height = Math.round(height * ratio)
   const context = canvas.getContext("2d")
   context?.setTransform(ratio, 0, 0, ratio, 0, 0)
   pad.clear()
+  let imageBounds: ImageBounds | undefined
   if (image && context && image.naturalWidth > 0 && image.naturalHeight > 0) {
-    const scale = Math.min(width / image.naturalWidth, height / image.naturalHeight)
-    const drawWidth = image.naturalWidth * scale
-    const drawHeight = image.naturalHeight * scale
-    context.drawImage(image, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight)
+    const fit = Math.min(domain.width / image.naturalWidth, domain.height / image.naturalHeight)
+    const source = domain.image ?? {
+      x: (domain.width - image.naturalWidth * fit) / 2,
+      y: (domain.height - image.naturalHeight * fit) / 2,
+      width: image.naturalWidth * fit,
+      height: image.naturalHeight * fit,
+    }
+    imageBounds = { x: x + source.x * scale, y: y + source.y * scale, width: source.width * scale, height: source.height * scale }
+    context.drawImage(image, imageBounds.x, imageBounds.y, imageBounds.width, imageBounds.height)
   }
+  const strokes = scale === 1 && x === 0 && y === 0 ? [...memory.strokes] : memory.strokes.map((group) => ({
+    ...group,
+    dotSize: group.dotSize * scale,
+    minWidth: group.minWidth * scale,
+    maxWidth: group.maxWidth * scale,
+    points: group.points.map((point) => ({ ...point, x: x + point.x * scale, y: y + point.y * scale })),
+  }))
   if (strokes.length > 0) pad.fromData(strokes, { clear: false })
+  return imageBounds
 }
 
 /** The canvas as a PNG blob, or `null` when it can't encode. */
@@ -124,6 +151,8 @@ export function SignaturePadField({ wiring, savedSrc, readOnly, onChange, handle
   /** The image drawn under the strokes, and where it came from. */
   const imageRef = useRef<ShownImage | null>(null)
   const imageSourceRef = useRef<SignaturePadImage | null>(null)
+  /** The currently painted image's CSS bounds, captured when a new stroke establishes a new drawing domain. */
+  const imageBoundsRef = useRef<ImageBounds | undefined>(undefined)
   /** The image being loaded to show (a later upload or a Clear makes an earlier one stale). */
   const wantedRef = useRef<SignaturePadImage | null>(null)
   const memoryRef = useRef<SignaturePadMemory>(initialMemory ?? EMPTY_SIGNATURE_PAD_MEMORY)
@@ -182,7 +211,7 @@ export function SignaturePadField({ wiring, savedSrc, readOnly, onChange, handle
       if (!isCurrent() || !canvas || !pad) return
       imageRef.current = image
       imageSourceRef.current = source
-      paintPad(canvas, pad, image, keepStrokes)
+      imageBoundsRef.current = paintPad(canvas, pad, image, keepStrokes ? memoryRef.current : EMPTY_SIGNATURE_PAD_MEMORY)
       onShown?.()
     }
     image.onerror = release
@@ -198,25 +227,37 @@ export function SignaturePadField({ wiring, savedSrc, readOnly, onChange, handle
     const pad = new SignaturePad(canvas, { penColor: inkColor() })
     padRef.current = pad
     const onEndStroke = (): void => {
-      remember({ touched: true, strokes: [...pad.toData()], image: imageSourceRef.current })
+      // The SDK reports CSS coordinates. A new edit establishes this viewport
+      // as the domain, including any letterboxing the user just drew in.
+      remember({
+        touched: true,
+        strokes: [...pad.toData()],
+        image: imageSourceRef.current,
+        dimensions: { width: canvas.offsetWidth, height: canvas.offsetHeight, ...(imageBoundsRef.current ? { image: imageBoundsRef.current } : {}) },
+      })
       setContent(true)
       // A valid drawing replaces whatever upload was refused.
       setError(null)
       onChangeRef.current({ kind: "drawn" })
     }
     pad.addEventListener("endStroke", onEndStroke)
+    // Legacy memories did not carry their domain; interpret them in this
+    // mounting viewport, then retain that domain for subsequent resizes.
+    const initial = memoryRef.current
+    if (initial.strokes.length > 0 && !initial.dimensions && canvas.offsetWidth > 0 && canvas.offsetHeight > 0) {
+      memoryRef.current = { ...initial, dimensions: { width: canvas.offsetWidth, height: canvas.offsetHeight } }
+    }
     let size = ""
     const resize = (): void => {
       const next = `${canvas.offsetWidth}x${canvas.offsetHeight}@${window.devicePixelRatio || 1}`
       if (next === size) return
       size = next
-      paintPad(canvas, pad, imageRef.current, true)
+      imageBoundsRef.current = paintPad(canvas, pad, imageRef.current, memoryRef.current)
     }
     resize()
     // A remount in the same edit: the content the user made comes back.
     const remembered = memoryRef.current
     if (remembered.touched) {
-      if (remembered.strokes.length > 0) pad.fromData([...remembered.strokes], { clear: false })
       const image = remembered.image
       if (image) {
         wantedRef.current = image
@@ -272,6 +313,7 @@ export function SignaturePadField({ wiring, savedSrc, readOnly, onChange, handle
     uploadSeq.current += 1
     remember({ touched: true, strokes: [], image: null })
     imageRef.current = null
+    imageBoundsRef.current = undefined
     imageSourceRef.current = null
     wantedRef.current = null
     padRef.current?.clear()
@@ -287,6 +329,7 @@ export function SignaturePadField({ wiring, savedSrc, readOnly, onChange, handle
     wantedRef.current = source
     imageSourceRef.current = source
     imageRef.current = null
+    imageBoundsRef.current = undefined
     padRef.current?.clear()
     loadImage(source, true, () => wantedRef.current === source)
   }

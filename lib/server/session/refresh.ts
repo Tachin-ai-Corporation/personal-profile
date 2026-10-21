@@ -14,9 +14,9 @@ export function isAccessTokenFresh(session: SessionPayload, now: number): boolea
 
 /**
  * Activity re-seal race guard (Story 1.6): the token must outlive skew +
- * upstream timeout (55 s). No normal refresh (in any tab) can then rotate the
- * tokens while this request is in flight, so its late `Set-Cookie` never
- * writes back pre-rotation tokens.
+ * upstream timeout (55 s). Check this at activity acceptance and again when
+ * an upstream operation completes: the ping/refresh path may rotate tokens
+ * after this boundary is crossed while a request is in flight.
  */
 export const ACTIVITY_RESEAL_MIN_MS = EXPIRY_SKEW_MS + UPSTREAM_TIMEOUT_MS
 

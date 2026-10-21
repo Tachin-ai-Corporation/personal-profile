@@ -727,6 +727,69 @@ test.describe("Signature (Story 2.4)", () => {
     expectSignaturePng(uploads()[0])
   })
 
+  test("edge ink survives narrower remounts and repeated resizing in the exported PNG", async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 740 })
+    const server = await openSignature(page, null)
+    const uploads = await mockPersonalSignatureUpload(page, server.uploaded)
+    await editSignature(page)
+    await pad(page).scrollIntoViewIfNeeded()
+    const box = await pad(page).boundingBox()
+    if (!box) throw new Error("no pad")
+    await page.mouse.move(box.x + box.width - 12, box.y + 24)
+    await page.mouse.down()
+    await page.mouse.move(box.x + box.width - 12, box.y + box.height - 24, { steps: 16 })
+    await page.mouse.up()
+    const bounds = () => pad(page).evaluate((element) => {
+      const canvas = element as HTMLCanvasElement
+      const pixels = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data
+      const ratio = canvas.width / canvas.getBoundingClientRect().width
+      let minX = canvas.width
+      let maxX = -1
+      let minY = canvas.height
+      let maxY = -1
+      for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
+        if (pixels[(y * canvas.width + x) * 4 + 3] === 0) continue
+        minX = Math.min(minX, x); maxX = Math.max(maxX, x)
+        minY = Math.min(minY, y); maxY = Math.max(maxY, y)
+      }
+      return { minX: minX / ratio, maxX: maxX / ratio, minY: minY / ratio, maxY: maxY / ratio, width: canvas.width / ratio, height: canvas.height / ratio }
+    })
+    const original = await bounds()
+    expect(original.maxX).toBeGreaterThan(original.width - 20)
+    for (const width of [360, 1000, 360]) {
+      await page.setViewportSize({ width, height: 740 })
+      await expect.poll(async () => {
+        const next = await bounds()
+        const scale = Math.min(next.width / original.width, next.height / original.height)
+        const x = (next.width - original.width * scale) / 2
+        const y = (next.height - original.height * scale) / 2
+        return Math.max(
+          Math.abs(next.minX - (x + original.minX * scale)),
+          Math.abs(next.maxX - (x + original.maxX * scale)),
+          Math.abs(next.minY - (y + original.minY * scale)),
+          Math.abs(next.maxY - (y + original.maxY * scale)),
+        )
+      }).toBeLessThan(2)
+    }
+    await section(page).getByRole("button", { name: "Save" }).click()
+    await expectReadView(page)
+    expect(uploads()).toHaveLength(1)
+    expectSignaturePng(uploads()[0])
+    // Decode the actual uploaded PNG too: the edge drawing must still contain ink.
+    const ink = await page.evaluate(async (base64) => {
+      const image = new Image()
+      image.src = `data:image/png;base64,${base64}`
+      await image.decode()
+      const canvas = document.createElement("canvas")
+      canvas.width = image.naturalWidth; canvas.height = image.naturalHeight
+      const context = canvas.getContext("2d")!
+      context.drawImage(image, 0, 0)
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+      return pixels.some((alpha, index) => index % 4 === 3 && alpha > 0)
+    }, uploads()[0].bytes.toString("base64"))
+    expect(ink).toBe(true)
+  })
+
   test("the pad at 360 px: full width, no horizontal scroll; axe passes on the pad in light and dark", async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 740 })
     await openSignature(page, PERSONAL_SIGNATURE_FILE_ID)

@@ -301,3 +301,20 @@ describe("AuthScreen: blank lpl values and accessibility", () => {
     expect(await axeViolations()).toEqual([])
   })
 })
+
+it.each(["ok", "network"] as const)("ignores a late %s launch after unmount and starts no further exchange", async (kind) => {
+  setUrl("/auth?lpl=abc")
+  let finish!: (result: LaunchAttempt) => void
+  const attempt = vi.fn(() => new Promise<LaunchAttempt>((resolve) => { finish = resolve }))
+  const navigate = vi.fn()
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+  const view = render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment={null} flowDeps={{ attempt, sleep: async () => undefined }} navigate={navigate} />)
+  expect(attempt).toHaveBeenCalledOnce()
+  view.unmount()
+  await act(async () => {
+    finish(kind === "ok" ? { kind: "ok", environment: "prod" } : { kind: "network" })
+    await vi.runAllTimersAsync()
+  })
+  expect(attempt).toHaveBeenCalledOnce()
+  expect(navigate).not.toHaveBeenCalled()
+})

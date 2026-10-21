@@ -174,3 +174,17 @@ describe("placesDetails", () => {
     expect(await placesDetails({ placeId: SUGGESTION.placeId, lookupId: LOOKUP })).toBeNull()
   })
 })
+
+it("keeps typed addresses, lookup ids and details out of real development transport logs", async () => {
+  vi.stubEnv("NODE_ENV", "development")
+  const group = vi.spyOn(console, "groupCollapsed").mockImplementation(() => undefined)
+  const payload = vi.spyOn(console, "log").mockImplementation(() => undefined)
+  vi.spyOn(console, "groupEnd").mockImplementation(() => undefined)
+  answering(AUTOCOMPLETE, () => HttpResponse.json({ enabled: true, suggestions: [SUGGESTION] }))
+  answering(DETAILS, () => HttpResponse.json({ enabled: true, ...ADDRESS }))
+  expect((await placesAutocomplete({ input: "1 Pine St", countryCode: "US", lookupId: LOOKUP })).suggestions).toEqual([SUGGESTION])
+  expect((await placesDetails({ placeId: SUGGESTION.placeId, lookupId: LOOKUP }))?.enabled).toBe(true)
+  expect(group).toHaveBeenCalledTimes(2)
+  expect(payload).not.toHaveBeenCalled()
+  expect(JSON.stringify(group.mock.calls)).not.toMatch(/Pine|San Francisco|ChIJ|0b7c3f4e/)
+})

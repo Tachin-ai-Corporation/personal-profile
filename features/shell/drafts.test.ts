@@ -372,6 +372,127 @@ describe("createDraftController", () => {
     expect(stored()).toMatchObject({ baseHash: "late", values: { number: "2", note: "" } })
   })
 
+  it.each(["unregister", "dispose"] as const)("finishes a captured dirty draft after %s while its hash is pending", async (detach) => {
+    let release: (value: string) => void = () => undefined
+    const section = fakeSection(registry)
+    start(own(), { hash: () => new Promise<string>((resolve) => { release = resolve }) })
+    section.update({ isDirty: true, values: { number: "2", note: [{ deep: { SSN: "123-45-6789" } }] } })
+    if (detach === "unregister") section.unregister()
+    else { controller.flush(); controller.dispose() }
+    // Form objects may be reused after React unmount; the captured edit must not change.
+    section.values = { number: "later", note: "later" }
+    release("captured-base")
+    await microtasks()
+    expect(stored()).toEqual({ savedAt: NOW, baseHash: "captured-base", values: { number: "2" } })
+    expect(JSON.stringify(stored())).not.toContain("6789")
+  })
+
+  it("captures nested allowed values before an unmounted form can mutate them", async () => {
+    let release: (value: string) => void = () => undefined
+    const section = fakeSection(registry)
+    start(own(), { hash: () => new Promise<string>((resolve) => { release = resolve }) })
+    const note = [{ label: "original" }]
+    section.update({ isDirty: true, values: { number: "2", note } })
+    section.unregister()
+    note[0].label = "later"
+    release("base")
+    await microtasks()
+    expect(stored()).toMatchObject({ values: { number: "2", note: [{ label: "original" }] } })
+  })
+
+  it.each([
+    ["saved", false], ["discarded", false], ["drop", false], ["purge", false], ["owner", false],
+    ["saved", true], ["discarded", true], ["drop", true], ["purge", true], ["owner", true],
+  ] as const)("cancels a captured hash-pending draft on %s (detached=%s)", async (cancel, detached) => {
+    let release: (value: string) => void = () => undefined
+    const section = fakeSection(registry)
+    start(own(), { hash: () => new Promise<string>((resolve) => { release = resolve }) })
+    section.update({ isDirty: true, values: { number: "2", note: "" } })
+    controller.flush()
+    const finishHash = release
+    if (detached) { section.unregister(); controller.dispose() }
+    if (cancel === "saved" || cancel === "discarded") registry.report({ type: cancel, id: "phone" })
+    else if (cancel === "drop") controller.drop("phone")
+    else if (cancel === "purge") controller.purgeUser()
+    else controller.setOwner(own(43))
+    finishHash("late")
+    await microtasks()
+    expect(stored()).toBeNull()
+    expect(stored(own(43))).toBeNull()
+  })
+
+  it("a newer edit cancels an older pending snapshot before the new debounce expires", async () => {
+    let release: (value: string) => void = () => undefined
+    const section = fakeSection(registry)
+    start(own(), { hash: () => new Promise<string>((resolve) => { release = resolve }) })
+    section.update({ isDirty: true, values: { number: "2", note: "" } })
+    controller.flush()
+    section.update({ values: { number: "3", note: "" } })
+    release("base")
+    await microtasks()
+    expect(stored()).toBeNull()
+    vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS)
+    expect(stored()).toMatchObject({ values: { number: "3", note: "" } })
+  })
+
+  it.each(["same controller", "new controller"] as const)("a remount through %s supersedes a detached pending draft", async (remount) => {
+    const releases: ((value: string) => void)[] = []
+    const section = fakeSection(registry)
+    start(own(), { hash: () => new Promise<string>((resolve) => { releases.push(resolve) }) })
+    section.update({ isDirty: true, values: { number: "old", note: "" } })
+    section.unregister()
+    const previous = controller
+    if (remount === "new controller") {
+      previous.dispose()
+      registry = createSectionRegistry()
+      start()
+    }
+    const replacement = fakeSection(registry)
+    replacement.update({ isDirty: true, values: { number: "new", note: "" } })
+    await microtasks()
+    controller.flush()
+    if (remount === "same controller") releases[1]("new-base")
+    releases[0]("old-base")
+    await microtasks()
+    expect(stored()).toMatchObject({ values: { number: "new", note: "" } })
+  })
+
+  it("an older mounted controller cannot overwrite or remove a newer controller's draft", async () => {
+    const olderSection = fakeSection(registry)
+    const older = createDraftController({ store, registry, hash })
+    controller = older
+    registry.observe((event) => older.handle(event))
+    older.setOwner(own())
+    await microtasks()
+    olderSection.update({ isDirty: true, values: { number: "old", note: "" } })
+    older.flush()
+    registry = createSectionRegistry()
+    const newerSection = fakeSection(registry)
+    start()
+    await microtasks()
+    newerSection.update({ isDirty: true, values: { number: "new", note: "" } })
+    controller.flush()
+    olderSection.update({ values: { number: "stale", note: "" } })
+    vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS)
+    older.drop("phone")
+    olderSection.unregister()
+    older.drop("phone")
+    older.setOwner(null)
+    older.dispose()
+    expect(stored()).toMatchObject({ values: { number: "new", note: "" } })
+  })
+
+  it("a rejected detached hash writes nothing", async () => {
+    let reject: (reason: Error) => void = () => undefined
+    const section = fakeSection(registry)
+    start(own(), { hash: () => new Promise<string>((_resolve, fail) => { reject = fail }) })
+    section.update({ isDirty: true, values: { number: "2", note: "" } })
+    section.unregister()
+    reject(new Error("unavailable digest"))
+    await microtasks()
+    expect(stored()).toBeNull()
+  })
+
   it("a debounced write also waits for a pending hash", async () => {
     let release: (value: string) => void = () => undefined
     const section = fakeSection(registry)

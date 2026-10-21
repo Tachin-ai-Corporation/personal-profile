@@ -1,6 +1,6 @@
 import "server-only"
 
-import { ACTIVITY_AT_HEADER, ACTIVITY_HEADER, ACTIVITY_USER, BFF_PATHS, type BffErrorCode } from "@/lib/shared/bff-contract"
+import { BFF_PATHS, type BffErrorCode } from "@/lib/shared/bff-contract"
 import { environmentConfig } from "@/lib/shared/environments"
 import { serverEnv, type ServerEnv } from "@/lib/server/env"
 import { jsonError } from "@/lib/server/http/responses"
@@ -8,10 +8,10 @@ import { isJsonRequest } from "@/lib/server/http/content-type"
 import { readCapped } from "@/lib/server/http/read-capped"
 import { buildUpstreamUrl } from "@/lib/server/http/upstream-url"
 import { logRequest, newRequestId } from "@/lib/server/log"
-import { canRenewLastSeen, isAccessTokenFresh } from "@/lib/server/session/refresh"
-import { getSession, renewLastSeen } from "@/lib/server/session/session"
+import { isAccessTokenFresh } from "@/lib/server/session/refresh"
+import { getSession } from "@/lib/server/session/session"
 import { sessionExpiredResponse } from "@/lib/server/session/session-routes"
-import type { SessionPayload } from "@/lib/server/session/types"
+import { recordSessionActivity } from "@/lib/server/session/activity"
 import { ALLOWLIST } from "./allowlist"
 import { DENY_RULES, isDenied } from "./deny-list"
 import { forward } from "./forward"
@@ -68,25 +68,6 @@ async function readEntryBody(request: Request, method: ProxyMethod, entry: Allow
   }
   const parsed = entry.body.safeParse(json)
   return parsed.success ? { ok: true, body: JSON.stringify(parsed.data) } : { ok: false, status: 400, errorCode: "BAD_BODY" }
-}
-
-/**
- * Story 1.6 activity: a forwarded request flagged `X-PP-Activity: user`
- * re-seals `lastSeen = at` and echoes `X-PP-Activity-At`, under the race guard.
- * A re-seal that fails leaves the upstream answer untouched.
- */
-async function recordActivity(request: Request, response: Response, session: SessionPayload, at: number): Promise<Response> {
-  if (request.headers.get(ACTIVITY_HEADER) !== ACTIVITY_USER) return response
-  if (!canRenewLastSeen(session, at)) return response
-  let cookie: string
-  try {
-    cookie = await renewLastSeen(session, at)
-  } catch {
-    return response
-  }
-  response.headers.append("Set-Cookie", cookie)
-  response.headers.set(ACTIVITY_AT_HEADER, String(at))
-  return response
 }
 
 /**
@@ -163,6 +144,6 @@ export function createProxyHandler(deps: ProxyHandlerDeps = {}): (request: Reque
       asImage: entry.asImage === true,
     })
     if (result.kind === "token-expired") return fail(401, "TOKEN_EXPIRED")
-    return done(await recordActivity(request, result.response, session, checkedAt))
+    return done(await recordSessionActivity(request, result.response, session, checkedAt, now()))
   }
 }

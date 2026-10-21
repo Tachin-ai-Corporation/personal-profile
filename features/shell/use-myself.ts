@@ -110,9 +110,7 @@ export function useMyself(): UseMyselfResult {
   // back: on mount, with no live timer and no request running, it is over.
   useEffect(() => {
     if ((liveTimers.get(cache) ?? 0) === 0 && !isValidating) clearPending(cache)
-    // Mount only: later renders follow SWR's callbacks.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cache])
+  }, [cache, isValidating])
   return {
     myself: data,
     error: pending ? undefined : error,

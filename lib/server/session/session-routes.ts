@@ -5,7 +5,7 @@ import { environmentConfig } from "@/lib/shared/environments"
 import { serverEnv, type ServerEnv } from "@/lib/server/env"
 import { jsonError, jsonOk, noContent } from "@/lib/server/http/responses"
 import { logRequest, newRequestId } from "@/lib/server/log"
-import { canRenewLastSeen, isAccessTokenFresh, refreshSession } from "./refresh"
+import { canRenewLastSeen, refreshSession } from "./refresh"
 import { REVOKE_TIMEOUT_MS, revokeAllDevices } from "./revoke"
 import {
   buildSessionSetCookie,
@@ -62,7 +62,8 @@ export function createRefreshHandler(deps: SessionRouteDeps = {}): (request: Req
     const session = await getSession(request, now())
     if (!session) return done(sessionExpiredResponse(request))
 
-    if (isAccessTokenFresh(session, now())) return done(jsonOk({ ok: true }))
+    // Ping needs the same55s safety window; a30s-only no-op would make its replay expire.
+    if (canRenewLastSeen(session, now())) return done(jsonOk({ ok: true }))
 
     const result = await refreshSession(session, now())
     if (result.kind === "rejected") {

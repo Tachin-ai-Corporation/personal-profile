@@ -128,3 +128,13 @@ describe("channel lifecycle", () => {
     expect(local.lastAt()).toBe(9)
   })
 })
+
+it.each([new Error("private synthetic address"), "private synthetic address"])("logs listener failure type without its payload", (failure) => {
+  const log = vi.spyOn(console, "error").mockImplementation(() => undefined)
+  const channel = createActivity()
+  channel.subscribe(() => { throw failure })
+  channel.note(100)
+  expect(log).toHaveBeenCalledWith("[activity] listener failed", failure instanceof Error ? "Error" : "string")
+  expect(JSON.stringify(log.mock.calls)).not.toContain("private synthetic address")
+  channel.reset()
+})

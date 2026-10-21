@@ -188,12 +188,12 @@ export function Combobox<T>(props: ComboboxProps<T>): React.JSX.Element {
   const retryRef = React.useRef<HTMLButtonElement>(null)
   const lastOptionRef = React.useRef<HTMLDivElement | null>(null)
 
+  const activeOptionId = activeIndex >= 0 ? optionId(activeIndex) : null
+
   // Keep the active option visible while arrowing through the list.
   React.useEffect(() => {
-    if (activeIndex >= 0) document.getElementById(optionId(activeIndex))?.scrollIntoView?.({ block: "nearest" })
-    // optionId only depends on the stable listboxId.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeIndex])
+    if (activeOptionId) document.getElementById(activeOptionId)?.scrollIntoView?.({ block: "nearest" })
+  }, [activeOptionId])
 
   // Infinite scroll: the last option scrolling into view loads the next page.
   const { canLoadMore, loadMore } = combobox

@@ -1,0 +1,42 @@
+{
+  "patch": "patches/braces@3.0.3.patch",
+  "advisory": "GHSA-vfj7-8cjw-p6xm",
+  "scope": "ESLint dependency string-pattern parsing; brace and parenthesis AST depth capped at100",
+  "unpatched_regression": {
+    "tests": 25,
+    "failed": 20,
+    "passed": 5
+  },
+  "patched_expanded_regression": {
+    "tests": 47,
+    "passed": 47
+  },
+  "clean_frozen_offline_install": {
+    "passed": true,
+    "regression_tests_passed": 47
+  },
+  "full_unit_coverage_run": {
+    "files": 221,
+    "tests_passed": 6474,
+    "note": "initial25-case mitigation matrix; final expanded47-case matrix rerun separately",
+    "library_statements_percent": 100,
+    "library_branches_percent": 100,
+    "library_functions_percent": 100,
+    "library_lines_percent": 100
+  },
+  "checks": {
+    "frozen_install": "passed",
+    "lint": "passed",
+    "typecheck": "passed",
+    "forbidden_tokens": "passed",
+    "production_build": "passed",
+    "production_audit": "passed",
+    "full_registry_audit": "one remaining advisory; patched package version still3.0.3; no suppression"
+  },
+  "prior_full_e2e": {
+    "passed": 1072,
+    "skipped": 12,
+    "note": "before development-only patch; no application runtime code changed in mitigation follow-up"
+  },
+  "security_review": "no confirmed findings; optional callable/create and exact mixed/parenthesis boundary gaps covered in expanded tests"
+}
