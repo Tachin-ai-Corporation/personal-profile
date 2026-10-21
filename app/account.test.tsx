@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import type { ReactElement, ReactNode } from "react"
 import { useSearchParams } from "next/navigation"
@@ -172,6 +172,8 @@ describe("/account page (Team B, Story 7.1)", () => {
 
     await act(async () => fireEvent.mouseDown(screen.getByRole("tab", { name: "Individual Provider Registration" }), { button: 0 }))
     expect(window.location.search).toBe("?tab=provider")
+    await screen.findByRole("heading", { name: "Healthcare credentials" })
+    await waitFor(() => expect(requests().filter((path) => path === NPI)).toHaveLength(1))
     expect(panelOf("Individual Provider Registration")?.childElementCount).toBeGreaterThan(0)
     expect(panelOf("Personal Account")?.childElementCount).toBe(0)
     expect(panelOf("My Organizations")?.childElementCount).toBe(0)

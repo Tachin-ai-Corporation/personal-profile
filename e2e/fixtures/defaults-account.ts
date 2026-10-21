@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test"
 import { mockShellDefaults } from "./core"
-import { mockPracticeSupport, mockUserNpi } from "./npi"
+import { mockNpiSearch, mockPracticeSupport, mockUserNpi } from "./npi"
 import { mockOrganizations } from "./orgs"
 
 /**
@@ -13,6 +13,7 @@ import { mockOrganizations } from "./orgs"
 export async function mockAccountDefaults(page: Page): Promise<void> {
   await mockShellDefaults(page)
   await mockUserNpi(page)
+  await mockNpiSearch(page)
   await mockPracticeSupport(page)
   await mockOrganizations(page)
 }
