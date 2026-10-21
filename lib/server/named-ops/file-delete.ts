@@ -28,7 +28,7 @@ const myselfSchema = z.object({ signature: fileRef.optional() })
  * not Spring's `Page`): `{ data, pageNumber, pageSize, …, lastPage, totalPages }`.
  */
 const insurancePageSchema = z.object({
-  data: z.array(z.object({ frontSideCardFile: fileRef.optional(), backSideCardFile: fileRef.optional() })),
+  data: z.array(z.object({ id: idSchema.optional().catch(undefined), frontSideCardFile: fileRef.optional(), backSideCardFile: fileRef.optional() })),
   lastPage: z.boolean().optional(),
 })
 
@@ -111,10 +111,11 @@ async function pictureIds(upstream: UpstreamClient, userId: number): Promise<Loo
 /**
  * `GET v2/health/patient/insurance` (the backend's `PageImpl<ResponseInsuranceDTO>`,
  * `{ data, lastPage, … }`): the front/back card file ids of the caller's own
- * policies, page by page until `lastPage` or an empty `data` (more than
- * `INSURANCE_MAX_PAGES` pages fails closed).
+ * policies (the newest of each side, all the list shows), page by page until
+ * `lastPage` or an empty `data` (more than `INSURANCE_MAX_PAGES` pages fails
+ * closed). The policy ids go into `policyIds` for `cardRelationIds`.
  */
-async function cardIds(upstream: UpstreamClient): Promise<Lookup> {
+async function cardIds(upstream: UpstreamClient, policyIds: number[]): Promise<Lookup> {
   const ids: number[] = []
   for (let page = 0; page < INSURANCE_MAX_PAGES; page += 1) {
     const query = new URLSearchParams({ page: String(page), size: String(INSURANCE_PAGE_SIZE) })
@@ -124,6 +125,7 @@ async function cardIds(upstream: UpstreamClient): Promise<Lookup> {
     const parsed = insurancePageSchema.safeParse(result.data)
     if (!parsed.success) return { kind: "response", response: UNUSABLE() }
     for (const policy of parsed.data.data) {
+      if (policy.id !== undefined) policyIds.push(policy.id)
       for (const file of [policy.frontSideCardFile, policy.backSideCardFile]) if (file?.id !== undefined) ids.push(file.id)
     }
     if (parsed.data.lastPage !== false || parsed.data.data.length === 0) return { kind: "ids", ids }
@@ -132,12 +134,67 @@ async function cardIds(upstream: UpstreamClient): Promise<Lookup> {
 }
 
 /**
+ * Every card relation of the caller's own policies, not only the newest file
+ * of each side that the list shows (Story 5.3, decision 1A): a card is
+ * replaced by an upload (a new relation; the old file stays related) and then
+ * the old file is deleted, so the old id must still count as the caller's.
+ * The text is a server constant; the only variables are the policy ids the
+ * caller's own list just returned (`id in [...]`, the `InsuranceFilterInput`
+ * of `GraphQLQueryProvider`). Not verified against a live backend yet, so the
+ * filter isn't trusted: each record's own `id` is read back, and only the
+ * relations of records that are the caller's policies count.
+ */
+export const INSURANCE_CARD_FILES_QUERY =
+  "query ($filter: InsuranceFilterInput) { Insurance (filter: $filter) { records { id InsuranceHasFrontSideCardFile { relations { record { id } } } InsuranceHasBackSideCardFile { relations { record { id } } } } } }"
+
+const cardRelationsSchema = z.object({ relations: z.array(z.object({ record: z.object({ id: idSchema }) })) }).nullish()
+
+const cardAnswerSchema = z.object({
+  data: z.object({
+    Insurance: z.object({
+      records: z.array(z.object({ id: idSchema, InsuranceHasFrontSideCardFile: cardRelationsSchema, InsuranceHasBackSideCardFile: cardRelationsSchema })),
+    }),
+  }),
+})
+
+/**
+ * Every card file id related to one of `policyIds` (records of any other
+ * policy are ignored, whatever the filter did), or `undefined` for an
+ * unusable answer (GraphQL `errors`, another shape, a record without an id).
+ */
+export function insuranceCardFileIds(answer: unknown, policyIds: readonly number[]): number[] | undefined {
+  if (graphqlErrorsSchema.safeParse(answer).success) return undefined
+  const parsed = cardAnswerSchema.safeParse(answer)
+  if (!parsed.success) return undefined
+  const own = new Set(policyIds)
+  return parsed.data.data.Insurance.records
+    .filter((record) => own.has(record.id))
+    .flatMap((record) =>
+      [record.InsuranceHasFrontSideCardFile, record.InsuranceHasBackSideCardFile].flatMap((side) => (side?.relations ?? []).map((relation) => relation.record.id)),
+    )
+}
+
+/** The card relations lookup (GraphQL) of the caller's policies; no policies, no request. */
+async function cardRelationIds(upstream: UpstreamClient, policyIds: readonly number[]): Promise<Lookup> {
+  if (policyIds.length === 0) return { kind: "ids", ids: [] }
+  const result = await upstream.json({
+    method: "POST",
+    segments: ["graphql"],
+    body: { query: INSURANCE_CARD_FILES_QUERY, variables: { filter: { id: { in: [...policyIds] } } } },
+  })
+  if (result.kind === "failed") return { kind: "response", response: failureResponse(result.failure) }
+  const ids = result.kind === "ok" ? insuranceCardFileIds(result.data, policyIds) : undefined
+  return ids === undefined ? { kind: "response", response: UNUSABLE() } : { kind: "ids", ids }
+}
+
+/**
  * `DELETE /api/pp/file/<fileId>` (spec F7-2; Stories 1.10, 2.4, 5.3): hard-
  * deletes one of the caller's own files. The backend's `DELETE v2/file/{id}`
  * checks only the tenant, so the proxy has no generic delete entry; this op
  * first proves, with the session's token, that the id is the caller's
  * profile picture, Signature (the newest, or any older Signature relation,
- * Story 2.4) or an insurance card of their own policies, and only then sends
+ * Story 2.4) or an insurance card of their own policies (the newest, or any
+ * older card relation, Story 5.3), and only then sends
  * `DELETE v2/file/{id}?hardDelete=true`.
  *
  * - Not owned or a malformed id → 404 `NO_FILE` (one answer, no oracle).
@@ -146,8 +203,9 @@ async function cardIds(upstream: UpstreamClient): Promise<Lookup> {
  * - The delete itself: 2xx → 204; an upstream 4xx is relayed; else 502/504.
  *
  * The lookups stop at the first match (myself, then the picture, then the
- * insurance pages, then the Signature relations last, so a failure of that
- * GraphQL read only ever blocks the delete of an older Signature).
+ * insurance pages, then the Signature relations, then the card relations of
+ * the policies those pages listed: a failure of either relations read only
+ * ever blocks the delete of an older Signature or card).
  */
 export function createFileDeleteHandler(deps: NamedOpDeps = {}) {
   return createNamedOp<undefined, number>(
@@ -159,11 +217,13 @@ export function createFileDeleteHandler(deps: NamedOpDeps = {}) {
       params: parseFileIdParam,
       failures: { badParams: { status: 404, errorCode: "NO_FILE" } },
       async handle({ session, params: fileId, upstream, setOutcome }) {
+        const policyIds: number[] = []
         const lookups = [
           () => signatureIds(upstream),
           () => pictureIds(upstream, session.userId),
-          () => cardIds(upstream),
+          () => cardIds(upstream, policyIds),
           () => signatureRelationIds(upstream, session.userId),
+          () => cardRelationIds(upstream, policyIds),
         ]
         let owned = false
         for (const lookup of lookups) {
