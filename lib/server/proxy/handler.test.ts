@@ -200,6 +200,147 @@ describe("proxy: ACCOUNT_DISABLED", () => {
   })
 })
 
+describe("proxy: opt-in path parameter constraints", () => {
+  // Availability-shaped fixture only: the consuming endpoint belongs to its story.
+  const entry: AllowlistEntry = {
+    method: "GET",
+    template: "v2/health/npi/{npiRecordId}/is-registered",
+    profile: true,
+    pathParams: { npiRecordId: z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER) },
+  }
+  const path = (id: string) => `v2/health/npi/${id}/is-registered`
+  const handler = createProxyHandler({ allowlist: [entry], env: env(), now: () => NOW })
+
+  describe("rejections before any upstream work", () => {
+    beforeEach(() => { upstreamCalls = trackAllRequests() })
+    afterEach(() => expect(upstreamCalls()).toBe(0))
+
+    it.each(["0", "%30", "9007199254740992", "9999999999999999999"])("rejects matched invalid id %s with no-store BAD_PATH and template-only logs", async (id) => {
+      const lines: string[] = []
+      const push = (line: string) => void lines.push(line)
+      const restore = setLogSink({ info: push, warn: push, error: push })
+      try {
+        await expectError(await call({ path: path(id) }, handler), 400, "BAD_PATH")
+      } finally {
+        restore()
+      }
+      expect(lines).toHaveLength(1)
+      expect(JSON.parse(lines[0])).toEqual({
+        kind: "request", requestId: expect.any(String), method: "GET",
+        routeTemplate: `/${entry.template}`, status: 400, durationMs: expect.any(Number),
+      })
+      expect(lines[0]).not.toContain(path(id))
+    })
+
+    it.each(["abc", "12345678901234567890"])("retains the route shape rejection for %s", async (id) => {
+      await expectError(await call({ path: path(id) }, handler), 403, "NOT_ALLOWED")
+    })
+
+    it("retains wrong-method precedence over constrained numeric values", async () => {
+      await expectError(await call({ method: "POST", path: path("0") }, handler), 405, "METHOD_NOT_ALLOWED")
+    })
+
+    it.each([
+      ["missing", null],
+      ["idle-expired", makeSession({ lastSeen: NOW - 16 * 60_000 })],
+    ] as const)("checks the %s session before path constraints", async (_label, session) => {
+      await expectError(await call({ path: path("0"), session }, handler), 401, "SESSION_EXPIRED")
+    })
+
+    it.each(["PP_DISABLED", "ACCOUNT_DISABLED"] as const)("retains %s precedence over sessions and path constraints", async (flag) => {
+      const disabled = createProxyHandler({ allowlist: [entry], env: env({ [flag]: "1" }), now: () => NOW })
+      await expectError(await call({ path: path("0"), session: null }, disabled), 503, "SERVICE_DISABLED")
+    })
+
+    it("validates paths before query and token freshness without forwarding a stale token", async () => {
+      const session = makeSession({ accessExpiresAt: NOW + 29_000 })
+      await expectError(await call({ path: `${path("0")}?unknown=1`, session }, handler), 400, "BAD_PATH")
+      await expectError(await call({ path: path("1"), session }, handler), 401, "TOKEN_EXPIRED")
+    })
+
+    it("validates paths before a mutation body is parsed", async () => {
+      const mutation = createProxyHandler({
+        allowlist: [{ ...entry, method: "POST", body: z.strictObject({ name: z.string() }) }],
+        env: env(), now: () => NOW,
+      })
+      const request = new Request(`http://localhost:3000/api/1h/${path("0")}`, {
+        method: "POST", body: "invalid",
+        headers: { "Content-Type": "application/json", cookie: `${SESSION_COOKIE}=${await sealSession(makeSession())}` },
+      })
+      await expectError(await mutation(request), 400, "BAD_PATH")
+      expect(request.bodyUsed).toBe(false)
+    })
+
+    it("checks the deny list before evaluating even a failing path constraint", async () => {
+      let evaluations = 0
+      const denied = createProxyHandler({
+        allowlist: [{ ...entry, pathParams: { npiRecordId: z.string().refine(() => { evaluations++; return false }) } }],
+        denyRules: [{ method: "GET", template: "v2/health/npi/<n>/is-registered" }], env: env(), now: () => NOW,
+      })
+      await expectError(await call({ path: path("0") }, denied), 403, "NOT_ALLOWED")
+      expect(evaluations).toBe(0)
+    })
+
+    it("fails closed on a configured placeholder absent from the template", async () => {
+      const invalid = createProxyHandler({
+        allowlist: [{ ...entry, pathParams: { typo: z.string() } }], env: env(), now: () => NOW,
+      })
+      await expectError(await call({ path: path("1") }, invalid), 400, "BAD_PATH")
+    })
+  })
+
+  it("validates me and a positive path id, substitutes the session owner, then rechecks deny rules", async () => {
+    const owned: AllowlistEntry = {
+      method: "GET", template: "v2/person/{personId}/fixture/{id}",
+      pathParams: { personId: z.literal("me"), id: z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER) },
+    }
+    const seen: string[] = []
+    server.use(http.get(`${UP}/v2/person/:owner/fixture/:id`, ({ request }) => {
+      seen.push(new URL(request.url).pathname)
+      return HttpResponse.json(false)
+    }))
+    const session = makeSession({ personId: 98765 })
+    const allowed = createProxyHandler({ allowlist: [owned], denyRules: [], env: env(), now: () => NOW })
+    expect((await call({ path: "v2/person/me/fixture/1", session }, allowed)).status).toBe(200)
+    expect(seen).toEqual(["/api/v2/person/98765/fixture/1"])
+
+    const calls = trackAllRequests()
+    const denied = createProxyHandler({
+      allowlist: [owned], denyRules: [{ method: "GET", template: "v2/person/98765/fixture/1" }], env: env(), now: () => NOW,
+    })
+    await expectError(await call({ path: "v2/person/me/fixture/1", session }, denied), 403, "NOT_ALLOWED")
+    expect(calls()).toBe(0)
+    expect(seen).toHaveLength(1)
+  })
+
+  it.each([
+    ["1", "1"], [String(Number.MAX_SAFE_INTEGER), String(Number.MAX_SAFE_INTEGER)], ["%31", "1"], ["0001", "0001"],
+  ])("forwards accepted %s using the original normalized string %s", async (id, expected) => {
+    const seen: string[] = []
+    server.use(http.get(`${UP}/v2/health/npi/:id/is-registered`, ({ request }) => {
+      seen.push(new URL(request.url).pathname)
+      return HttpResponse.json(false)
+    }))
+    const response = await call({ path: path(id) }, handler)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toBe(false)
+    expect(seen).toEqual([`/api/${path(expected)}`])
+  })
+
+  it.each(["0", "9999999999999999999", "0001"])("keeps unconfigured id %s unchanged upstream", async (id) => {
+    const unconstrained = createProxyHandler({
+      allowlist: [{ method: "GET", template: entry.template }], env: env(), now: () => NOW,
+    })
+    const seen: string[] = []
+    server.use(http.get(`${UP}/v2/health/npi/:id/is-registered`, ({ request }) => {
+      seen.push(new URL(request.url).pathname)
+      return HttpResponse.json(false)
+    }))
+    expect((await call({ path: path(id) }, unconstrained)).status).toBe(200)
+    expect(seen).toEqual([`/api/${path(id)}`])
+  })
+})
+
 describe("proxy: forwarding", () => {
   it("forwards GET myself with Bearer, request id and only allowlisted headers; drops upstream cookies and caching", async () => {
     let seen: Headers | undefined

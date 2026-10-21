@@ -48,6 +48,15 @@ export function matchEntry(
   return shaped.length > 0 ? { kind: "method-not-allowed" } : { kind: "not-allowed" }
 }
 
+/** Validate opted-in placeholders without replacing the original forwarded segments. */
+export function validatePathParams(entry: AllowlistEntry, segments: readonly string[]): boolean {
+  const parts = entry.template.split("/")
+  return Object.entries(entry.pathParams ?? {}).every(([name, schema]) => {
+    const positions = parts.flatMap((part, index) => part === `{${name}}` ? [index] : [])
+    return positions.length > 0 && positions.every((index) => index < segments.length && schema.safeParse(segments[index]).success)
+  })
+}
+
 /** The upstream segments, with `me` replaced by the session's ids. */
 export function upstreamSegments(entry: AllowlistEntry, segments: readonly string[], owner: OwnerIds): string[] {
   return entry.template.split("/").map((part, i) => {
