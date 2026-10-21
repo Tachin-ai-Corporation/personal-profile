@@ -44,6 +44,12 @@ describe("logApiCall (D6)", () => {
   })
 
   it.each([
+    ["/api/1h/v2/user/organization/portal?name=private#private", "/api/1h/v2/user/organization/portal"],
+    ["/api//1h/v2/%75ser/organization/portal/", "/api/1h/v2/user/organization/portal"],
+    ["/api/1h/v2/user%2forganization%2fportal", "/api/1h/v2/user/organization/portal"],
+    ["/api/1h/v2/user/old/..\t/organization/portal", "/api/1h/v2/user/organization/portal"],
+    ["/api/1h/v2/user/organization/por\ntal", "/api/1h/v2/user/organization/portal"],
+    ["/api/1h/v2/user/organization/portal\u0000\u001f ", "/api/1h/v2/user/organization/portal"],
     ["/api/1h/v2/user/npi", "/api/1h/v2/user/npi"],
     ["/api/places/autocomplete", "/api/places/autocomplete"],
     ["/api/places/details?unexpected=private", "/api/places/details"],

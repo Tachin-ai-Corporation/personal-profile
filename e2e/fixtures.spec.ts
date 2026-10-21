@@ -34,6 +34,7 @@ test("mockProxy answers a glob with a fixed or computed answer and records the r
   await mockAccountDefaults(page)
   // Exercise a fixed answer independently of the Account defaults owned by Team B.
   await mockProxy(page, "v2/user/npi", { status: 404, body: {} })
+  const organizations = await mockProxy(page, "v2/user/organization/portal*", { body: { probe: "organizations override" } })
   const typeKeys = await mockProxy(page, "v2/type/key/*", (request) => ({ body: { boKey: request.url().split("/").pop() } }))
   await page.goto("/auth")
   const answers = await page.evaluate(async () => {
@@ -42,7 +43,8 @@ test("mockProxy answers a glob with a fixed or computed answer and records the r
     const orgs = await fetch("/api/1h/v2/user/organization/portal?name=&page=0&size=12").then((res) => res.json())
     return { one, npi, orgs }
   })
-  expect(answers).toEqual({ one: { boKey: "Person" }, npi: 404, orgs: expect.objectContaining({ content: [] }) })
+  expect(answers).toEqual({ one: { boKey: "Person" }, npi: 404, orgs: { probe: "organizations override" } })
+  expect(organizations().map((request) => new URL(request.url()).search)).toEqual(["?name=&page=0&size=12"])
   expect(typeKeys().map((request) => new URL(request.url()).pathname)).toEqual(["/api/1h/v2/type/key/Person"])
 })
 

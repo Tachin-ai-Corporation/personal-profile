@@ -174,6 +174,34 @@ describe("callApi Provider registration and support logging privacy", () => {
   })
 })
 
+describe("callApi organization development logging privacy", () => {
+  it.each([
+    "/api/1h/v2/user/organization/portal?name=Private+Clinic&page=0&size=12",
+    "/api//1h/v2/%75ser/organization/portal/?name=Private",
+    "/api/1h/v2/user%2forganization%2fportal?name=Private",
+    "/api/1h/v2/user/old/..\t/organization/por\ntal?name=Private",
+    "/api/1h/v2/user/organization/portal\u0000\u001f ",
+  ])("logs only metadata across successful and rejected real requests: %s", async (path) => {
+    vi.stubEnv("NODE_ENV", "development")
+    const group = vi.spyOn(console, "groupCollapsed").mockImplementation(() => undefined)
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined)
+    const end = vi.spyOn(console, "groupEnd").mockImplementation(() => undefined)
+    const route = new URL(path, "http://localhost").pathname
+    const body = { data: [{ tenantName: "Private Clinic", contact: { email: "private@example.test", phone: "+14155552125" } }], message: "Private organization failure" }
+    for (const status of [200, 400, 403, 409, 500, undefined]) {
+      server.use(http.get(route, () => status === undefined ? HttpResponse.error() : HttpResponse.json(body, { status })))
+      const result = await freshClient()("orgs/read", path)
+      expect(result.success).toBe(status === 200)
+      if (status === 200) expect(result.data).toEqual(body)
+      if (status === 403) expect(result.platformMessage).toBe(body.message)
+      expect(group).toHaveBeenLastCalledWith(expect.stringContaining(`GET /api/1h/v2/user/organization/portal → ${status ?? "network error"} (`))
+    }
+    expect(end).toHaveBeenCalledTimes(6)
+    expect(log).not.toHaveBeenCalled()
+    expect(JSON.stringify(group.mock.calls)).not.toMatch(/Private|private|14155552125|name=/)
+  })
+})
+
 describe("callApi transport", () => {
   it("sends same-origin, with no session-binding header (D5), and parses JSON", async () => {
     let seen: Request | undefined

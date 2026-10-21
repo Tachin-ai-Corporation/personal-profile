@@ -12,7 +12,7 @@ const FILES = DEMO.publicFilesOrigin ?? ""
 const PROD_FILES = PROD.publicFilesOrigin ?? ""
 const LOGO = `${FILES}/tenant/7/logo.png`
 const PORTAL = `${DEMO.apiBase}/v2/user/organization/portal`
-const handler = createOrgLogoHandler({ env: testEnv(), now: () => NOW })
+let handler = createOrgLogoHandler({ env: testEnv(), now: () => NOW })
 const get = (tenantId = "7", extra: object = {}) => callOp(handler, { path: `/api/pp/org-logo/${tenantId}`, params: { tenantId }, ...extra })
 
 const item = (tenantId: number, publicUrl: string | null = LOGO) => ({ tenantId, tenantName: `T${tenantId}`, tenantLogo: publicUrl === null ? null : { id: 1, publicUrl }, organization: { id: tenantId } })
@@ -35,7 +35,10 @@ function logo(resolver: Parameters<typeof http.get>[1], url = LOGO): void {
   server.use(http.get(url, resolver))
 }
 
-beforeEach(() => stubServerEnv())
+beforeEach(() => {
+  stubServerEnv()
+  handler = createOrgLogoHandler({ env: testEnv(), now: () => NOW })
+})
 
 describe("GET /api/pp/org-logo/[tenantId] (AD-24)", () => {
   it("serves the logo of a member tenant inline, typed from its bytes, with no credentials to the files host", async () => {
@@ -104,6 +107,174 @@ describe("GET /api/pp/org-logo/[tenantId] (AD-24)", () => {
     expect(requests).toHaveLength(1)
   })
 
+  describe("private membership page reuse", () => {
+    it("shares paged concurrent membership reads across logos but refetches image bytes", async () => {
+      let lookups = 0
+      handler = createOrgLogoHandler({ env: testEnv(), now: () => NOW, publicFilesOrigin: () => { lookups += 1; return FILES } })
+      const requests: string[] = []
+      let release!: () => void
+      const ready = new Promise<void>((resolve) => { release = resolve })
+      let reached = false
+      server.use(http.get(PORTAL, async ({ request }) => {
+        const index = Number(new URL(request.url).searchParams.get("page"))
+        requests.push(String(index))
+        reached = true
+        await ready
+        return HttpResponse.json(index === 0 ? page([item(1)], 0, 2) : page([item(7), item(8)], 1, 2))
+      }))
+      let images = 0
+      logo(() => { images += 1; return new HttpResponse(IMAGES.png) })
+      const first = get()
+      await vi.waitFor(() => expect(reached).toBe(true))
+      const second = get("8")
+      // Origin resolution immediately precedes the synchronous pending-cache lookup.
+      await vi.waitFor(() => expect(lookups).toBe(2))
+      expect(requests).toEqual(["0"])
+      release()
+      const responses = [...await Promise.all([first, second]), await get()]
+      for (const response of responses) { expect(response.status).toBe(200); expectNoStore(response) }
+      expect(requests).toEqual(["0", "1"])
+      expect(images).toBe(3)
+    })
+
+    it("prunes a later cached page using the current clock after a slow earlier page", async () => {
+      let now = NOW
+      handler = createOrgLogoHandler({ env: testEnv(), now: () => now })
+      let release!: () => void
+      const ready = new Promise<void>((resolve) => { release = resolve })
+      let blocked = false
+      let pageZeroReads = 0
+      let pageOneReads = 0
+      server.use(http.get(PORTAL, async ({ request }) => {
+        if (new URL(request.url).searchParams.get("page") === "0") {
+          pageZeroReads += 1
+          if (pageZeroReads === 2) { blocked = true; await ready }
+          return HttpResponse.json(page([item(1)], 0, 2))
+        }
+        pageOneReads += 1
+        return HttpResponse.json(page(pageOneReads === 1 ? [item(7)] : [], 1, 2))
+      }))
+      logo(() => new HttpResponse(IMAGES.png))
+      expect((await get("1")).status).toBe(200)
+      now = NOW + 1_000
+      expect((await get()).status).toBe(200)
+      now = NOW + 5_000
+      const pending = get()
+      await vi.waitFor(() => expect(blocked).toBe(true))
+      now = NOW + 6_000
+      release()
+      await expectBffError(await pending, 404, "NO_LOGO")
+      expect(pageZeroReads).toBe(2)
+      expect(pageOneReads).toBe(2)
+    })
+
+    it("keeps the original request deadline when the first upstream membership read is slow", async () => {
+      let now = NOW
+      handler = createOrgLogoHandler({ env: testEnv(), now: () => now })
+      let release!: () => void
+      const ready = new Promise<void>((resolve) => { release = resolve })
+      let reads = 0
+      server.use(http.get(PORTAL, async () => {
+        reads += 1
+        if (reads === 1) { await ready; return HttpResponse.json(page([item(7)])) }
+        return HttpResponse.json(page([]))
+      }))
+      logo(() => new HttpResponse(IMAGES.png))
+      const pending = get()
+      await vi.waitFor(() => expect(reads).toBe(1))
+      now = NOW + 4_000
+      release()
+      expect((await pending).status).toBe(200)
+      expect((await get()).status).toBe(200)
+      expect(reads).toBe(1)
+      now = NOW + 5_000
+      await expectBffError(await get(), 404, "NO_LOGO")
+      expect(reads).toBe(2)
+    })
+
+    it("retains a replacement when an evicted pending read later fails", async () => {
+      let release!: () => void
+      const ready = new Promise<void>((resolve) => { release = resolve })
+      let reads = 0
+      server.use(http.get(PORTAL, async () => {
+        reads += 1
+        if (reads === 1) { await ready; return new HttpResponse(null, { status: 500 }) }
+        return HttpResponse.json(page([item(7)]))
+      }))
+      logo(() => new HttpResponse(IMAGES.png))
+      const old = get()
+      await vi.waitFor(() => expect(reads).toBe(1))
+      for (let gen = 1; gen <= 256; gen += 1) await get("7", { session: makeSession({ gen }) })
+      expect((await get()).status).toBe(200)
+      expect(reads).toBe(258)
+      release()
+      await expectBffError(await old, 404, "NO_LOGO")
+      expect((await get()).status).toBe(200)
+      expect(reads).toBe(258)
+    })
+
+    it.each([
+      { sid: "another-session-1234567890" }, { environment: "prod" as const },
+      { userId: 43 }, { personId: 4243 }, { tenantId: 2 }, { gen: 1 },
+    ])("isolates membership by %j", async (identity) => {
+      let reads = 0
+      server.use(http.get(/\/v2\/user\/organization\/portal$/, () => { reads += 1; return HttpResponse.json(page([item(7)])) }))
+      logo(() => new HttpResponse(IMAGES.png))
+      await get()
+      await get("7", { session: makeSession(identity) })
+      await get()
+      expect(reads).toBe(2)
+    })
+
+    it("expires at exactly five seconds and checks token/session/kill-switch gates before reuse", async () => {
+      let now = NOW
+      let disabled = false
+      handler = createOrgLogoHandler({ env: () => testEnv({ ACCOUNT_DISABLED: disabled ? "1" : "0" })(), now: () => now })
+      const pages = [page([item(7)])]
+      const { requests } = portal(pages)
+      logo(() => new HttpResponse(IMAGES.png))
+      await get()
+      now += 4_999
+      await get()
+      expect(requests).toHaveLength(1)
+      await expectBffError(await get("7", { session: null }), 401, "SESSION_EXPIRED")
+      await expectBffError(await get("7", { session: makeSession({ accessExpiresAt: now + 1_000 }) }), 404, "NO_LOGO")
+      disabled = true
+      await expectBffError(await get(), 503, "SERVICE_DISABLED")
+      disabled = false
+      expect(requests).toHaveLength(1)
+      now += 1
+      pages[0] = page([])
+      await expectBffError(await get(), 404, "NO_LOGO")
+      expect(requests).toHaveLength(2)
+    })
+
+    it.each([
+      ["failure", () => new HttpResponse(null, { status: 500 })],
+      ["malformed page", () => HttpResponse.json({ content: [] })],
+    ] as const)("does not retain a %s", async (_label, answer) => {
+      let reads = 0
+      server.use(http.get(PORTAL, () => { reads += 1; return reads === 1 ? answer() : HttpResponse.json(page([item(7)])) }))
+      logo(() => new HttpResponse(IMAGES.png))
+      await expectBffError(await get(), 404, "NO_LOGO")
+      expect((await get()).status).toBe(200)
+      expect(reads).toBe(2)
+    })
+
+    it("bounds retained pages to 256 and isolates handler instances", async () => {
+      const { requests } = portal([page([item(7)])])
+      logo(() => new HttpResponse(IMAGES.png))
+      for (let gen = 0; gen < 257; gen += 1) await get("7", { session: makeSession({ gen }) })
+      await get("7", { session: makeSession({ gen: 1 }) })
+      expect(requests).toHaveLength(257)
+      await get()
+      expect(requests).toHaveLength(258)
+      const isolated = createOrgLogoHandler({ env: testEnv(), now: () => NOW })
+      await callOp(isolated, { path: "/api/pp/org-logo/7", params: { tenantId: "7" } })
+      expect(requests).toHaveLength(259)
+    })
+  })
+
   describe("every failure is 404 NO_LOGO", () => {
     it.each([
       ["a non-numeric id", "abc"],
@@ -136,6 +307,7 @@ describe("GET /api/pp/org-logo/[tenantId] (AD-24)", () => {
       ["a look-alike host", `${FILES}.evil.example/logo.png`],
       ["http instead of https", FILES.replace("https:", "http:") + "/logo.png"],
       ["an unparsable URL", "not a url"],
+      ["embedded credentials", LOGO.replace("https://", "https://private:secret@")],
       ["a prod-files logo on a demo session", `${PROD_FILES}/logo.png`],
     ])("logo URL: %s, without fetching it", async (_label, publicUrl) => {
       portal([page([item(7, publicUrl)])])
