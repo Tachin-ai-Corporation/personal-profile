@@ -509,6 +509,14 @@
   summary: Existing DisabledAction protected presses can intermittently prevent the immediately following Escape from dismissing the tooltip.
   evidence: Unpatched baseline reproduces the identical browser Escape assertion (expected0 tooltips, received1),39/40 passed with one mobile failure; /tmp/tooltip-baseline-disabled.log and /tmp/tooltip-baseline-disabled-results retain evidence. Patched focused run passed20/20; the application Tooltip wrapper and current-task protected-press guard are unchanged. Investigate dismissal ordering separately from focus-scroll preservation.
 
+- source_spec: `spec-9-3-registered-view.md`
+  summary: Integrate the independently reviewed Tooltip focus-scroll prerequisite before final story delivery verification.
+  evidence: Unpatched native keyboard assertion fails intermittently on mobile; local foundation ab04792 and its pinned Radix patch pass the unchanged original Provider assertion20/20 in an isolated combined candidate. Publication/integration approval is pending, and final story completion is gated on the actual integrated revision.
+
+- source_spec: `spec-9-3-registered-view.md`
+  summary: Resolved the previously recorded Tooltip integration prerequisite through foundation PR40.
+  evidence: Both prerequisite CI runs passed, PR40 merged as faf0dfe5311285259c138c1037670b1745a76d0b, and the actual updated story branch passed47 Provider browser cases plus10 additional unchanged keyboard repetitions; no weakened assertion or pre-scroll workaround.
+
 ## Epic 10 QA follow-up — 2026-10-21
 
 - source_spec: `spec-10-2-organization-card.md`

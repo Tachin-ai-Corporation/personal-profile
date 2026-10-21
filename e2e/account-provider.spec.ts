@@ -19,7 +19,7 @@ async function axe(page: Page) { expect((await new AxeBuilder({ page }).withTags
 
 test.beforeEach(async ({ page }) => { await signIn(page); await mockAccountDefaults(page) })
 
-test("lazy NPI read; keyboard personal/practice search, selection, clear and inert Register (UJ-103)", async ({ page }) => {
+test("lazy NPI read; keyboard personal/practice search, selection, clear and required registration (UJ-103)", async ({ page }) => {
   const reads = await mockUserNpi(page)
   const searches = await mockNpiSearch(page, { body: { data: [record()], totalElements: 1 } })
   const writes: string[] = []

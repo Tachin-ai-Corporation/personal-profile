@@ -60,17 +60,39 @@ export function registerNpiPath(): string {
 
 const npiNumberSchema = z.number().int().min(1_000_000_000).max(9_999_999_999)
 const npiIdSchema = z.number().int().positive().safe()
-const npiRecordSchema = z.object({ id: npiIdSchema, npi: npiNumberSchema })
+// Display sentinels belong to registered reads, never to selectable search results.
+const displayTextSchema = z.union([z.string(), z.literal(-1)]).transform(String).nullish()
+const registeredNumberSchema = z.union([
+  npiNumberSchema, z.literal(-1), z.string().refine((value) => /^(?:n\/a|-1)?$/i.test(value.trim())),
+]).nullish().transform((value) => value == null ? "" : String(value))
+const registeredBaseSchema = z.object({ id: npiIdSchema, npi: registeredNumberSchema })
+const providerSchema = registeredBaseSchema.extend({
+  taxonomy: z.object({ name: displayTextSchema }).nullish(),
+  providerLicenseNumber: displayTextSchema,
+  providerFirstLineBusinessPracticeLocationAddress: displayTextSchema,
+  providerSecondLineBusinessPracticeLocationAddress: displayTextSchema,
+})
+// Presence means an existing organization even if its tenant cannot be used.
+const tenantIdSchema = z.union([
+  z.number().int().nonnegative().safe(),
+  z.string().regex(/^\d{1,19}$/).transform(Number).pipe(z.number().int().nonnegative().safe()),
+]).nullable().catch(null)
+const practiceSchema = registeredBaseSchema.extend({
+  providerOrganizationName: displayTextSchema,
+  providerFirstLineBusinessPracticeLocationAddress: displayTextSchema,
+  verified: z.boolean().nullish(),
+  organization: z.object({ tenantId: tenantIdSchema }).nullish(),
+})
 const userNpiSchema = z.strictObject({
-  providerNpi: npiRecordSchema.nullish(),
-  practiceNpi: npiRecordSchema.nullish(),
-  hieEndpoint: z.object({ id: npiIdSchema, name: z.string().nullish(), endpoint: z.string().nullish() }).nullish(),
+  providerNpi: providerSchema.nullish(),
+  practiceNpi: practiceSchema.nullish(),
+  hieEndpoint: z.object({ id: npiIdSchema, name: z.string().nullish(), endpoint: displayTextSchema }).nullish(),
 })
 
 export interface UserNpi {
   readonly registered: boolean
-  readonly provider?: { readonly id: number; readonly npi: string }
-  readonly practice?: { readonly id: number; readonly npi: string }
+  readonly provider?: Readonly<z.output<typeof providerSchema>>
+  readonly practice?: Readonly<z.output<typeof practiceSchema>>
   readonly hie?: { readonly id: number; readonly name?: string | null; readonly endpoint?: string | null }
 }
 
@@ -113,10 +135,31 @@ export async function getUserNpi(): Promise<ApiResponse<UserNpi>> {
   const { providerNpi, practiceNpi, hieEndpoint } = parsed.data
   return { success: true, statusCode: response.statusCode, data: {
     registered: providerNpi != null,
-    ...(providerNpi ? { provider: { id: providerNpi.id, npi: String(providerNpi.npi) } } : {}),
-    ...(practiceNpi ? { practice: { id: practiceNpi.id, npi: String(practiceNpi.npi) } } : {}),
+    ...(providerNpi ? { provider: providerNpi } : {}),
+    ...(practiceNpi ? { practice: practiceNpi } : {}),
     ...(hieEndpoint ? { hie: hieEndpoint } : {}),
   } }
+}
+
+/** Uncached availability: only a literal boolean can authorize registration. */
+export async function isNpiRegistered(recordId: number, options: { readonly signal?: AbortSignal; readonly userInitiated?: boolean } = {}): Promise<ApiResponse<boolean>> {
+  const id = npiIdSchema.safeParse(recordId)
+  if (!id.success) return { success: false, statusCode: 400 }
+  const response = await callApi<unknown>("npi/isRegistered", npiIsRegisteredPath(id.data), { signal: options.signal, userInitiated: options.userInitiated === true })
+  if (!response.success) return { ...response, data: undefined }
+  const parsed = z.boolean().safeParse(response.data)
+  if (!parsed.success) return { success: false, statusCode: response.statusCode }
+  return { success: true, statusCode: response.statusCode, data: parsed.data }
+}
+
+const registrationSchema = z.strictObject({ providerNpiId: npiIdSchema, practiceNpiId: npiIdSchema.optional() })
+export type NpiRegistrationInput = z.input<typeof registrationSchema>
+
+/** The backend acknowledges with an empty200; transport owns identity and replay. */
+export async function registerNpi(input: NpiRegistrationInput, signal?: AbortSignal): Promise<ApiResponse<void>> {
+  const parsed = registrationSchema.safeParse(input)
+  if (!parsed.success) return { success: false, statusCode: 400 }
+  return callApi<void>("npi/register", registerNpiPath(), { method: "POST", body: JSON.stringify(parsed.data), signal })
 }
 
 async function searchNpi(input: { readonly searchText: string; readonly page: number }, personal: boolean, signal?: AbortSignal): Promise<ApiResponse<NpiSearchPage>> {

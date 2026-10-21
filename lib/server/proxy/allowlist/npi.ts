@@ -1,5 +1,6 @@
 import "server-only"
 
+import { z } from "zod"
 import type { AllowlistEntry } from "../types"
 
 /** Provider registration (Epic 9, `profile: true`) entries; each lands with the story that calls it. */
@@ -11,4 +12,9 @@ export const entries: readonly AllowlistEntry[] = [
     page: { pattern: /^\d{1,4}$/ },
     limit: { pattern: /^(?:[1-9]|10)$/ },
   } },
+  { method: "GET", template: "v2/health/npi/{n}/is-registered", profile: true },
+  { method: "POST", template: "v2/user/register/npi", profile: true, body: z.strictObject({
+    providerNpiId: z.number().int().positive().safe(),
+    practiceNpiId: z.number().int().positive().safe().optional(),
+  }) },
 ]

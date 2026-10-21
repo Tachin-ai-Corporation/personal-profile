@@ -25,3 +25,34 @@ export async function mockPracticeSupport(page: Page, answer: ProxyAnswer = {}):
     }),
   )
 }
+
+/** Explicit uncached availability; record ids are distinct from displayed NPIs. */
+export async function mockNpiAvailability(page: Page, recordId: number, answer: ProxyAnswer = {}): Promise<() => Request[]> {
+  return mockProxy(page, `v2/health/npi/${recordId}/is-registered`, { status: answer.status ?? 200, body: answer.body === undefined ? false : answer.body })
+}
+
+/** The real registration endpoint acknowledges with an empty200. */
+export async function mockRegisterNpi(page: Page, answer: ProxyAnswer = {}): Promise<() => Request[]> {
+  const seen: Request[] = []
+  await page.route("**/api/1h/v2/user/register/npi", (route) => {
+    seen.push(route.request())
+    return route.fulfill({ status: answer.status ?? 200, contentType: "application/json", body: answer.body === undefined ? "" : JSON.stringify(answer.body) })
+  })
+  return () => [...seen]
+}
+
+/** Synthetic registered credentials, with all nine view rows supplied. */
+export const REGISTERED_PROVIDER_NPI = {
+  providerNpi: {
+    id: 77, npi: 1234567890, taxonomy: { name: "Family Medicine" },
+    providerLicenseNumber: "TEST-LICENSE-01",
+    providerFirstLineBusinessPracticeLocationAddress: "1 Test Street",
+    providerSecondLineBusinessPracticeLocationAddress: "Suite 2",
+  },
+  practiceNpi: {
+    id: 88, npi: 1987654321, providerOrganizationName: "Sample Clinic",
+    providerFirstLineBusinessPracticeLocationAddress: "2 Test Avenue",
+    verified: true, organization: { tenantId: 202 },
+  },
+  hieEndpoint: { id: 99, endpoint: "Sample Exchange" },
+} as const
