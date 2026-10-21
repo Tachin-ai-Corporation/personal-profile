@@ -32,6 +32,8 @@ test("profile defaults answer every read of / (the fail-fast guard sees no unmoc
 test("mockProxy answers a glob with a fixed or computed answer and records the requests", async ({ page }) => {
   await signIn(page)
   await mockAccountDefaults(page)
+  // Exercise a fixed answer independently of the Account defaults owned by Team B.
+  await mockProxy(page, "v2/user/npi", { status: 404, body: {} })
   const typeKeys = await mockProxy(page, "v2/type/key/*", (request) => ({ body: { boKey: request.url().split("/").pop() } }))
   await page.goto("/auth")
   const answers = await page.evaluate(async () => {
