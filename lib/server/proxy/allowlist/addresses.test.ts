@@ -92,12 +92,12 @@ describe("GET v2/person/location/list through the proxy (Story 4.1)", () => {
       http.get(`${DEMO.apiBase}/v2/person/location/list`, ({ request }) => {
         const url = new URL(request.url)
         seen = { path: url.pathname, search: url.search }
-        return HttpResponse.json({ content: [], totalElements: 0 })
+        return HttpResponse.json({ data: [], totalElements: 0, lastPage: true })
       }),
     )
     const response = await get("v2/person/location/list?page=0&size=100")
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ content: [], totalElements: 0 })
+    expect(await response.json()).toEqual({ data: [], totalElements: 0, lastPage: true })
     expect(seen).toEqual({ path: "/api/v2/person/location/list", search: "?page=0&size=100" })
   })
 

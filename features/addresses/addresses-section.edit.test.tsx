@@ -87,7 +87,7 @@ function addressServer(options: ServerOptions = {}) {
       counts.list += 1
       const answer = options.list?.()
       if (answer) return answer
-      return HttpResponse.json({ content: state.rows, totalElements: state.rows.length })
+      return HttpResponse.json({ data: state.rows, totalElements: state.rows.length, lastPage: true })
     }),
     http.get(COUNTRIES, () => {
       counts.countries += 1

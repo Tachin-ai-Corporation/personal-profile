@@ -69,7 +69,7 @@ export const addressUpdateBodySchema = z.strictObject({ ...addressWriteFields, f
 /** Addresses (Epic 4) entries; each lands with the story that calls it. */
 export const entries: readonly AllowlistEntry[] = [
   /**
-   * The caller's own addresses (Story 4.1), a Spring Page sorted newest
+   * The caller's own addresses (Story 4.1), a `PageImpl` (`{ data, … }`) sorted newest
    * updated first. Only `page` (0–9999) and `size` (1–100), each once, without leading zeros; any
    * other or repeated param is 400 `BAD_QUERY`. No body.
    */

@@ -23,9 +23,24 @@ export function addressRow(overrides: Record<string, unknown> = {}): Record<stri
   }
 }
 
-/** A Spring Page of address rows, as `GET v2/person/location/list` answers. */
+/**
+ * A page of address rows as `GET v2/person/location/list` answers: the
+ * backend's own `PageImpl` (`com.sirma.bocore.common.repository.PageImpl`,
+ * rows under `data`), not a Spring Page.
+ */
 export function addressesPage(rows: readonly Record<string, unknown>[]): Record<string, unknown> {
-  return { content: rows, totalElements: rows.length, totalPages: rows.length === 0 ? 0 : 1, number: 0, size: 100 }
+  return {
+    data: rows,
+    pageNumber: 0,
+    pageSize: 100,
+    offset: 0,
+    emptyPage: rows.length === 0,
+    firstPage: true,
+    lastPage: true,
+    numberOfElements: rows.length,
+    totalElements: rows.length,
+    totalPages: rows.length === 0 ? 0 : 1,
+  }
 }
 
 /**
