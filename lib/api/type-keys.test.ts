@@ -76,6 +76,54 @@ describe("type keys (spec F6-3; Stories 2.1, 3.1, 5.2)", () => {
     expect(valueListOptions(null, "race")).toEqual([])
   })
 
+  // Spec 5.2 decision 1A: Insurance precedence and relationship to insured are attributes of the
+  // `InsuranceBelongsToPerson` relation (backend `RelationInfo.attributes`), not of the type itself.
+  it("collects the relations' attributes (decision 1A of spec 5.2) and valueListOptions finds them after the type's own", () => {
+    const insurance = toTypeInfo({
+      boKey: "Insurance",
+      attributes: [
+        { attrKey: "insuranceType", type: "VALUE_LIST", attributeValues: [{ id: 1, name: "Medical" }, { id: 2, name: "n/a" }] },
+        { attrKey: "label", type: "VALUE_LIST", attributeValues: [{ id: 3, name: "Active" }] },
+      ],
+      relationships: [
+        { relKey: "InsuranceHasFrontSideCardFile", attributes: [] },
+        {
+          relKey: "InsuranceBelongsToPerson",
+          attributes: [
+            { attrKey: "insurancePrecedence", type: "VALUE_LIST", attributeValues: [{ id: 5, name: "Secondary" }, { id: 4, name: "Primary" }, { id: 6, name: "n/a" }] },
+            { attrKey: "relationshipToInsured", name: "Relationship to insured", type: "VALUE_LIST", attributeValues: [{ id: 7, name: "Self" }, "junk"] },
+            { attrKey: "label", type: "VALUE_LIST", attributeValues: [{ id: 8, name: "Relation label" }] },
+            { name: "no key" },
+          ],
+        },
+        { relKey: "no attributes" },
+        null,
+      ],
+    })
+    expect(insurance?.relationAttributes).toEqual([
+      {
+        attrKey: "insurancePrecedence",
+        name: null,
+        type: "VALUE_LIST",
+        values: [
+          { id: 5, name: "Secondary" },
+          { id: 4, name: "Primary" },
+          { id: 6, name: "n/a" },
+        ],
+      },
+      { attrKey: "relationshipToInsured", name: "Relationship to insured", type: "VALUE_LIST", values: [{ id: 7, name: "Self" }] },
+      { attrKey: "label", name: null, type: "VALUE_LIST", values: [{ id: 8, name: "Relation label" }] },
+    ])
+    expect(valueListOptions(insurance, "insurancePrecedence").map((value) => value.name)).toEqual(["Primary", "Secondary"])
+    expect(valueListOptions(insurance, "relationshipToInsured").map((value) => value.name)).toEqual(["Self"])
+    expect(valueListOptions(insurance, "insuranceType").map((value) => value.name)).toEqual(["Medical"])
+    // The type's own attribute wins over a relation attribute with the same key.
+    expect(valueListOptions(insurance, "label").map((value) => value.name)).toEqual(["Active"])
+    // Nothing existing changes: a type without relation attributes has no `relationAttributes` key.
+    expect(toTypeInfo({ boKey: "Person", attributes: [], relationships: [{ attributes: [] }, "junk"] })).toEqual({ boKey: "Person", attributes: [] })
+    expect(toTypeInfo({ boKey: "Person", attributes: [], relationships: "junk" })).toEqual({ boKey: "Person", attributes: [] })
+  })
+
   it("fetches through the proxy and maps the body", async () => {
     server.use(http.get("/api/1h/v2/type/key/Person", () => HttpResponse.json(PERSON)))
     expect(await fetchTypeKey("Person")).toMatchObject({ success: true, statusCode: 200, data: { boKey: "Person" } })

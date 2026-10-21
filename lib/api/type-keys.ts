@@ -2,7 +2,9 @@
  * Platform type metadata (`GET v2/type/key/{Type}`, agents.md `TypeInfo`,
  * NFR10): the value lists of Person (Story 2.1: race, ethnicity, biological
  * gender), ContactPoint (Story 3.1: Contact Labels) and Insurance (Story 5.2:
- * type, precedence, relationship to insured). Built once in spec F6-3 so the
+ * type, precedence, relationship to insured; precedence and relationship are
+ * attributes of the `InsuranceBelongsToPerson` relation, read from
+ * `relationships[].attributes[]`, decision 1A of spec 5.2). Built once in spec F6-3 so the
  * three stories share one loader (`registerFetcher` allows one per family).
  *
  * Owner: foundation (Team A consumes it). Endpoints: `GET v2/type/key/Person`
@@ -41,6 +43,13 @@ export interface TypeAttribute {
 export interface TypeInfo {
   readonly boKey: string | null
   readonly attributes: readonly TypeAttribute[]
+  /**
+   * The attributes of the type's relations (backend `RelationInfo.attributes`,
+   * `RelationAttributeInfo`), in relation order; present only when the type
+   * sends at least one (spec 5.2 decision 1A). `valueListOptions` looks here
+   * after `attributes`.
+   */
+  readonly relationAttributes?: readonly TypeAttribute[]
 }
 
 export function isTypeKey(value: unknown): value is TypeKey {
@@ -72,19 +81,30 @@ function toAttribute(raw: unknown): TypeAttribute | null {
  */
 export function toTypeInfo(raw: unknown): TypeInfo | null {
   if (!isRecord(raw)) return null
-  const attributes = Array.isArray(raw.attributes) ? raw.attributes.flatMap((item) => toAttribute(item) ?? []) : []
-  return { boKey: text(raw.boKey), attributes }
+  const attributes = toAttributes(raw.attributes)
+  const relationAttributes = Array.isArray(raw.relationships)
+    ? raw.relationships.flatMap((relation) => (isRecord(relation) ? toAttributes(relation.attributes) : []))
+    : []
+  return relationAttributes.length > 0 ? { boKey: text(raw.boKey), attributes, relationAttributes } : { boKey: text(raw.boKey), attributes }
+}
+
+/** A list of attributes (malformed ones dropped); anything but an array is none. */
+function toAttributes(raw: unknown): TypeAttribute[] {
+  return Array.isArray(raw) ? raw.flatMap((item) => toAttribute(item) ?? []) : []
 }
 
 /**
  * The picker options of one VALUE_LIST attribute: a superset of 1health-fe
  * `useValueListOptions` filtering (it drops only the exact `"n/a"` backend
  * default; this drops every PM3 not-provided name: `"n/a"` in any case,
- * blank, `"-1"`), sorted by `localeCompare` like 1health-fe. Empty when the type
+ * blank, `"-1"`), sorted by `localeCompare` like 1health-fe. The type's own
+ * attributes are searched first, then its relations' (decision 1A of spec
+ * 5.2: Insurance precedence and relationship to insured). Empty when the type
  * has no such VALUE_LIST attribute (callers fall back to their own list).
  */
 export function valueListOptions(info: TypeInfo | null | undefined, attrKey: string): TypeAttributeValue[] {
-  const attribute = info?.attributes.find((candidate) => candidate.attrKey === attrKey && candidate.type === "VALUE_LIST")
+  const candidates = [...(info?.attributes ?? []), ...(info?.relationAttributes ?? [])]
+  const attribute = candidates.find((candidate) => candidate.attrKey === attrKey && candidate.type === "VALUE_LIST")
   return (attribute?.values ?? []).filter((value) => !isNotProvided(value.name)).toSorted((a, b) => a.name.localeCompare(b.name))
 }
 

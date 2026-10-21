@@ -117,6 +117,60 @@
   summary: Flaky under full-suite load: `e2e/profile-phone.spec.ts:324` "axe passes in edit view … with a new row, a struck row and errors" failed once on desktop during the Story 4.4 full run and passed on retry; 8/8 on a repeat run alone. Diagnose from a trace (likely a scan during a transition) before changing the test.
   evidence: Story 4.4 full `CI=1 pnpm test:e2e` run (2026-10-20): 977 passed, 2 flaky (this one and the known `primitives.spec.ts:75`); `--repeat-each=8 --retries=0` on the test alone passed. Story 4.4 doesn't touch Phone.
 
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-1-view-policies-and-card-images.md`
+  summary: Confirm on demo the backend's placeholder values in `GET v2/health/patient/insurance`: a missing Expiration or Cancellation date comes back as `1970-01-01`, and a missing Group ID as `"n/a"`. Story 5.1 shows both as "Not provided", and Story 5.2's editor must load them as empty (or the date-order rules fail on Edit).
+  evidence: Found in 1h-ng-bo-core-be (insurance create/update defaults), not seen in a live response yet (user decision 2026-10-20, spec 5.1). If demo returns null instead, the insurance-local sentinel check is harmless but can go.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-2-add-and-edit-a-policy.md`
+  summary: Security/PM, backend — editing an insurance subscriber overwrites another person's 1health profile. On `PUT v2/health/patient/insurance/{id}`, when the subscriber (found by email) has a different name, phone or birth date from the one sent, the backend calls `userService.editUser` on that other user. Any patient can change someone else's profile data this way. Story 5.2 never sends a typed subscriber on Edit: a saved one is locked and re-sent unchanged (decision 2C), and any other non-Self Edit is blocked until the policy is removed and added again (decision 3A); Add (POST) doesn't reach this path. Ask the backend to stop editing the subscriber's own profile from a policy write (or to require that person's consent), and the PM to confirm the intended behaviour.
+  evidence: 1h-ng-bo-core-be OneHealthServiceImpl.java:3115-3116 (`editUser` on a differing subscriber), :3136-3160 (subscriber found by email in the default tenant); user decision 2026-10-20, spec 5.2.
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-2-add-and-edit-a-policy.md`
+  summary: Security/PM, backend — an insurance subscriber email that matches no 1health person makes the backend create that person and send an invitation email (`userService.invite(…, !skipNotification)`), on behalf of the patient adding the policy. Any patient can make 1health email an arbitrary address. Story 5.2 tells the user ("If {first name} isn't on 1health yet, we'll invite them by email.", DRAFT). Ask the PM to confirm that this is intended and acceptable, and the backend whether it should be rate-limited or confirmed.
+  evidence: 1h-ng-bo-core-be OneHealthServiceImpl.java:3173-3218 (invite with notification on no email match); user decision 2026-10-20, spec 5.2.
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-2-add-and-edit-a-policy.md`
+  summary: Backend — `POST v2/health/patient/insurance` may return an existing tenant policy with the same insurance company and member ID instead of creating one (`createOrFetchInsurance`), so an "Add" can silently link the patient to someone else's policy record. Story 5.2 just shows what the refetch returns. Ask the backend whether this fetch-or-create is intended for patient adds.
+  evidence: 1h-ng-bo-core-be OneHealthRepository.java:2104-2115 (`createOrFetchInsurance`); spec 5.2 Design Notes "Duplicate on POST".
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-3-card-image-upload-with-retry.md`
+  summary: Test the insurance card delete on demo. Story 5.3 (decision 1A) replaces a card image by uploading the new one and then deleting the old file through the named op `DELETE /api/pp/file/{fileId}`. Every upload adds a new card relation and the policy list shows only the newest, so the op now finds the caller's older card files through a GraphQL lookup of each policy's `InsuranceHasFrontSideCardFile` / `InsuranceHasBackSideCardFile` relations. That query is modelled on the Signature lookup but not verified live. On demo: replace a card image, then check that the old file is gone (no leftover relation). If the delete is refused, the app keeps the new image and fails quietly, so only the leftover would show.
+  evidence: 1h-ng-bo-core-be FileServiceImpl.java:1077-1088, 1382-1391 (a new relation per upload), OneHealthRepository.java:2484, 2499 (newest file per side); user decision 2026-10-21, spec 5.3.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-3-card-image-upload-with-retry.md`
+  summary: Backend — deleting a policy leaves **all** of its card files (corrected 2026-10-21 by Story 5.5: `AbstractInsuranceDeleteFactory.deleteFiles()` is never called, so not even the newest front and back are removed; the policy is only labelled Deleted or the caller's link removed). Every card file of a deleted policy stays (every upload adds a relation; a failed replace-delete leaves one too). Story 5.5 deletes no card files on a policy delete. Ask the backend to remove every card relation of a deleted policy (or confirm the files are meant to stay).
+  evidence: 1h-ng-bo-core-be AbstractInsuranceDeleteFactory.java (`build()` runs `validate()` and `delete()` only; private `deleteFiles()` unused), InsuranceServiceImpl.java:296-327 (`isDeletionAllowedForPerson`: label vs unlink); FileServiceImpl.java:1077-1088 (a new relation per upload); spec 5.5 Design Notes "Files".
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-3-card-image-upload-with-retry.md`
+  summary: (Integrator, T8) Update `docs/FOUNDATION.md` §3.1 Named ops for decision 1A of Story 5.3 — `DELETE /api/pp/file/{fileId}` owns every `InsuranceHasFrontSideCardFile` / `InsuranceHasBackSideCardFile` relation of the caller's policies (the GraphQL card relations lookup, run last and only for policies the list returned), not only the newest card of each side.
+  evidence: lib/server/named-ops/file-delete.ts (`cardRelationIds`, `INSURANCE_CARD_FILES_QUERY`). Stories may not edit FOUNDATION (T8).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-3-card-image-upload-with-retry.md`
+  summary: (Backend/security) `POST v2/health/patient/insurance` can return an existing tenant policy (`createOrFetchInsurance`), so a patient's card images, and the card-delete ownership of the named op, then apply to a policy record another patient also holds. Ask the backend not to share policy records between patients.
+  evidence: 1h-ng-bo-core-be OneHealthRepository.java:2104-2115 (`createOrFetchInsurance`); spec 5.3 review row 14.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-3-card-image-upload-with-retry.md`
+  summary: (Foundation) The PNG/JPEG leading-byte check and the file-size formatting are duplicated in `features/insurance/card-file.ts` and `features/header/picture-file.ts` (features can't import each other). A shared helper (e.g. in `components/ui` next to `image-reencode.ts`) would remove that.
+  evidence: features/insurance/card-file.ts (`insuranceCardFileType`, `insuranceChosenFileMeta`); features/header/picture-file.ts (`pictureFileType`, `formatPictureFileSize`); spec 5.3 review row 10.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-3-card-image-upload-with-retry.md`
+  summary: (Foundation) No telemetry events for the card upload, Retry and replace-delete outcomes, so the demo check of the card delete (decision 1A) has no signal. Add events (no ids, no file names) through `lib/shared/telemetry.ts` in a foundation PR.
+  evidence: features/insurance/card-upload.ts, card-retry.tsx; lib/shared/telemetry.ts (`TelemetryEvents`); spec 5.3 review row 18.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-4-primary-per-type-with-demote-offer.md`
+  summary: (Team A) A session that ends after a demotion succeeded leaves the other policy Secondary: once the session ended no request can be sent, so there is no rollback. After the relaunch the user must make it Primary again. Consider telling the user on relaunch.
+  evidence: features/insurance/use-insurance-editor.ts (`sendOnce`, `rollBack`: no rollback after a session failure); spec 5.4 review row 7.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-4-primary-per-type-with-demote-offer.md`
+  summary: Flaky under full-suite load: `e2e/profile-insurance.spec.ts` "Add and edit a policy (Story 5.2) › keyboard only, from the empty card …" (desktop). After Enter on a Radix Select option the trigger still reads empty ("Precedence" expected "Secondary"); it passes on retry. Seen in the Story 5.3 and 5.4 full runs. Story 5.4's `ChoiceField` change (moving focus into a Select's own list is no longer a blur) fixed a related focus loss but not this. Diagnose from a trace (likely Enter landing before the list's highlighted option is set), e.g. wait for the option's `data-highlighted` before Enter.
+  evidence: Story 5.4 full `CI=1 pnpm test:e2e` run (2026-10-21): 1134 passed, 1 flaky (this test, line 351, `toHaveText("Secondary")` got ""); `profile-insurance.spec.ts --repeat-each=3` alone had no failures.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-5-delete-a-policy.md`
+  summary: (PM/backend) On an unlinked delete (other policyholders remain on the policy), the user's uploaded card images stay on the shared policy record and the user isn't told. Decide what to tell them, or whether the backend should remove that user's uploads when it removes their link.
+  evidence: spec 5.5 review row 14; 1h-ng-bo-core-be AbstractInsuranceDeleteFactory.java (`removeRelations` on unlink; `deleteFiles()` never called), InsuranceServiceImpl.java:296-327 (`isDeletionAllowedForPerson`).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-5-delete-a-policy.md`
+  summary: (Foundation) The shell has no info toast tone; Story 5.5's "This policy was already removed." uses the success toast (decision 1B). Add an info variant to `features/shell/toasts.ts` in a foundation PR, then switch that toast to it.
+  evidence: spec 5.5 review row 15; features/shell/toasts.ts (`toastSuccess`, `toastPartial`, `toastError` only); features/insurance/use-policy-delete.ts (`removed`).
+
 ## Team B (`/account`, Epics 7-10)
 
 - source_spec: none
@@ -437,6 +491,15 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-4-primary-address-and-removal.md`
   summary: (Foundation) `Tooltip` has no `disabled`/`open={false}` option, so the Addresses "Set as primary" checkbox stays wrapped in an always-mounted Tooltip with empty, hidden content while unlocked (to avoid a remount that loses focus). Add an option and drop the workaround.
   evidence: components/ui/tooltip.tsx; features/addresses/addresses-section.tsx (`PrimaryField`). Review row 25 of spec 4.4.
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-2-add-and-edit-a-policy.md`
+  summary: (Foundation, unverified) `valueListOptions` (lib/api/type-keys.ts, decision 1A of spec 5.2) now also searches a type's relation attributes when an attrKey isn't among its own attributes. If the Person or ContactPoint type key carries `label` (or another attrKey the Personal, Phone or Email Sections read) under `relationships[]` only, those Sections would start offering the platform's list instead of their fallback. Check both type keys on demo; if so, confirm the platform list is the wanted one.
+  evidence: lib/api/type-keys.ts (`valueListOptions`); consumers features/personal/use-person-options.ts:55, features/contacts/email-section.tsx:467, phone-section.tsx:549; their tests carry no `relationships`. Review row 17 of spec 5.2 (maybe-false, medium if true).
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-2-add-and-edit-a-policy.md`
+  summary: (Foundation) Tooltip and DropdownMenu are still on older Radix internals than Dialog 1.3.1, so they would break inside a Dialog or Sheet the way Popover and Select did (pointer-events, outside click closing the modal, Escape, focus trap). Align them (`@radix-ui/react-tooltip`, `@radix-ui/react-dropdown-menu`) before either is used inside a modal.
+  evidence: package.json; the Radix Popover/Select alignment PR (`feat/foundation-radix-popover-select`) fixed the same class of bug found in Story 5.2. Review row 18 of spec 5.2.
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-2-add-and-edit-a-policy.md`
+  summary: (Team B / Foundation) The 1health backend answers its paged lists as its own `PageImpl`, serialized `{ data, pageNumber, pageSize, offset, emptyPage, firstPage, lastPage, numberOfElements, totalElements, totalPages }`, never Spring's `{ content, last }`. The organizations fixtures use `{ content: [] … }`, so Story 10.1's parser for `v2/user/organization/portal` (also a `PageImpl`, 1h-ng-bo-core-be UserResource.java:214-217) would inherit the wrong shape. Fix the fixtures before Story 10.1 reads the list.
+  evidence: test/page-handlers/account.ts:22, e2e/fixtures/orgs.ts:13, test/providers.test.tsx:89, e2e/fixtures.spec.ts:43; `lib/server/named-ops/org-logo.ts:32-33,58` already reads `data`/`lastPage` correctly. Found 2026-10-20 while fixing the same bug in the file-delete named op (`feat/foundation-file-delete-page-shape`), the Addresses loader (`feat/NG-9026-epic-4`) and the Insurance loader (Story 5.2).
 
 ## Deferred from: integrated code review (2026-10-21)
 
