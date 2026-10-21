@@ -23,6 +23,35 @@ async function openWith(page: Page, phones: Parameters<typeof mockContacts>[1] =
   return seen
 }
 
+/**
+ * Switches the theme (`setTheme`), then waits until the switch has landed on every element: no animation is running
+ * and the computed colors are the same on two consecutive frames. `setTheme` waits for the transitions running when
+ * it checks, but a second batch can start a frame later (seen on mobile-360: a struck row's Select value kept the light
+ * `--slate` on the dark card for one to three frames), and axe then measured a contrast no user ever sees.
+ */
+async function setThemeSettled(page: Page, theme: "light" | "dark"): Promise<void> {
+  await setTheme(page, theme)
+  await page.waitForFunction(
+    () =>
+      new Promise<boolean>((resolve) => {
+        const colors = (): string =>
+          Array.from(document.querySelectorAll("body *"), (element) => {
+            const style = getComputedStyle(element)
+            return `${style.color}|${style.backgroundColor}|${style.borderTopColor}`
+          }).join(";")
+        const before = colors()
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            const running = document.getAnimations().some((animation) => animation.playState === "running")
+            resolve(!running && colors() === before)
+          }),
+        )
+      }),
+    undefined,
+    { timeout: 5_000 },
+  )
+}
+
 /** No horizontal page scroll. */
 async function expectNoHorizontalScroll(page: Page): Promise<void> {
   const { scrollWidth, clientWidth } = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }))
@@ -120,7 +149,7 @@ test.describe("Phone read view (Story 3.1)", () => {
     await openWith(page)
     await expect(phoneTable(page).or(phoneCards(page))).toBeVisible()
     for (const theme of ["light", "dark"] as const) {
-      await setTheme(page, theme)
+      await setThemeSettled(page, theme)
       const results = await new AxeBuilder({ page }).include("#phone").withTags(WCAG).analyze()
       expect(results.violations, `Phone (${theme})`).toEqual([])
     }
@@ -130,7 +159,7 @@ test.describe("Phone read view (Story 3.1)", () => {
     await page.reload()
     await expect(section(page).locator('[data-slot="empty-state-line"]')).toHaveText("No phones yet·Add phone")
     for (const theme of ["light", "dark"] as const) {
-      await setTheme(page, theme)
+      await setThemeSettled(page, theme)
       const results = await new AxeBuilder({ page }).include("#phone").withTags(WCAG).analyze()
       expect(results.violations, `Phone empty (${theme})`).toEqual([])
     }
@@ -330,7 +359,7 @@ test.describe("Phone edit (Story 3.2)", () => {
     await saveButton(page).click()
     await expect(numberInput(newRow(page))).toHaveAttribute("aria-invalid", "true")
     for (const theme of ["light", "dark"] as const) {
-      await setTheme(page, theme)
+      await setThemeSettled(page, theme)
       const results = await new AxeBuilder({ page }).include("#phone").withTags(WCAG).analyze()
       expect(results.violations, `Phone edit (${theme})`).toEqual([])
     }
@@ -444,7 +473,7 @@ test.describe("Phone verify (Story 3.3)", () => {
     await expect(readRow(page, "+1 (415) 555-0111").locator('[data-slot="status-badge"]')).toHaveText(/^Link sent/)
     await expect(readRow(page, "+1 (415) 555-0114").getByText("Couldn't send the link")).toBeVisible()
     for (const theme of ["light", "dark"] as const) {
-      await setTheme(page, theme)
+      await setThemeSettled(page, theme)
       const results = await new AxeBuilder({ page }).include("#phone").withTags(WCAG).analyze()
       expect(results.violations, `Phone verify (${theme})`).toEqual([])
     }
@@ -598,14 +627,14 @@ test.describe("Phone Make primary and notifications (Story 3.4)", () => {
     await row.getByRole("button", { name: "Make primary" }).click()
     await expect(confirmDialog(page)).toBeVisible()
     for (const theme of ["light", "dark"] as const) {
-      await setTheme(page, theme)
+      await setThemeSettled(page, theme)
       const results = await new AxeBuilder({ page }).withTags(WCAG).analyze()
       expect(results.violations, `Make primary confirm (${theme})`).toEqual([])
     }
     await confirmDialog(page).getByRole("button", { name: "Cancel" }).click()
     await section(page).getByRole("button", { name: "Edit", exact: true }).click()
     for (const theme of ["light", "dark"] as const) {
-      await setTheme(page, theme)
+      await setThemeSettled(page, theme)
       const results = await new AxeBuilder({ page }).include("#phone").withTags(WCAG).analyze()
       expect(results.violations, `Phone edit with the switch (${theme})`).toEqual([])
     }
