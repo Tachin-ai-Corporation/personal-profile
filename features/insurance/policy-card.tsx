@@ -8,8 +8,10 @@ import { INSURANCE_CARD_SIDES, insuranceCardDownloadPath, type InsuranceCardSide
 import { formatMessage, INSURANCE_MESSAGES, SECTION_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
 import { InsuranceImageMissing } from "./card-image"
+import { InsuranceCardRetry } from "./card-retry"
 import { InsuranceCardViewer } from "./card-viewer"
 import { insuranceChip, insuranceGridRows, insurancePolicyName, insurancePolicyTitle, insuranceSideLabel } from "./format"
+import { useInsurancePendingCard } from "./pending-cards"
 
 /** A thumbnail's box: 120×76, `rounded-sm`. */
 const THUMB_BOX = "h-19 w-30 rounded-sm"
@@ -29,10 +31,12 @@ interface ThumbnailProps {
   readonly onOpen?: () => void
   readonly onFailed: () => void
   readonly buttonRef: (element: HTMLButtonElement | null) => void
+  /** Story 5.3: "Retry upload" under the tile (an upload of this side failed in this session). */
+  readonly retry?: JSX.Element
 }
 
-/** One captioned thumbnail ("Front" / "Back"): the image (a button on an active card) or the dashed tile. */
-function Thumbnail({ side, src, policyName, onOpen, onFailed, buttonRef }: ThumbnailProps): JSX.Element {
+/** One captioned thumbnail ("Front" / "Back"): the image (a button on an active card) or the dashed tile, maybe with "Retry upload". */
+function Thumbnail({ side, src, policyName, onOpen, onFailed, buttonRef, retry }: ThumbnailProps): JSX.Element {
   const label = insuranceSideLabel(side)
   const missing = (
     <InsuranceImageMissing
@@ -74,6 +78,7 @@ function Thumbnail({ side, src, policyName, onOpen, onFailed, buttonRef }: Thumb
     <figure data-side={side} className="m-0 flex flex-col items-center gap-1">
       {content}
       <figcaption className="text-caption text-muted-foreground">{label}</figcaption>
+      {retry}
     </figure>
   )
 }
@@ -88,6 +93,8 @@ export interface InsurancePolicyCardProps {
   readonly myself: Myself | undefined
   /** The kebab's "Edit" (Story 5.2): opens the editor on this policy. */
   readonly onEdit: () => void
+  /** Story 5.3: a "Retry upload" succeeded; revalidates the list. */
+  readonly onCardUploaded: () => void
 }
 
 /**
@@ -100,7 +107,7 @@ export interface InsurancePolicyCardProps {
  * Front/Back thumbnails behind a left hairline (under the grid below
  * 768 px). A Deleted card is muted, with no kebab and no thumbnail action.
  */
-export function InsurancePolicyCard({ policy, myself, onEdit }: InsurancePolicyCardProps): JSX.Element {
+export function InsurancePolicyCard({ policy, myself, onEdit, onCardUploaded }: InsurancePolicyCardProps): JSX.Element {
   const titleId = useId()
   const title = insurancePolicyTitle(policy)
   const name = insurancePolicyName(policy)
@@ -113,6 +120,10 @@ export function InsurancePolicyCard({ policy, myself, onEdit }: InsurancePolicyC
     opener: "front",
   })
   const thumbnails = useRef<Partial<Record<InsuranceCardSide, HTMLButtonElement | null>>>({})
+  // Story 5.3: a side whose upload failed in this session gets "Retry upload" (an active, saved policy only), under its
+  // still-saved image (a failed replace) or under the "Image not uploaded" tile when nothing is saved for that side.
+  const retryId = policy.deleted ? null : policy.id
+  const pending = { front: useInsurancePendingCard(retryId, "front"), back: useInsurancePendingCard(retryId, "back") }
 
   const usable = (side: InsuranceCardSide): string | null => {
     const src = sourceOf(policy, side)
@@ -154,6 +165,7 @@ export function InsurancePolicyCard({ policy, myself, onEdit }: InsurancePolicyC
               buttonRef={(element) => {
                 thumbnails.current[side] = element
               }}
+              retry={retryId !== null && pending[side] ? <InsuranceCardRetry policyId={retryId} side={side} onUploaded={onCardUploaded} /> : undefined}
             />
           ))}
         </div>

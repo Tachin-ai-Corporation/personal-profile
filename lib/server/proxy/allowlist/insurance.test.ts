@@ -2,8 +2,9 @@ import { http, HttpResponse } from "msw"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { SESSION_COOKIE, sealSession } from "@/lib/server/session/session"
 import { stubServerEnv, testEnv } from "@/test/env-fixture"
-import { IMAGES } from "@/test/image-fixture"
+import { IMAGES, imageOfSize } from "@/test/image-fixture"
 import { server, trackAllRequests } from "@/test/msw-server"
+import { multipart, multipartInit, type Part } from "@/test/multipart-fixture"
 import { makeSession, NOW } from "@/test/session-fixture"
 import { DEMO } from "@/test/upstream-fixture"
 import { createProxyHandler } from "../handler"
@@ -59,6 +60,71 @@ describe("insurance card uploads (Story 5.3)", () => {
     expect(buildUpstreamQuery(entry, q("isPublic=true"))?.toString()).toBe("isPublic=false")
     expect(buildUpstreamQuery(entry, q("fileName=x.png"))).toBeNull()
     expect(matchEntry(entries, "POST", seg(`v2/health/type/Insurance/me/relation/${relation}/file/upload`)).kind).toBe("not-allowed")
+  })
+})
+
+/** Story 5.3: the card uploads through the real proxy handler (shipped allowlist). */
+describe("insurance card uploads through the proxy (Story 5.3)", () => {
+  const proxy = createProxyHandler({ env: testEnv(), now: () => NOW })
+  const UP = DEMO.apiBase
+  const UPLOAD = (relation: string, id: number | string = 55) => `v2/health/type/Insurance/${id}/relation/${relation}/file/upload`
+
+  async function upload(path: string, parts: readonly Part[]): Promise<Response> {
+    const payload = await multipart(parts)
+    const cookie = `${SESSION_COOKIE}=${await sealSession(makeSession())}`
+    return proxy(new Request(`http://localhost:3000/api/1h/${path}`, multipartInit(payload, "header", { cookie })))
+  }
+
+  beforeEach(() => stubServerEnv())
+
+  it.each([FRONT, BACK])("%s: forwards one rebuilt `file` part to the policy, isPublic=false forced even when the client asks for true", async (relation) => {
+    let seen: { path: string; search: string; entries: [string, FormDataEntryValue][] } | undefined
+    server.use(
+      http.post(`${UP}/v2/health/type/Insurance/:id/relation/:relation/file/upload`, async ({ request }) => {
+        const url = new URL(request.url)
+        seen = { path: url.pathname, search: url.search, entries: [...(await request.formData()).entries()] }
+        return HttpResponse.json({ id: 901 })
+      }),
+    )
+    const response = await upload(`${UPLOAD(relation)}?isPublic=true`, [{ name: "file", bytes: IMAGES.jpeg, filename: "card.jpg", type: "image/jpeg" }])
+    expect(response.status).toBe(200)
+    expect(seen?.path).toBe(`/api/v2/health/type/Insurance/55/relation/${relation}/file/upload`)
+    expect(seen?.search).toBe("?isPublic=false")
+    expect(seen?.entries.map(([name]) => name)).toEqual(["file"])
+  })
+
+  it("forwards without a client query as isPublic=false", async () => {
+    let search: string | undefined
+    server.use(
+      http.post(`${UP}/v2/health/type/Insurance/:id/relation/:relation/file/upload`, ({ request }) => {
+        search = new URL(request.url).search
+        return HttpResponse.json({ id: 901 })
+      }),
+    )
+    expect((await upload(UPLOAD(BACK), [{ name: "file", bytes: IMAGES.png }])).status).toBe(200)
+    expect(search).toBe("?isPublic=false")
+  })
+
+  describe("refusals, before any upstream call", () => {
+    let upstreamCalls: () => number
+    beforeEach(() => {
+      upstreamCalls = trackAllRequests()
+    })
+    afterEach(() => expect(upstreamCalls()).toBe(0))
+
+    it.each<[string, string, readonly Part[], number, string]>([
+      ["4 MB + 1 byte", UPLOAD(FRONT), [{ name: "file", bytes: imageOfSize("jpeg", IMAGE_UPLOAD_MAX_BYTES + 1) }], 413, "TOO_LARGE"],
+      ["an SVG renamed .png", UPLOAD(FRONT), [{ name: "file", bytes: IMAGES.svg, filename: "card.png" }], 415, "UNSUPPORTED_MEDIA"],
+      ["a BMP (not a card type)", UPLOAD(BACK), [{ name: "file", bytes: IMAGES.bmp, filename: "card.png" }], 415, "UNSUPPORTED_MEDIA"],
+      ["a client query other than isPublic", `${UPLOAD(FRONT)}?fileName=x.png`, [{ name: "file", bytes: IMAGES.png }], 400, "BAD_QUERY"],
+      ["hardDelete in the query", `${UPLOAD(FRONT)}?hardDelete=true`, [{ name: "file", bytes: IMAGES.png }], 400, "BAD_QUERY"],
+      ["a part not named file", UPLOAD(FRONT), [{ name: "image", bytes: IMAGES.png }], 400, "BAD_BODY"],
+      ["an owner id in place of the policy id", UPLOAD(FRONT, "me"), [{ name: "file", bytes: IMAGES.png }], 403, "NOT_ALLOWED"],
+    ])("%s", async (_label, path, parts, status, errorCode) => {
+      const response = await upload(path, parts)
+      expect(response.status).toBe(status)
+      expect(await response.json()).toEqual({ errorCode, source: "proxy" })
+    })
   })
 })
 

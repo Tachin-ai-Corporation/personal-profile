@@ -1,5 +1,5 @@
 import type { Page, Request } from "@playwright/test"
-import { mockProxy, mockTypeKey, PNG_1X1, type FileAnswer, type ProxyAnswer, type ProxyResponder } from "./core"
+import { json, mockProxy, mockTypeKey, PNG_1X1, type FileAnswer, type ProxyAnswer, type ProxyResponder } from "./core"
 
 /** Insurance (Team A, Epic 5) mocks. Stories 5.1–5.5 add their search, write and card mocks here. */
 
@@ -159,4 +159,100 @@ export async function mockInsuranceCreate(page: Page, answer: ProxyResponder = {
 /** `PUT v2/health/patient/insurance/{id}` (Story 5.2 Edit); returns each `{ url, body }` sent. */
 export async function mockInsuranceUpdate(page: Page, answer: ProxyResponder = {}): Promise<() => { readonly url: string; readonly body: InsuranceSaveBody }[]> {
   return recordInsuranceWrites(page, "PUT", "v2/health/patient/insurance/*", answer)
+}
+
+/** One card image upload the page sent (Story 5.3). */
+export interface InsuranceCardUpload {
+  /** The policy id in the path. */
+  readonly policyId: string
+  readonly side: "front" | "back"
+  /** The first part's field name (always `file`). */
+  readonly part: string
+  /** The first part's file name (`<sanitized base>.jpg`). */
+  readonly fileName: string
+  readonly contentType: string
+  /** The first part's leading bytes are a JPEG's (`FF D8 FF`): every card is re-encoded. */
+  readonly jpeg: boolean
+  /** How many parts the body had (always 1). */
+  readonly parts: number
+  /** The request's query string (always empty: the proxy forces `isPublic=false`). */
+  readonly search: string
+}
+
+const CARD_SIDES: Readonly<Record<string, "front" | "back">> = { InsuranceHasFrontSideCardFile: "front", InsuranceHasBackSideCardFile: "back" }
+
+/** The parts of a `multipart/form-data` body (name, file name, type, bytes). */
+function insuranceUploadParts(body: Buffer, contentType: string): { part: string; fileName: string; contentType: string; bytes: Buffer }[] {
+  const boundary = /boundary=(?:"([^"]+)"|([^;]+))/.exec(contentType)
+  if (!boundary) return []
+  const delimiter = Buffer.from(`--${boundary[1] ?? boundary[2]}`)
+  const parts: { part: string; fileName: string; contentType: string; bytes: Buffer }[] = []
+  let start = body.indexOf(delimiter)
+  while (start !== -1) {
+    const next = body.indexOf(delimiter, start + delimiter.length)
+    if (next === -1) break
+    const chunk = body.subarray(start + delimiter.length + 2, next - 2)
+    const headerEnd = chunk.indexOf("\r\n\r\n")
+    if (headerEnd === -1) throw new Error("insurance card upload: a multipart part has no header terminator (CRLF CRLF)")
+    const headers = chunk.subarray(0, headerEnd).toString("utf8")
+    parts.push({
+      part: /name="([^"]*)"/.exec(headers)?.[1] ?? "",
+      fileName: /filename="([^"]*)"/.exec(headers)?.[1] ?? "",
+      contentType: /content-type:\s*([^\r\n]+)/i.exec(headers)?.[1] ?? "",
+      bytes: chunk.subarray(headerEnd + 4),
+    })
+    start = next
+  }
+  return parts
+}
+
+/**
+ * The card uploads (`POST v2/health/type/Insurance/{id}/relation/InsuranceHas{Front|Back}SideCardFile/file/upload`,
+ * Story 5.3): answers `answer` (default 200 `{ id: 990 }`, or a function of
+ * the upload, attempt number from 1, that may say `"abort"`) and records each
+ * upload, in order.
+ */
+export async function mockInsuranceCardUpload(
+  page: Page,
+  answer: ProxyAnswer | ((upload: InsuranceCardUpload, attempt: number) => ProxyAnswer | "abort") = {},
+): Promise<() => InsuranceCardUpload[]> {
+  const uploads: InsuranceCardUpload[] = []
+  await page.route("**/api/1h/v2/health/type/Insurance/*/relation/*/file/upload**", (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    const [, policyId = "", relation = ""] = /\/Insurance\/([^/]+)\/relation\/([^/]+)\//.exec(url.pathname) ?? []
+    const parts = insuranceUploadParts(request.postDataBuffer() ?? Buffer.alloc(0), request.headers()["content-type"] ?? "")
+    const first = parts[0] ?? { part: "", fileName: "", contentType: "", bytes: Buffer.alloc(0) }
+    const upload: InsuranceCardUpload = {
+      policyId,
+      side: CARD_SIDES[relation] ?? "front",
+      part: first.part,
+      fileName: first.fileName,
+      contentType: first.contentType,
+      jpeg: first.bytes[0] === 0xff && first.bytes[1] === 0xd8 && first.bytes[2] === 0xff,
+      parts: parts.length,
+      search: url.search,
+    }
+    uploads.push(upload)
+    const result = typeof answer === "function" ? answer(upload, uploads.length) : answer
+    if (result === "abort") return route.abort("connectionfailed")
+    return json(route, result.status ?? 200, result.body ?? { id: 990 })
+  })
+  return () => [...uploads]
+}
+
+/**
+ * A replaced card's old file delete (`DELETE /api/pp/file/{fileId}`, the
+ * named op; Story 5.3): answers `status` (default 204; else `NO_FILE`).
+ * Returns the deleted ids, in order.
+ */
+export async function mockInsuranceFileDelete(page: Page, status = 204): Promise<() => string[]> {
+  const deleted: string[] = []
+  await page.route("**/api/pp/file/*", (route) => {
+    const request = route.request()
+    if (request.method() !== "DELETE") return route.fallback()
+    deleted.push(new URL(request.url()).pathname.split("/").pop() ?? "")
+    return status === 204 ? route.fulfill({ status }) : json(route, status, { errorCode: "NO_FILE", source: "proxy" })
+  })
+  return () => [...deleted]
 }

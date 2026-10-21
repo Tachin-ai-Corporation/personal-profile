@@ -16,6 +16,7 @@ import { formatWireDate, localCalendarDate } from "@/lib/shared/dates"
 import { COMBOBOX_MESSAGES, COMMON_MESSAGES, FIELD_MESSAGES, formatMessage, INSURANCE_MESSAGES, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 import { isNotProvided } from "@/lib/shared/display-value"
 import { formatPhoneDisplay } from "@/lib/shared/phone"
+import { InsuranceCardImages } from "./card-images"
 import { insuranceEnumLabel } from "./format"
 import { needsSubscriber, type InsuranceFormField, type InsuranceFormValues, type InsurerValue } from "./schema"
 import type { InsuranceEditor, InsuranceEditorRefs } from "./use-insurance-editor"
@@ -378,7 +379,7 @@ function EditorBody({ editor, refs, onInsurerInput }: FieldProps & { readonly re
         {INSURANCE_MESSAGES.datesHelp}
       </p>
       {needsSubscriber(relationship) ? <SubscriberGroup editor={editor} refs={refs} /> : null}
-      {/* Story 5.3: the Front / Back card image slots go here. */}
+      <InsuranceCardImages editor={editor} />
     </SheetBody>
   )
 }

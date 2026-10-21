@@ -60,4 +60,22 @@ export const INSURANCE_MESSAGES = {
   primaryTaken: "You already have a primary policy of this type", // DRAFT COPY (spec 5.2 backend one Primary per type, until Story 5.4)
   policyMissing: "This policy is no longer on your profile.", // DRAFT COPY (spec 5.2 backend "does not have an insurance", error toast)
   subscriberIncomplete: "The saved policyholder is incomplete. To change the policyholder, remove this policy and add it again.", // DRAFT COPY (spec 5.2 review: a backend subscriber rule on a locked subscriber)
+  // Story 5.3: the editor's card image slots ("Replace" / "Remove" are `COMMON_MESSAGES`), the uploads and "Retry upload".
+  cardImages: "Card images", // DRAFT COPY (spec 5.3 editor group heading)
+  cardImagesRules: "PNG or JPEG, up to 10 MB. Images upload after the policy saves.", // verbatim: EXPERIENCE.md Voice and Tone, "Card images"
+  noImageChosen: "No image chosen", // verbatim: EXPERIENCE.md Voice and Tone, "Card images"
+  chooseImage: "Choose {side} image", // verbatim: EXPERIENCE.md Voice and Tone, "Card images" ("Choose back image")
+  replaceImage: "Replace {side} image", // DRAFT COPY (spec 5.3 slot Replace, accessible name)
+  removeImage: "Remove {side} image", // DRAFT COPY (spec 5.3 slot Remove, accessible name)
+  chosenImageAlt: "Chosen {side} image", // DRAFT COPY (spec 5.3 slot preview of a chosen file)
+  chosenFileKb: "{fileName} · {size} KB", // DRAFT COPY (spec 5.3 slot "{file name} · {size}", under 1 MB)
+  chosenFileMb: "{fileName} · {size} MB", // DRAFT COPY (spec 5.3 slot "{file name} · {size}", one decimal)
+  cardWrongType: "{fileName} isn't a PNG or JPEG image.", // DRAFT COPY (spec 5.3 type check)
+  cardTooLarge: "{fileName} is {size} MB. Choose a file up to 10 MB.", // DRAFT COPY (spec 5.3 size check, one decimal)
+  cardTooManyPixels: "{fileName} is larger than 6000 × 4000 pixels.", // DRAFT COPY (spec 5.3 dimension check)
+  imageNotUploaded: "{side} image not uploaded.", // DRAFT COPY (spec 5.3 partial toast "Insurance saved. Back image not uploaded.", and a failed Retry)
+  imagesNotUploaded: "Card images not uploaded.", // DRAFT COPY (spec 5.3 partial toast "Insurance saved. Card images not uploaded.")
+  retryUpload: "Retry upload", // verbatim: EXPERIENCE.md Voice and Tone, "Card image failed"
+  retryUploadName: "Retry upload of the {side} image", // DRAFT COPY (spec 5.3 card "Retry upload", accessible name)
+  imageUploaded: "Card image uploaded.", // DRAFT COPY (spec 5.3 Retry success toast)
 } as const

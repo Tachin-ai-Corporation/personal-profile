@@ -1,8 +1,12 @@
 import { http, HttpResponse } from "msw"
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { myselfWire } from "@/test/myself-fixture"
 import { server } from "@/test/msw-server"
 import {
+  deleteInsuranceCardFile,
+  insuranceCardUploadName,
+  insuranceSavedPolicyId,
+  uploadInsuranceCard,
   fetchInsurance,
   fetchMyself,
   INSURANCE_PRECEDENCES,
@@ -427,5 +431,93 @@ describe("saveInsuranceCreate / saveInsuranceUpdate (Story 5.2)", () => {
 
   it("never sends an edit for an id that isn't a positive integer", async () => {
     expect(await saveInsuranceUpdate(0, input())).toMatchObject({ success: false, errorCode: "BAD_PATH" })
+  })
+})
+
+describe("card uploads and the replaced card's delete (Story 5.3)", () => {
+  const UPLOAD = (id: number, relation: string) => `/api/1h/v2/health/type/Insurance/${id}/relation/${relation}/file/upload`
+
+  beforeEach(async () => {
+    server.use(http.get("/api/1h/v2/user/myself", () => HttpResponse.json(myselfWire())))
+    expect((await fetchMyself()).success).toBe(true)
+  })
+
+  it.each<[string, "front" | "back", string]>([
+    ["card front.PNG", "front", "card_front.jpg"],
+    ["C:\\fakepath\\scan.jpeg", "back", "scan.jpg"],
+    ["/tmp/x/y.z.png", "front", "y.z.jpg"],
+    ["__..png", "front", "card-front.jpg"],
+    ["", "back", "card-back.jpg"],
+    [`${"a".repeat(150)}.png`, "front", `${"a".repeat(96)}.jpg`],
+  ])("insuranceCardUploadName(%j, %s) → %j", (name, side, expected) => {
+    expect(insuranceCardUploadName(name, side)).toBe(expected)
+  })
+
+  // MSW can't read a multipart body in jsdom (see profile-picture.test.ts): the part is checked where it is built.
+  it.each([
+    ["front", "InsuranceHasFrontSideCardFile"],
+    ["back", "InsuranceHasBackSideCardFile"],
+  ] as const)("posts one multipart `file` part to the %s relation of the policy, with no query", async (side, relation) => {
+    const seen: { url: string; contentType: string | null }[] = []
+    server.use(
+      http.post(UPLOAD(55, relation), ({ request }) => {
+        seen.push({ url: request.url, contentType: request.headers.get("Content-Type") })
+        return HttpResponse.json({ id: 901 })
+      }),
+    )
+    const append = vi.spyOn(FormData.prototype, "append")
+    const blob = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], { type: "image/jpeg" })
+    expect(await uploadInsuranceCard(55, side, blob, "card.png")).toEqual({ success: true, statusCode: 200, data: { id: 901 } })
+    expect(append.mock.calls).toEqual([["file", blob, "card.jpg"]])
+    append.mockRestore()
+    expect(seen).toHaveLength(1)
+    expect(new URL(seen[0].url).search).toBe("")
+    expect(seen[0].contentType).toMatch(/^multipart\/form-data; boundary=/)
+  })
+
+  it("counts a 2xx with an unreadable body as uploaded; returns failures as they are", async () => {
+    const blob = new Blob([new Uint8Array([1])])
+    const path = UPLOAD(55, "InsuranceHasBackSideCardFile")
+    server.use(http.post(path, () => HttpResponse.text("OK", { status: 201 })))
+    expect(await uploadInsuranceCard(55, "back", blob, "a.png")).toEqual({ success: true, statusCode: 201 })
+    server.use(http.post(path, () => HttpResponse.json({ errorCode: "UNSUPPORTED_MEDIA", source: "proxy" }, { status: 415 })))
+    expect(await uploadInsuranceCard(55, "back", blob, "a.png")).toMatchObject({ success: false, statusCode: 415, errorCode: "UNSUPPORTED_MEDIA" })
+    server.use(http.post(path, () => HttpResponse.json({ message: "Boom", code: 500 }, { status: 500 })))
+    expect(await uploadInsuranceCard(55, "back", blob, "a.png")).toMatchObject({ success: false, statusCode: 500 })
+    server.use(http.post(path, () => HttpResponse.error()))
+    expect(await uploadInsuranceCard(55, "back", blob, "a.png")).toMatchObject({ success: false, errorCode: "NETWORK_ERROR" })
+  })
+
+  it.each([0, -1, 1.5, Number.NaN])("sends nothing for a policy id %s", async (id) => {
+    expect(await uploadInsuranceCard(id, "front", new Blob([]), "a.png")).toEqual({ success: false, error: "insurance/uploadInsuranceCard: not a policy id" })
+  })
+
+  it("deletes the old card file through the ownership-checked named op; sends nothing for a non-id", async () => {
+    const deleted: string[] = []
+    server.use(
+      http.delete("/api/pp/file/:fileId", ({ request, params }) => {
+        deleted.push(`${String(params.fileId)}${new URL(request.url).search}`)
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    expect(await deleteInsuranceCardFile(900)).toEqual({ success: true, statusCode: 204 })
+    expect(deleted).toEqual(["900"])
+    expect(await deleteInsuranceCardFile(0)).toEqual({ success: false, error: "insurance/deleteInsuranceCardFile: not a file id" })
+    expect(deleted).toEqual(["900"])
+  })
+})
+
+describe("insuranceSavedPolicyId (Story 5.3)", () => {
+  it.each<[unknown, number | null]>([
+    [{ id: 60, memberIdNumber: "X" }, 60],
+    [{ id: 0 }, null],
+    [{ id: -1 }, null],
+    [{ id: 1.5 }, null],
+    [{ id: "60" }, null],
+    [{}, null],
+    [null, null],
+    [undefined, null],
+  ])("%j → %j", (data, expected) => {
+    expect(insuranceSavedPolicyId(data)).toBe(expected)
   })
 })

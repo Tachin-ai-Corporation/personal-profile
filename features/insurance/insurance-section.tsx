@@ -26,11 +26,13 @@ const SKELETON_AS_POLICIES = "[&_[data-slot=frame-skeleton]]:grid-cols-1 [&_[dat
 const FRAME_WITHOUT_CONTAINER = "overflow-visible rounded-none border-0 bg-transparent"
 
 /**
- * The Insurance Section (Stories 5.1–5.2, FR28, FR29, FR31): one read of the
+ * The Insurance Section (Stories 5.1–5.3, FR28, FR29, FR31): one read of the
  * policy list (`keys.insurance()`), one card per policy (active first, then
  * Deleted), the card image viewer, the loading, empty, error and no-access
  * states, and the Add / Edit drawer ("Add insurance" in the header and on the
- * empty card, the card kebab's "Edit"). The editor's state lives here, so the
+ * empty card, the card kebab's "Edit"), with its card images (5.3: uploaded
+ * after the policy saves; a failed one gets "Retry upload" on the card). The
+ * editor's state lives here, so the
  * Section's one registration is a guard-only participant (never in Save all,
  * the dirty count or drafts) whose dirtiness, validate, save and discard are
  * the editor's: the leave guard and page navigation protect unsaved edits.
@@ -108,6 +110,7 @@ export function InsuranceSection(): JSX.Element {
                 policy={policy}
                 myself={myself}
                 onEdit={() => editor.openEdit(policy)}
+                onCardUploaded={() => void read.mutate()}
               />
             ))}
           </div>

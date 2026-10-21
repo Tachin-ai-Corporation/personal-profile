@@ -1,3 +1,4 @@
+import { crc32, deflateSync } from "node:zlib"
 import AxeBuilder from "@axe-core/playwright"
 import { expect, type Locator, type Page } from "@playwright/test"
 import {
@@ -6,7 +7,9 @@ import {
   insurancePolicy,
   mockInsurance,
   mockInsuranceCard,
+  mockInsuranceCardUpload,
   mockInsuranceCreate,
+  mockInsuranceFileDelete,
   mockInsurers,
   mockInsuranceTypeKey,
   mockInsuranceUpdate,
@@ -18,9 +21,10 @@ import {
 } from "./fixtures"
 
 /**
- * Stories 5.1–5.2 (Team A, NG-9029): the Insurance Section on the real
- * `/?tab=insurance`, on desktop and at 360 px: the policy cards (5.1) and the
- * Add / Edit drawer with its leave guard (5.2). Every test runs under the
+ * Stories 5.1–5.3 (Team A, NG-9029): the Insurance Section on the real
+ * `/?tab=insurance`, on desktop and at 360 px: the policy cards (5.1), the
+ * Add / Edit drawer with its leave guard (5.2), and the card images with
+ * their uploads and "Retry upload" (5.3, real-browser checks and re-encode). Every test runs under the
  * fail-fast `test`, starts from `mockProfileDefaults` (no policies) and
  * overrides the policy list and the card images. The image headers of the
  * download entry are unit-tested (`allowlist/insurance.test.ts`); here the
@@ -285,7 +289,7 @@ test.describe("Add and edit a policy (Story 5.2)", () => {
     const box = await sheet.boundingBox()
     if (isMobile) {
       expect([box?.width, box?.height]).toEqual([360, 740])
-      await expect(sheet.getByRole("button", { name: "Back" })).toBeVisible()
+      await expect(sheet.getByRole("button", { name: "Back", exact: true })).toBeVisible()
       await expect(sheet.getByRole("button", { name: "Close" })).toBeHidden()
     } else {
       expect(box?.width).toBe(480)
@@ -548,7 +552,7 @@ test.describe("Add and edit a policy (Story 5.2)", () => {
     // The guard is fully closed once focus is back on Cancel and only the drawer's scrim is left.
     await expect(sheet.getByRole("button", { name: "Cancel" })).toBeFocused()
     await expect(page.locator('[data-slot="dialog-overlay"]')).toHaveCount(1)
-    if (isMobile) await sheet.getByRole("button", { name: "Back" }).click()
+    if (isMobile) await sheet.getByRole("button", { name: "Back", exact: true }).click()
     else await page.mouse.click(100, 300)
     await expect(guard(page)).toBeVisible()
     await guard(page).getByRole("button", { name: "Discard" }).click()
@@ -591,6 +595,232 @@ test.describe("Add and edit a policy (Story 5.2)", () => {
       const box = await field(sheet, label).boundingBox()
       expect(box?.height, label).toBeGreaterThanOrEqual(44)
     }
+    const overflow = await sheet.locator('[data-slot="sheet-body"]').evaluate((body) => body.scrollWidth - body.clientWidth)
+    expect(overflow).toBeLessThanOrEqual(0)
+    await expectNoHorizontalScroll(page)
+  })
+})
+
+// --- Story 5.3: card image upload with retry ----------------------------------------------------
+
+interface CardFile {
+  readonly name: string
+  readonly mimeType: string
+  readonly buffer: Buffer
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const length = Buffer.alloc(4)
+  length.writeUInt32BE(data.length)
+  const typed = Buffer.concat([Buffer.from(type, "ascii"), data])
+  const crc = Buffer.alloc(4)
+  crc.writeUInt32BE(crc32(typed) >>> 0)
+  return Buffer.concat([length, typed, crc])
+}
+
+/** A plain grey 8-bit grayscale PNG (compresses to almost nothing, whatever its size). */
+function greyPng(width: number, height: number): Buffer {
+  const raw = Buffer.alloc((width + 1) * height, 0x80)
+  for (let y = 0; y < height; y++) raw[y * (width + 1)] = 0
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(width, 0)
+  header.writeUInt32BE(height, 4)
+  header.set([8, 0, 0, 0, 0], 8)
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", header),
+    pngChunk("IDAT", deflateSync(raw)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ])
+}
+
+const png = (name: string, width = 856, height = 540): CardFile => ({ name, mimeType: "image/png", buffer: greyPng(width, height) })
+
+const slotOf = (sheet: Locator, side: "Front" | "Back"): Locator => sheet.getByRole("group", { name: "Card images" }).getByRole("group", { name: side })
+const slotInput = (sheet: Locator, side: "front" | "back"): Locator => sheet.getByTestId(`insurance-card-input-${side}`)
+
+test.describe("Card image upload with retry (Story 5.3)", () => {
+  test("Add with both images: POST, then front, then back (one JPEG `file` part, no query); \"Insurance saved.\"; the card shows both", async ({ page }) => {
+    await openEditor(page)
+    const posts = await mockInsuranceCreate(page)
+    const uploads = await mockInsuranceCardUpload(page)
+    const order: string[] = []
+    page.on("request", (request) => {
+      const path = new URL(request.url()).pathname
+      if (request.method() === "POST" && path.startsWith("/api/1h/")) order.push(path.replace("/api/1h/v2/health/", ""))
+    })
+    await headerAdd(page).click()
+    const sheet = drawer(page)
+    await fillSelf(page, sheet)
+    const group = sheet.getByRole("group", { name: "Card images" })
+    await expect(group.getByText("PNG or JPEG, up to 10 MB. Images upload after the policy saves.")).toBeVisible()
+    await expect(slotOf(sheet, "Front").getByRole("img", { name: "No image chosen" })).toBeVisible()
+    await slotInput(sheet, "front").setInputFiles(png("front card.png"))
+    await slotInput(sheet, "back").setInputFiles(png("back.png", 1200, 760))
+    await expect(slotOf(sheet, "Front").getByRole("img", { name: "Chosen front image" })).toBeVisible()
+    await expect(slotOf(sheet, "Front").getByText(/^front card\.png · \d+ KB$/)).toBeVisible()
+    await expect(slotOf(sheet, "Back").getByRole("button", { name: "Remove back image" })).toBeVisible()
+    await mockInsurance(page, { body: insurancePage([insurancePolicy({ id: 60, frontSideCardFile: { id: 990 }, backSideCardFile: { id: 991 } })]) })
+    await sheet.getByRole("button", { name: "Save" }).click()
+    await expect(sheet).toBeHidden()
+    expect(posts()).toHaveLength(1)
+    expect(order).toEqual([
+      "patient/insurance",
+      "type/Insurance/60/relation/InsuranceHasFrontSideCardFile/file/upload",
+      "type/Insurance/60/relation/InsuranceHasBackSideCardFile/file/upload",
+    ])
+    expect(uploads()).toEqual([
+      { policyId: "60", side: "front", part: "file", fileName: "front_card.jpg", contentType: "image/jpeg", jpeg: true, parts: 1, search: "" },
+      { policyId: "60", side: "back", part: "file", fileName: "back.jpg", contentType: "image/jpeg", jpeg: true, parts: 1, search: "" },
+    ])
+    await expect(toastWith(page, "Insurance saved.")).toBeVisible()
+    await expect(card(page, "Medical Insurance").getByRole("button", { name: "Back of UnitedHealthcare Medical Insurance card" })).toBeVisible()
+  })
+
+  test("back upload fails: the policy stays saved; the partial toast; the tile with Retry, which uploads only the back", async ({ page }) => {
+    await openEditor(page)
+    await mockInsuranceCreate(page)
+    const uploads = await mockInsuranceCardUpload(page, (upload, attempt) => (upload.side === "back" && attempt === 2 ? { status: 500, body: { message: "Boom" } } : {}))
+    await headerAdd(page).click()
+    const sheet = drawer(page)
+    await fillSelf(page, sheet)
+    await slotInput(sheet, "front").setInputFiles(png("front.png"))
+    await slotInput(sheet, "back").setInputFiles(png("back.png"))
+    await mockInsurance(page, { body: insurancePage([insurancePolicy({ id: 60, frontSideCardFile: { id: 990 }, backSideCardFile: null })]) })
+    await sheet.getByRole("button", { name: "Save" }).click()
+    await expect(sheet).toBeHidden()
+    await expect(toastWith(page, "Insurance saved. Back image not uploaded.")).toBeVisible()
+    const medical = card(page, "Medical Insurance")
+    await expect(medical.getByRole("img", { name: "Back image not uploaded" })).toHaveText("Image not uploaded")
+    const retry = medical.getByRole("button", { name: "Retry upload of the back image" })
+    await expect(retry).toHaveText("Retry upload")
+    expect((await retry.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+    await expectNoHorizontalScroll(page)
+    await axe(page, "card with Retry")
+    await mockInsurance(page, { body: insurancePage([insurancePolicy({ id: 60, frontSideCardFile: { id: 990 }, backSideCardFile: { id: 992 } })]) })
+    await retry.click()
+    await expect(toastWith(page, "Card image uploaded.")).toBeVisible()
+    await expect(medical.getByRole("button", { name: "Back of UnitedHealthcare Medical Insurance card" })).toBeVisible()
+    await expect(medical.getByRole("button", { name: /^Retry upload/ })).toHaveCount(0)
+    expect(uploads().map((upload) => `${upload.policyId} ${upload.side}`)).toEqual(["60 front", "60 back", "60 back"])
+  })
+
+  test("Replace: the PUT, the new front's upload, then the old file's delete through the named op", async ({ page }) => {
+    await openEditor(page, insurancePage([insurancePolicy()]))
+    const puts = await mockInsuranceUpdate(page)
+    const uploads = await mockInsuranceCardUpload(page)
+    const deleted = await mockInsuranceFileDelete(page)
+    await card(page, "Medical Insurance").getByRole("button", { name: /^More actions for/ }).click()
+    await page.getByRole("menuitem", { name: "Edit" }).click()
+    const sheet = drawer(page, "Edit insurance")
+    const front = slotOf(sheet, "Front")
+    await expect(front.getByRole("img", { name: "Front of UnitedHealthcare Medical Insurance card" })).toBeVisible()
+    await expect(front.getByRole("button", { name: "Replace front image" })).toBeVisible()
+    await slotInput(sheet, "front").setInputFiles(png("new-front.png"))
+    await expect(front.getByRole("img", { name: "Chosen front image" })).toBeVisible()
+    await sheet.getByRole("button", { name: "Save" }).click()
+    await expect(sheet).toBeHidden()
+    expect(puts()).toHaveLength(1)
+    expect(uploads().map((upload) => `${upload.policyId} ${upload.side}`)).toEqual(["55 front"])
+    await expect.poll(deleted).toEqual(["900"])
+    await expect(toastWith(page, "Insurance saved.")).toBeVisible()
+  })
+
+  test("a refused delete of the old file is quiet: the save succeeds", async ({ page }) => {
+    await openEditor(page, insurancePage([insurancePolicy()]))
+    await mockInsuranceUpdate(page)
+    await mockInsuranceCardUpload(page)
+    const deleted = await mockInsuranceFileDelete(page, 404)
+    await card(page, "Medical Insurance").getByRole("button", { name: /^More actions for/ }).click()
+    await page.getByRole("menuitem", { name: "Edit" }).click()
+    const sheet = drawer(page, "Edit insurance")
+    await slotInput(sheet, "back").setInputFiles(png("new-back.png"))
+    await sheet.getByRole("button", { name: "Save" }).click()
+    await expect(sheet).toBeHidden()
+    await expect(toastWith(page, "Insurance saved.")).toBeVisible()
+    expect(deleted()).toEqual(["901"])
+    await expect(page.getByRole("region", { name: /Notifications/ }).locator("li")).toHaveCount(1)
+  })
+
+  test("rejections before any upload: SVG, 12 MB, 8000 × 3000 inline, naming the file; a 413 upload names it in the toast, no Retry", async ({ page }) => {
+    await openEditor(page)
+    await mockInsuranceCreate(page)
+    const uploads = await mockInsuranceCardUpload(page, { status: 413, body: { errorCode: "TOO_LARGE", source: "proxy" } })
+    await headerAdd(page).click()
+    const sheet = drawer(page)
+    const back = slotOf(sheet, "Back")
+    const input = slotInput(sheet, "back")
+    await input.setInputFiles({ name: "card.svg", mimeType: "image/svg+xml", buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>') })
+    await expect(back.getByRole("alert")).toHaveText("card.svg isn't a PNG or JPEG image.")
+    const big = greyPng(16, 16)
+    await input.setInputFiles({ name: "big.png", mimeType: "image/png", buffer: Buffer.concat([big, Buffer.alloc(12 * 1024 * 1024 - big.length)]) })
+    await expect(back.getByRole("alert")).toHaveText(/^big\.png is 12\.0 MB\. Choose a file up to 10 MB\.$/)
+    await input.setInputFiles(png("wide.png", 8000, 3000))
+    await expect(back.getByRole("alert")).toHaveText("wide.png is larger than 6000 × 4000 pixels.")
+    await input.setInputFiles({ name: "broken.png", mimeType: "image/png", buffer: greyPng(4, 4).subarray(0, 40) })
+    await expect(back.getByRole("alert")).toHaveText("broken.png couldn't be used. Choose another file.")
+    await expect(back.getByRole("img", { name: "No image chosen" })).toBeVisible()
+    expect(uploads()).toEqual([])
+    await input.setInputFiles(png("back.png"))
+    await expect(back.getByRole("alert")).toHaveText("")
+    await fillSelf(page, sheet)
+    await mockInsurance(page, { body: insurancePage([insurancePolicy({ id: 60, backSideCardFile: null })]) })
+    await sheet.getByRole("button", { name: "Save" }).click()
+    await expect(sheet).toBeHidden()
+    await expect(toastWith(page, "Insurance saved. back.png couldn't be used. Choose another file.")).toBeVisible()
+    await expect(card(page, "Medical Insurance").getByRole("img", { name: "Back image not uploaded" })).toBeVisible()
+    await expect(card(page, "Medical Insurance").getByRole("button", { name: /^Retry upload/ })).toHaveCount(0)
+  })
+
+  test("keyboard only: choose, replace and remove; a chosen image makes the drawer dirty", async ({ page, isMobile }) => {
+    test.skip(isMobile, "keyboard-only journey runs on desktop")
+    await openEditor(page)
+    await headerAdd(page).click()
+    const sheet = drawer(page)
+    const front = slotOf(sheet, "Front")
+    const choose = front.getByRole("button", { name: "Choose front image" })
+    await choose.focus()
+    let chooser = page.waitForEvent("filechooser")
+    await page.keyboard.press("Enter")
+    await (await chooser).setFiles(png("one.png"))
+    const replace = front.getByRole("button", { name: "Replace front image" })
+    await expect(replace).toBeFocused()
+    await expect(front.getByText(/^one\.png · /)).toBeVisible()
+    chooser = page.waitForEvent("filechooser")
+    await page.keyboard.press("Enter")
+    await (await chooser).setFiles(png("two.png"))
+    await expect(front.getByText(/^two\.png · /)).toBeVisible()
+    await page.keyboard.press("Tab")
+    await expect(front.getByRole("button", { name: "Remove front image" })).toBeFocused()
+    await page.keyboard.press("Escape")
+    await expect(guard(page)).toBeVisible()
+    await guard(page).getByRole("button", { name: "Keep editing" }).click()
+    await front.getByRole("button", { name: "Remove front image" }).focus()
+    await page.keyboard.press("Enter")
+    await expect(choose).toBeFocused()
+    await expect(front.getByRole("img", { name: "No image chosen" })).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(sheet).toBeHidden()
+    await expect(guard(page)).toHaveCount(0)
+  })
+
+  test("the drawer with its slots: axe light and dark (a chosen image, an error with a long file name), 44 px targets, no horizontal scroll", async ({ page }) => {
+    await openEditor(page)
+    await headerAdd(page).click()
+    const sheet = drawer(page)
+    await slotInput(sheet, "front").setInputFiles(png("front-card-with-a-rather-long-file-name-from-a-phone-camera.png"))
+    // A long file name with no spaces wraps inside the slot (no horizontal scroll at 360 px).
+    const longName = `${"insurance_card_back_scan_from_the_phone_camera_".repeat(3)}.svg`
+    await slotInput(sheet, "back").setInputFiles({ name: longName, mimeType: "image/svg+xml", buffer: Buffer.from("<svg/>") })
+    await expect(slotOf(sheet, "Back").getByRole("alert")).toHaveText(`${longName} isn't a PNG or JPEG image.`)
+    await expect(slotOf(sheet, "Front").getByRole("img", { name: "Chosen front image" })).toBeVisible()
+    await axe(page, "drawer with card images", '[data-slot="insurance-editor"]')
+    for (const name of ["Replace front image", "Remove front image", "Choose back image"]) {
+      const box = await sheet.getByRole("button", { name }).boundingBox()
+      expect(box?.height, name).toBeGreaterThanOrEqual(44)
+    }
+    const preview = await slotOf(sheet, "Front").getByRole("img", { name: "Chosen front image" }).boundingBox()
+    expect([Math.round(preview?.width ?? 0), Math.round(preview?.height ?? 0)]).toEqual([120, 76])
     const overflow = await sheet.locator('[data-slot="sheet-body"]').evaluate((body) => body.scrollWidth - body.clientWidth)
     expect(overflow).toBeLessThanOrEqual(0)
     await expectNoHorizontalScroll(page)

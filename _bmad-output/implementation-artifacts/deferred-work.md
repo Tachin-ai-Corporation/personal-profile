@@ -131,6 +131,30 @@
   summary: Backend — `POST v2/health/patient/insurance` may return an existing tenant policy with the same insurance company and member ID instead of creating one (`createOrFetchInsurance`), so an "Add" can silently link the patient to someone else's policy record. Story 5.2 just shows what the refetch returns. Ask the backend whether this fetch-or-create is intended for patient adds.
   evidence: 1h-ng-bo-core-be OneHealthRepository.java:2104-2115 (`createOrFetchInsurance`); spec 5.2 Design Notes "Duplicate on POST".
 
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-3-card-image-upload-with-retry.md`
+  summary: Test the insurance card delete on demo. Story 5.3 (decision 1A) replaces a card image by uploading the new one and then deleting the old file through the named op `DELETE /api/pp/file/{fileId}`. Every upload adds a new card relation and the policy list shows only the newest, so the op now finds the caller's older card files through a GraphQL lookup of each policy's `InsuranceHasFrontSideCardFile` / `InsuranceHasBackSideCardFile` relations. That query is modelled on the Signature lookup but not verified live. On demo: replace a card image, then check that the old file is gone (no leftover relation). If the delete is refused, the app keeps the new image and fails quietly, so only the leftover would show.
+  evidence: 1h-ng-bo-core-be FileServiceImpl.java:1077-1088, 1382-1391 (a new relation per upload), OneHealthRepository.java:2484, 2499 (newest file per side); user decision 2026-10-21, spec 5.3.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-3-card-image-upload-with-retry.md`
+  summary: Backend — deleting a policy removes only its newest front and back card files, so older card files (every upload adds a relation; a failed replace-delete leaves one too) are orphaned. Ask the backend to remove every card relation of a deleted policy.
+  evidence: spec 5.3 Design Notes "Policy delete" (1h-ng-bo-core-be AbstractInsuranceDeleteFactory); FileServiceImpl.java:1077-1088 (a new relation per upload).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-3-card-image-upload-with-retry.md`
+  summary: (Integrator, T8) Update `docs/FOUNDATION.md` §3.1 Named ops for decision 1A of Story 5.3 — `DELETE /api/pp/file/{fileId}` owns every `InsuranceHasFrontSideCardFile` / `InsuranceHasBackSideCardFile` relation of the caller's policies (the GraphQL card relations lookup, run last and only for policies the list returned), not only the newest card of each side.
+  evidence: lib/server/named-ops/file-delete.ts (`cardRelationIds`, `INSURANCE_CARD_FILES_QUERY`). Stories may not edit FOUNDATION (T8).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-3-card-image-upload-with-retry.md`
+  summary: (Backend/security) `POST v2/health/patient/insurance` can return an existing tenant policy (`createOrFetchInsurance`), so a patient's card images, and the card-delete ownership of the named op, then apply to a policy record another patient also holds. Ask the backend not to share policy records between patients.
+  evidence: 1h-ng-bo-core-be OneHealthRepository.java:2104-2115 (`createOrFetchInsurance`); spec 5.3 review row 14.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-3-card-image-upload-with-retry.md`
+  summary: (Foundation) The PNG/JPEG leading-byte check and the file-size formatting are duplicated in `features/insurance/card-file.ts` and `features/header/picture-file.ts` (features can't import each other). A shared helper (e.g. in `components/ui` next to `image-reencode.ts`) would remove that.
+  evidence: features/insurance/card-file.ts (`insuranceCardFileType`, `insuranceChosenFileMeta`); features/header/picture-file.ts (`pictureFileType`, `formatPictureFileSize`); spec 5.3 review row 10.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-3-card-image-upload-with-retry.md`
+  summary: (Foundation) No telemetry events for the card upload, Retry and replace-delete outcomes, so the demo check of the card delete (decision 1A) has no signal. Add events (no ids, no file names) through `lib/shared/telemetry.ts` in a foundation PR.
+  evidence: features/insurance/card-upload.ts, card-retry.tsx; lib/shared/telemetry.ts (`TelemetryEvents`); spec 5.3 review row 18.
+
 ## Team B (`/account`, Epics 7-10)
 
 - source_spec: none

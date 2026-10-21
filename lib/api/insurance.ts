@@ -9,7 +9,9 @@
  * - `GET v2/health/insurance/organizations?name=&page=&size=` (insurer search, 5.2);
  * - `POST v2/health/patient/insurance`, `PUT v2/health/patient/insurance/{id}`,
  *   `DELETE v2/health/insurance/{id}` (5.2, 5.5);
- * - card uploads (entries exist, 5.3) and the card download
+ * - card uploads (entries exist, Story 5.3: `uploadInsuranceCard`; a replaced
+ *   card's old file is deleted through the named op, `deleteInsuranceCardFile`)
+ *   and the card download
  *   `GET v2/health/insurance/{id}/file/{fileId}/download?fileRelKey=…`
  *   (Story 5.1: `insuranceCardDownloadPath`, an `<img src>`);
  * - `GET v2/type/key/Insurance` (entry exists; read through `type-keys.ts`).
@@ -24,6 +26,7 @@ import { z } from "zod"
 import { callApi } from "./client"
 import { proxyPath } from "./config"
 import { registerFetcher, unwrap } from "./fetcher"
+import { fileDeletePath } from "./files"
 import { valueListOptions, type TypeInfo, type TypeKey } from "./type-keys"
 import type { ApiResponse } from "./types"
 
@@ -405,4 +408,73 @@ export function saveInsuranceCreate(input: InsurancePolicyInput): Promise<ApiRes
  */
 export function saveInsuranceUpdate(insuranceId: number, input: InsurancePolicyInput): Promise<ApiResponse<unknown>> {
   return callApi<unknown>("insurance/saveInsuranceUpdate", insuranceUpdatePath(insuranceId) ?? "", { method: "PUT", body: JSON.stringify(insuranceUpdateBody(input)) })
+}
+
+// ---------------------------------------------------------------------------
+// Story 5.3: card image uploads and the replaced card's delete.
+// ---------------------------------------------------------------------------
+
+/** The longest upload part name (the proxy re-sanitizes it anyway). */
+const CARD_NAME_MAX = 100
+
+/**
+ * The upload's `file` part name (Story 5.3; no `?fileName=` query, the proxy
+ * re-sanitizes it): the chosen file's base name without its extension, every
+ * character outside `A-Z a-z 0-9 . _ -` as `_`, no leading `.` or `_`, then
+ * `.jpg` (a card is always re-encoded to JPEG, RC11). `card-{side}.jpg` when
+ * nothing usable is left.
+ */
+export function insuranceCardUploadName(originalName: string, side: InsuranceCardSide): string {
+  const base = originalName.slice(Math.max(originalName.lastIndexOf("/"), originalName.lastIndexOf("\\")) + 1)
+  const stem = base
+    .replace(/\.[^.]*$/, "")
+    .replace(/[^A-Za-z0-9._-]/g, "_")
+    .replace(/^[._]+/, "")
+    .slice(0, CARD_NAME_MAX - ".jpg".length)
+  return `${stem || `card-${side}`}.jpg`
+}
+
+/**
+ * Story 5.3: `POST` one re-encoded card image as `multipart/form-data` with
+ * exactly one part, `file`, to `insuranceCardUploadPath(policyId, side)`. No
+ * query (the proxy forces `isPublic=false`, 4 MB, PNG/JPEG); never `isPublic`
+ * or `hardDelete`. `policyId` comes only from the policy just saved or the
+ * user's own list. The answer's file id isn't used (the list refetch decides
+ * what the card shows), so a 2xx whose body isn't JSON is still a success.
+ * Never throws: a `policyId` that isn't a positive integer sends nothing and
+ * fails.
+ */
+export async function uploadInsuranceCard(policyId: number, side: InsuranceCardSide, blob: Blob, name: string): Promise<ApiResponse<unknown>> {
+  if (!isPositiveId(policyId)) return { success: false, error: "insurance/uploadInsuranceCard: not a policy id" }
+  const body = new FormData()
+  body.append("file", blob, insuranceCardUploadName(name, side))
+  const res = await callApi<unknown>("insurance/uploadInsuranceCard", insuranceCardUploadPath(policyId, side), { method: "POST", body })
+  const ok2xx = res.statusCode !== undefined && res.statusCode >= 200 && res.statusCode < 300
+  return !res.success && ok2xx ? { success: true, statusCode: res.statusCode } : res
+}
+
+/**
+ * Story 5.3: deletes a replaced card's old file through the ownership-checked
+ * named op `DELETE /api/pp/file/{fileId}` (`fileDeletePath`; the server finds
+ * every card relation of the caller's policies, decision 1A, and answers 404
+ * `NO_FILE` for anything else). Take `fileId` only from the edited policy's
+ * `cardFileIds`. Best effort: the caller ignores the outcome except a session
+ * failure. A non-id sends nothing and fails.
+ */
+export async function deleteInsuranceCardFile(fileId: number): Promise<ApiResponse<unknown>> {
+  const path = fileDeletePath(fileId)
+  if (path === null) return { success: false, error: "insurance/deleteInsuranceCardFile: not a file id" }
+  return callApi<unknown>("insurance/deleteInsuranceCardFile", path, { method: "DELETE" })
+}
+
+const savedPolicySchema = z.object({ id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) })
+
+/**
+ * The id of the policy a `POST` just saved (Story 5.3: the card uploads go to
+ * it), from the answer's `InsuranceDTO.id`; `null` when the answer has none.
+ * The only source of a new policy's id besides the user's own list.
+ */
+export function insuranceSavedPolicyId(data: unknown): number | null {
+  const parsed = savedPolicySchema.safeParse(data)
+  return parsed.success ? parsed.data.id : null
 }
