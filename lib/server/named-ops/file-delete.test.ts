@@ -6,7 +6,15 @@ import { server, trackAllRequests } from "@/test/msw-server"
 import { callOp, expectBffError, expectNoStore } from "@/test/named-op-fixture"
 import { makeSession, NOW } from "@/test/session-fixture"
 import { DEMO } from "@/test/upstream-fixture"
-import { createFileDeleteHandler, INSURANCE_MAX_PAGES, parseFileIdParam, SIGNATURE_FILES_QUERY, signatureFileIds } from "./file-delete"
+import {
+  createFileDeleteHandler,
+  INSURANCE_CARD_FILES_QUERY,
+  INSURANCE_MAX_PAGES,
+  insuranceCardFileIds,
+  parseFileIdParam,
+  SIGNATURE_FILES_QUERY,
+  signatureFileIds,
+} from "./file-delete"
 import { PROFILE_PICTURE_QUERY } from "./profile-picture-id"
 
 const MYSELF = `${DEMO.apiBase}/v2/user/myself`
@@ -19,8 +27,20 @@ const del = (fileId: string, extra: object = {}) => callOp(handler, { method: "D
 
 const signatures = (ids: (number | string)[]) => ({ data: { Person: { records: [{ PersonHasSignatureFile: { relations: ids.map((id) => ({ record: { id } })) } }] } } })
 const picture = (ids: number[]) => ({ data: { Person: { records: [{ PersonHasProfilePictureFile: { relations: ids.map((id) => ({ record: { id } })) } }] } } })
-const policy = (front: number | null, back: number | null) => ({
-  id: 1,
+/** The card relations answer: per policy, its front and back relation file ids. */
+const cards = (records: { id: number | string; front?: (number | string)[]; back?: (number | string)[] }[]) => ({
+  data: {
+    Insurance: {
+      records: records.map(({ id, front = [], back = [] }) => ({
+        id,
+        InsuranceHasFrontSideCardFile: { relations: front.map((id) => ({ record: { id } })) },
+        InsuranceHasBackSideCardFile: { relations: back.map((id) => ({ record: { id } })) },
+      })),
+    },
+  },
+})
+const policy = (front: number | null, back: number | null, id = 1) => ({
+  id,
   frontSideCardFile: front === null ? null : { id: front, name: "front.png", publicURL: "x" },
   backSideCardFile: back === null ? null : { id: back, name: "back.png" },
 })
@@ -47,6 +67,8 @@ interface Seen {
   graphql: number
   /** The Signature-relations GraphQL reads (counted apart from the picture reads). */
   signatureGraphql: number
+  /** The card-relations GraphQL reads, with their filters. */
+  cardFilters: unknown[]
   insurance: string[]
   deletes: string[]
 }
@@ -56,20 +78,25 @@ function upstream({
   signature = null as unknown,
   pictures = [] as number[],
   signatureRelations = [] as number[],
+  cardRelations = cards([]) as Record<string, unknown>,
   pages = [page([])] as unknown[],
   deleteStatus = 200,
 } = {}): Seen {
-  const seen: Seen = { myself: 0, graphql: 0, signatureGraphql: 0, insurance: [], deletes: [] }
+  const seen: Seen = { myself: 0, graphql: 0, signatureGraphql: 0, cardFilters: [], insurance: [], deletes: [] }
   server.use(
     http.get(MYSELF, () => {
       seen.myself += 1
       return HttpResponse.json({ id: 1, signature })
     }),
     http.post(GRAPHQL, async ({ request }) => {
-      const body = (await request.json()) as { query?: string }
+      const body = (await request.json()) as { query?: string; variables?: { filter?: unknown } }
       if (body.query === SIGNATURE_FILES_QUERY) {
         seen.signatureGraphql += 1
         return HttpResponse.json(signatures(signatureRelations))
+      }
+      if (body.query === INSURANCE_CARD_FILES_QUERY) {
+        seen.cardFilters.push(body.variables?.filter)
+        return HttpResponse.json(cardRelations)
       }
       expect(body.query).toBe(PROFILE_PICTURE_QUERY)
       seen.graphql += 1
@@ -178,7 +205,7 @@ describe("DELETE /api/pp/file/[fileId] (spec F7-2)", () => {
     try {
       const seen = upstream()
       await expectBffError(await del("999"), 404, "NO_FILE")
-      expect(seen).toEqual({ myself: 1, graphql: 1, signatureGraphql: 1, insurance: ["page=0&size=100"], deletes: [] })
+      expect(seen).toEqual({ myself: 1, graphql: 1, signatureGraphql: 1, cardFilters: [], insurance: ["page=0&size=100"], deletes: [] })
       expect(dispatched).not.toHaveBeenCalled()
     } finally {
       requests.unsubscribe(dispatched)
@@ -190,7 +217,7 @@ describe("DELETE /api/pp/file/[fileId] (spec F7-2)", () => {
     const response = await del("42")
     expect(response.status).toBe(204)
     expectNoStore(response)
-    expect(seen).toEqual({ myself: 1, graphql: 0, signatureGraphql: 0, insurance: [], deletes: ["/api/v2/file/42?hardDelete=true"] })
+    expect(seen).toEqual({ myself: 1, graphql: 0, signatureGraphql: 0, cardFilters: [], insurance: [], deletes: ["/api/v2/file/42?hardDelete=true"] })
   })
 
   it("deletes the caller's profile picture (any of its relations) with the session's token", async () => {
@@ -265,6 +292,110 @@ describe("DELETE /api/pp/file/[fileId] (spec F7-2)", () => {
     expect(seen.insurance).toEqual(["page=0&size=100"])
     expect(seen.signatureGraphql).toBe(1)
     expect(seen.deletes).toEqual(["/api/v2/file/41?hardDelete=true"])
+  })
+
+  describe("older insurance cards (Story 5.3, decision 1A: replace, then delete)", () => {
+    it("deletes a replaced (older) card of the caller's policy, found in its card relations, read last", async () => {
+      const seen = upstream({
+        pages: [page([policy(70, 71, 501), policy(null, null, 502)])],
+        cardRelations: cards([{ id: 501, front: [70, 60], back: [71] }, { id: 502 }]),
+      })
+      const response = await del("60")
+      expect(response.status).toBe(204)
+      expect(seen.insurance).toEqual(["page=0&size=100"])
+      expect(seen.signatureGraphql).toBe(1)
+      expect(seen.cardFilters).toEqual([{ id: { in: [501, 502] } }])
+      expect(seen.deletes).toEqual(["/api/v2/file/60?hardDelete=true"])
+    })
+
+    it("asks for the card relations of every policy of every page", async () => {
+      const seen = upstream({
+        pages: [page([policy(1, 2, 11)], false, 0), page([policy(null, null, 12)], true, 1)],
+        cardRelations: cards([{ id: 11 }, { id: "12", back: ["61"] }]),
+      })
+      expect((await del("61")).status).toBe(204)
+      expect(seen.cardFilters).toEqual([{ id: { in: [11, 12] } }])
+    })
+
+    it("deletes the newest card from the list alone (no relations read)", async () => {
+      const seen = upstream({ pages: [page([policy(70, 71, 501)])] })
+      expect((await del("71")).status).toBe(204)
+      expect(seen.signatureGraphql).toBe(0)
+      expect(seen.cardFilters).toEqual([])
+    })
+
+    it.each([
+      ["a stranger's card id (not among the caller's card relations)", { pages: [page([policy(70, 71, 501)])], cardRelations: cards([{ id: 501, front: [70, 60], back: [71] }]) }],
+      // The filter isn't trusted: a record that isn't one of the caller's policies doesn't count.
+      ["a card of a stranger's policy record in the answer (filter ignored)", { pages: [page([policy(70, 71, 501)])], cardRelations: cards([{ id: 501, front: [70] }, { id: 777, front: [999] }]) }],
+      ["any id when no listed policy has an id", { pages: [page([{ frontSideCardFile: { id: 70 } }])] }],
+    ])("refuses %s with 404 NO_FILE", async (_label, options) => {
+      const seen = upstream(options)
+      await expectBffError(await del("999"), 404, "NO_FILE")
+      expect(seen.deletes).toEqual([])
+    })
+
+    it("skips the card relations read without policies", async () => {
+      const seen = upstream({ pages: [page([])] })
+      await expectBffError(await del("999"), 404, "NO_FILE")
+      expect(seen.cardFilters).toEqual([])
+    })
+
+    it.each([
+      ["GraphQL errors", () => HttpResponse.json({ errors: [{ message: "x" }] }), 502, "UPSTREAM_ERROR"],
+      ["an unexpected shape", () => HttpResponse.json({ data: { Insurance: null } }), 502, "UPSTREAM_ERROR"],
+      ["a 400", () => HttpResponse.json({ message: "x" }, { status: 400 }), 502, "UPSTREAM_ERROR"],
+      ["a 500", () => new HttpResponse(null, { status: 500 }), 502, "UPSTREAM_ERROR"],
+      ["a 401", () => new HttpResponse(null, { status: 401 }), 401, "TOKEN_EXPIRED"],
+    ] as const)("fails closed when the card relations read answers %s (nothing deleted)", async (_label, answer, status, code) => {
+      const seen = upstream({ pages: [page([policy(70, 71, 501)])] })
+      server.use(
+        http.post(GRAPHQL, async ({ request }) => {
+          const body = (await request.json()) as { query?: string }
+          if (body.query === INSURANCE_CARD_FILES_QUERY) return answer()
+          if (body.query === SIGNATURE_FILES_QUERY) return HttpResponse.json(signatures([]))
+          expect(body.query).toBe(PROFILE_PICTURE_QUERY)
+          return HttpResponse.json(picture([]))
+        }),
+      )
+      await expectBffError(await del("60"), status, code)
+      expect(seen.deletes).toEqual([])
+    })
+
+    it("insuranceCardFileIds reads every front and back relation id of the caller's policies only, and rejects an unusable answer", () => {
+      expect(insuranceCardFileIds(cards([{ id: 5, front: [1, "2"], back: [3] }, { id: 6, back: [4] }]), [5, 6])).toEqual([1, 2, 3, 4])
+      expect(insuranceCardFileIds(cards([{ id: 5, front: [1] }, { id: 9, front: [8] }]), [5])).toEqual([1])
+      expect(insuranceCardFileIds({ data: { Insurance: { records: [{ id: 5, InsuranceHasFrontSideCardFile: null }] } } }, [5])).toEqual([])
+      expect(insuranceCardFileIds({ data: { Insurance: { records: [] } } }, [5])).toEqual([])
+      expect(insuranceCardFileIds({ errors: [{ message: "x" }], data: cards([{ id: 5, front: [1] }]).data }, [5])).toBeUndefined()
+      expect(insuranceCardFileIds(cards([{ id: 5, front: [0] }]), [5])).toBeUndefined()
+      expect(insuranceCardFileIds({ data: { Insurance: { records: [{ InsuranceHasFrontSideCardFile: { relations: [{ record: { id: 1 } }] } }] } } }, [5])).toBeUndefined()
+      expect(insuranceCardFileIds([1], [5])).toBeUndefined()
+    })
+
+    it.each([
+      ["GraphQL errors", () => HttpResponse.json({ errors: [{ message: "x" }] })],
+      ["a 500", () => new HttpResponse(null, { status: 500 })],
+    ] as const)("an older Signature is found before the card relations are read (they fail with %s): 204", async (_label, answer) => {
+      const seen = upstream({ signature: { id: 57 }, signatureRelations: [57, 41], pages: [page([policy(70, 71, 501)])] })
+      let cardReads = 0
+      server.use(
+        http.post(GRAPHQL, async ({ request }) => {
+          const body = (await request.json()) as { query?: string }
+          if (body.query === INSURANCE_CARD_FILES_QUERY) {
+            cardReads += 1
+            return answer()
+          }
+          if (body.query === SIGNATURE_FILES_QUERY) return HttpResponse.json(signatures([57, 41]))
+          expect(body.query).toBe(PROFILE_PICTURE_QUERY)
+          return HttpResponse.json(picture([]))
+        }),
+      )
+      const response = await del("41")
+      expect(response.status).toBe(204)
+      expect(cardReads).toBe(0)
+      expect(seen.deletes).toEqual(["/api/v2/file/41?hardDelete=true"])
+    })
   })
 
   it("signatureFileIds reads every relation id (number or decimal string) and rejects an unusable answer", () => {
