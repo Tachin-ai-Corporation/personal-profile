@@ -61,7 +61,7 @@ export function registerNpiPath(): string {
 const npiNumberSchema = z.number().int().min(1_000_000_000).max(9_999_999_999)
 const npiIdSchema = z.number().int().positive().safe()
 const npiRecordSchema = z.object({ id: npiIdSchema, npi: npiNumberSchema })
-const userNpiSchema = z.object({
+const userNpiSchema = z.strictObject({
   providerNpi: npiRecordSchema.nullish(),
   practiceNpi: npiRecordSchema.nullish(),
   hieEndpoint: z.object({ id: npiIdSchema, name: z.string().nullish(), endpoint: z.string().nullish() }).nullish(),
@@ -128,7 +128,7 @@ async function searchNpi(input: { readonly searchText: string; readonly page: nu
   const parsed = npiPageSchema.safeParse(response.data)
   if (!parsed.success) return { success: false, statusCode: response.statusCode }
   const items = parsed.data.data.map((record): NpiOption => {
-    const name = personal ? [record.providerFirstName, record.providerLastName].filter(Boolean).join(" ").trim() : (record.providerOrganizationName ?? "").trim()
+    const name = personal ? [record.providerFirstName?.trim(), record.providerLastName?.trim()].filter(Boolean).join(" ") : (record.providerOrganizationName ?? "").trim()
     const city = (record.providerBusinessMailingAddressCityName ?? "").trim()
     const state = (record.providerBusinessMailingAddressStateName ?? "").trim()
     const addressLine1 = personal ? undefined : (record.providerFirstLineBusinessMailingAddress ?? "").trim()

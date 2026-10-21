@@ -146,3 +146,46 @@ Run targeted MSW/Vitest and changed-code coverage, full `corepack pnpm vitest ru
 - Combobox prerequisite PR #32 passed both CI runs and Vercel, then merged at54e84fda34c92ae71324d040ab863943130421cd. Its final CI browser run passed1,047 cases with11 expected skips. Privacy follow-up PR #33 was already merged at66ef9175b0edd4e195245873a8cf32641a0da4fc after both pipelines passed. All prerequisite deliveries are integrated.
 - Story branch fast-forwarded to actual main54e84fda34c92ae71324d040ab863943130421cd. All646 product/config/test files match the exact fully verified integration snapshot (SHA-256 manifest comparison, zero differences). No code changed after the final6,349-test /58-browser verification; no redundant broad test rerun is necessary.
 - BMAD complete: all13 official findings resolved, none deferred. Mark only Story9.1 sprint status review; retain the sprint header, last_updated, parent epic and other rows per project instructions. Prepare the local conventional story commit without pushing or opening its PR.
+
+
+### Review Findings — main synchronization (2026-10-21)
+
+Review scope: branch against `origin/main` at `9a1f97c`, after conflict-free merge `69f04a3`. Independent blind, edge-case, verification-gap and acceptance layers completed. No decision-needed or deferred findings. User approved all nine patches (option1). All patches applied and verified; independent follow-up found no concrete regressions.
+
+- [x] [Review][Patch] Recheck registration on each tab opening before showing cached registration content [features/provider/use-provider-controller.ts:23]
+- [x] [Review][Patch] Skip registration reads when session expiry was published before mounting [features/provider/use-provider-controller.ts:14]
+- [x] [Review][Patch] Reject unexpected registration envelopes while preserving the valid empty DTO [lib/api/npi.ts:64]
+- [x] [Review][Patch] Trim individual name parts before joining [lib/api/npi.ts:131]
+- [x] [Review][Patch] Exercise network and upstream-timeout search failures with retained options and unchanged retry [features/provider/provider-tab.test.tsx:133]
+- [x] [Review][Patch] Exercise actual scrolling pagination in the Provider browser flow [e2e/account-provider.spec.ts:112]
+- [x] [Review][Patch] Exercise mobile info-popover tap opening and outside-tap dismissal [e2e/account-provider.spec.ts:72]
+- [x] [Review][Patch] Verify long practice labels fit the viewport and popup in both themes [e2e/account-provider-long-label.spec.ts:4]
+- [x] [Review][Patch] Give Register the required touch size and verify remaining visible targets [features/provider/npi-search.tsx]
+
+| ID / source | Verdict | Evidence |
+| --- | --- | --- |
+| 1 / blind-hunter | medium | SWR can supply cached unregistered data with isLoading false during remount revalidation; the form is exposed before the opening read confirms current registration. |
+| 2 / blind-hunter | low | The NPI key remains enabled despite an already-published expiry event; hiding the rendered children does not prevent the request. |
+| 3 / blind-hunter | medium | All root DTO fields are optional and z.object strips unknown fields, so an unrelated successful JSON envelope becomes unregistered. The backend PersonWithNpiDTO defines exactly the three known fields; an empty object is valid. |
+| 4 / blind-hunter | low | Only the final joined individual name is trimmed, preserving extra whitespace between padded first and last names. A direct per-part correction suffices. |
+| 5 / blind-hunter | false | hasMore is a server-total hint: the sole search consumer explicitly ends short, empty and duplicate pages in use-combobox.ts:290-296, so no subsequent request or retry loop occurs. |
+| 6 / blind-hunter | medium | The pagination regression returns HTTP500; it never rejects the transport or exercises an upstream timeout response, leaving the specified failure matrix incomplete. |
+| 7 / blind-hunter | low | Provider browser pagination uses ArrowDown/End only; the shared Combobox scroll test provides generic coverage but the Provider adapter has no actual scroll interaction assertion. |
+| 8 / blind-hunter | low | Provider popover browser coverage opens through keyboard focus and dismisses with Escape; mobile tap/outside-tap behavior is not exercised in this consumer. |
+| 9 / blind-hunter | low | The long-label consumer regression sets only light theme and asserts editing, with no viewport/popup containment assertion. |
+| 10 / blind-hunter | medium | Register omits size=touch and therefore uses the shared Button default h-9 (36px), below the required44px; current browser target assertions measure only info and personal input. |
+
+#### Rejected
+
+- Finding5 — false: speculative server totals are constrained by the shared Combobox short/empty/duplicate-page termination guard; no user-facing pagination defect occurs in its sole consumer.
+
+Validation before review patches:6,357 unit tests across219 files; enforced coverage, lint, typecheck and forbidden/token gates pass;58 production Account/Provider browser tests pass. Logs: `/tmp/story91-main-sync-20261021-{coverage,lint,types,forbidden,browser}.log`. No remote publication performed.
+
+
+#### Main-sync review completion
+
+- Revalidated registration on each Provider mount before exposing cached content; an already-published session expiry prevents opening reads, including publication during layout. Server data remains in the existing SWR key, with no search cache.
+- Rejected unrelated successful JSON envelopes against the backend registration DTO, normalized padded individual name parts, and used the existing touch-sized Button for Register.
+- Added regressions for cached registered/unregistered remounts, expired-session reads, network rejection and BFF upstream timeout with retained options/exact-page retry; browser coverage now checks Provider scrolling, mobile tap/outside tap, long-label containment in both themes and visible control targets.
+- Final validation:6,364 unit tests /219 files;100% enforced statements, branches, functions and lines; lint, typecheck, forbidden/token checks and diff check pass. Production Account/Provider browser run:63 passed,1 expected desktop skip for the mobile-only tap case, two workers on isolated port3500. Logs: `/tmp/story91-bmad-patched-{coverage,lint,types,forbidden,browser}.log`.
+- BMAD result:9 patches fixed,1 finding rejected,0 deferred,0 decision-needed; all four review layers completed and the patch follow-up found no concrete regression. Story remains done. Origin main9a1f97c was merged without conflicts in69f04a3 before verification.

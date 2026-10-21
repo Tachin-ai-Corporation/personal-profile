@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { http, HttpResponse, delay } from "msw"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import useSWR, { SWRConfig } from "swr"
-import { useLayoutEffect } from "react"
+import { useLayoutEffect, useState } from "react"
 import { renderToString } from "react-dom/server"
 import { callApi, keys, organizationsPath, sessionEvents, unwrap } from "@/lib/api"
 import { NPI_MESSAGES, STATE_MESSAGES, COMBOBOX_MESSAGES } from "@/lib/shared/messages"
@@ -40,6 +40,30 @@ describe("Healthcare credentials", () => {
     expect(personal().getAttribute("aria-required")).toBe("true")
     expect(practice().getAttribute("maxlength")).toBe("100")
     expect(await axeViolations()).toEqual([])
+  })
+  it.each([false, true])("hides cached registration %s until a fresh tab-opening read settles", async (registered) => {
+    let finish!: (response: Response) => void
+    let calls = 0
+    function Tabs() {
+      const [open, setOpen] = useState(true)
+      return <><button onClick={() => setOpen(!open)}>Toggle provider</button>{open ? <ProviderTab /> : null}</>
+    }
+    renderInPage(<Tabs />, { page: "account", handlers: [http.get(READ, () => {
+      calls++
+      if (calls === 1) return HttpResponse.json(registered ? { providerNpi: { id: 77, npi: 1234567890 } } : {})
+      return new Promise<Response>((resolve) => { finish = resolve })
+    })] })
+    if (registered) await screen.findByRole("table")
+    else await screen.findByRole("combobox", { name: NPI_MESSAGES.personalSearch })
+    fireEvent.click(screen.getByRole("button", { name: "Toggle provider" }))
+    fireEvent.click(screen.getByRole("button", { name: "Toggle provider" }))
+    await waitFor(() => expect(finish).toBeTypeOf("function"))
+    expect(screen.queryByRole("combobox")).toBeNull()
+    expect(screen.queryByRole("table")).toBeNull()
+    await act(async () => finish(HttpResponse.json(registered ? {} : { providerNpi: { id: 77, npi: 1234567890 } })))
+    if (registered) await screen.findByRole("combobox", { name: NPI_MESSAGES.personalSearch })
+    else await screen.findByRole("table")
+    expect(calls).toBe(2)
   })
   it("shows a registered NPI read-only, without searches or Register", async () => {
     renderProvider([http.get(READ, () => HttpResponse.json({ providerNpi: { id: 77, npi: 1234567890 } }))])
@@ -130,14 +154,17 @@ describe("Healthcare credentials", () => {
       expect(screen.getByRole("heading", { name: NPI_MESSAGES.heading })).toBeTruthy()
     }
   })
-  it("pagination errors preserve options and retry the exact page/query", async () => {
+  it.each(["http500", "network", "timeout"])("pagination %s errors preserve options and retry the exact page/query", async (failure) => {
     const user = userEvent.setup()
     const requests: string[] = []
     let failed = false
     renderProvider([http.get(SEARCH, ({ request }) => {
       const q = new URL(request.url).searchParams
       requests.push(`${q.get("searchText")}:${q.get("page")}`)
-      if (q.get("page") === "1" && !failed) { failed = true; return HttpResponse.json({}, { status: 500 }) }
+      if (q.get("page") === "1" && !failed) {
+        failed = true
+        return failure === "network" ? HttpResponse.error() : HttpResponse.json(failure === "timeout" ? { errorCode: "UPSTREAM_TIMEOUT", source: "proxy" } : {}, { status: failure === "timeout" ? 504 : 500 })
+      }
       return HttpResponse.json({ data: q.get("page") === "0" ? Array.from({ length: 10 }, (_, i) => person(i + 1)) : [person(11)], totalElements: 11 })
     })])
     await screen.findByRole("combobox", { name: NPI_MESSAGES.personalSearch })
@@ -239,7 +266,10 @@ describe("Healthcare credentials", () => {
   })
   it("never mounts search children when session expiry preceded mounting", async () => {
     sessionEvents.publish("session-expired")
-    renderProvider()
+    const reads = vi.fn(() => HttpResponse.json({}))
+    renderProvider([http.get(READ, reads)])
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
+    expect(reads).not.toHaveBeenCalled()
     expect(screen.queryByRole("combobox")).toBeNull()
     expect(screen.queryByRole("heading", { name: NPI_MESSAGES.heading })).toBeNull()
   })
@@ -251,8 +281,9 @@ describe("Healthcare credentials", () => {
     const loaded = vi.fn()
     renderInPage(<SWRConfig value={{ onSuccess: loaded }}><ProviderTab /><ExpireDuringMount /></SWRConfig>, { page: "account" })
     expect(sessionEvents.hasPublished("session-expired")).toBe(true)
-    // Wait for the registration read to settle after the layout-time expiry.
-    await waitFor(() => expect(loaded).toHaveBeenCalledOnce())
+    // The opening effect also checks the published event before starting a read.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
+    expect(loaded).not.toHaveBeenCalled()
     expect(screen.queryAllByRole("combobox")).toHaveLength(0)
     expect(screen.queryByRole("heading", { name: NPI_MESSAGES.heading })).toBeNull()
   })

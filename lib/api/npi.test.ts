@@ -36,7 +36,7 @@ it("maps registered credentials and optional practice/HIE through the registered
   server.use(http.get(userNpiPath(), () => HttpResponse.json({ providerNpi: individual, practiceNpi: practice, hieEndpoint: { id: 99, name: "Exchange", endpoint: "sample" } })))
   expect(await swrFetcher(keys.npi())).toEqual({ registered: true, provider: { id: 77, npi: "1234567890" }, practice: { id: 88, npi: "1987654321" }, hie: { id: 99, name: "Exchange", endpoint: "sample" } })
 })
-it.each([null, [], "bad", { providerNpi: {} }, { providerNpi: { id: 77, npi: "1234567890" } }, { practiceNpi: false }, { hieEndpoint: { id: "bad" } }])("rejects malformed user payload %j", async (body) => {
+it.each([null, [], "bad", { message: "Service unavailable" }, { unexpected: true }, { providerNpi: {} }, { providerNpi: { id: 77, npi: "1234567890" } }, { practiceNpi: false }, { hieEndpoint: { id: "bad" } }])("rejects malformed user payload %j", async (body) => {
   server.use(http.get(userNpiPath(), () => HttpResponse.json(body)))
   expect(await getUserNpi()).toEqual({ success: false, statusCode: 200 })
   await expect(swrFetcher(keys.npi())).rejects.toBeInstanceOf(ApiResponseError)
@@ -86,4 +86,9 @@ it.each([searchPersonalNpi, searchPracticeNpi])("ends supported pagination at pa
   server.use(http.get(searchPath, () => HttpResponse.json({ data: Array.from({ length: 10 }, (_, id) => ({ ...individual, id: id + 1 })), totalElements: 100010 })))
   expect((await search({ searchText: "", page: 9998 })).data?.hasMore).toBe(true)
   expect((await search({ searchText: "", page: 9999 })).data).toMatchObject({ hasMore: false, totalElements: 100010 })
+})
+
+it("trims each individual name part before composing the display label", async () => {
+  server.use(http.get(searchPath, () => HttpResponse.json({ data: [{ ...individual, providerFirstName: " Ann ", providerLastName: " Lee " }], totalElements: 1 })))
+  expect((await searchPersonalNpi({ searchText: "Ann", page: 0 })).data?.items[0]).toMatchObject({ name: "Ann Lee", label: "1234567890, Ann Lee, Austin, TX" })
 })

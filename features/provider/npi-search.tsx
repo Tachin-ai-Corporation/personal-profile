@@ -32,6 +32,6 @@ export function NpiSearch({ onFailure }: { readonly onFailure: (error: MappedErr
     <p className="text-body font-medium">{NPI_MESSAGES.instructions}</p>
     <Combobox {...common} label={NPI_MESSAGES.personalSearch} required load={loader(searchPersonalNpi)} />
     <Combobox {...common} label={NPI_MESSAGES.practiceSearch} optional load={loader(searchPracticeNpi)} />
-    <div className="flex justify-end"><Button type="button">{NPI_MESSAGES.register}</Button></div>
+    <div className="flex justify-end"><Button type="button" size="touch">{NPI_MESSAGES.register}</Button></div>
   </div>
 }
