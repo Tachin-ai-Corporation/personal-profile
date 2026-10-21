@@ -5,7 +5,7 @@ import { Chip } from "@/components/ui/chip"
 import { FallbackImage } from "@/components/ui/fallback-image"
 import { KeyValueTable, RowActions, type RowAction } from "@/features/shell"
 import { INSURANCE_CARD_SIDES, insuranceCardDownloadPath, type InsuranceCardSide, type InsurancePolicy, type Myself } from "@/lib/api"
-import { formatMessage, INSURANCE_MESSAGES, SECTION_MESSAGES } from "@/lib/shared/messages"
+import { COMMON_MESSAGES, formatMessage, INSURANCE_MESSAGES, SECTION_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
 import { InsuranceImageMissing } from "./card-image"
 import { InsuranceCardRetry } from "./card-retry"
@@ -83,9 +83,13 @@ function Thumbnail({ side, src, policyName, onOpen, onFailed, buttonRef, retry }
   )
 }
 
-/** The kebab's items: Edit for a saved (id) policy. */
-function cardActions(policy: InsurancePolicy, onEdit: () => void): RowAction[] {
-  return policy.id === null ? [] : [{ id: "edit", label: SECTION_MESSAGES.edit, onSelect: onEdit }]
+/** The kebab's items: Edit and Delete (destructive, Story 5.5; unavailable with `deleteDisabledReason`) for a saved (id) policy. */
+function cardActions(policy: InsurancePolicy, onEdit: () => void, onDelete: () => void, deleteDisabledReason: string | undefined): RowAction[] {
+  if (policy.id === null) return []
+  return [
+    { id: "edit", label: SECTION_MESSAGES.edit, onSelect: onEdit },
+    { id: "delete", label: COMMON_MESSAGES.delete, onSelect: onDelete, destructive: true, disabledReason: deleteDisabledReason },
+  ]
 }
 
 export interface InsurancePolicyCardProps {
@@ -93,6 +97,12 @@ export interface InsurancePolicyCardProps {
   readonly myself: Myself | undefined
   /** The kebab's "Edit" (Story 5.2): opens the editor on this policy. */
   readonly onEdit: () => void
+  /** The kebab's "Delete" (Story 5.5): opens the delete confirm for this policy. */
+  readonly onDelete: () => void
+  /** Story 5.5: why "Delete" is unavailable (a delete of this policy is in flight), else `undefined`. */
+  readonly deleteDisabledReason?: string
+  /** Story 5.5: the kebab button (focus lands there when the card before it is deleted). */
+  readonly kebabRef?: (element: HTMLButtonElement | null) => void
   /** Story 5.3: a "Retry upload" succeeded; revalidates the list. */
   readonly onCardUploaded: () => void
 }
@@ -101,13 +111,13 @@ export interface InsurancePolicyCardProps {
  * One policy (Story 5.1, DESIGN.md Insurance card): a flat bordered
  * `rounded-md` card. The title row (≥ 52 px, bottom hairline) holds
  * "{Type} Insurance", the chip and the kebab ("More actions for {Insurer}
- * {Type} Insurance": Edit, Story 5.2; Delete comes with Story 5.5). A
- * Deleted card has no kebab (the backend would accept a `PUT` to it), and a
- * policy without an id has nothing to edit. Below: the key/value grid, and the
+ * {Type} Insurance": Edit, Story 5.2; Delete, Story 5.5). A Deleted card
+ * has no kebab (the backend would accept a `PUT` to it), and a policy
+ * without an id has nothing to edit or delete. Below: the key/value grid, and the
  * Front/Back thumbnails behind a left hairline (under the grid below
  * 768 px). A Deleted card is muted, with no kebab and no thumbnail action.
  */
-export function InsurancePolicyCard({ policy, myself, onEdit, onCardUploaded }: InsurancePolicyCardProps): JSX.Element {
+export function InsurancePolicyCard({ policy, myself, onEdit, onDelete, deleteDisabledReason, kebabRef, onCardUploaded }: InsurancePolicyCardProps): JSX.Element {
   const titleId = useId()
   const title = insurancePolicyTitle(policy)
   const name = insurancePolicyName(policy)
@@ -144,7 +154,7 @@ export function InsurancePolicyCard({ policy, myself, onEdit, onCardUploaded }: 
           {title}
         </h3>
         {chip ? <Chip variant={chip.variant}>{chip.label}</Chip> : null}
-        {policy.deleted ? null : <RowActions actions={cardActions(policy, onEdit)} name={name} className="ml-auto" />}
+        {policy.deleted ? null : <RowActions actions={cardActions(policy, onEdit, onDelete, deleteDisabledReason)} name={name} kebabRef={kebabRef} className="ml-auto" />}
       </div>
       <div className="flex flex-col md:flex-row">
         <div className="min-w-0 flex-1">

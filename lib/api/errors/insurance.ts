@@ -4,7 +4,8 @@ import type { MessageRule } from "./core"
 /**
  * Fields of the Insurance editor (Story 5.2) the table can name: the form's
  * fields, plus `policy` (the policy itself is gone: no single field holds
- * it, so the editor shows it at drawer level, like Contacts' `primary`).
+ * it, so the editor shows it at drawer level, like Contacts' `primary`;
+ * Story 5.5's delete treats it as already removed, `isInsurancePolicyGone`).
  */
 export type Field =
   | "insurer"
@@ -69,6 +70,12 @@ export const rules: readonly MessageRule<Field>[] = [
   field(/^Invalid date of birth\. The patient should be between 18 and 120 years old\.$/, "subscriberBirthDate", "insurance.subscriberAge"),
   // A listed insurer that no longer exists (`INSURANCE_ORGANIZATION_WITH_ID_IS_MISSING`).
   field(/^Operation failed\. Insurance Company with ID: \d+ does not exist\.$/, "insurer", "insurance.insurerMissing"),
-  // The policy is no longer the user's (`MISSING_PATIENT_INSURANCE`): drawer level.
+  // The policy is no longer the user's (`MISSING_PATIENT_INSURANCE`): drawer level. Story 5.5's delete counts it as already removed.
   field(/^Patient with id: \{\d+\} does not have an insurance with id: \{\d+\}$/, "policy", "insurance.policyMissing"),
+  // Story 5.5 (decision 1B), the policy delete (`AbstractInsuranceDeleteFactory`): the policy isn't found joined to the caller
+  // (`TYPE_INSTANCE_NOT_FOUND` with the type key "Insurance"), or it is already Deleted (`INSURANCE_ALREADY_DELETED`). Like the
+  // rule above, both mean the policy is gone (`policy`): the editor (5.2) and the demotion (5.4) show their policy-gone handling,
+  // and the delete its own "This policy was already removed." toast (`isInsurancePolicyGone`).
+  field(/^Insurance with id: \d+ not found\.$/, "policy", "insurance.policyMissing"),
+  field(/^Insurance with Id: \d+ is already deleted\.$/, "policy", "insurance.policyMissing"),
 ]

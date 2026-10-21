@@ -612,9 +612,13 @@ describe("Primary per type: the save (demotions, then the policy, then the image
     expect(server.log).toEqual(["list", "PUT 55 SECONDARY", "list"])
   })
 
-  it("the other policy is gone before its demotion: the refetch drops it; \"… is no longer on your profile. Save again.\" with Retry, which sends only the policy", async () => {
+  it.each([
+    "Patient with id: {42} does not have an insurance with id: {55}",
+    // Story 5.5's "already gone" text: the same policy-gone handling.
+    "Insurance with Id: 55 is already deleted.",
+  ])("the other policy is gone before its demotion (%j): the refetch drops it; \"… is no longer on your profile. Save again.\" with Retry, which sends only the policy", async (message) => {
     const { server } = await renderSection([BLUE])
-    server.setPut(55, "SECONDARY", fail("Patient with id: {42} does not have an insurance with id: {55}"))
+    server.setPut(55, "SECONDARY", fail(message))
     await addAccepted()
     server.setList(listAfter(server, "PUT 55 SECONDARY", [], [BLUE]))
     await save()

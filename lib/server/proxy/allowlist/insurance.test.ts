@@ -46,6 +46,7 @@ describe("insurance allowlist area", () => {
       "GET v2/health/insurance/organizations",
       "POST v2/health/patient/insurance",
       "PUT v2/health/patient/insurance/{insuranceId}",
+      "DELETE v2/health/insurance/{insuranceId}",
     ])
     for (const entry of entries) expect(ALLOWLIST).toContain(entry)
     expect(entries.filter((entry) => entry.profile !== undefined)).toEqual([])
@@ -483,5 +484,81 @@ describe("insurance writes and the insurer search through the proxy (Story 5.2)"
       expect(response.status).toBe(status)
       expect(await response.json()).toEqual({ errorCode, source: "proxy" })
     })
+  })
+})
+
+/** Story 5.5: the policy delete. */
+describe("DELETE v2/health/insurance/{id} entry (Story 5.5)", () => {
+  const match = matchEntry(ALLOWLIST, "DELETE", seg("v2/health/insurance/55"))
+  if (match.kind !== "matched") throw new Error("expected a match")
+  const { entry } = match
+
+  it("is this area's entry: numeric ids only, no query, no body, nothing forced, not profile", () => {
+    expect(entries).toContain(entry)
+    expect(entry.body).toBeUndefined()
+    expect(entry.query).toBeUndefined()
+    expect(entry.fixedQuery).toBeUndefined()
+    expect(entry.upload).toBeUndefined()
+    expect(entry.asImage).toBeUndefined()
+    expect(entry.profile).toBeUndefined()
+    expect(buildUpstreamQuery(entry, q(""))?.toString()).toBe("")
+    expect(buildUpstreamQuery(entry, q("hardDelete=true"))).toBeNull()
+    for (const id of ["abc", "-1", "1.5", "me", "", "organizations", "12345678901234567890"]) {
+      expect(matchEntry(ALLOWLIST, "DELETE", seg(`v2/health/insurance/${id}`)).kind).not.toBe("matched")
+    }
+    // Only the policy itself: not its card files, not the patient's list.
+    expect(matchEntry(ALLOWLIST, "DELETE", seg("v2/health/insurance/55/file/900")).kind).not.toBe("matched")
+    expect(matchEntry(ALLOWLIST, "DELETE", seg("v2/health/patient/insurance/55")).kind).not.toBe("matched")
+  })
+})
+
+describe("DELETE v2/health/insurance/{id} through the proxy (Story 5.5)", () => {
+  const proxy = createProxyHandler({ env: testEnv(), now: () => NOW })
+
+  async function remove(options: { readonly path?: string; readonly body?: string; readonly contentType?: string } = {}): Promise<Response> {
+    const cookie = `${SESSION_COOKIE}=${await sealSession(makeSession())}`
+    const headers: Record<string, string> = { cookie }
+    if (options.contentType) headers["Content-Type"] = options.contentType
+    return proxy(new Request(`http://localhost:3000/api/1h/${options.path ?? "v2/health/insurance/55"}`, { method: "DELETE", headers, body: options.body }))
+  }
+
+  beforeEach(() => stubServerEnv())
+
+  it("forwards the DELETE to the numeric id with no query and no body, and relays the empty 200", async () => {
+    let seen: { method: string; path: string; search: string; body: string } | undefined
+    server.use(
+      http.delete(`${DEMO.apiBase}/v2/health/insurance/55`, async ({ request }) => {
+        const url = new URL(request.url)
+        seen = { method: request.method, path: url.pathname, search: url.search, body: await request.text() }
+        return new HttpResponse(null, { status: 200 })
+      }),
+    )
+    const response = await remove()
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("")
+    expect(seen).toEqual({ method: "DELETE", path: "/api/v2/health/insurance/55", search: "", body: "" })
+  })
+
+  it("relays the backend's 400 for a policy already gone as is", async () => {
+    const message = "Insurance with Id: 55 is already deleted."
+    server.use(http.delete(`${DEMO.apiBase}/v2/health/insurance/55`, () => HttpResponse.json({ message, code: 400 }, { status: 400 })))
+    const response = await remove()
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ message, code: 400 })
+  })
+
+  it.each<[string, Parameters<typeof remove>[0], number, string]>([
+    ["a non-numeric id", { path: "v2/health/insurance/abc" }, 403, "NOT_ALLOWED"],
+    ["a negative id", { path: "v2/health/insurance/-1" }, 403, "NOT_ALLOWED"],
+    ["an owner id", { path: "v2/health/insurance/me" }, 403, "NOT_ALLOWED"],
+    ["a query", { path: "v2/health/insurance/55?hardDelete=true" }, 400, "BAD_QUERY"],
+    ["a JSON body", { body: JSON.stringify({ id: 55 }), contentType: "application/json" }, 400, "BAD_BODY"],
+    ["a text body", { body: "55", contentType: "text/plain" }, 400, "BAD_BODY"],
+  ])("refuses %s before upstream", async (_name, options, status, errorCode) => {
+    const upstreamCalls = trackAllRequests()
+    const response = await remove(options)
+    expect(response.status).toBe(status)
+    expect(await response.json()).toEqual({ errorCode, source: "proxy" })
+    expect(upstreamCalls()).toBe(0)
   })
 })

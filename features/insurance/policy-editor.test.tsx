@@ -763,8 +763,13 @@ describe("Insurance editor: save failures (I/O rows Server field error, Network)
     expect(within(banner.closest('[data-slot~="insurance-save-error"]') as HTMLElement).getByRole("button", { name: "Retry" })).toBeTruthy()
   })
 
-  it("a policy that is gone: the list refetches, the drawer closes without the guard, and an error toast offers to reload", async () => {
-    const { server } = await renderSection([wire()], fail("Patient with id: {12} does not have an insurance with id: {55}"))
+  it.each([
+    "Patient with id: {12} does not have an insurance with id: {55}",
+    // Story 5.5's "already gone" texts: the same policy-gone handling.
+    "Insurance with id: 55 not found.",
+    "Insurance with Id: 55 is already deleted.",
+  ])("a policy that is gone (%j): the list refetches, the drawer closes without the guard, and an error toast offers to reload", async (message) => {
+    const { server } = await renderSection([wire()], fail(message))
     await openEdit("UnitedHealthcare Medical Insurance")
     await type("Member ID", "XKH999")
     const before = server.lists()

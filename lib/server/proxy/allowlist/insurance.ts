@@ -115,4 +115,11 @@ export const entries: readonly AllowlistEntry[] = [
   { method: "POST", template: "v2/health/patient/insurance", body: insuranceBodySchema, maxBytes: POLICY_MAX_BYTES },
   /** Edit a policy (Story 5.2): the whole record again (numeric id; empty optionals left out, which clears them), JSON only. */
   { method: "PUT", template: "v2/health/patient/insurance/{insuranceId}", body: insuranceBodySchema, maxBytes: POLICY_MAX_BYTES },
+  /**
+   * Delete a policy (Story 5.5): numeric id, no query, no body. The backend
+   * labels it Deleted (the caller is its only policyholder) or removes only
+   * the caller's link, answers 200 with an empty body, and never touches the
+   * card files. An unknown or already deleted policy is a 400 with a message.
+   */
+  { method: "DELETE", template: "v2/health/insurance/{insuranceId}" },
 ]

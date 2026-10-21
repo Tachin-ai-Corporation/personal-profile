@@ -80,3 +80,33 @@ describe("insurance errors (Story 5.2)", () => {
     expect(messageFor("insurance.policyMissing")).toBe("This policy is no longer on your profile.")
   })
 })
+
+describe("insurance errors: the policy delete (Story 5.5, decision 1B)", () => {
+  it.each<[string, MappedError]>([
+    ["Insurance with id: 55 not found.", at("policy", "insurance.policyMissing")],
+    ["Insurance with Id: 55 is already deleted.", at("policy", "insurance.policyMissing")],
+    ["Patient with id: {12} does not have an insurance with id: {55}", at("policy", "insurance.policyMissing")],
+  ])("maps the already-gone answer %j to `policy`", (message, expected) => {
+    expect(mapApiError("insurance", upstream(message))).toEqual(expected)
+  })
+
+  it.each([
+    "Insurance with id: x not found.",
+    "Insurance with id: 55 not found",
+    "Insurance with Id: 55 not found.",
+    "Insurance with id: 55 is already deleted.",
+    "Insurance with Id: {55} is already deleted.",
+    "Insurance with id: 55 does not exist",
+  ])("leaves the near miss %j generic", (message) => {
+    expect(mapApiError("insurance", upstream(message))).toEqual({ kind: "generic", message })
+  })
+
+  it("matches only the Insurance Section, never a 5xx", () => {
+    expect(mapApiError("addresses", upstream("Insurance with Id: 55 is already deleted."))).toMatchObject({ kind: "generic" })
+    expect(mapApiError("insurance", upstream("Insurance with Id: 55 is already deleted.", 500))).toEqual({ kind: "generic" })
+  })
+
+  it("names no delete-only copy: the delete's own toast comes from the feature", () => {
+    for (const rule of rules) expect(rule.result).not.toMatchObject({ messageKey: "insurance.policyAlreadyRemoved" })
+  })
+})

@@ -191,7 +191,7 @@ Pass 1. The layers were blind hunter (B), edge-case hunter (E) and verification 
 - **Uploads:** each upload adds a new card relation, and the old file stays related (`FileServiceImpl.java:1077-1088, 1382-1391`). The list shows only the newest file per side (`OneHealthRepository.java:2484, 2499`).
 - **Ownership:** the upload checks only the tenant (`OneHealthServiceImpl.java:4549-4562`).
 - **Hard delete:** it removes the file rows and relations, but the S3 delete targets the public bucket, so private card bytes stay (already in deferred work).
-- **Policy delete:** it removes only the newest front and back files, so older cards are orphaned (a backend item to log).
+- **Policy delete:** it removes no card files at all. `deleteFiles()` in `AbstractInsuranceDeleteFactory` is never called, so every card file stays (corrected 2026-10-21 in Story 5.5's review; logged in `deferred-work.md`).
 
 **Agent decisions:**
 - **Upload ordering:** front then back, sequential, stopping neither on the other's failure. Each side reports on its own.

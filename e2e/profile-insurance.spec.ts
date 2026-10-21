@@ -9,6 +9,7 @@ import {
   mockInsuranceCard,
   mockInsuranceCardUpload,
   mockInsuranceCreate,
+  mockInsuranceDelete,
   mockInsuranceFileDelete,
   mockInsurers,
   mockInsuranceTypeKey,
@@ -22,11 +23,12 @@ import {
 } from "./fixtures"
 
 /**
- * Stories 5.1–5.4 (Team A, NG-9029): the Insurance Section on the real
+ * Stories 5.1–5.5 (Team A, NG-9029): the Insurance Section on the real
  * `/?tab=insurance`, on desktop and at 360 px: the policy cards (5.1), the
  * Add / Edit drawer with its leave guard (5.2), the card images with
  * their uploads and "Retry upload" (5.3, real-browser checks and re-encode),
- * and the Primary-per-type demotion offer (5.4). Every test runs under the
+ * the Primary-per-type demotion offer (5.4) and the delete with its
+ * confirm (5.5). Every test runs under the
  * fail-fast `test`, starts from `mockProfileDefaults` (no policies) and
  * overrides the policy list and the card images. The image headers of the
  * download entry are unit-tested (`allowlist/insurance.test.ts`); here the
@@ -1075,5 +1077,199 @@ test.describe("Primary per type with demote offer (Story 5.4)", () => {
     await expect(sheet).toBeHidden()
     expect(writes()).toEqual(["PUT 55 SECONDARY", "POST"])
     writes.stop()
+  })
+})
+
+/** Story 5.5: the active cards of the I/O matrix, Blue Shield (Primary Medical), Delta Dental, VSP; no card images. */
+const BLUE = insurancePolicy({ insuranceOrganizationDTO: { insuranceCompanyName: "Blue Shield", insuranceCompanyId: 7 }, frontSideCardFile: null, backSideCardFile: null })
+const DELTA = insurancePolicy({
+  id: 56,
+  insuranceType: "DENTAL",
+  insurancePrecedence: "SECONDARY",
+  insuranceOrganizationDTO: { insuranceCompanyName: "Delta Dental", insuranceCompanyId: 9 },
+  frontSideCardFile: null,
+  backSideCardFile: null,
+})
+const VSP = insurancePolicy({
+  id: 57,
+  insuranceType: "VISION",
+  insurancePrecedence: "SECONDARY",
+  insuranceOrganizationDTO: { insuranceCompanyName: "VSP", insuranceCompanyId: 12 },
+  frontSideCardFile: null,
+  backSideCardFile: null,
+})
+const deletedPolicy = (row: Record<string, unknown>): Record<string, unknown> => ({ ...row, label: "Deleted" })
+
+const confirmDialog = (page: Page): Locator => page.getByRole("alertdialog", { name: "Delete this insurance policy?" })
+const kebabOf = (page: Page, name: string): Locator => section(page).getByRole("button", { name: `More actions for ${name}` })
+
+/**
+ * Opens the Section on a list that reads `before` until the returned
+ * `markRemoved()` runs (from the delete mock), then `after` (Story 5.5: the
+ * refetch shows the platform's result).
+ */
+async function openWithDelete(page: Page, before: readonly Record<string, unknown>[], after: readonly Record<string, unknown>[]): Promise<() => void> {
+  let removed = false
+  await mockProfileDefaults(page)
+  await mockMyself(page, { body: { ...ANN, firstName: "Avery" } })
+  await mockInsurance(page, () => ({ body: insurancePage(removed ? after : before) }))
+  await page.goto("/?tab=insurance")
+  await expect(section(page).locator('[data-slot="state-frame"]')).toHaveAttribute("data-state", "ready")
+  return () => {
+    removed = true
+  }
+}
+
+/** Kebab → "Delete" with the pointer; the confirm opens with focus on Cancel. */
+async function openDelete(page: Page, name: string): Promise<Locator> {
+  const kebab = kebabOf(page, name)
+  await kebab.click()
+  await page.getByRole("menuitem", { name: "Delete" }).click()
+  await expect(confirmDialog(page)).toBeVisible()
+  await expect(confirmDialog(page).getByRole("button", { name: "Cancel" })).toBeFocused()
+  return kebab
+}
+
+test.describe("Delete a policy (Story 5.5)", () => {
+  test("the kebab lists Edit and Delete; the confirm's copy; Escape and Cancel send nothing and return focus to the kebab", async ({ page }) => {
+    await openWithDelete(page, [BLUE, DELTA, deletedPolicy(VSP)], [])
+    const deletes = await mockInsuranceDelete(page)
+    await expect(section(page).getByRole("button", { name: /^More actions for/ })).toHaveCount(2)
+    await kebabOf(page, "Delta Dental Dental Insurance").click()
+    await expect(page.getByRole("menuitem")).toHaveText(["Edit", "Delete"])
+    await expect(page.getByRole("menuitem", { name: "Delete" })).toHaveAttribute("data-variant", "destructive")
+    await page.keyboard.press("Escape")
+    const kebab = await openDelete(page, "Delta Dental Dental Insurance")
+    const dialog = confirmDialog(page)
+    await expect(dialog).toContainText("Delta Dental Dental Insurance will be removed from your profile.")
+    await expect(dialog.getByRole("button")).toHaveText(["Cancel", "Delete policy"])
+    for (const button of await dialog.getByRole("button").all()) expect((await button.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+    await expectNoHorizontalScroll(page)
+    await axe(page, "delete confirm", '[data-slot="confirm-dialog"]')
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
+    await expect(kebab).toBeFocused()
+    await openDelete(page, "Delta Dental Dental Insurance")
+    await dialog.getByRole("button", { name: "Cancel" }).click()
+    await expect(dialog).toBeHidden()
+    await expect(kebab).toBeFocused()
+    expect(deletes.requests()).toEqual([])
+  })
+
+  test("labelled Deleted: busy (Deleting…, not dismissible), then the muted Deleted card, the toast, focus on the next card's kebab", async ({ page }) => {
+    const markRemoved = await openWithDelete(page, [BLUE, DELTA, VSP], [deletedPolicy(BLUE), DELTA, VSP])
+    let release: () => void = () => undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const deletes = await mockInsuranceDelete(page, async () => {
+      await held
+      markRemoved()
+      return {}
+    })
+    await openDelete(page, "Blue Shield Medical Insurance")
+    const dialog = confirmDialog(page)
+    await dialog.getByRole("button", { name: "Delete policy" }).click()
+    const busy = dialog.locator('button[aria-busy="true"]')
+    await expect(busy).toContainText("Deleting…")
+    await axe(page, "delete confirm, busy", '[data-slot="confirm-dialog"]')
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeVisible()
+    release()
+    await expect(dialog).toBeHidden()
+    expect(deletes.deleted()).toEqual(["55"])
+    const medical = card(page, "Medical Insurance")
+    await expect(medical).toHaveAttribute("data-deleted", "true")
+    await expect(medical.locator('[data-slot="chip"]')).toHaveText("Deleted")
+    await expect(kebabOf(page, "Blue Shield Medical Insurance")).toHaveCount(0)
+    await expect(section(page).locator('[data-slot="section-meta"]')).toHaveText("2")
+    await expect(toastWith(page, "Insurance policy deleted.")).toBeVisible()
+    await expect(kebabOf(page, "Delta Dental Dental Insurance")).toBeFocused()
+    await expectNoHorizontalScroll(page)
+  })
+
+  test("unlinked, the last active card: the card is gone, focus on the previous card's kebab; then the empty card's Add insurance", async ({ page }) => {
+    let step = 0
+    await mockProfileDefaults(page)
+    await mockMyself(page, { body: { ...ANN, firstName: "Avery" } })
+    await mockInsurance(page, () => ({ body: insurancePage([[BLUE, DELTA], [BLUE], []][step]) }))
+    await mockInsuranceDelete(page, () => {
+      step += 1
+      return {}
+    })
+    await page.goto("/?tab=insurance")
+    await expect(section(page).locator('[data-slot="state-frame"]')).toHaveAttribute("data-state", "ready")
+    await openDelete(page, "Delta Dental Dental Insurance")
+    await confirmDialog(page).getByRole("button", { name: "Delete policy" }).click()
+    await expect(card(page, "Dental Insurance")).toHaveCount(0)
+    await expect(kebabOf(page, "Blue Shield Medical Insurance")).toBeFocused()
+    await openDelete(page, "Blue Shield Medical Insurance")
+    await confirmDialog(page).getByRole("button", { name: "Delete policy" }).click()
+    const empty = section(page).locator('[data-slot="empty-state"]')
+    await expect(empty).toBeVisible()
+    await expect(empty.getByRole("button", { name: "Add insurance" })).toBeFocused()
+  })
+
+  test("a network failure: the dialog closes, the card is unchanged, the error toast persists; its Retry deletes again with no confirm", async ({ page }) => {
+    const markRemoved = await openWithDelete(page, [BLUE, DELTA, VSP], [BLUE, VSP])
+    const deletes = await mockInsuranceDelete(page, (_id, attempt) => {
+      if (attempt === 1) return "abort"
+      markRemoved()
+      return {}
+    })
+    const kebab = await openDelete(page, "Delta Dental Dental Insurance")
+    await confirmDialog(page).getByRole("button", { name: "Delete policy" }).click()
+    await expect(confirmDialog(page)).toBeHidden()
+    await expect(kebab).toBeFocused()
+    const toast = toastWith(page, "Couldn't delete insurance policy. Check your connection.")
+    await expect(toast).toBeVisible()
+    await expect(card(page, "Dental Insurance")).toBeVisible()
+    await expect(card(page, "Dental Insurance")).not.toHaveAttribute("data-deleted", "true")
+    await toast.getByRole("button", { name: "Retry" }).click()
+    await expect(confirmDialog(page)).toHaveCount(0)
+    await expect(card(page, "Dental Insurance")).toHaveCount(0)
+    await expect(toastWith(page, "Insurance policy deleted.")).toBeVisible()
+    expect(deletes.requests()).toEqual(["56", "56"])
+    expect(deletes.deleted()).toEqual(["56"])
+  })
+
+  test("already gone (decision 1B): the backend's 400 refetches and says This policy was already removed., with no error", async ({ page }) => {
+    const markRemoved = await openWithDelete(page, [BLUE, DELTA], [BLUE, deletedPolicy(DELTA)])
+    await mockInsuranceDelete(page, (id) => {
+      markRemoved()
+      return { status: 400, body: { message: `Insurance with Id: ${id} is already deleted.`, code: 400 } }
+    })
+    await openDelete(page, "Delta Dental Dental Insurance")
+    await confirmDialog(page).getByRole("button", { name: "Delete policy" }).click()
+    await expect(confirmDialog(page)).toBeHidden()
+    await expect(toastWith(page, "This policy was already removed.")).toBeVisible()
+    await expect(toastWith(page, "Couldn't delete")).toHaveCount(0)
+    await expect(card(page, "Dental Insurance")).toHaveAttribute("data-deleted", "true")
+    // No next active card: the previous one's kebab.
+    await expect(kebabOf(page, "Blue Shield Medical Insurance")).toBeFocused()
+  })
+
+  test("keyboard only: the kebab, Delete, Tab to Delete policy, Enter; focus lands on the next card's kebab", async ({ page, isMobile }) => {
+    test.skip(isMobile, "keyboard-only journey runs on desktop")
+    const markRemoved = await openWithDelete(page, [BLUE, DELTA, VSP], [DELTA, VSP])
+    const deletes = await mockInsuranceDelete(page, () => {
+      markRemoved()
+      return {}
+    })
+    const kebab = kebabOf(page, "Blue Shield Medical Insurance")
+    await kebab.focus()
+    await page.keyboard.press("Enter")
+    await expect(page.getByRole("menuitem", { name: "Edit" })).toBeFocused()
+    await page.keyboard.press("ArrowDown")
+    await expect(page.getByRole("menuitem", { name: "Delete" })).toBeFocused()
+    await page.keyboard.press("Enter")
+    const dialog = confirmDialog(page)
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused()
+    await page.keyboard.press("Tab")
+    await expect(dialog.getByRole("button", { name: "Delete policy" })).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect(dialog).toBeHidden()
+    expect(deletes.deleted()).toEqual(["55"])
+    await expect(kebabOf(page, "Delta Dental Dental Insurance")).toBeFocused()
   })
 })

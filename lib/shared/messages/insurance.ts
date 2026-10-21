@@ -89,4 +89,13 @@ export const INSURANCE_MESSAGES = {
   demotionNotRolledBack: "{insurer} is now secondary.", // DRAFT COPY (spec 5.4 decision 2A: a rollback that failed; also after "Insurance saved." when a demotion ran)
   demotionNoPolicyholder: "Couldn't make {insurer} secondary: its policyholder is missing. Remove that policy and add it again.", // DRAFT COPY (spec 5.4 review: a non-Self policy without a saved subscriber)
   demotionPolicyGone: "{insurer} is no longer on your profile. Save again.", // DRAFT COPY (spec 5.4 review: the other policy went before its demotion)
+  // Story 5.5: delete a policy ("Delete" is `COMMON_MESSAGES.delete`; {policy} is "{Insurer} {Type} Insurance", `policyName`).
+  deleteTitle: "Delete this insurance policy?", // verbatim: EXPERIENCE.md Voice and Tone, "Delete insurance confirm"
+  deleteBody: "{policy} will be removed from your profile.", // verbatim: EXPERIENCE.md Voice and Tone, "Delete insurance confirm"
+  deleteConfirm: "Delete policy", // verbatim: EXPERIENCE.md Voice and Tone, "Delete insurance confirm"
+  deleting: "Deleting…", // DRAFT COPY (spec 5.5 busy confirm, and the reason "Delete" is unavailable while that delete runs)
+  policyDeleted: "Insurance policy deleted.", // DRAFT COPY (epics Story 5.5 success toast)
+  deleteNetworkFailure: "Couldn't delete insurance policy. Check your connection.", // DRAFT COPY (epics Story 5.5 network failure toast)
+  deleteFailed: "Couldn't delete insurance policy.", // DRAFT COPY (spec 5.5 other failures toast)
+  policyAlreadyRemoved: "This policy was already removed.", // DRAFT COPY (spec 5.5 decision 1B: the backend's "already gone" answers)
 } as const

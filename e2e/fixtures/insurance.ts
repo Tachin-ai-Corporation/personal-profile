@@ -306,3 +306,42 @@ export function insuranceWriteLog(page: Page): InsuranceWriteLog {
   page.once("close", stop)
   return Object.assign(() => [...log], { stop })
 }
+
+/** Story 5.5: what `mockInsuranceDelete` saw. */
+export interface InsuranceDeleteLog {
+  /** Every DELETE request's policy id, in order, whatever its answer. */
+  readonly requests: () => string[]
+  /** The policy ids answered with a 2xx (the deletes that went through), in order. */
+  readonly deleted: () => string[]
+}
+
+/**
+ * Story 5.5: `DELETE v2/health/insurance/{id}`. Answers `answer` (default
+ * the backend's 200 with an empty body; or a function of the policy id and
+ * that policy's attempt number from 1, which may say `"abort"` for a network
+ * failure or return a promise to hold the answer). Other methods on that
+ * path fall through.
+ */
+export async function mockInsuranceDelete(
+  page: Page,
+  answer: ProxyAnswer | ((policyId: string, attempt: number) => ProxyAnswer | "abort" | Promise<ProxyAnswer | "abort">) = {},
+): Promise<InsuranceDeleteLog> {
+  const requests: string[] = []
+  const deleted: string[] = []
+  const attempts = new Map<string, number>()
+  await page.route("**/api/1h/v2/health/insurance/*", async (route) => {
+    const request = route.request()
+    if (request.method() !== "DELETE") return route.fallback()
+    const policyId = new URL(request.url()).pathname.split("/").pop() ?? ""
+    requests.push(policyId)
+    const attempt = (attempts.get(policyId) ?? 0) + 1
+    attempts.set(policyId, attempt)
+    const result = typeof answer === "function" ? await answer(policyId, attempt) : answer
+    if (result === "abort") return route.abort("connectionfailed")
+    const status = result.status ?? 200
+    if (status >= 200 && status < 300) deleted.push(policyId)
+    if (result.body === undefined) return route.fulfill({ status, body: "" })
+    return json(route, status, result.body)
+  })
+  return { requests: () => [...requests], deleted: () => [...deleted] }
+}

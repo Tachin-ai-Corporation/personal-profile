@@ -8,7 +8,7 @@
  *   (Story 5.1: `fetchInsurance`, registered below);
  * - `GET v2/health/insurance/organizations?name=&page=&size=` (insurer search, 5.2);
  * - `POST v2/health/patient/insurance`, `PUT v2/health/patient/insurance/{id}`,
- *   `DELETE v2/health/insurance/{id}` (5.2, 5.5);
+ *   `DELETE v2/health/insurance/{id}` (5.2; 5.5: `deleteInsurancePolicy`);
  * - card uploads (entries exist, Story 5.3: `uploadInsuranceCard`; a replaced
  *   card's old file is deleted through the named op, `deleteInsuranceCardFile`)
  *   and the card download
@@ -64,6 +64,11 @@ export function insuranceCreatePath(): string {
 /** Edit a saved policy (Story 5.2, `PUT`); `null` unless the id is a positive integer. */
 export function insuranceUpdatePath(insuranceId: number): string | null {
   return isPositiveId(insuranceId) ? proxyPath(`v2/health/patient/insurance/${insuranceId}`) : null
+}
+
+/** Delete a saved policy (Story 5.5, `DELETE`); `null` unless the id is a positive integer. */
+export function insurancePolicyDeletePath(insuranceId: number): string | null {
+  return isPositiveId(insuranceId) ? proxyPath(`v2/health/insurance/${insuranceId}`) : null
 }
 
 /** One page of the insurer search (Story 5.2): `name` as typed (trimmed by the Combobox), `size` the editor's 20. */
@@ -477,4 +482,24 @@ const savedPolicySchema = z.object({ id: z.number().int().positive().max(Number.
 export function insuranceSavedPolicyId(data: unknown): number | null {
   const parsed = savedPolicySchema.safeParse(data)
   return parsed.success ? parsed.data.id : null
+}
+
+// ---------------------------------------------------------------------------
+// Story 5.5: delete a policy.
+// ---------------------------------------------------------------------------
+
+/**
+ * Deletes a saved policy (`DELETE v2/health/insurance/{id}`, Story 5.5; the
+ * id only from the card, never typed). The backend labels it Deleted or
+ * removes only the caller's link, and answers 200 with an empty body; the
+ * list refetch shows which; a 2xx whose body isn't JSON is still a success.
+ * Never throws: an id that isn't a positive integer sends nothing and fails.
+ */
+export async function deleteInsurancePolicy(insuranceId: number): Promise<ApiResponse<unknown>> {
+  const path = insurancePolicyDeletePath(insuranceId)
+  if (path === null) return { success: false, error: "insurance/deleteInsurancePolicy: not a policy id" }
+  const res = await callApi<unknown>("insurance/deleteInsurancePolicy", path, { method: "DELETE" })
+  // The delete went through even when a 2xx body isn't JSON (the backend answers an empty one).
+  const ok2xx = res.statusCode !== undefined && res.statusCode >= 200 && res.statusCode < 300
+  return !res.success && ok2xx ? { success: true, statusCode: res.statusCode } : res
 }

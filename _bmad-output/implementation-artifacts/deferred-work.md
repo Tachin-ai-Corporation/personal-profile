@@ -136,8 +136,8 @@
   evidence: 1h-ng-bo-core-be FileServiceImpl.java:1077-1088, 1382-1391 (a new relation per upload), OneHealthRepository.java:2484, 2499 (newest file per side); user decision 2026-10-21, spec 5.3.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-3-card-image-upload-with-retry.md`
-  summary: Backend — deleting a policy removes only its newest front and back card files, so older card files (every upload adds a relation; a failed replace-delete leaves one too) are orphaned. Ask the backend to remove every card relation of a deleted policy.
-  evidence: spec 5.3 Design Notes "Policy delete" (1h-ng-bo-core-be AbstractInsuranceDeleteFactory); FileServiceImpl.java:1077-1088 (a new relation per upload).
+  summary: Backend — deleting a policy leaves **all** of its card files (corrected 2026-10-21 by Story 5.5: `AbstractInsuranceDeleteFactory.deleteFiles()` is never called, so not even the newest front and back are removed; the policy is only labelled Deleted or the caller's link removed). Every card file of a deleted policy stays (every upload adds a relation; a failed replace-delete leaves one too). Story 5.5 deletes no card files on a policy delete. Ask the backend to remove every card relation of a deleted policy (or confirm the files are meant to stay).
+  evidence: 1h-ng-bo-core-be AbstractInsuranceDeleteFactory.java (`build()` runs `validate()` and `delete()` only; private `deleteFiles()` unused), InsuranceServiceImpl.java:296-327 (`isDeletionAllowedForPerson`: label vs unlink); FileServiceImpl.java:1077-1088 (a new relation per upload); spec 5.5 Design Notes "Files".
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-3-card-image-upload-with-retry.md`
   summary: (Integrator, T8) Update `docs/FOUNDATION.md` §3.1 Named ops for decision 1A of Story 5.3 — `DELETE /api/pp/file/{fileId}` owns every `InsuranceHasFrontSideCardFile` / `InsuranceHasBackSideCardFile` relation of the caller's policies (the GraphQL card relations lookup, run last and only for policies the list returned), not only the newest card of each side.
@@ -162,6 +162,14 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-4-primary-per-type-with-demote-offer.md`
   summary: Flaky under full-suite load: `e2e/profile-insurance.spec.ts` "Add and edit a policy (Story 5.2) › keyboard only, from the empty card …" (desktop). After Enter on a Radix Select option the trigger still reads empty ("Precedence" expected "Secondary"); it passes on retry. Seen in the Story 5.3 and 5.4 full runs. Story 5.4's `ChoiceField` change (moving focus into a Select's own list is no longer a blur) fixed a related focus loss but not this. Diagnose from a trace (likely Enter landing before the list's highlighted option is set), e.g. wait for the option's `data-highlighted` before Enter.
   evidence: Story 5.4 full `CI=1 pnpm test:e2e` run (2026-10-21): 1134 passed, 1 flaky (this test, line 351, `toHaveText("Secondary")` got ""); `profile-insurance.spec.ts --repeat-each=3` alone had no failures.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-5-delete-a-policy.md`
+  summary: (PM/backend) On an unlinked delete (other policyholders remain on the policy), the user's uploaded card images stay on the shared policy record and the user isn't told. Decide what to tell them, or whether the backend should remove that user's uploads when it removes their link.
+  evidence: spec 5.5 review row 14; 1h-ng-bo-core-be AbstractInsuranceDeleteFactory.java (`removeRelations` on unlink; `deleteFiles()` never called), InsuranceServiceImpl.java:296-327 (`isDeletionAllowedForPerson`).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-5-delete-a-policy.md`
+  summary: (Foundation) The shell has no info toast tone; Story 5.5's "This policy was already removed." uses the success toast (decision 1B). Add an info variant to `features/shell/toasts.ts` in a foundation PR, then switch that toast to it.
+  evidence: spec 5.5 review row 15; features/shell/toasts.ts (`toastSuccess`, `toastPartial`, `toastError` only); features/insurance/use-policy-delete.ts (`removed`).
 
 ## Team B (`/account`, Epics 7-10)
 

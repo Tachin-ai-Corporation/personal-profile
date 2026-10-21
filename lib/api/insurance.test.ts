@@ -4,6 +4,8 @@ import { myselfWire } from "@/test/myself-fixture"
 import { server } from "@/test/msw-server"
 import {
   deleteInsuranceCardFile,
+  deleteInsurancePolicy,
+  insurancePolicyDeletePath,
   insuranceCardUploadName,
   insuranceSavedPolicyId,
   uploadInsuranceCard,
@@ -519,5 +521,48 @@ describe("insuranceSavedPolicyId (Story 5.3)", () => {
     [undefined, null],
   ])("%j → %j", (data, expected) => {
     expect(insuranceSavedPolicyId(data)).toBe(expected)
+  })
+})
+
+describe("deleteInsurancePolicy (Story 5.5)", () => {
+  beforeEach(async () => {
+    // D-A: a write goes out only once the page user is pinned.
+    server.use(http.get("/api/1h/v2/user/myself", () => HttpResponse.json(myselfWire())))
+    expect((await fetchMyself()).success).toBe(true)
+  })
+
+  it("builds the policy's delete path for a positive integer id only", () => {
+    expect(insurancePolicyDeletePath(55)).toBe("/api/1h/v2/health/insurance/55")
+    for (const id of [0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) expect(insurancePolicyDeletePath(id)).toBeNull()
+  })
+
+  it("sends one DELETE with no query and no body; the empty 200 is a success", async () => {
+    const seen: { method: string; path: string; search: string; body: string }[] = []
+    server.use(
+      http.delete("/api/1h/v2/health/insurance/:id", async ({ request }) => {
+        const url = new URL(request.url)
+        seen.push({ method: request.method, path: url.pathname, search: url.search, body: await request.text() })
+        return new HttpResponse(null, { status: 200 })
+      }),
+    )
+    expect(await deleteInsurancePolicy(55)).toEqual({ success: true, statusCode: 200 })
+    expect(seen).toEqual([{ method: "DELETE", path: "/api/1h/v2/health/insurance/55", search: "", body: "" }])
+  })
+
+  it("counts a 2xx whose body isn't JSON as deleted", async () => {
+    server.use(http.delete("/api/1h/v2/health/insurance/:id", () => HttpResponse.text("OK", { status: 200 })))
+    expect(await deleteInsurancePolicy(55)).toEqual({ success: true, statusCode: 200 })
+  })
+
+  it("returns a failure as is", async () => {
+    const message = "Insurance with Id: 55 is already deleted."
+    server.use(http.delete("/api/1h/v2/health/insurance/:id", () => HttpResponse.json({ message, code: 400 }, { status: 400 })))
+    expect(await deleteInsurancePolicy(55)).toMatchObject({ success: false, statusCode: 400, platformMessage: message })
+    server.use(http.delete("/api/1h/v2/health/insurance/:id", () => HttpResponse.error()))
+    expect(await deleteInsurancePolicy(55)).toMatchObject({ success: false, errorCode: "NETWORK_ERROR" })
+  })
+
+  it.each([0, -1, 1.5, Number.NaN])("sends nothing for a policy id %s", async (id) => {
+    expect(await deleteInsurancePolicy(id)).toEqual({ success: false, error: "insurance/deleteInsurancePolicy: not a policy id" })
   })
 })
