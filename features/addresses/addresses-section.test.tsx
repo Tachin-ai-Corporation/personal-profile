@@ -44,7 +44,8 @@ const location = (overrides: Wire): Wire => ({
   ...overrides,
 })
 
-const page = (content: Wire[]) => ({ content, totalElements: content.length, totalPages: 1, number: 0, size: 100 })
+/** The backend's `PageImpl` (`{ data, …, lastPage }`), as `GET v2/person/location/list` answers. */
+const page = (data: Wire[]) => ({ data, pageNumber: 0, pageSize: 100, firstPage: true, lastPage: true, totalElements: data.length, totalPages: data.length === 0 ? 0 : 1 })
 
 /** The matrix's "Read" row: Main Work 2 (verified), then Home 1 (Primary, unverified). Shown as 1, 2. */
 const ADDRESSES: Wire[] = [
@@ -251,7 +252,7 @@ describe("AddressesSection: read view", () => {
 })
 
 describe("AddressesSection: empty", () => {
-  it("reads an empty Spring Page (the backend's shape) as no addresses: the empty row and count 0", async () => {
+  it("reads an empty PageImpl (the backend's shape) as no addresses: the empty row and count 0", async () => {
     await renderLoaded(ok(page([])))
     expect(within(section()).getByRole("table", { name: "Addresses" }).querySelector('[data-slot="empty-state"]')?.textContent).toBe("No addresses yet·Add address")
     expect(meta()).toBe("0")

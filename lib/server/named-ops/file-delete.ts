@@ -23,9 +23,13 @@ const fileRef = z.object({ id: idSchema.optional().catch(undefined) }).nullish()
 
 const myselfSchema = z.object({ signature: fileRef.optional() })
 
+/**
+ * The backend's own page type (`com.sirma.bocore.common.repository.PageImpl`,
+ * not Spring's `Page`): `{ data, pageNumber, pageSize, …, lastPage, totalPages }`.
+ */
 const insurancePageSchema = z.object({
-  content: z.array(z.object({ frontSideCardFile: fileRef.optional(), backSideCardFile: fileRef.optional() })),
-  last: z.boolean().optional(),
+  data: z.array(z.object({ frontSideCardFile: fileRef.optional(), backSideCardFile: fileRef.optional() })),
+  lastPage: z.boolean().optional(),
 })
 
 type Lookup = { readonly kind: "ids"; readonly ids: readonly number[] } | { readonly kind: "response"; readonly response: Response }
@@ -105,9 +109,10 @@ async function pictureIds(upstream: UpstreamClient, userId: number): Promise<Loo
 }
 
 /**
- * `GET v2/health/patient/insurance` (`PageImpl<ResponseInsuranceDTO>`): the
- * front/back card file ids of the caller's own policies, page by page until
- * `last` (more than `INSURANCE_MAX_PAGES` pages fails closed).
+ * `GET v2/health/patient/insurance` (the backend's `PageImpl<ResponseInsuranceDTO>`,
+ * `{ data, lastPage, … }`): the front/back card file ids of the caller's own
+ * policies, page by page until `lastPage` or an empty `data` (more than
+ * `INSURANCE_MAX_PAGES` pages fails closed).
  */
 async function cardIds(upstream: UpstreamClient): Promise<Lookup> {
   const ids: number[] = []
@@ -118,10 +123,10 @@ async function cardIds(upstream: UpstreamClient): Promise<Lookup> {
     if (result.kind === "client-error") return { kind: "response", response: UNUSABLE() }
     const parsed = insurancePageSchema.safeParse(result.data)
     if (!parsed.success) return { kind: "response", response: UNUSABLE() }
-    for (const policy of parsed.data.content) {
+    for (const policy of parsed.data.data) {
       for (const file of [policy.frontSideCardFile, policy.backSideCardFile]) if (file?.id !== undefined) ids.push(file.id)
     }
-    if (parsed.data.last !== false || parsed.data.content.length === 0) return { kind: "ids", ids }
+    if (parsed.data.lastPage !== false || parsed.data.data.length === 0) return { kind: "ids", ids }
   }
   return { kind: "response", response: UNUSABLE() }
 }

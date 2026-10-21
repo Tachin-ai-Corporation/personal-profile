@@ -142,8 +142,12 @@ type AddressWire = z.infer<typeof addressWireSchema>
 
 const addressListSchema = z.array(addressWireSchema)
 
-/** The backend answers a Spring Page (`{ content, totalElements, … }`); a bare list is accepted too. */
-const addressBodySchema = z.union([addressListSchema, z.object({ content: addressListSchema })])
+/**
+ * The backend answers its own page type, `PageImpl<PersonLocationResponseDTO>`
+ * (`{ data, pageNumber, pageSize, lastPage, totalElements, … }`; not a Spring
+ * Page, so never `content`); a bare list is accepted too.
+ */
+const addressBodySchema = z.union([addressListSchema, z.object({ data: addressListSchema })])
 
 const part = (value: string | null | undefined): string | null => {
   const provided = providedOrNull(value ?? null)
@@ -169,13 +173,13 @@ function toAddress(wire: AddressWire): Address {
 
 /**
  * The active addresses in API order (the backend's newest-updated first), or
- * `null` when the body is neither a Page of addresses nor a list of them. A
+ * `null` when the body is neither a `PageImpl` of addresses nor a list of them. A
  * row with `active: false` is dropped.
  */
 export function toAddresses(raw: unknown): Address[] | null {
   const parsed = addressBodySchema.safeParse(raw)
   if (!parsed.success) return null
-  const rows = Array.isArray(parsed.data) ? parsed.data : parsed.data.content
+  const rows = Array.isArray(parsed.data) ? parsed.data : parsed.data.data
   return rows.filter((wire) => wire.active !== false).map(toAddress)
 }
 
