@@ -36,6 +36,8 @@ export interface UploadSpec {
 interface BaseAllowlistEntry {
   readonly method: ProxyMethod
   readonly template: string
+  /** Optional synchronous, nonthrowing constraints on decoded placeholders; invalid values → 400 `BAD_PATH` after session validation. */
+  readonly pathParams?: Readonly<Record<string, z.ZodType>>
   /** Allowed client query params. Anything else → 400 `BAD_QUERY`. */
   readonly query?: Readonly<Record<string, QueryParamRule>>
   /** Server-fixed params; client values for these names are ignored. */

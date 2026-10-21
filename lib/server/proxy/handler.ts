@@ -15,7 +15,7 @@ import { recordSessionActivity } from "@/lib/server/session/activity"
 import { ALLOWLIST } from "./allowlist"
 import { DENY_RULES, isDenied } from "./deny-list"
 import { forward } from "./forward"
-import { buildUpstreamQuery, logTemplate, matchEntry, upstreamSegments } from "./match"
+import { buildUpstreamQuery, logTemplate, matchEntry, upstreamSegments, validatePathParams } from "./match"
 import { normalizeProxyPath } from "./normalize"
 import { PROXY_METHODS, type AllowlistEntry, type DenyRule, type ProxyMethod } from "./types"
 import { readUpload } from "./upload"
@@ -73,7 +73,7 @@ async function readEntryBody(request: Request, method: ProxyMethod, entry: Allow
 /**
  * Story 1.3 proxy, built by a factory so tests can inject fixture allowlists.
  * Order: kill switch → method → path → deny → allowlist → Profile switch →
- * session → query → body (415/413/400, uploads per AD-13) → token expiry →
+ * session → optional path constraints → query → body (415/413/400, uploads per AD-13) → token expiry →
  * owner substitution → deny re-check on the upstream segments → upstream
  * (image entries sniffed) → activity re-seal. There is no CSRF or session-binding check (D5); bodies are never
  * logged (D6). `X-PP-Activity` is never forwarded upstream.
@@ -116,6 +116,8 @@ export function createProxyHandler(deps: ProxyHandlerDeps = {}): (request: Reque
 
     const session = await getSession(request, now())
     if (!session) return done(sessionExpiredResponse(request))
+
+    if (!validatePathParams(entry, segments)) return fail(400, "BAD_PATH")
 
     const query = buildUpstreamQuery(entry, url.searchParams)
     if (!query) return fail(400, "BAD_QUERY")

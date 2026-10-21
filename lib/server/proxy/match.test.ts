@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { buildUpstreamQuery, logTemplate, matchEntry, upstreamSegments, validateQuery } from "./match"
+import { z } from "zod"
+import { buildUpstreamQuery, logTemplate, matchEntry, upstreamSegments, validatePathParams, validateQuery } from "./match"
 import type { AllowlistEntry } from "./types"
 
 const FIXTURES: AllowlistEntry[] = [
@@ -11,6 +12,63 @@ const FIXTURES: AllowlistEntry[] = [
 ]
 const seg = (path: string) => path.split("/")
 const owner = { personId: 4242, userId: 42 }
+
+describe("validatePathParams", () => {
+  const positiveId = z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER)
+  const constrained: AllowlistEntry = {
+    method: "GET", template: "v2/fixture/{id}", pathParams: { id: positiveId },
+  }
+
+  it.each(["1", String(Number.MAX_SAFE_INTEGER), "0001"])("accepts positive safe integer %s without rewriting it", (id) => {
+    const segments = seg(`v2/fixture/${id}`)
+    expect(validatePathParams(constrained, segments)).toBe(true)
+    expect(upstreamSegments(constrained, segments, owner)).toEqual(segments)
+  })
+
+  it.each(["0", "9007199254740992", "9999999999999999999"])("rejects %s despite a matching numeric route shape", (id) => {
+    const segments = seg(`v2/fixture/${id}`)
+    expect(matchEntry([constrained], "GET", segments).kind).toBe("matched")
+    expect(validatePathParams(constrained, segments)).toBe(false)
+  })
+
+  it("fails closed when a configured name is absent from the template or its segment is missing", () => {
+    expect(validatePathParams({ ...constrained, pathParams: { missing: positiveId } }, seg("v2/fixture/1"))).toBe(false)
+    expect(validatePathParams(constrained, seg("v2/fixture"))).toBe(false)
+  })
+
+  it("validates every occurrence of a repeated placeholder", () => {
+    const repeated = { ...constrained, template: "v2/fixture/{id}/{id}" }
+    expect(validatePathParams(repeated, seg("v2/fixture/1/2"))).toBe(true)
+    expect(validatePathParams(repeated, seg("v2/fixture/1/0"))).toBe(false)
+    expect(validatePathParams(repeated, seg("v2/fixture/0/1"))).toBe(false)
+  })
+
+  it("applies each configured constraint and leaves unconfigured placeholders alone", () => {
+    const multiple = {
+      ...constrained,
+      template: "v2/fixture/{id}/{version}/{other}",
+      pathParams: { id: positiveId, version: z.literal("2") },
+    }
+    expect(validatePathParams(multiple, seg("v2/fixture/1/2/0"))).toBe(true)
+    expect(validatePathParams(multiple, seg("v2/fixture/1/3/0"))).toBe(false)
+    expect(validatePathParams(multiple, seg("v2/fixture/0/2/0"))).toBe(false)
+  })
+
+  it("retains unconstrained and empty-rules behavior, including lossless 19-digit ids", () => {
+    const unconstrained = { method: "GET", template: "v2/fixture/{id}" } as const
+    const segments = seg("v2/fixture/9999999999999999999")
+    expect(validatePathParams(unconstrained, segments)).toBe(true)
+    expect(validatePathParams({ ...unconstrained, pathParams: {} }, segments)).toBe(true)
+    expect(upstreamSegments(unconstrained, segments, owner)).toEqual(segments)
+  })
+
+  it("treats schema transforms as validation only and checks owner placeholders before substitution", () => {
+    expect(validatePathParams({ ...constrained, pathParams: { id: z.string().transform(() => "changed") } }, seg("v2/fixture/1"))).toBe(true)
+    const entry = { ...constrained, template: "v2/person/{personId}", pathParams: { personId: z.literal("me") } }
+    expect(validatePathParams(entry, seg("v2/person/me"))).toBe(true)
+    expect(upstreamSegments(entry, seg("v2/person/me"), owner)).toEqual(seg("v2/person/4242"))
+  })
+})
 
 describe("matchEntry", () => {
   it("matches METHOD + template exactly", () => {
