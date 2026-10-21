@@ -6,7 +6,7 @@ import { discardBody, fetchWithTimeout } from "@/lib/server/http/fetch-with-time
 import { IMAGE_CONTENT_TYPES, sniffImage, type ImageKind } from "@/lib/server/http/image-sniff"
 import { readStreamCapped } from "@/lib/server/http/read-capped"
 import { jsonError } from "@/lib/server/http/responses"
-import { createNamedOp, type NamedOpDeps, type NamedOpFailure, type UpstreamClient } from "@/lib/server/named-op"
+import { createNamedOp, type NamedOpDeps, type NamedOpFailure, type NamedOpContext, type UpstreamClient } from "@/lib/server/named-op"
 
 export const ORG_LOGO_ROUTE = "/api/pp/org-logo/[tenantId]"
 
@@ -38,24 +38,61 @@ export interface OrgLogoDeps extends NamedOpDeps {
   readonly publicFilesOrigin?: (environment: Environment) => string | null
 }
 
-/**
- * The logo URL of a tenant the session's user belongs to: pages through the
- * user's organizations (size 50, at most 5 pages, stopping at the match or the
- * last page). Not a member, or any upstream failure → `null`.
- */
-async function findLogoUrl(upstream: UpstreamClient, tenantId: string): Promise<string | null> {
+/** Only this projection can enter the handler's private memory; no names or contacts. */
+interface MembershipPage {
+  readonly data: readonly { readonly tenantId: string; readonly publicUrl: string | null }[]
+  readonly totalPages: number | null | undefined
+  readonly lastPage: boolean | null | undefined
+}
+
+/** A failed or malformed page is never retained. */
+async function readMembershipPage(upstream: UpstreamClient, page: number, origin: string | null): Promise<MembershipPage | null> {
+  const query = new URLSearchParams({ page: String(page), size: String(ORG_PAGE_SIZE) })
+  const result = await upstream.json({ method: "GET", segments: ["v2", "user", "organization", "portal"], query })
+  if (result.kind !== "ok") return null
+  const parsed = pageSchema.safeParse(result.data)
+  if (!parsed.success) return null
+  return {
+    data: parsed.data.data.map((candidate) => ({
+      // Unsafe numeric ids may have rounded during JSON.parse; never match them.
+      tenantId: typeof candidate.tenantId === "string" || Number.isSafeInteger(candidate.tenantId) ? String(candidate.tenantId) : "",
+      publicUrl: candidate.tenantLogo?.publicUrl ? allowedLogoUrl(candidate.tenantLogo.publicUrl, origin) : null,
+    })),
+    totalPages: parsed.data.totalPages,
+    lastPage: parsed.data.lastPage,
+  }
+}
+
+/** Short-lived membership snapshots, including in-flight reads, bounded per handler. */
+function createMembershipReader(now: () => number) {
+  const pages = new Map<string, { expiresAt: number; pending: Promise<MembershipPage | null> }>()
+  return (ctx: NamedOpContext<unknown, string>, page: number, origin: string | null): Promise<MembershipPage | null> => {
+    const lookupAt = now()
+    for (const [key, entry] of pages) if (entry.expiresAt <= lookupAt) pages.delete(key)
+    const { environment, sid, userId, personId, tenantId, gen } = ctx.session
+    const key = JSON.stringify([environment, sid, userId, personId, tenantId, gen, page])
+    const existing = pages.get(key)
+    if (existing) return existing.pending
+    if (pages.size >= 256) pages.delete(pages.keys().next().value!)
+    // Start the maximum five-second window before upstream work, not on completion.
+    const entry = { expiresAt: ctx.now + 5_000, pending: readMembershipPage(ctx.upstream, page, origin) }
+    pages.set(key, entry)
+    void entry.pending.then((result) => {
+      // An evicted in-flight read must never delete a newer read for the same key.
+      if (result === null && pages.get(key) === entry) pages.delete(key)
+    })
+    return entry.pending
+  }
+}
+
+/** Stops at the matching member, empty/last page, or the five-page limit. */
+async function findLogoUrl(readPage: (page: number) => Promise<MembershipPage | null>, tenantId: string): Promise<string | null> {
   for (let page = 0; page < ORG_MAX_PAGES; page += 1) {
-    const query = new URLSearchParams({ page: String(page), size: String(ORG_PAGE_SIZE) })
-    const result = await upstream.json({ method: "GET", segments: ["v2", "user", "organization", "portal"], query })
-    if (result.kind !== "ok") return null
-    const parsed = pageSchema.safeParse(result.data)
-    if (!parsed.success) return null
-    // A numeric id above 2^53 was rounded by JSON.parse and could match the wrong tenant: skip it.
-    const item = parsed.data.data.find(
-      (candidate) => (typeof candidate.tenantId === "string" || Number.isSafeInteger(candidate.tenantId)) && String(candidate.tenantId) === tenantId,
-    )
-    if (item) return item.tenantLogo?.publicUrl ?? null
-    const { totalPages, lastPage, data } = parsed.data
+    const result = await readPage(page)
+    if (result === null) return null
+    const item = result.data.find((candidate) => candidate.tenantId === tenantId)
+    if (item) return item.publicUrl
+    const { totalPages, lastPage, data } = result
     if (data.length === 0 || lastPage === true || (typeof totalPages === "number" && page + 1 >= totalPages)) return null
   }
   return null
@@ -65,7 +102,8 @@ async function findLogoUrl(upstream: UpstreamClient, tenantId: string): Promise<
 function allowedLogoUrl(publicUrl: string, origin: string | null): string | null {
   if (origin === null) return null
   try {
-    return new URL(publicUrl).origin === origin ? publicUrl : null
+    const url = new URL(publicUrl)
+    return url.origin === origin && url.username === "" && url.password === "" ? publicUrl : null
   } catch {
     return null
   }
@@ -101,6 +139,7 @@ async function fetchLogo(url: string): Promise<Response | null> {
  */
 export function createOrgLogoHandler(deps: OrgLogoDeps = {}) {
   const filesOrigin = deps.publicFilesOrigin ?? ((environment: Environment) => environmentConfig(environment).publicFilesOrigin)
+  const readPage = createMembershipReader(deps.now ?? Date.now)
   return createNamedOp(
     {
       route: ORG_LOGO_ROUTE,
@@ -112,9 +151,9 @@ export function createOrgLogoHandler(deps: OrgLogoDeps = {}) {
         return typeof tenantId === "string" && NUMERIC_ID.test(tenantId) ? tenantId : null
       },
       failures: { badParams: NO_LOGO, tokenExpired: NO_LOGO },
-      async handle({ params, session, upstream }) {
-        const publicUrl = await findLogoUrl(upstream, params)
-        const url = publicUrl === null ? null : allowedLogoUrl(publicUrl, filesOrigin(session.environment))
+      async handle(ctx) {
+        const origin = filesOrigin(ctx.session.environment)
+        const url = await findLogoUrl((page) => readPage(ctx, page, origin), ctx.params)
         const logo = url === null ? null : await fetchLogo(url)
         return logo ?? jsonError(NO_LOGO.status, NO_LOGO.errorCode)
       },

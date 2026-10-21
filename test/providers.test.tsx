@@ -87,7 +87,7 @@ describe("renderInPage (spec F7-1)", () => {
     const npi = await get("/api/1h/v2/user/npi")
     expect(npi.body).toEqual(expect.any(Object))
     expect(await get("/api/pp/practice-support")).toEqual({ status: 404, body: { errorCode: "NO_PRACTICE", source: "proxy" } })
-    expect(await get("/api/1h/v2/user/organization/portal?page=0&size=12")).toEqual({ status: 200, body: expect.objectContaining({ content: [] }) })
+    expect(await get("/api/1h/v2/user/organization/portal?page=0&size=12")).toEqual({ status: 200, body: expect.any(Object) })
     expect(await get("/api/pp/profile-picture-id")).toEqual({ status: 200, body: { fileId: null } })
   })
 

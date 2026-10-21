@@ -4,7 +4,7 @@
  * Redacts SSN-shaped values, MFA `code`, `qrCode`, `lpl`, token-like keys and
  * `authorization`. There is no in-app API Inspector.
  * Provider NPI reads/search, availability, registration, practice support and
- * Places calls log metadata only: queries, record ids and all request/response
+ * Places and organization portal calls log metadata only: queries, record ids and all request/response
  * payloads stay out of the console, including errors.
  */
 
@@ -69,7 +69,7 @@ export function logApiCall(entry: ApiCallLog): void {
   // Template the entire id region conservatively, including rejected requests.
   const availability = /^\/api\/1h\/v2\/health\/npi\/(?:[\s\S]*\/)?is-registered$/
   const safePath = pathname.replace(availability, "/api/1h/v2/health/npi/{npiRecordId}/is-registered")
-  const metadataOnly = availability.test(pathname) || pathname === "/api/1h/v2/user/npi" || pathname === "/api/1h/v2/public/npi/list" || pathname === "/api/1h/v2/user/register/npi" || pathname === BFF_PATHS.practiceSupport || pathname === BFF_PATHS.placesAutocomplete || pathname === BFF_PATHS.placesDetails
+  const metadataOnly = pathname === "/api/1h/v2/user/organization/portal" || availability.test(pathname) || pathname === "/api/1h/v2/user/npi" || pathname === "/api/1h/v2/public/npi/list" || pathname === "/api/1h/v2/user/register/npi" || pathname === BFF_PATHS.practiceSupport || pathname === BFF_PATHS.placesAutocomplete || pathname === BFF_PATHS.placesDetails
   console.groupCollapsed(`[api] ${entry.method} ${metadataOnly ? safePath : entry.path} → ${entry.status ?? "network error"} (${entry.durationMs} ms)`)
   if (metadataOnly) {
     console.groupEnd()
