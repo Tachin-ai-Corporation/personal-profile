@@ -5,10 +5,16 @@ import { bodyForLog, logApiCall, redact } from "./log-api-call"
 afterEach(() => vi.unstubAllEnvs())
 
 describe("logApiCall (D6)", () => {
-  it("is silent outside development (tests and builds)", () => {
+  it.each(["test", "production"])("is silent in %s", (environment) => {
+    vi.stubEnv("NODE_ENV", environment)
     const group = vi.spyOn(console, "groupCollapsed").mockImplementation(() => undefined)
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined)
+    const end = vi.spyOn(console, "groupEnd").mockImplementation(() => undefined)
     logApiCall({ method: "GET", path: "/api/x", status: 200, durationMs: 1 })
+    logApiCall({ method: "GET", path: "/api/1h/v2/health/npi/private-id/is-registered?private", status: 403, durationMs: 1, responseBody: { name: "Private" } })
     expect(group).not.toHaveBeenCalled()
+    expect(log).not.toHaveBeenCalled()
+    expect(end).not.toHaveBeenCalled()
   })
 
   it("writes one collapsed group per call in development, redacted", () => {
@@ -68,6 +74,41 @@ describe("logApiCall (D6)", () => {
     expect(log).not.toHaveBeenCalled()
     expect(end).toHaveBeenCalledTimes(4)
     expect(JSON.stringify(group.mock.calls)).not.toMatch(/private|1234567890|Private Person/)
+  })
+
+  it.each([
+    ["/api/1h/v2/health/npi/765432109876/is-registered?private#private", "/api/1h/v2/health/npi/{npiRecordId}/is-registered"],
+    ["/api/1h/v2/health/npi/private-id/is-registered", "/api/1h/v2/health/npi/{npiRecordId}/is-registered"],
+    ["/api/1h/v2/health/npi/private%2Fid/is-registered?private#private", "/api/1h/v2/health/npi/{npiRecordId}/is-registered"],
+    ["/api/1h/v2/health/npi/%2F/is-registered?private#private", "/api/1h/v2/health/npi/{npiRecordId}/is-registered"],
+    ["/api/1h/v2/health/npi/%E0%A4%A/is-registered", "/api/1h/v2/health/npi/{npiRecordId}/is-registered"],
+    ["/api/1h/v2/health/npi/{npiRecordId}/is-registered", "/api/1h/v2/health/npi/{npiRecordId}/is-registered"],
+    ["/api//1h/v2/health/%6epi/765432109876//is-registered/", "/api/1h/v2/health/npi/{npiRecordId}/is-registered"],
+    ["/api/1h/v2/health%2fnpi%2fprivate-id%2fis-registered", "/api/1h/v2/health/npi/{npiRecordId}/is-registered"],
+    ["/api/1h/v2/health/npi/old/..\t/private-id/is-registered", "/api/1h/v2/health/npi/{npiRecordId}/is-registered"],
+    ["/api/1h/v2/heal\nth/npi/private-id/is-registered \t\r\n", "/api/1h/v2/health/npi/{npiRecordId}/is-registered"],
+    ["/api/1h/v2/user/register/npi?private", "/api/1h/v2/user/register/npi"],
+    ["/api//1h/v2/%75ser/register/%6epi/", "/api/1h/v2/user/register/npi"],
+    ["/api/1h/v2/user%2fregister%2fnpi", "/api/1h/v2/user/register/npi"],
+    ["/api/1h/v2/user/old/..\r/register/npi", "/api/1h/v2/user/register/npi"],
+    ["/api/pp/practice-support?private#private", "/api/pp/practice-support"],
+    ["/api//pp/%70ractice-support/", "/api/pp/practice-support"],
+    ["/api/pp%2fpractice-support", "/api/pp/practice-support"],
+    ["/api/pp/old/%2e\n%2e/practice-support", "/api/pp/practice-support"],
+    ["/api/pp/practice-sup\tport\u0000\u001f ", "/api/pp/practice-support"],
+  ])("keeps Provider logs metadata-only for %s", (path, route) => {
+    vi.stubEnv("NODE_ENV", "development")
+    const group = vi.spyOn(console, "groupCollapsed").mockImplementation(() => undefined)
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined)
+    const end = vi.spyOn(console, "groupEnd").mockImplementation(() => undefined)
+    const privateBody = { providerId: 765432109876, practiceId: 678901234567, message: "NPI 1234567890 is taken", name: "Private Support", phone: "+14155552125", email: "private@example.test" }
+    for (const status of [200, 400, 403, 409, 500, undefined]) {
+      logApiCall({ method: "POST", path, status, durationMs: 7, requestBody: privateBody, responseBody: privateBody })
+      expect(group).toHaveBeenLastCalledWith(`[api] POST ${route} → ${status ?? "network error"} (7 ms)`)
+    }
+    expect(log).not.toHaveBeenCalled()
+    expect(end).toHaveBeenCalledTimes(6)
+    expect(JSON.stringify([group.mock.calls, log.mock.calls, end.mock.calls])).not.toMatch(/765432109876|678901234567|1234567890|private|Private|taken|14155552125|example/)
   })
 
   it("preserves ordinary route logging, including URL whitespace", () => {
