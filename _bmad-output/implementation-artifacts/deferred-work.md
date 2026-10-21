@@ -508,3 +508,15 @@
 - source_spec: `spec-foundation-tooltip-keyboard-scroll.md`
   summary: Existing DisabledAction protected presses can intermittently prevent the immediately following Escape from dismissing the tooltip.
   evidence: Unpatched baseline reproduces the identical browser Escape assertion (expected0 tooltips, received1),39/40 passed with one mobile failure; /tmp/tooltip-baseline-disabled.log and /tmp/tooltip-baseline-disabled-results retain evidence. Patched focused run passed20/20; the application Tooltip wrapper and current-task protected-press guard are unchanged. Investigate dismissal ordering separately from focus-scroll preservation.
+
+## Epic 10 QA follow-up — 2026-10-21
+
+- source_spec: `spec-10-2-organization-card.md`
+  summary: Verify actual demo/prod tenantLogo.publicUrl origins against the configured exact public-files hosts before accepting live organization logos; dev continues initials.
+  evidence: Human selected code and mocked verification first. Automated rendering and route hardening tests cannot establish live host configuration, and the host allowlist remains unchanged.
+- source_spec: `spec-10-3-enter-organization-portal.md`
+  summary: Confirm intended-tenant portal navigation in demo once the platform tenant handoff URL contract is resolved.
+  evidence: Existing Story 7.3 deliberately uses TENANT_HANDOFF_SHAPE=root; mocked and real local 303 tests establish same-tab portal-root navigation, not intended tenant context.
+- source_spec: `spec-foundation-organizations-prerequisites.md`
+  summary: Investigate intermittent initial kebab-focus assertion in the shared desktop UI-kit browser test.
+  evidence: PR43 CI run39685527052 passed after one retry of e2e/ui-kit.spec.ts:220 (initial button.focus() did not retain focus); the push run39685520462 passed all1,154 browser tests without a retry. The foundation change did not edit shared row/menu UI or this test.

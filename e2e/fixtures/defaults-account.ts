@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test"
 import { mockShellDefaults } from "./core"
 import { mockNpiSearch, mockPracticeSupport, mockUserNpi } from "./npi"
-import { mockOrganizations } from "./orgs"
+import { mockOrganizationLogoFallback, mockOrganizations } from "./orgs"
 
 /**
  * Team B owns this file (spec F7-1). Every planned read of `/account`
@@ -16,4 +16,5 @@ export async function mockAccountDefaults(page: Page): Promise<void> {
   await mockNpiSearch(page)
   await mockPracticeSupport(page)
   await mockOrganizations(page)
+  await mockOrganizationLogoFallback(page)
 }

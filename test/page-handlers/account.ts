@@ -11,8 +11,8 @@ import { shellReadHandlers, type PageReadOptions } from "./shell"
 /**
  * `/account`: the shell reads + the user's NPI (200: not registered), practice
  * support (404 `NO_PRACTICE`) and the organizations page (empty). The NPI and
- * organizations shape is a placeholder until Story 10.1 confirms it
- * (same as `e2e/fixtures/{npi,orgs}.ts`).
+ * organization list uses the platform's custom PageImpl data envelope
+ * (same as `e2e/fixtures/orgs.ts`).
  */
 export function accountReadHandlers(options: PageReadOptions = {}): HttpHandler[] {
   return [
@@ -20,6 +20,6 @@ export function accountReadHandlers(options: PageReadOptions = {}): HttpHandler[
     http.get("/api/1h/v2/user/npi", () => HttpResponse.json({ providerNpi: null, practiceNpi: null, hieEndpoint: null })),
     http.get("/api/1h/v2/public/npi/list", () => HttpResponse.json({ data: [], totalElements: 0 })),
     http.get("/api/pp/practice-support", () => HttpResponse.json({ errorCode: "NO_PRACTICE", source: "proxy" }, { status: 404 })),
-    http.get("/api/1h/v2/user/organization/portal", () => HttpResponse.json({ content: [], totalElements: 0, totalPages: 0, number: 0, size: 12 })),
+    http.get("/api/1h/v2/user/organization/portal", () => HttpResponse.json({ data: [], totalElements: 0, totalPages: 0, pageNumber: 0, pageSize: 12, offset: 0, emptyPage: true, firstPage: true, lastPage: true, numberOfElements: 0 })),
   ]
 }
