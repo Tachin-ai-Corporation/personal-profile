@@ -1,8 +1,10 @@
+import { createRequire } from "node:module"
+import { pathToFileURL } from "node:url"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { axeViolations } from "@/test/axe"
 import { stubLayoutApis } from "@/test/dom-stubs"
-import { Tooltip, TooltipProvider } from "./tooltip"
+import { Tooltip, TooltipProvider, TOOLTIP_SKIP_DELAY_MS } from "./tooltip"
 
 beforeEach(() => stubLayoutApis())
 afterEach(() => vi.useRealTimers())
@@ -37,6 +39,35 @@ function tap(el: HTMLElement, pointerType: "touch" | "pen" = "touch"): void {
 }
 
 describe("Tooltip", () => {
+  it.each(["CJS", "ESM"] as const)("installed %s primitive retains focused descriptions on ancestor scroll", async (entrypoint) => {
+    const require = createRequire(import.meta.url)
+    const esmUrl = new URL("./index.mjs", pathToFileURL(require.resolve("@radix-ui/react-tooltip"))).href
+    const primitive: typeof import("@radix-ui/react-tooltip") = entrypoint === "CJS"
+      ? require("@radix-ui/react-tooltip")
+      : await import(/* @vite-ignore */ esmUrl)
+    render(
+      <primitive.Provider delayDuration={0}>
+        <primitive.Root>
+          <primitive.Trigger>Installed trigger</primitive.Trigger>
+          <primitive.Portal><primitive.Content>{TEXT}</primitive.Content></primitive.Portal>
+        </primitive.Root>
+      </primitive.Provider>,
+    )
+    const trigger = screen.getByRole("button", { name: "Installed trigger" })
+    act(() => trigger.focus())
+    await waitFor(() => expect(tooltip()?.textContent).toBe(TEXT))
+    fireEvent.scroll(document)
+    expect(document.activeElement).toBe(trigger)
+    expect(tooltip()?.textContent).toBe(TEXT)
+    expect(trigger.getAttribute("aria-describedby")).toBe(tooltip()?.id)
+    act(() => trigger.blur())
+    await waitFor(() => expect(tooltip()).toBeNull())
+    fireEvent.pointerMove(trigger, { pointerType: "mouse" })
+    await waitFor(() => expect(tooltip()?.textContent).toBe(TEXT))
+    fireEvent.scroll(document)
+    await waitFor(() => expect(tooltip()).toBeNull())
+  })
+
   it("opens on keyboard focus, above the control, and closes on blur", async () => {
     const trigger = setup()
     act(() => trigger.focus())
@@ -45,6 +76,78 @@ describe("Tooltip", () => {
     expect(content?.getAttribute("data-side")).toBe("top")
     expect(trigger.getAttribute("aria-describedby")).toBe(tooltip()?.id)
     act(() => trigger.blur())
+    await waitFor(() => expect(tooltip()).toBeNull())
+  })
+
+  it("retains its exact description through ancestor scroll while focused, then allows Escape and blur", async () => {
+    const trigger = setup()
+    act(() => trigger.focus())
+    await waitFor(() => expect(tooltip()?.textContent).toBe(TEXT))
+    for (const ancestor of [trigger.parentElement!, document]) {
+      fireEvent.scroll(ancestor)
+      expect(document.activeElement).toBe(trigger)
+      expect(tooltip()?.textContent).toBe(TEXT)
+      expect(trigger.getAttribute("aria-describedby")).toBe(tooltip()?.id)
+    }
+    fireEvent.keyDown(trigger, { key: "Escape" })
+    await waitFor(() => expect(tooltip()).toBeNull())
+    act(() => trigger.blur())
+    act(() => trigger.focus())
+    await waitFor(() => expect(tooltip()).not.toBeNull())
+    fireEvent.scroll(document)
+    act(() => trigger.blur())
+    await waitFor(() => expect(tooltip()).toBeNull())
+    fireEvent.pointerMove(trigger, { pointerType: "mouse" })
+    await waitFor(() => expect(tooltip()).not.toBeNull())
+    fireEvent.scroll(document)
+    await waitFor(() => expect(tooltip()).toBeNull())
+  })
+
+  it("permits outside dismissal and a normal mouse press after a focused ancestor scroll", async () => {
+    const trigger = setup()
+    act(() => trigger.focus())
+    await waitFor(() => expect(tooltip()).not.toBeNull())
+    fireEvent.scroll(document)
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Elsewhere" }), { pointerType: "mouse" })
+    await waitFor(() => expect(tooltip()).toBeNull())
+    act(() => trigger.blur())
+    act(() => trigger.focus())
+    await waitFor(() => expect(tooltip()).not.toBeNull())
+    fireEvent.scroll(document)
+    fireEvent.pointerDown(trigger, { pointerType: "mouse" })
+    fireEvent.click(trigger)
+    await waitFor(() => expect(tooltip()).toBeNull())
+  })
+
+  it("preserves keepOpenOnPress and tap toggling after focused scrolling", async () => {
+    render(<Tooltip content={TEXT} keepOpenOnPress><button type="button">Protected</button></Tooltip>)
+    const trigger = screen.getByRole("button", { name: "Protected" })
+    act(() => trigger.focus())
+    await waitFor(() => expect(tooltip()).not.toBeNull())
+    fireEvent.scroll(document)
+    fireEvent.pointerDown(trigger, { pointerType: "mouse" })
+    fireEvent.click(trigger)
+    await settle()
+    expect(tooltip()?.textContent).toBe(TEXT)
+    tap(trigger, "pen")
+    await settle()
+    expect(tooltip()).toBeNull()
+  })
+
+  it.each(["touch", "pen"] as const)("preserves ordinary %s toggling and outside dismissal after focused scrolling", async (pointerType) => {
+    const trigger = setup()
+    act(() => trigger.focus())
+    await waitFor(() => expect(tooltip()?.textContent).toBe(TEXT))
+    fireEvent.scroll(document)
+    expect(tooltip()?.textContent).toBe(TEXT)
+    tap(trigger, pointerType)
+    await settle()
+    expect(tooltip()).toBeNull()
+    tap(trigger, pointerType)
+    await settle()
+    expect(tooltip()?.textContent).toBe(TEXT)
+    fireEvent.scroll(document)
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Elsewhere" }), { pointerType })
     await waitFor(() => expect(tooltip()).toBeNull())
   })
 
@@ -157,6 +260,29 @@ describe("Tooltip", () => {
     await waitFor(() => expect(a.getAttribute("data-state")).toBe("closed"))
     fireEvent.pointerMove(b, { pointerType: "mouse" })
     await waitFor(() => expect(b.getAttribute("data-state")).toBe("instant-open"))
+    expect(tooltip()?.textContent).toBe("Second")
+  })
+
+  it.each([false, true])("keeps shared-provider hover immediate while a focused tooltip remains open (scroll=%s)", async (scroll) => {
+    render(
+      <TooltipProvider>
+        <Tooltip content="First"><button type="button">First trigger</button></Tooltip>
+        <Tooltip content="Second"><button type="button">Second trigger</button></Tooltip>
+      </TooltipProvider>,
+    )
+    const first = screen.getByRole("button", { name: "First trigger" })
+    const second = screen.getByRole("button", { name: "Second trigger" })
+    act(() => first.focus())
+    await waitFor(() => expect(tooltip()?.textContent).toBe("First"))
+    // Fake only the provider/hover timers after opening, leaving layout setup real.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    if (scroll) fireEvent.scroll(document)
+    act(() => vi.advanceTimersByTime(TOOLTIP_SKIP_DELAY_MS + 1))
+    expect(document.activeElement).toBe(first)
+    expect(tooltip()?.textContent).toBe("First")
+    fireEvent.pointerMove(second, { pointerType: "mouse" })
+    // No extra timer advance: moving from an open tooltip must open immediately.
+    expect(second.getAttribute("data-state")).toBe("instant-open")
     expect(tooltip()?.textContent).toBe("Second")
   })
 
