@@ -1,6 +1,7 @@
 import { http, HttpResponse, delay } from "msw"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { server, trackAllRequests } from "@/test/msw-server"
+import { BFF_PATHS } from "@/lib/shared/bff-contract"
 import { activity as defaultActivity, createActivity, type Activity } from "./activity"
 import { configureApiClient, createCallApi, getPortalUrl } from "./client"
 import { mapApiError } from "./errors"
@@ -114,6 +115,62 @@ describe("callApi NPI development logging privacy", () => {
     expect(end).toHaveBeenCalledTimes(cases.length)
     expect(log).not.toHaveBeenCalled()
     expect(JSON.stringify(group.mock.calls)).not.toMatch(/searchText|Private|1234567890|NOT_ALLOWED|retryable/)
+  })
+})
+
+describe("callApi Provider registration and support logging privacy", () => {
+  it.each([
+    ["GET", "/api/1h/v2/health/npi/765432109876/is-registered?contact=private@example.test", "/api/1h/v2/health/npi/{npiRecordId}/is-registered"],
+    ["GET", "/api/1h/v2/health/npi/private-id/is-registered", "/api/1h/v2/health/npi/{npiRecordId}/is-registered"],
+    ["GET", "/api/1h/v2/health/npi/private%2Fid/is-registered?contact=private@example.test", "/api/1h/v2/health/npi/{npiRecordId}/is-registered"],
+    ["GET", "/api/1h/v2/health/npi/%2F/is-registered?contact=private@example.test", "/api/1h/v2/health/npi/{npiRecordId}/is-registered"],
+    ["GET", "/api/1h/v2/heal\tth/npi/old/..\n/765432109876/is-registered", "/api/1h/v2/health/npi/{npiRecordId}/is-registered"],
+    ["GET", "/api//1h/v2/health/%6epi/765432109876/is-registered/", "/api/1h/v2/health/npi/{npiRecordId}/is-registered"],
+    ["POST", "/api/1h/v2/user/register/npi?contact=private@example.test", "/api/1h/v2/user/register/npi"],
+    ["POST", "/api/1h/v2/u\tser/old/..\n/register/npi", "/api/1h/v2/user/register/npi"],
+    ["GET", `${BFF_PATHS.practiceSupport}?contact=private@example.test`, BFF_PATHS.practiceSupport],
+    ["GET", "/api/pp/old/..\t/practice-sup\nport", BFF_PATHS.practiceSupport],
+  ])("protects complete console calls for real %s %s", async (method, path, safeRoute) => {
+    vi.stubEnv("NODE_ENV", "development")
+    const group = vi.spyOn(console, "groupCollapsed").mockImplementation(() => undefined)
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined)
+    const end = vi.spyOn(console, "groupEnd").mockImplementation(() => undefined)
+    const privateBody = { providerId: 765432109876, practiceId: 678901234567, npi: 1234567890, name: "Private Support", phone: "+14155552125", email: "private@example.test", message: "NPI 1234567890 is taken" }
+    const route = new URL(path, "http://localhost").pathname
+    const call = writerClient()
+    const cases = [
+      { status: 200, body: false },
+      { status: 200, body: true },
+      { status: 200, body: privateBody },
+      { status: 403, body: privateBody },
+      { status: 409, body: privateBody },
+      { status: 500, body: "Private upstream failure 1234567890" },
+      { status: 200, body: "Private unreadable 1234567890" },
+      { status: undefined, body: undefined },
+    ]
+    for (const { status, body } of cases) {
+      server.use(http.all(route, async ({ request }) => {
+        expect(request.method).toBe(method)
+        if (method === "POST") expect(await request.json()).toEqual(privateBody)
+        if (status === undefined) return HttpResponse.error()
+        return typeof body === "string" ? HttpResponse.text(body, { status }) : HttpResponse.json(body, { status })
+      }))
+      const response = await call("provider/test", path, { method, ...(method === "POST" ? { body: JSON.stringify(privateBody) } : {}) })
+      expect(response.success).toBe(status === 200 && typeof body !== "string")
+      if (response.success) expect(response.data).toEqual(body)
+      if (status === 403 || status === 409) {
+        expect(response.platformMessage).toBe(privateBody.message)
+        expect(mapApiError("provider", response).kind).toBe(status === 403 ? "forbidden" : "generic")
+      }
+      if (status === 500) expect(response).not.toHaveProperty("platformMessage")
+      expect(group).toHaveBeenLastCalledWith(expect.stringContaining(`${method} ${safeRoute} → ${status ?? "network error"} (`))
+    }
+    const expectedCalls = cases.length * (method === "POST" ? 2 : 1)
+    expect(group).toHaveBeenCalledTimes(expectedCalls)
+    expect(end).toHaveBeenCalledTimes(expectedCalls)
+    // The POST's identity preflight still logs normally; Provider payloads never do.
+    expect(log).toHaveBeenCalledTimes(method === "POST" ? cases.length * 2 : 0)
+    expect(JSON.stringify([group.mock.calls, log.mock.calls, end.mock.calls])).not.toMatch(/765432109876|678901234567|1234567890|private|Private|taken|14155552125|example|contact=/)
   })
 })
 
