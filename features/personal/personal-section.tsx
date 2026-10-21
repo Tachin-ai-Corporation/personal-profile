@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useSWRConfig } from "swr"
 import { Button } from "@/components/ui/button"
 import { Combobox } from "@/components/ui/combobox"
@@ -30,7 +30,7 @@ import {
   type SectionForm,
 } from "@/features/shell"
 import { fileDownloadPath, keys, mapFetchError, type Myself } from "@/lib/api"
-import { displayToWireDate, formatWireDate, localCalendarDate, wireToDisplayDate } from "@/lib/shared/dates"
+import { displayToWireDate, wireToDisplayDate } from "@/lib/shared/dates"
 import { COMBOBOX_MESSAGES, COMMON_MESSAGES, FIELD_MESSAGES, PERSON_MESSAGES, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 import { birthDateBounds, normalizeName, type BirthDateBounds } from "@/lib/shared/person-rules"
 import {
@@ -157,31 +157,22 @@ interface BirthDateControlProps {
  * The Birth date: a masked `MM/DD/YYYY` input with the calendar, bounded by
  * the age rule. The form holds the shown text (so the schema tells
  * "required" from "Enter a date as MM/DD/YYYY"); a value set from outside
- * (a restored draft) bumps `resetKey`, so the input shows it.
+ * (a restored draft) uses the shared controlled text API, including incomplete dates.
  */
 function BirthDateControl({ wiring, binding: { ref, ...binding }, bounds }: BirthDateControlProps) {
-  const [shown, setShown] = useState(binding.value)
-  const [resetKey, setResetKey] = useState(0)
-  if (binding.value !== shown) {
-    setShown(binding.value)
-    setResetKey((key) => key + 1)
-  }
   return (
     <DateInput
       {...wiring}
       ref={ref}
       name={binding.name}
       value={displayToWireDate(binding.value) ?? ""}
-      onChange={(_value, { text }) => {
-        setShown(text)
-        binding.onChange(text)
-      }}
+      textValue={binding.value}
+      onChange={(_value, { text }) => binding.onChange(text)}
       onBlur={binding.onBlur}
       readOnly={binding.readOnly}
       min={bounds.min}
       max={bounds.max}
       calendar
-      resetKey={resetKey}
       autoComplete="bday"
     />
   )
@@ -362,14 +353,12 @@ export function PersonalSection() {
   // Loaded on mount, so the pickers have them; never blocks or errors the read view.
   const options = usePersonOptions(myself?.biologicalGender)
   const roles = myself?.roles
-  // One "today" per render for the schema and the calendar bounds; the schema is rebuilt when the local day changes.
+  // The schema and calendar bounds use the same local date.
   const today = new Date()
-  const dayKey = formatWireDate(localCalendarDate(today))
   // The saved mask (`toPersonalValues(myself).socialSecurityNumber`, the form baseline's SSN): the schema's
   // untouched value and the input's, from one place.
   const ssnMask = toSsnFormValue(myself?.socialSecurityNumber)
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- `today` is keyed by its local day (`dayKey`)
-  const schema = useMemo(() => personalSchema(roles, today, ssnMask), [roles, dayKey, ssnMask])
+  const schema = personalSchema(roles, today, ssnMask)
   const dataStatus: SectionDataStatus = myself ? "loaded" : error ? "error" : "loading"
   const { mutate } = useSWRConfig()
   /** The pending Signatures of this edit, by the `<n>` of their `new:<n>` token. */

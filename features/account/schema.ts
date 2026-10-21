@@ -37,7 +37,7 @@ export function accountSchema(roles?: readonly string[], today = new Date(), pri
     preferredLanguage: z.string(), timeZone: z.string(), locale: z.string(),
   }).superRefine((values, ctx) => {
     for (const field of ["firstName", "lastName"] as const) {
-      const issue = nameIssue(values[field])
+      const issue = isNotProvided(values[field]) ? "required" : nameIssue(values[field])
       if (issue) ctx.addIssue({ code: "custom", path: [field], message: issue === "required" ? PERSON_MESSAGES[`${field}Required`] : issue === "tooLong" ? PERSON_MESSAGES[`${field}TooLong`] : PERSON_MESSAGES.notPrintable })
     }
     if (!z.email().safeParse(values.primaryEmail).success) ctx.addIssue({ code: "custom", path: ["primaryEmail"], message: ACCOUNT_MESSAGES.emailInvalid })

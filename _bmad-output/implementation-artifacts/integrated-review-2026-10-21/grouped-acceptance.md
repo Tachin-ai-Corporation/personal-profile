@@ -1,0 +1,710 @@
+# Integrated acceptance audit — ec0f450
+
+Framework app profile: Next.js App Router/React Server Components, with the repository BFF, SWR and Section contracts taking precedence over the generic React template. Shipped scope: 1.1–1.15, 2.1–2.4, 3.1–3.7, 4.1–4.4, 7.1–7.6, 8.1–8.3, 9.1. Backlog placeholders are excluded. Static review only; no application edits or test suites run. Manifest groups were the review entry points; findings trace across groups where their boundary causes the failure.
+
+## Findings
+
+### [P2] A failed identity preflight becomes a successful Profile save
+
+- **Location:** `lib/api/personal.ts:104–115` (`isSaved`, `sendPersonalInformation`; also signature upload), `lib/api/contacts.ts:259` (`saveContactPoints`; also verification), `lib/api/profile-picture.ts` (`uploadProfilePicture`), following `lib/api/page-user.ts:102–110` and `lib/api/client.ts:235`.
+- **Rule / AC:** D-A save safeguard must fail closed; Story 2.2 failure keeps the edit and values; Stories 3.2/3.5/3.7 must report a successful manage request before clearing edits. A successful preflight HTTP status is not acknowledgement of a mutation.
+- **Evidence:** `lib/api/page-user.ts#checkPageUser` returns `kind:"failed"` with `success:false,statusCode:200` if a fresh `GET /myself` returns `{}` (or forwards the same 200 failure when JSON is unreadable). `lib/api/client.ts` returns this failed response before sending the data write. These Profile wrappers nevertheless accept any status in 200–299, overriding `success:false`. `saveContactPoints` therefore returns `ok:true`; Section save returns to read view and reports `saved`, clearing the draft, although the manage POST never happened. Personal-information PUT and picture/signature uploads have the same ambiguity. The verification loop can also announce a link sent without a verification POST.
+- **Reproduction:** load the page normally so the page user is pinned; edit a name or add a contact; make only the next identity-preflight `/myself` answer HTTP 200 `{}`; press Save. No PUT/manage POST is dispatched, but the caller reports success and clears the edit/draft. Subsequent reads can be healthy; they do not restore the discarded edit.
+- **Impact:** silent loss of unsaved Profile changes and false upload/verification confirmations on a transient malformed identity read.
+- **Recommendation:** preserve failed preflight results. If unreadable *mutation* 2xx responses must still count as acknowledged writes, expose an explicit acknowledgement distinction from the transport rather than inferring it from the returned HTTP status. `lib/api/account.ts#accountWrite` already preserves failures and documents this exact distinction. Cover the Profile wrappers at the real `/api` preflight boundary.
+- **Validation:** static call-chain proof; `lib/api/client.test.ts` already has the “body without a numeric id” failure case; existing Profile wrapper tests cover unreadable mutation bodies but do not distinguish failed preflight bodies. No reproduction test was added or run.
+
+### [P2] A delayed address suggestion overwrites a later Country edit
+
+- **Location:** `features/addresses/addresses-section.tsx:300`, `:712`, `:982`, especially `:992–1006`.
+- **Rule / AC:** Story 4.3/manual country edits clear Verified; its implementation spec states that changing Places country ends that lookup and resets old-country suggestions. User edits made after a lookup must not be overwritten by its stale answer.
+- **Evidence:** `createPlacesLookups.end()` deletes only the lookup ID, retaining `picks`. The Country change callback calls this method; it never invalidates the in-flight pick token. After `/places/details` resolves, `pickSuggestion` checks the token, edit/saving state and unchanged **line 1 only**, then writes country, city, zip and `validated` from the older result. It never checks whether Country changed while awaiting details. The same hole can overwrite a City/Zip edit made while details is pending.
+- **Reproduction:** on a US row pick a US suggestion and hold its details response; select Canada (line 1 remains the selected street); release the old complete US details response. The row switches back to United States and becomes Verified. Save sends those old details instead of the later user choice.
+- **Impact:** newer address input is lost and an address is marked Verified after the user changed the country.
+- **Recommendation:** invalidate pending details when the relevant address inputs or country change, or compare a row edit generation before applying details. Keep billing lookup completion separate from pending-pick invalidation. Add a held-details test that changes Country before releasing the response.
+- **Validation:** static state-machine proof. `features/addresses/addresses-section.places.test.tsx:551` covers typing line 1 during a held response; `:605` covers changing country before a pick. Neither covers changing country after a pick while details is held. Places is currently off until BAA approval, so this defect becomes user-visible when enabled.
+
+### [P2] Named-op activity never extends the session deadline
+
+- **Location:** `lib/server/named-op.ts:265–266`, with consumers `lib/server/named-ops/mfa-validate.ts` and `file-delete.ts`.
+- **Rule / AC:** Story 1.6 RC6 marks non-GET `callApi` requests as user activity and requires server-recorded activity to reset the idle/cross-tab deadline.
+- **Evidence:** `callApi` adds `X-PP-Activity:user` to `validateTotp` and file deletion requests. `createNamedOp` authenticates, invokes `handle`, finalizes and returns; it never reads this header, calls `renewLastSeen`, or emits `X-PP-Activity-At`. Root `proxy.ts` renews only top-level GET navigations to `/` and `/account`; only the separate allowlisted proxy handler implements marked-request activity. Named-op consumers therefore fall outside the shipped activity contract.
+- **Reproduction:** begin MFA enrollment, then submit validly shaped but incorrect codes repeatedly near the idle deadline, with a token comfortably outside the 55-second rotation guard. Validation POSTs finish, but their responses carry neither a renewed session cookie nor activity echo; the original idle warning/deadline still fires during this active work. Signature deletion and Places POSTs share the omission.
+- **Impact:** active named-op work can be interrupted by idle expiry, and other tabs never receive its activity timestamp.
+- **Recommendation:** extend the existing foundation named-op wrapper to apply the established activity renewal/echo and rotation-race guard for eligible marked calls; leave automatic GET reads inert. Verify both marked mutation and unmarked read behavior at that wrapper boundary.
+- **Validation:** static end-to-end trace through the client, named-op wrapper, root proxy and idle warning. Named-op tests verify context, caching and errors but have no activity-header case. No accepted exclusion was found in the F2/7.0c implementation notes or deferred-work entries inspected.
+
+## Decision checks that prevented false findings
+
+- Array demographics are explicitly superseded by `spec-2-1-view-personal-information.md:44` (“No array join”), matching the backend String fields. Not a shipped defect.
+- Signature paper/graphite/slate styling is an explicit human decision in `spec-2-4-signature.md:68`; it is not flagged as generic semantic-token misuse.
+- No missing-implementation findings for Insurance, full provider registration, Organizations or deployment runbooks. No CSRF/session-binding requirement was reintroduced against D5.
+- No generic request to add unrelated libraries, observability, stricter compiler flags or rewrite existing foundations.
+
+## Coverage ledger
+
+All 329 runtime source paths in groups 01–05 received a source inspection, including route wrappers, barrel exports, shared message catalogs, UI primitives, CSS and gated fixture bodies. All 625 manifest entries are accounted for below. This is static source coverage, **not** exhaustive dynamic acceptance certification: tests/tooling were inspected selectively around actual boundaries and findings, and uninspected test/document paths remain explicitly marked. No tests were executed and there is no passing-suite claim.
+
+Verified tooling facts from package/config files: pnpm 12.11.2, Next 16.4.0, React ^19.3.0, TypeScript ^6.0.3, ESLint ^10.12.0 and Vitest 5.0.4. `strict:true`; `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes` and `verbatimModuleSyntax` are not enabled. Custom flat-config layering and ownership rules exist. These facts are not themselves findings without a demonstrated project-specific defect.
+
+| Group | Manifest files | Runtime source inspected | Partial / selected regions | Inventory only |
+|---|---:|---:|---:|---:|
+| 01-team-a | 38 | 38 | 0 | 0 |
+| 02-team-b | 22 | 22 | 0 | 0 |
+| 03-server | 65 | 65 | 0 | 0 |
+| 04-api-shared | 81 | 81 | 0 | 0 |
+| 05-ui-shell | 123 | 123 | 0 | 0 |
+| 06-tests-tooling | 296 | 0 | 15 | 281 |
+
+Groups were entered in manifest order, then dependency boundaries and remaining runtime paths were revisited to close coverage gaps. Story amendments and foundation contracts govern the audit; fixture examples and backlog placeholders were inspected without treating them as unfinished shipped stories. The runtime source pass does not establish that every AC was exercised in a browser or against a live upstream.
+
+### 01-team-a
+
+- `features/addresses/addresses-section.tsx` — source inspected
+- `features/addresses/format.ts` — source inspected
+- `features/addresses/index.ts` — source inspected
+- `features/addresses/save.ts` — source inspected
+- `features/addresses/schema.ts` — source inspected
+- `features/addresses/suggestion.ts` — source inspected
+- `features/contacts/contact-edit-kit.tsx` — source inspected
+- `features/contacts/contact-primary.tsx` — source inspected
+- `features/contacts/contact-verify.tsx` — source inspected
+- `features/contacts/email-schema.ts` — source inspected
+- `features/contacts/email-section.tsx` — source inspected
+- `features/contacts/index.ts` — source inspected
+- `features/contacts/phone-schema.ts` — source inspected
+- `features/contacts/phone-section.tsx` — source inspected
+- `features/contacts/social-schema.ts` — source inspected
+- `features/contacts/social-section.tsx` — source inspected
+- `features/contacts/use-contact-read.ts` — source inspected
+- `features/header/change-picture-dialog.tsx` — source inspected
+- `features/header/index.ts` — source inspected
+- `features/header/names.ts` — source inspected
+- `features/header/picture-file.ts` — source inspected
+- `features/header/profile-header.tsx` — source inspected
+- `features/header/use-primary-contacts.ts` — source inspected
+- `features/header/use-profile-picture.ts` — source inspected
+- `features/insurance/index.ts` — source inspected
+- `features/insurance/insurance-section.tsx` — source inspected
+- `features/personal/index.ts` — source inspected
+- `features/personal/personal-section.tsx` — source inspected
+- `features/personal/schema.ts` — source inspected
+- `features/personal/signature-file.ts` — source inspected
+- `features/personal/signature-pad.tsx` — source inspected
+- `features/personal/signature-save.ts` — source inspected
+- `features/personal/ssn-field.tsx` — source inspected
+- `features/personal/ssn.ts` — source inspected
+- `features/personal/use-person-options.ts` — source inspected
+- `features/save-all/index.ts` — source inspected
+- `features/save-all/save-all-bar.tsx` — source inspected
+- `features/save-all/use-on-screen-keyboard.ts` — source inspected
+
+### 02-team-b
+
+- `features/account/account-edit-fields.tsx` — source inspected
+- `features/account/account-primary-picker.tsx` — source inspected
+- `features/account/account-save.ts` — source inspected
+- `features/account/account-settings-section.tsx` — source inspected
+- `features/account/index.ts` — source inspected
+- `features/account/primary-contacts.ts` — source inspected
+- `features/account/schema.ts` — source inspected
+- `features/account/view-model.ts` — source inspected
+- `features/mfa/authenticator-card.tsx` — source inspected
+- `features/mfa/authenticator-link-dialog.tsx` — source inspected
+- `features/mfa/authenticator-section.tsx` — source inspected
+- `features/mfa/index.ts` — source inspected
+- `features/mfa/mfa-access.ts` — source inspected
+- `features/mfa/mfa-coordinator.ts` — source inspected
+- `features/mfa/use-authenticator-controller.ts` — source inspected
+- `features/organizations/index.ts` — source inspected
+- `features/organizations/organizations-tab.tsx` — source inspected
+- `features/provider/index.ts` — source inspected
+- `features/provider/npi-search.tsx` — source inspected
+- `features/provider/provider-tab.tsx` — source inspected
+- `features/provider/registered-view.tsx` — source inspected
+- `features/provider/use-provider-controller.ts` — source inspected
+
+### 03-server
+
+- `app/api/1h/[...path]/route.ts` — source inspected
+- `app/api/places/autocomplete/route.ts` — source inspected
+- `app/api/places/details/route.ts` — source inspected
+- `app/api/pp/file/[fileId]/route.ts` — source inspected
+- `app/api/pp/mfa/validate/route.ts` — source inspected
+- `app/api/pp/org-logo/[tenantId]/route.ts` — source inspected
+- `app/api/pp/practice-support/route.ts` — source inspected
+- `app/api/pp/profile-picture-id/route.ts` — source inspected
+- `app/api/session/logout/route.ts` — source inspected
+- `app/api/session/ping/route.ts` — source inspected
+- `app/api/session/refresh/route.ts` — source inspected
+- `app/api/token/route.ts` — source inspected
+- `lib/server/disabled-screen.ts` — source inspected
+- `lib/server/env.ts` — source inspected
+- `lib/server/handoff.ts` — source inspected
+- `lib/server/http/cache-headers.ts` — source inspected
+- `lib/server/http/content-type.ts` — source inspected
+- `lib/server/http/fetch-with-timeout.ts` — source inspected
+- `lib/server/http/guard-route.ts` — source inspected
+- `lib/server/http/image-sniff.ts` — source inspected
+- `lib/server/http/read-capped.ts` — source inspected
+- `lib/server/http/responses.ts` — source inspected
+- `lib/server/http/upstream-url.ts` — source inspected
+- `lib/server/kill-switch.ts` — source inspected
+- `lib/server/launch/exchange.ts` — source inspected
+- `lib/server/launch/launch.ts` — source inspected
+- `lib/server/launch/lpl-crypto.ts` — source inspected
+- `lib/server/launch/token-handler.ts` — source inspected
+- `lib/server/log.ts` — source inspected
+- `lib/server/named-op.ts` — source inspected
+- `lib/server/named-ops/file-delete.ts` — source inspected
+- `lib/server/named-ops/mfa-validate.ts` — source inspected
+- `lib/server/named-ops/org-logo.ts` — source inspected
+- `lib/server/named-ops/places.ts` — source inspected
+- `lib/server/named-ops/practice-support.ts` — source inspected
+- `lib/server/named-ops/profile-picture-id.ts` — source inspected
+- `lib/server/page-session.ts` — source inspected
+- `lib/server/proxy/allowlist/account.ts` — source inspected
+- `lib/server/proxy/allowlist/addresses.ts` — source inspected
+- `lib/server/proxy/allowlist/contacts.ts` — source inspected
+- `lib/server/proxy/allowlist/core.ts` — source inspected
+- `lib/server/proxy/allowlist/files.ts` — source inspected
+- `lib/server/proxy/allowlist/index.ts` — source inspected
+- `lib/server/proxy/allowlist/insurance.ts` — source inspected
+- `lib/server/proxy/allowlist/mfa.ts` — source inspected
+- `lib/server/proxy/allowlist/npi.ts` — source inspected
+- `lib/server/proxy/allowlist/orgs.ts` — source inspected
+- `lib/server/proxy/allowlist/personal.ts` — source inspected
+- `lib/server/proxy/deny-list.ts` — source inspected
+- `lib/server/proxy/forward.ts` — source inspected
+- `lib/server/proxy/handler.ts` — source inspected
+- `lib/server/proxy/match.ts` — source inspected
+- `lib/server/proxy/normalize.ts` — source inspected
+- `lib/server/proxy/types.ts` — source inspected
+- `lib/server/proxy/upload.ts` — source inspected
+- `lib/server/security/headers.ts` — source inspected
+- `lib/server/session/environment-cookie.ts` — source inspected
+- `lib/server/session/expires-in.ts` — source inspected
+- `lib/server/session/refresh.ts` — source inspected
+- `lib/server/session/revoke.ts` — source inspected
+- `lib/server/session/session-routes.ts` — source inspected
+- `lib/server/session/session.ts` — source inspected
+- `lib/server/session/types.ts` — source inspected
+- `proxy.ts` — source inspected
+- `instrumentation.ts` — source inspected
+
+### 04-api-shared
+
+- `lib/api/account.ts` — source inspected
+- `lib/api/activity.ts` — source inspected
+- `lib/api/addresses.ts` — source inspected
+- `lib/api/client.ts` — source inspected
+- `lib/api/config.ts` — source inspected
+- `lib/api/contact-points.ts` — source inspected
+- `lib/api/contacts.ts` — source inspected
+- `lib/api/errors-codes.ts` — source inspected
+- `lib/api/errors/account.ts` — source inspected
+- `lib/api/errors/addresses.ts` — source inspected
+- `lib/api/errors/contacts.ts` — source inspected
+- `lib/api/errors/core.ts` — source inspected
+- `lib/api/errors/forbidden-scope.ts` — source inspected
+- `lib/api/errors/index.ts` — source inspected
+- `lib/api/errors/insurance.ts` — source inspected
+- `lib/api/errors/mfa.ts` — source inspected
+- `lib/api/errors/npi.ts` — source inspected
+- `lib/api/errors/orgs.ts` — source inspected
+- `lib/api/errors/personal.ts` — source inspected
+- `lib/api/fetcher.ts` — source inspected
+- `lib/api/files.ts` — source inspected
+- `lib/api/index.ts` — source inspected
+- `lib/api/insurance.ts` — source inspected
+- `lib/api/keys.ts` — source inspected
+- `lib/api/log-api-call.ts` — source inspected
+- `lib/api/mfa.ts` — source inspected
+- `lib/api/myself.ts` — source inspected
+- `lib/api/npi.ts` — source inspected
+- `lib/api/organizations.ts` — source inspected
+- `lib/api/page-user.ts` — source inspected
+- `lib/api/personal.ts` — source inspected
+- `lib/api/places.ts` — source inspected
+- `lib/api/practice-support.ts` — source inspected
+- `lib/api/profile-picture.ts` — source inspected
+- `lib/api/refresh-coordinator.ts` — source inspected
+- `lib/api/session-events.ts` — source inspected
+- `lib/api/session.ts` — source inspected
+- `lib/api/type-keys.ts` — source inspected
+- `lib/api/types.ts` — source inspected
+- `lib/api/user-edit-path.internal.ts` — source inspected
+- `lib/shared/app-env.ts` — source inspected
+- `lib/shared/bff-contract.ts` — source inspected
+- `lib/shared/contact-labels.ts` — source inspected
+- `lib/shared/dates.ts` — source inspected
+- `lib/shared/deep-equal.ts` — source inspected
+- `lib/shared/display-value.ts` — source inspected
+- `lib/shared/environments.ts` — source inspected
+- `lib/shared/initials.ts` — source inspected
+- `lib/shared/login-intent.ts` — source inspected
+- `lib/shared/messages/account.ts` — source inspected
+- `lib/shared/messages/addresses.ts` — source inspected
+- `lib/shared/messages/combobox.ts` — source inspected
+- `lib/shared/messages/common.ts` — source inspected
+- `lib/shared/messages/contacts.ts` — source inspected
+- `lib/shared/messages/controls.ts` — source inspected
+- `lib/shared/messages/disabled.ts` — source inspected
+- `lib/shared/messages/drafts.ts` — source inspected
+- `lib/shared/messages/fields.ts` — source inspected
+- `lib/shared/messages/header.ts` — source inspected
+- `lib/shared/messages/idle.ts` — source inspected
+- `lib/shared/messages/index.ts` — source inspected
+- `lib/shared/messages/insurance.ts` — source inspected
+- `lib/shared/messages/launch.ts` — source inspected
+- `lib/shared/messages/leave-guard.ts` — source inspected
+- `lib/shared/messages/mfa.ts` — source inspected
+- `lib/shared/messages/npi.ts` — source inspected
+- `lib/shared/messages/orgs.ts` — source inspected
+- `lib/shared/messages/person.ts` — source inspected
+- `lib/shared/messages/places.ts` — source inspected
+- `lib/shared/messages/section.ts` — source inspected
+- `lib/shared/messages/session.ts` — source inspected
+- `lib/shared/messages/shell.ts` — source inspected
+- `lib/shared/messages/state.ts` — source inspected
+- `lib/shared/person-options.ts` — source inspected
+- `lib/shared/person-rules.ts` — source inspected
+- `lib/shared/phone.ts` — source inspected
+- `lib/shared/profile-constants.ts` — source inspected
+- `lib/shared/safe-href.ts` — source inspected
+- `lib/shared/section-ids.ts` — source inspected
+- `lib/shared/telemetry.ts` — source inspected
+- `lib/shared/time-zones.ts` — source inspected
+
+### 05-ui-shell
+
+- `app/account/page.tsx` — source inspected
+- `app/auth/loading.tsx` — source inspected
+- `app/auth/page.tsx` — source inspected
+- `app/disabled/route.ts` — source inspected
+- `app/globals.css` — source inspected
+- `app/handoff/portal/route.ts` — source inspected
+- `app/layout.tsx` — source inspected
+- `app/page.tsx` — source inspected
+- `app/test-fixtures/combobox/page.tsx` — source inspected
+- `app/test-fixtures/fallback-image/page.tsx` — source inspected
+- `app/test-fixtures/inputs/page.tsx` — source inspected
+- `app/test-fixtures/leave-guard/page.tsx` — source inspected
+- `app/test-fixtures/primitives/page.tsx` — source inspected
+- `app/test-fixtures/save-all/page.tsx` — source inspected
+- `app/test-fixtures/section/page.tsx` — source inspected
+- `app/test-fixtures/ui-kit/page.tsx` — source inspected
+- `components/toaster-wrapper.tsx` — source inspected
+- `components/ui/alert.tsx` — source inspected
+- `components/ui/badge.tsx` — source inspected
+- `components/ui/button.tsx` — source inspected
+- `components/ui/calendar.tsx` — source inspected
+- `components/ui/card.tsx` — source inspected
+- `components/ui/checkbox.tsx` — source inspected
+- `components/ui/chip.tsx` — source inspected
+- `components/ui/combobox.tsx` — source inspected
+- `components/ui/confirm-dialog.tsx` — source inspected
+- `components/ui/date-input.tsx` — source inspected
+- `components/ui/dialog.tsx` — source inspected
+- `components/ui/disabled-action.tsx` — source inspected
+- `components/ui/dropdown-menu.tsx` — source inspected
+- `components/ui/empty-state.tsx` — source inspected
+- `components/ui/fallback-image.tsx` — source inspected
+- `components/ui/focus.ts` — source inspected
+- `components/ui/form-field.tsx` — source inspected
+- `components/ui/image-reencode.ts` — source inspected
+- `components/ui/info-icon-button.tsx` — source inspected
+- `components/ui/info-popover.tsx` — source inspected
+- `components/ui/inline-banner.tsx` — source inspected
+- `components/ui/input-locked.tsx` — source inspected
+- `components/ui/input.tsx` — source inspected
+- `components/ui/label.tsx` — source inspected
+- `components/ui/link-text-button.tsx` — source inspected
+- `components/ui/live-status.tsx` — source inspected
+- `components/ui/phone-input.tsx` — source inspected
+- `components/ui/popover.tsx` — source inspected
+- `components/ui/select.tsx` — source inspected
+- `components/ui/sheet.tsx` — source inspected
+- `components/ui/skeleton.tsx` — source inspected
+- `components/ui/status-badge.tsx` — source inspected
+- `components/ui/switch.tsx` — source inspected
+- `components/ui/tabs.tsx` — source inspected
+- `components/ui/toast.tsx` — source inspected
+- `components/ui/toaster.tsx` — source inspected
+- `components/ui/tooltip.tsx` — source inspected
+- `components/ui/use-combobox.ts` — source inspected
+- `features/shell/__fixtures__/combobox-fixture.tsx` — source inspected
+- `features/shell/__fixtures__/fixture-participant.tsx` — source inspected
+- `features/shell/__fixtures__/fixture-section.tsx` — source inspected
+- `features/shell/__fixtures__/inputs-fixture.tsx` — source inspected
+- `features/shell/__fixtures__/leave-guard-controls.tsx` — source inspected
+- `features/shell/__fixtures__/primitives-fixture.tsx` — source inspected
+- `features/shell/__fixtures__/save-all-fixture.tsx` — source inspected
+- `features/shell/__fixtures__/schema.ts` — source inspected
+- `features/shell/__fixtures__/section-fixture-page.tsx` — source inspected
+- `features/shell/__fixtures__/ui-kit-fixture.tsx` — source inspected
+- `features/shell/account-tabs.tsx` — source inspected
+- `features/shell/anchored-panel.tsx` — source inspected
+- `features/shell/anchors.ts` — source inspected
+- `features/shell/app-bar.tsx` — source inspected
+- `features/shell/auth-screen.tsx` — source inspected
+- `features/shell/contacts-panel.tsx` — source inspected
+- `features/shell/draft-banner.tsx` — source inspected
+- `features/shell/draft-compare.tsx` — source inspected
+- `features/shell/draft-provider.tsx` — source inspected
+- `features/shell/drafts.ts` — source inspected
+- `features/shell/exit-hooks.ts` — source inspected
+- `features/shell/hand-scroll.ts` — source inspected
+- `features/shell/handoff.ts` — source inspected
+- `features/shell/idle-warning.tsx` — source inspected
+- `features/shell/index.ts` — source inspected
+- `features/shell/insurance-panel.tsx` — source inspected
+- `features/shell/key-value-table.tsx` — source inspected
+- `features/shell/launch-flow.ts` — source inspected
+- `features/shell/leave-guard.tsx` — source inspected
+- `features/shell/leave.ts` — source inspected
+- `features/shell/myself-error-claim.tsx` — source inspected
+- `features/shell/nav-types.ts` — source inspected
+- `features/shell/navigate.ts` — source inspected
+- `features/shell/page-frame.tsx` — source inspected
+- `features/shell/page-nav.tsx` — source inspected
+- `features/shell/page-tabs-config.ts` — source inspected
+- `features/shell/page-tabs.tsx` — source inspected
+- `features/shell/placeholders.tsx` — source inspected
+- `features/shell/portal-url-provider.tsx` — source inspected
+- `features/shell/profile-tabs.tsx` — source inspected
+- `features/shell/read-state.tsx` — source inspected
+- `features/shell/return-link.tsx` — source inspected
+- `features/shell/row-actions.tsx` — source inspected
+- `features/shell/row-removal.tsx` — source inspected
+- `features/shell/run-save-steps.ts` — source inspected
+- `features/shell/save-all.ts` — source inspected
+- `features/shell/save-order.ts` — source inspected
+- `features/shell/section-container.tsx` — source inspected
+- `features/shell/section-counts.tsx` — source inspected
+- `features/shell/section-footer.tsx` — source inspected
+- `features/shell/section-frame.tsx` — source inspected
+- `features/shell/section-header.tsx` — source inspected
+- `features/shell/section-landmark.tsx` — source inspected
+- `features/shell/section-nav.tsx` — source inspected
+- `features/shell/section-registry.tsx` — source inspected
+- `features/shell/section-table.tsx` — source inspected
+- `features/shell/session-dialog.tsx` — source inspected
+- `features/shell/signature-thumb.tsx` — source inspected
+- `features/shell/state-frame.tsx` — source inspected
+- `features/shell/swr-provider.tsx` — source inspected
+- `features/shell/toasts.ts` — source inspected
+- `features/shell/use-cached-value.ts` — source inspected
+- `features/shell/use-countdown.ts` — source inspected
+- `features/shell/use-hash-anchors.ts` — source inspected
+- `features/shell/use-media-query.ts` — source inspected
+- `features/shell/use-myself.ts` — source inspected
+- `features/shell/use-section-form.ts` — source inspected
+- `hooks/use-toast.ts` — source inspected
+
+### 06-tests-tooling
+
+- `app/account.test.tsx` — inventory only — not inspected
+- `app/account/authenticator-access.test.tsx` — inventory only — not inspected
+- `app/api/1h/[...path]/route.test.ts` — inventory only — not inspected
+- `app/api/places/autocomplete/route.test.ts` — inventory only — not inspected
+- `app/api/places/details/route.test.ts` — inventory only — not inspected
+- `app/api/pp/file/[fileId]/route.test.ts` — inventory only — not inspected
+- `app/api/pp/mfa/validate/route.test.ts` — inventory only — not inspected
+- `app/api/pp/org-logo/[tenantId]/route.test.ts` — inventory only — not inspected
+- `app/api/pp/practice-support/route.test.ts` — inventory only — not inspected
+- `app/api/pp/profile-picture-id/route.test.ts` — inventory only — not inspected
+- `app/api/session/logout/route.test.ts` — inventory only — not inspected
+- `app/api/session/ping/route.test.ts` — inventory only — not inspected
+- `app/api/session/refresh/route.test.ts` — inventory only — not inspected
+- `app/api/token/route.test.ts` — inventory only — not inspected
+- `app/auth/page.test.tsx` — inventory only — not inspected
+- `app/disabled/route.test.ts` — inventory only — not inspected
+- `app/globals.test.ts` — inventory only — not inspected
+- `app/handoff/portal/route.test.ts` — inventory only — not inspected
+- `app/page.test.tsx` — inventory only — not inspected
+- `app/test-fixtures.test.ts` — inventory only — not inspected
+- `components/ui/button.test.tsx` — inventory only — not inspected
+- `components/ui/calendar.test.tsx` — inventory only — not inspected
+- `components/ui/combobox.test.tsx` — inventory only — not inspected
+- `components/ui/confirm-dialog.test.tsx` — inventory only — not inspected
+- `components/ui/date-input.test.tsx` — inventory only — not inspected
+- `components/ui/dialog.test.tsx` — inventory only — not inspected
+- `components/ui/disabled-action.test.tsx` — inventory only — not inspected
+- `components/ui/fallback-image.test.tsx` — inventory only — not inspected
+- `components/ui/form-field.test.tsx` — inventory only — not inspected
+- `components/ui/image-reencode.test.ts` — inventory only — not inspected
+- `components/ui/info-icon-button.test.tsx` — inventory only — not inspected
+- `components/ui/info-popover.test.tsx` — inventory only — not inspected
+- `components/ui/inline-banner.test.tsx` — inventory only — not inspected
+- `components/ui/input-locked.test.tsx` — inventory only — not inspected
+- `components/ui/phone-input.test.tsx` — inventory only — not inspected
+- `components/ui/popover.test.tsx` — inventory only — not inspected
+- `components/ui/select.test.tsx` — inventory only — not inspected
+- `components/ui/sheet.test.tsx` — inventory only — not inspected
+- `components/ui/status-badge.test.tsx` — inventory only — not inspected
+- `components/ui/tooltip.test.tsx` — inventory only — not inspected
+- `components/ui/ui-kit.test.tsx` — inventory only — not inspected
+- `e2e/account-authenticator-disable.spec.ts` — inventory only — not inspected
+- `e2e/account-authenticator-link.spec.ts` — inventory only — not inspected
+- `e2e/account-authenticator.spec.ts` — inventory only — not inspected
+- `e2e/account-handoff.spec.ts` — inventory only — not inspected
+- `e2e/account-hardening.spec.ts` — inventory only — not inspected
+- `e2e/account-page.spec.ts` — inventory only — not inspected
+- `e2e/account-primary-contacts.spec.ts` — inventory only — not inspected
+- `e2e/account-provider-long-label.spec.ts` — inventory only — not inspected
+- `e2e/account-provider.spec.ts` — inventory only — not inspected
+- `e2e/account-settings-edit.spec.ts` — inventory only — not inspected
+- `e2e/account-settings.spec.ts` — inventory only — not inspected
+- `e2e/auth.spec.ts` — inventory only — not inspected
+- `e2e/combobox.spec.ts` — inventory only — not inspected
+- `e2e/confirm-dialog-width.spec.ts` — inventory only — not inspected
+- `e2e/drafts.spec.ts` — inventory only — not inspected
+- `e2e/fallback-image.spec.ts` — inventory only — not inspected
+- `e2e/fixtures.spec.ts` — inventory only — not inspected
+- `e2e/fixtures/account.ts` — inventory only — not inspected
+- `e2e/fixtures/addresses.ts` — inventory only — not inspected
+- `e2e/fixtures/contacts.ts` — inventory only — not inspected
+- `e2e/fixtures/core.ts` — inventory only — not inspected
+- `e2e/fixtures/defaults-account.ts` — inventory only — not inspected
+- `e2e/fixtures/defaults-profile.ts` — inventory only — not inspected
+- `e2e/fixtures/header.ts` — inventory only — not inspected
+- `e2e/fixtures/index.ts` — inventory only — not inspected
+- `e2e/fixtures/insurance.ts` — inventory only — not inspected
+- `e2e/fixtures/mfa.ts` — inventory only — not inspected
+- `e2e/fixtures/npi.ts` — inventory only — not inspected
+- `e2e/fixtures/orgs.ts` — inventory only — not inspected
+- `e2e/fixtures/personal.ts` — inventory only — not inspected
+- `e2e/headers.spec.ts` — inventory only — not inspected
+- `e2e/inputs.spec.ts` — inventory only — not inspected
+- `e2e/kill-switch.spec.ts` — inventory only — not inspected
+- `e2e/launch.spec.ts` — inventory only — not inspected
+- `e2e/primitives.spec.ts` — inventory only — not inspected
+- `e2e/profile-addresses.spec.ts` — inventory only — not inspected
+- `e2e/profile-email.spec.ts` — inventory only — not inspected
+- `e2e/profile-header.spec.ts` — inventory only — not inspected
+- `e2e/profile-personal.spec.ts` — inventory only — not inspected
+- `e2e/profile-phone.spec.ts` — inventory only — not inspected
+- `e2e/profile-picture.spec.ts` — inventory only — not inspected
+- `e2e/profile-save-all.spec.ts` — inventory only — not inspected
+- `e2e/profile-social.spec.ts` — inventory only — not inspected
+- `e2e/section.spec.ts` — inventory only — not inspected
+- `e2e/server-env.ts` — inventory only — not inspected
+- `e2e/session-cookie.ts` — inventory only — not inspected
+- `e2e/shell.spec.ts` — inventory only — not inspected
+- `e2e/ui-kit.spec.ts` — inventory only — not inspected
+- `features/account/account-primary-contacts.test.tsx` — inventory only — not inspected
+- `features/account/account-save.test.ts` — inventory only — not inspected
+- `features/account/account-settings-section.test.tsx` — inventory only — not inspected
+- `features/account/portal-handoff.test.tsx` — inventory only — not inspected
+- `features/account/primary-contacts.test.ts` — inventory only — not inspected
+- `features/account/schema.test.ts` — inventory only — not inspected
+- `features/account/view-model.test.ts` — inventory only — not inspected
+- `features/addresses/addresses-section.edit.test.tsx` — inventory only — not inspected
+- `features/addresses/addresses-section.places.test.tsx` — selected regions / test evidence
+- `features/addresses/addresses-section.primary.test.tsx` — inventory only — not inspected
+- `features/addresses/addresses-section.test.tsx` — inventory only — not inspected
+- `features/addresses/format.test.ts` — inventory only — not inspected
+- `features/addresses/save.test.ts` — inventory only — not inspected
+- `features/addresses/schema.test.ts` — inventory only — not inspected
+- `features/addresses/suggestion.test.ts` — inventory only — not inspected
+- `features/contacts/contacts-save-all.test.tsx` — inventory only — not inspected
+- `features/contacts/email-schema.test.ts` — inventory only — not inspected
+- `features/contacts/email-section.edit.test.tsx` — inventory only — not inspected
+- `features/contacts/email-section.primary.test.tsx` — inventory only — not inspected
+- `features/contacts/email-section.test.tsx` — inventory only — not inspected
+- `features/contacts/email-section.verify.test.tsx` — inventory only — not inspected
+- `features/contacts/phone-schema.test.ts` — inventory only — not inspected
+- `features/contacts/phone-section.edit.test.tsx` — inventory only — not inspected
+- `features/contacts/phone-section.primary.test.tsx` — inventory only — not inspected
+- `features/contacts/phone-section.test.tsx` — inventory only — not inspected
+- `features/contacts/phone-section.verify.test.tsx` — inventory only — not inspected
+- `features/contacts/social-schema.test.ts` — inventory only — not inspected
+- `features/contacts/social-section.edit.test.tsx` — inventory only — not inspected
+- `features/contacts/social-section.test.tsx` — inventory only — not inspected
+- `features/header/change-picture-dialog.test.tsx` — inventory only — not inspected
+- `features/header/profile-header.test.tsx` — inventory only — not inspected
+- `features/mfa/authenticator-disable.test.tsx` — inventory only — not inspected
+- `features/mfa/authenticator-link-dialog.test.tsx` — inventory only — not inspected
+- `features/mfa/authenticator-section.test.tsx` — inventory only — not inspected
+- `features/mfa/mfa-coordinator.test.ts` — inventory only — not inspected
+- `features/mfa/use-authenticator-controller.test.tsx` — inventory only — not inspected
+- `features/personal/personal-section.test.tsx` — selected regions / test evidence
+- `features/personal/schema.test.ts` — inventory only — not inspected
+- `features/personal/signature-file.test.ts` — inventory only — not inspected
+- `features/personal/signature-pad.test.tsx` — inventory only — not inspected
+- `features/personal/signature-save.test.ts` — inventory only — not inspected
+- `features/personal/ssn-field.test.tsx` — inventory only — not inspected
+- `features/personal/ssn.test.ts` — inventory only — not inspected
+- `features/personal/use-person-options.test.tsx` — inventory only — not inspected
+- `features/provider/provider-tab.test.tsx` — inventory only — not inspected
+- `features/save-all/save-all-bar.test.tsx` — inventory only — not inspected
+- `features/shell/app-bar.test.tsx` — inventory only — not inspected
+- `features/shell/auth-screen.test.tsx` — inventory only — not inspected
+- `features/shell/confirm-before-save.test.tsx` — inventory only — not inspected
+- `features/shell/drafts-ui.test.tsx` — inventory only — not inspected
+- `features/shell/drafts.test.ts` — inventory only — not inspected
+- `features/shell/hand-scroll.test.ts` — inventory only — not inspected
+- `features/shell/handoff.test.ts` — inventory only — not inspected
+- `features/shell/idle-warning.test.tsx` — inventory only — not inspected
+- `features/shell/key-value-table.test.tsx` — inventory only — not inspected
+- `features/shell/launch-flow.test.ts` — inventory only — not inspected
+- `features/shell/leave-guard.test.tsx` — inventory only — not inspected
+- `features/shell/navigate.test.ts` — inventory only — not inspected
+- `features/shell/page-composition.test.tsx` — inventory only — not inspected
+- `features/shell/page-frame.test.tsx` — inventory only — not inspected
+- `features/shell/page-tabs-focus.test.tsx` — inventory only — not inspected
+- `features/shell/page-tabs.test.tsx` — inventory only — not inspected
+- `features/shell/portal-url-provider.test.tsx` — inventory only — not inspected
+- `features/shell/read-state.test.tsx` — inventory only — not inspected
+- `features/shell/row-kit.test.tsx` — inventory only — not inspected
+- `features/shell/run-save-steps.test.ts` — inventory only — not inspected
+- `features/shell/save-all.test.ts` — inventory only — not inspected
+- `features/shell/section-chrome.test.tsx` — inventory only — not inspected
+- `features/shell/section-nav.test.tsx` — inventory only — not inspected
+- `features/shell/section-registry.test.tsx` — inventory only — not inspected
+- `features/shell/session-dialog.test.tsx` — inventory only — not inspected
+- `features/shell/signature-thumb.test.tsx` — inventory only — not inspected
+- `features/shell/state-frame.test.tsx` — inventory only — not inspected
+- `features/shell/toasts.test.tsx` — inventory only — not inspected
+- `features/shell/use-cached-value.test.tsx` — inventory only — not inspected
+- `features/shell/use-countdown.test.tsx` — inventory only — not inspected
+- `features/shell/use-hash-anchors.test.tsx` — inventory only — not inspected
+- `features/shell/use-myself.test.tsx` — inventory only — not inspected
+- `features/shell/use-section-form-reveal.test.tsx` — inventory only — not inspected
+- `features/shell/use-section-form.test.tsx` — inventory only — not inspected
+- `lib/api/account.test.ts` — inventory only — not inspected
+- `lib/api/activity.test.ts` — inventory only — not inspected
+- `lib/api/addresses.test.ts` — inventory only — not inspected
+- `lib/api/client.test.ts` — selected regions / test evidence
+- `lib/api/contact-points.contract.test.ts` — inventory only — not inspected
+- `lib/api/contact-points.test.ts` — inventory only — not inspected
+- `lib/api/contacts.test.ts` — inventory only — not inspected
+- `lib/api/errors/addresses.test.ts` — inventory only — not inspected
+- `lib/api/errors/contacts.test.ts` — inventory only — not inspected
+- `lib/api/errors/errors.test.ts` — inventory only — not inspected
+- `lib/api/errors/forbidden-scope.test.ts` — inventory only — not inspected
+- `lib/api/files.test.ts` — inventory only — not inspected
+- `lib/api/insurance.test.ts` — inventory only — not inspected
+- `lib/api/keys.test.ts` — inventory only — not inspected
+- `lib/api/log-api-call.test.ts` — inventory only — not inspected
+- `lib/api/mfa.test.ts` — inventory only — not inspected
+- `lib/api/myself-fixture.test.ts` — inventory only — not inspected
+- `lib/api/myself.test.ts` — selected regions / test evidence
+- `lib/api/npi.test.ts` — inventory only — not inspected
+- `lib/api/organizations.test.ts` — inventory only — not inspected
+- `lib/api/page-user.test.ts` — selected regions / test evidence
+- `lib/api/personal.test.ts` — selected regions / test evidence
+- `lib/api/places.test.ts` — inventory only — not inspected
+- `lib/api/planned-modules.test.ts` — inventory only — not inspected
+- `lib/api/practice-support.test.ts` — inventory only — not inspected
+- `lib/api/profile-picture.test.ts` — selected regions / test evidence
+- `lib/api/support.test.ts` — inventory only — not inspected
+- `lib/api/type-keys.test.ts` — inventory only — not inspected
+- `lib/api/user-edit-path.internal.test.ts` — inventory only — not inspected
+- `lib/server/disabled-screen.test.ts` — inventory only — not inspected
+- `lib/server/env.test.ts` — inventory only — not inspected
+- `lib/server/handoff.test.ts` — inventory only — not inspected
+- `lib/server/http/http.test.ts` — inventory only — not inspected
+- `lib/server/http/image-sniff.test.ts` — inventory only — not inspected
+- `lib/server/http/read-capped.test.ts` — inventory only — not inspected
+- `lib/server/http/upstream-url.test.ts` — inventory only — not inspected
+- `lib/server/kill-switch.test.ts` — inventory only — not inspected
+- `lib/server/launch/launch.test.ts` — inventory only — not inspected
+- `lib/server/launch/lpl-crypto.test.ts` — inventory only — not inspected
+- `lib/server/launch/token-handler.test.ts` — inventory only — not inspected
+- `lib/server/log.test.ts` — inventory only — not inspected
+- `lib/server/named-op.test.ts` — selected regions / test evidence
+- `lib/server/named-ops/file-delete.test.ts` — inventory only — not inspected
+- `lib/server/named-ops/mfa-validate.test.ts` — inventory only — not inspected
+- `lib/server/named-ops/org-logo.test.ts` — inventory only — not inspected
+- `lib/server/named-ops/places.test.ts` — inventory only — not inspected
+- `lib/server/named-ops/practice-support.test.ts` — inventory only — not inspected
+- `lib/server/named-ops/profile-picture-id.test.ts` — inventory only — not inspected
+- `lib/server/proxy/allowlist/account.test.ts` — inventory only — not inspected
+- `lib/server/proxy/allowlist/addresses.test.ts` — inventory only — not inspected
+- `lib/server/proxy/allowlist/allowlist.test.ts` — inventory only — not inspected
+- `lib/server/proxy/allowlist/contacts.test.ts` — inventory only — not inspected
+- `lib/server/proxy/allowlist/core.test.ts` — inventory only — not inspected
+- `lib/server/proxy/allowlist/files.test.ts` — inventory only — not inspected
+- `lib/server/proxy/allowlist/insurance.test.ts` — inventory only — not inspected
+- `lib/server/proxy/allowlist/mfa.test.ts` — inventory only — not inspected
+- `lib/server/proxy/allowlist/npi.test.ts` — inventory only — not inspected
+- `lib/server/proxy/allowlist/orgs.test.ts` — inventory only — not inspected
+- `lib/server/proxy/allowlist/personal.test.ts` — inventory only — not inspected
+- `lib/server/proxy/allowlist/type-keys.test.ts` — inventory only — not inspected
+- `lib/server/proxy/allowlist/user-edit.account.test.ts` — inventory only — not inspected
+- `lib/server/proxy/deny-list.test.ts` — inventory only — not inspected
+- `lib/server/proxy/forward.test.ts` — inventory only — not inspected
+- `lib/server/proxy/handler.test.ts` — inventory only — not inspected
+- `lib/server/proxy/match.test.ts` — inventory only — not inspected
+- `lib/server/proxy/normalize.test.ts` — inventory only — not inspected
+- `lib/server/proxy/upload.test.ts` — inventory only — not inspected
+- `lib/server/security/headers.test.ts` — inventory only — not inspected
+- `lib/server/session/refresh.test.ts` — inventory only — not inspected
+- `lib/server/session/session-routes.test.ts` — inventory only — not inspected
+- `lib/server/session/session.test.ts` — inventory only — not inspected
+- `lib/shared/contact-labels.test.ts` — inventory only — not inspected
+- `lib/shared/dates.test.ts` — inventory only — not inspected
+- `lib/shared/deep-equal.test.ts` — inventory only — not inspected
+- `lib/shared/display-value.test.ts` — inventory only — not inspected
+- `lib/shared/environments.test.ts` — inventory only — not inspected
+- `lib/shared/initials.test.ts` — inventory only — not inspected
+- `lib/shared/messages/messages.test.ts` — inventory only — not inspected
+- `lib/shared/person-options.test.ts` — inventory only — not inspected
+- `lib/shared/person-rules.test.ts` — inventory only — not inspected
+- `lib/shared/phone.test.ts` — inventory only — not inspected
+- `lib/shared/safe-href.test.ts` — inventory only — not inspected
+- `lib/shared/section-ids.test.ts` — inventory only — not inspected
+- `lib/shared/shared.test.ts` — inventory only — not inspected
+- `lib/shared/telemetry.test.ts` — inventory only — not inspected
+- `lib/shared/time-zones.test.ts` — inventory only — not inspected
+- `lib/utils.test.ts` — inventory only — not inspected
+- `lib/utils.ts` — inventory only — not inspected
+- `test/axe.ts` — inventory only — not inspected
+- `test/dom-stubs.ts` — inventory only — not inspected
+- `test/e2e-fixture-exports.test.ts` — inventory only — not inspected
+- `test/e2e-upstream-mock.test.ts` — inventory only — not inspected
+- `test/e2e-upstream-mock.ts` — inventory only — not inspected
+- `test/env-fixture.ts` — inventory only — not inspected
+- `test/fake-broadcast-channel.ts` — inventory only — not inspected
+- `test/image-fixture.ts` — inventory only — not inspected
+- `test/lpl-fixture.ts` — inventory only — not inspected
+- `test/media.ts` — inventory only — not inspected
+- `test/msw-server.ts` — inventory only — not inspected
+- `test/multipart-fixture.ts` — inventory only — not inspected
+- `test/myself-fixture.test.ts` — inventory only — not inspected
+- `test/myself-fixture.ts` — inventory only — not inspected
+- `test/named-op-fixture.ts` — inventory only — not inspected
+- `test/next-navigation.ts` — inventory only — not inspected
+- `test/page-handlers/account.ts` — inventory only — not inspected
+- `test/page-handlers/index.ts` — inventory only — not inspected
+- `test/page-handlers/profile.ts` — inventory only — not inspected
+- `test/page-handlers/shell.ts` — inventory only — not inspected
+- `test/page-session.test.ts` — inventory only — not inspected
+- `test/providers.test.tsx` — inventory only — not inspected
+- `test/providers.tsx` — inventory only — not inspected
+- `test/redaction-fixture.ts` — inventory only — not inspected
+- `test/session-fixture.ts` — inventory only — not inspected
+- `test/setup-dom.ts` — inventory only — not inspected
+- `test/setup.ts` — inventory only — not inspected
+- `test/stubs/server-only.ts` — inventory only — not inspected
+- `test/upstream-fixture.ts` — inventory only — not inspected
+- `package.json` — selected regions / test evidence
+- `tsconfig.json` — selected regions / test evidence
+- `eslint.config.mjs` — selected regions / test evidence
+- `next.config.mjs` — inventory only — not inspected
+- `vitest.config.ts` — selected regions / test evidence
+- `playwright.config.ts` — selected regions / test evidence
+- `pnpm-workspace.yaml` — inventory only — not inspected
+- `.github/workflows/ci.yml` — selected regions / test evidence
+- `scripts/check-forbidden.sh` — selected regions / test evidence
+- `scripts/check-tokens.sh` — inventory only — not inspected
+
+## Implementation order
+
+1. Preserve failed identity-preflight outcomes in Profile writes (silent edit loss).
+2. Cancel stale address details when the user edits their destination country/address.
+3. Restore named-op activity recording within the shared foundation wrapper.
+
+No structural rewrite is justified by these findings. After focused regressions, use the existing project gates; no new tooling is proposed.

@@ -145,6 +145,8 @@ beforeEach(() => {
       }
     },
   )
+  vi.spyOn(HTMLCanvasElement.prototype, "offsetWidth", "get").mockReturnValue(300)
+  vi.spyOn(HTMLCanvasElement.prototype, "offsetHeight", "get").mockReturnValue(160)
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => ({ setTransform: vi.fn(), drawImage: vi.fn() }) as unknown as CanvasRenderingContext2D)
   vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation((callback) => callback(new Blob([new Uint8Array([1])], { type: "image/png" })))
   vi.mocked(reencodeImage).mockResolvedValue({ ok: true, blob: new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" }), width: 960, height: 320 })
@@ -755,6 +757,19 @@ describe("PersonalSection: save (Story 2.2)", () => {
     expect(control(label).getAttribute("aria-invalid")).toBe("true")
     expect(document.querySelector("[data-slot~='inline-banner']")).toBeNull()
   }
+
+  it.each(["04/1", "02/30/1990"])("keeps restored invalid Birth date %s visible through responsive remount", async (birthDate) => {
+    const { bodies, handler } = recordPuts()
+    const { registry } = await renderEditing(FULL, [handler])
+    await act(async () => { registry.get("personal")?.applyDraft?.({ birthDate }) })
+    expect(control("Birth date")).toHaveProperty("value", birthDate)
+    act(() => stubViewport(360))
+    expect(control("Birth date")).toHaveProperty("value", birthDate)
+    await save()
+    expect(control("Birth date").getAttribute("aria-invalid")).toBe("true")
+    expect(control("Birth date")).toHaveProperty("value", birthDate)
+    expect(bodies).toEqual([])
+  })
 
   it("Birth date cleared alone: Save focuses the date input itself", async () => {
     const { bodies, handler } = recordPuts()

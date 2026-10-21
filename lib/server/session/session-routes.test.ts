@@ -57,6 +57,24 @@ describe("POST /api/session/refresh", () => {
     expect(await setCookieSession(response)).toMatchObject({ accessToken: "fresh-access", sid: session.sid, gen: 1 })
   })
 
+  it.each([30_001, 45_000, 55_000])("refreshes a ping rejected inside the activity guard at %ims", async (remaining) => {
+    let grants = 0
+    server.use(http.post(IDP, () => { grants++; return HttpResponse.json(refreshResponse("fresh-access")) }))
+    const session = makeSession({ accessExpiresAt: NOW + remaining })
+    const ping = createPingHandler({ now })
+    const first = await ping(await request("/api/session/ping", "POST", session))
+    expect(first.status).toBe(401)
+    expect(await first.json()).toMatchObject({ errorCode: "TOKEN_EXPIRED" })
+    const refreshed = await handler(await refreshRequest(session))
+    expect(refreshed.status).toBe(200)
+    const renewed = await setCookieSession(refreshed)
+    expect(renewed).not.toBeNull()
+    const replay = await ping(await request("/api/session/ping", "POST", renewed!))
+    expect(replay.status).toBe(204)
+    expect(replay.headers.get("X-PP-Activity-At")).toBe(String(NOW))
+    expect(grants).toBe(1)
+  })
+
   it("uses the session's environment for the IdP", async () => {
     server.use(http.post(idpTokenUrl(PROD.apiRoot), () => HttpResponse.json(refreshResponse("prod-access"))))
     const response = await handler(await refreshRequest(makeSession({ environment: "prod", accessExpiresAt: NOW })))

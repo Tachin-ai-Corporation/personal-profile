@@ -238,6 +238,9 @@ export function createDraftStore({ storage = defaultStorage, now = Date.now }: D
   }
 }
 
+/** Pending writes share a revision per store/key across controller remounts. No draft values live here. */
+const writeVersions = new WeakMap<DraftStore, Map<string, object>>()
+
 /** The app's draft store (`window.localStorage`). */
 export const drafts: DraftStore = createDraftStore()
 
@@ -280,6 +283,7 @@ interface BaseCache {
   readonly json: string
   readonly values: DraftValues
   hash: string | null
+  readonly ready: Promise<string>
 }
 
 interface SectionDraftState {
@@ -287,8 +291,8 @@ interface SectionDraftState {
   timer: ReturnType<typeof setTimeout> | null
   /** The values last scheduled or written (sorted JSON). */
   lastValues: string | null
-  /** A write is waiting for the base hash. */
-  writeWaiting: boolean
+  /** Invalidates captured writes when the edit or registration is superseded. */
+  writeVersion: object
   /** The controller saw this Section dirty with a user change (losing it then deletes the key). */
   wasDirty: boolean
   /** Saved or discarded: no write until the Section reports clean (a registration from before the re-render is stale). */
@@ -305,7 +309,7 @@ export interface DraftController {
   handle(event: SectionEvent): void
   /** Re-reads every registered Section (after subscribing, or an owner change). */
   sync(): void
-  /** Writes every dirty draftable Section now, synchronously (before the session dialog, on `pagehide` / hidden). */
+  /** Writes dirty drafts synchronously with cached hashes; captures pending hashes for completion while this context lives. */
   flush(): void
   /** Deletes this user's drafts (portal exit); no draft is written afterwards. */
   purgeUser(): void
@@ -315,7 +319,7 @@ export interface DraftController {
   /** Discard / Use current: the draft is deleted; the Section stays in read view. */
   drop(sectionId: SectionId): void
   subscribe(listener: () => void): () => void
-  /** Stops timers and hash callbacks; `revive()` undoes it (React StrictMode re-runs effects). */
+  /** Stops timers and offers; captured flushes may finish hashing. `revive()` undoes it (StrictMode). */
   dispose(): void
   revive(): void
 }
@@ -349,11 +353,30 @@ export function createDraftController({ registry, store = drafts, hash = hashDra
   let purged = false
   const states = new Map<SectionId, SectionDraftState>()
   const listeners = new Set<() => void>()
+  const claimed = new Map<string, object>()
+  const versions = writeVersions.get(store) ?? new Map<string, object>()
+  writeVersions.set(store, versions)
+
+  function revise(id: SectionId, state: SectionDraftState): void {
+    /* v8 ignore next -- revisions only belong to Sections synced with a known owner */
+    if (owner === null) return
+    const key = draftKey(owner, id)
+    if (versions.get(key) !== state.writeVersion) return
+    state.writeVersion = {}
+    versions.set(key, state.writeVersion)
+    claimed.set(key, state.writeVersion)
+  }
 
   const stateOf = (id: SectionId): SectionDraftState => {
     let state = states.get(id)
     if (!state) {
-      state = { base: null, timer: null, lastValues: null, writeWaiting: false, wasDirty: false, suppressed: false, stored: undefined, offer: NO_OFFER }
+      state = { base: null, timer: null, lastValues: null, writeVersion: {}, wasDirty: false, suppressed: false, stored: undefined, offer: NO_OFFER }
+      /* v8 ignore next -- stateOf is called only after syncSection checks the owner */
+      if (owner !== null) {
+        const key = draftKey(owner, id)
+        versions.set(key, state.writeVersion)
+        claimed.set(key, state.writeVersion)
+      }
       states.set(id, state)
     }
     return state
@@ -379,21 +402,25 @@ export function createDraftController({ registry, store = drafts, hash = hashDra
   function clearTimer(state: SectionDraftState): void {
     if (state.timer !== null) clearTimeout(state.timer)
     state.timer = null
-    state.writeWaiting = false
   }
 
-  /** Writes the Section's draft now; `false` when its base hash isn't known yet (the caller marks it waiting). */
-  function writeNow(section: RegisteredSection, state: SectionDraftState): boolean {
-    if (owner === null || purged || disposed) return true
-    if (!state.base || state.base.hash === null) return false
-    store.write(owner, section.id, { baseHash: state.base.hash, values: draftValues(section) })
-    return true
-  }
-
-  /** Writes now, or as soon as the base hash is known. */
+  /** Captures this edit before unmount; only its still-current revision may finish after hashing. */
   function writeOrWait(section: RegisteredSection, state: SectionDraftState): void {
     clearTimer(state)
-    if (!writeNow(section, state)) state.writeWaiting = true
+    if (owner === null || purged || disposed || !state.base) return
+    const capturedOwner = owner
+    const key = draftKey(capturedOwner, section.id)
+    const version = state.writeVersion
+    if (versions.get(key) !== version) return
+    const base = state.base
+    // Snapshot only the allowed, recursively filtered fields; later form mutations cannot change this write.
+    const json = stableStringify(draftValues(section))
+    const write = (digest: string): void => {
+      if (purged || owner !== capturedOwner || versions.get(key) !== version) return
+      store.write(capturedOwner, section.id, { baseHash: digest, values: JSON.parse(json) as DraftValues })
+    }
+    if (base.hash !== null) write(base.hash)
+    else void base.ready.then(write, () => undefined)
   }
 
   /** Caches the base and starts hashing it when it changed. */
@@ -401,17 +428,17 @@ export function createDraftController({ registry, store = drafts, hash = hashDra
     const values = draftBase(section)
     const json = stableStringify(values)
     if (state.base?.json === json) return
-    const cache: BaseCache = { json, values, hash: null }
+    revise(section.id, state)
+    state.lastValues = null
+    const cache: BaseCache = { json, values, hash: null, ready: hash(values) }
     state.base = cache
-    void hash(values).then(
+    void cache.ready.then(
       (digest) => {
-        if (disposed || state.base !== cache || states.get(section.id) !== state) return
         cache.hash = digest
-        // A waiting write and the offer both needed this hash.
+        if (disposed || state.base !== cache || states.get(section.id) !== state) return
+        // Offers still need a mounted Section; captured writes do not.
         const current = registry.get(section.id)
         if (!current) return
-        if (state.writeWaiting && userChanged(current)) writeOrWait(current, state)
-        state.writeWaiting = false
         refreshOffer(current, state)
       },
       () => undefined,
@@ -466,6 +493,7 @@ export function createDraftController({ registry, store = drafts, hash = hashDra
       const values = stableStringify(draftValues(section))
       if (values === state.lastValues) return
       state.lastValues = values
+      revise(section.id, state)
       clearTimer(state)
       state.timer = setTimeout(() => {
         state.timer = null
@@ -479,18 +507,31 @@ export function createDraftController({ registry, store = drafts, hash = hashDra
 
   /** Deletes the Section's key and resets what the writer knows; `suppress` blocks writes until it reports clean. */
   function forget(id: SectionId, state: SectionDraftState, suppress: boolean): void {
+    const ownsWrite = owner !== null && versions.get(draftKey(owner, id)) === state.writeVersion
     clearTimer(state)
+    revise(id, state)
     state.wasDirty = false
     state.lastValues = null
     state.stored = null
     state.suppressed = suppress
     /* v8 ignore next -- a Section state exists only while an owner is set */
-    if (owner !== null) store.remove(owner, id)
+    if (owner !== null && ownsWrite) store.remove(owner, id)
     setOffer(state, NO_OFFER)
   }
 
+  /** Save/discard can arrive after unregister: invalidate that detached capture without touching a newer mount. */
+  function forgetDetached(id: SectionId): void {
+    if (owner === null) return
+    const key = draftKey(owner, id)
+    const version = claimed.get(key)
+    if (version === undefined || versions.get(key) !== version) return
+    versions.delete(key)
+    claimed.delete(key)
+    store.remove(owner, id)
+  }
+
   function syncSection(section: RegisteredSection): void {
-    if (owner === null || !isDraftable(section)) return
+    if (disposed || owner === null || !isDraftable(section)) return
     const state = stateOf(section.id)
     trackBase(section, state)
     trackWrites(section, state)
@@ -505,6 +546,10 @@ export function createDraftController({ registry, store = drafts, hash = hashDra
     setOwner(next) {
       if (next?.environment === owner?.environment && next?.userId === owner?.userId) return
       for (const state of states.values()) clearTimer(state)
+      for (const [key, version] of claimed) {
+        if (versions.get(key) === version) versions.delete(key)
+      }
+      claimed.clear()
       states.clear()
       owner = next
       purged = false
@@ -515,6 +560,7 @@ export function createDraftController({ registry, store = drafts, hash = hashDra
       const state = states.get(event.id)
       if (event.type === "saved" || event.type === "discarded") {
         if (state) forget(event.id, state, true)
+        else forgetDetached(event.id)
         return
       }
       if (event.type === "unregistered") {
@@ -542,6 +588,9 @@ export function createDraftController({ registry, store = drafts, hash = hashDra
     purgeUser() {
       if (owner === null) return
       purged = true
+      for (const key of versions.keys()) {
+        if (key.startsWith(ownerPrefix(owner))) versions.delete(key)
+      }
       for (const state of states.values()) clearTimer(state)
       store.purgeUser(owner)
     },
@@ -560,6 +609,7 @@ export function createDraftController({ registry, store = drafts, hash = hashDra
     drop(sectionId) {
       const state = states.get(sectionId)
       if (state) forget(sectionId, state, false)
+      else forgetDetached(sectionId)
     },
     subscribe(listener) {
       listeners.add(listener)
@@ -574,7 +624,7 @@ export function createDraftController({ registry, store = drafts, hash = hashDra
     revive() {
       if (!disposed) return
       disposed = false
-      // Base hashes dropped while disposed are recomputed.
+      // A StrictMode remount rechecks the current base and supersedes any earlier capture.
       for (const state of states.values()) state.base = null
       sync()
     },

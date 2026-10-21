@@ -1,3 +1,4 @@
+import type { PointGroup } from "signature_pad"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { reencodeImage } from "@/components/ui/image-reencode"
@@ -12,16 +13,17 @@ import { EMPTY_SIGNATURE_PAD_MEMORY, SignaturePadField, type SignaturePadChange,
  * stubbed (its algorithm is `components/ui/image-reencode.test.ts`).
  */
 
-const { FakePad, pads } = vi.hoisted(() => {
+const { FakePad, pads, strokeGroup } = vi.hoisted(() => {
+  const strokeGroup = (x = 1, y = 2): PointGroup => ({ penColor: "black", dotSize: 2, minWidth: 1, maxWidth: 3, velocityFilterWeight: 0.7, compositeOperation: "source-over", points: [{ x, y, pressure: 0.5, time: 100 }] })
   type Listener = () => void
   const pads: InstanceType<typeof FakePad>[] = []
   class FakePad {
     readonly canvas: HTMLCanvasElement
     readonly options: { penColor?: string }
     readonly listeners = new Map<string, Set<Listener>>()
-    data: unknown[] = []
+    data: PointGroup[] = []
     clears = 0
-    readonly fromDataCalls: unknown[][] = []
+    readonly fromDataCalls: PointGroup[][] = []
     on = vi.fn()
     off = vi.fn()
     constructor(canvas: HTMLCanvasElement, options: { penColor?: string } = {}) {
@@ -41,20 +43,20 @@ const { FakePad, pads } = vi.hoisted(() => {
       this.clears += 1
       this.data = []
     }
-    toData(): unknown[] {
+    toData(): PointGroup[] {
       return this.data
     }
-    fromData(data: unknown[]): void {
+    fromData(data: PointGroup[]): void {
       this.fromDataCalls.push(data)
       this.data = this.data.concat(data)
     }
     /** One finished stroke, as signature_pad reports it. */
-    stroke(): void {
-      this.data.push({ points: [{ x: 1, y: 2 }] })
+    stroke(group = strokeGroup()): void {
+      this.data.push(group)
       for (const listener of this.listeners.get("endStroke") ?? []) listener()
     }
   }
-  return { FakePad, pads }
+  return { FakePad, pads, strokeGroup }
 })
 
 vi.mock("signature_pad", () => ({ default: FakePad }))
@@ -253,8 +255,8 @@ describe("SignaturePadField: canvas size", () => {
     size = { width: 300, height: 160 }
     act(() => resizeCallbacks[0]?.())
     expect(canvas().width).toBe(600)
-    expect(pad().fromDataCalls.at(-1)).toEqual(strokes)
-    expect(pad().toData()).toEqual(strokes)
+    expect(pad().fromDataCalls.at(-1)).toEqual([{ ...strokes[0], dotSize: 1.5, minWidth: 0.75, maxWidth: 2.25, points: [{ x: 0.75, y: 21.5, pressure: 0.5, time: 100 }] }])
+    expect(pad().toData()).toEqual(pad().fromDataCalls.at(-1))
     const calls = pad().fromDataCalls.length
     act(() => resizeCallbacks[0]?.())
     expect(pad().fromDataCalls).toHaveLength(calls)
@@ -264,6 +266,41 @@ describe("SignaturePadField: canvas size", () => {
       window.dispatchEvent(new Event("resize"))
     })
     expect(canvas().width).toBe(680)
+  })
+
+  it("keeps edge strokes inside the exported drawing and restores their coordinates after repeated resizing", async () => {
+    const view = setup()
+    const original = strokeGroup(396, 156)
+    act(() => pad().stroke(original))
+    size = { width: 300, height: 160 }
+    act(() => resizeCallbacks[0]?.())
+    expect(pad().toData()[0]).toMatchObject({ dotSize: 1.5, minWidth: 0.75, maxWidth: 2.25, points: [{ x: 297, y: 137 }] })
+    const toBlob = vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation((callback) => {
+      const group = pad().toData()[0]
+      expect(group.points[0].x + group.maxWidth).toBeLessThan(size.width)
+      expect(group.points[0].y + group.maxWidth).toBeLessThan(size.height)
+      callback(ENCODED)
+    })
+    expect(await view.handle()?.exportPng()).toBe(ENCODED)
+    expect(toBlob).toHaveBeenCalledOnce()
+    for (const width of [450, 280, 400, 300, 400]) {
+      size = { width, height: 160 }
+      act(() => resizeCallbacks[0]?.())
+    }
+    expect(pad().toData()).toEqual([original])
+    expect(original).toEqual(strokeGroup(396, 156))
+  })
+
+  it("uses the same contained transform for a portrait image and strokes drawn over it", () => {
+    setup({ savedSrc: "/api/1h/v2/file/501/download" })
+    images[0].naturalWidth = 100
+    images[0].naturalHeight = 400
+    act(() => images[0].onload?.())
+    act(() => pad().stroke(strokeGroup(200, 80)))
+    size = { width: 300, height: 160 }
+    act(() => resizeCallbacks[0]?.())
+    expect(context.drawImage).toHaveBeenLastCalledWith(images[0], 135, 20, 30, 120)
+    expect(pad().toData()[0].points[0]).toMatchObject({ x: 150, y: 80 })
   })
 
   it("keeps the shown image on resize", async () => {
@@ -472,7 +509,7 @@ describe("SignaturePadField: memory across a remount", () => {
     act(() => images[0]?.onload?.())
     expect(onRemember).not.toHaveBeenCalled()
     act(() => pad().stroke())
-    expect(onRemember).toHaveBeenLastCalledWith({ touched: true, strokes: [{ points: [{ x: 1, y: 2 }] }], image: { kind: "saved", src: "/api/1h/v2/file/501/download" } })
+    expect(onRemember).toHaveBeenLastCalledWith({ touched: true, strokes: [strokeGroup()], image: { kind: "saved", src: "/api/1h/v2/file/501/download" }, dimensions: { width: 400, height: 160, image: { x: 0, y: 30, width: 400, height: 100 } } })
     fireEvent.click(screen.getByRole("button", { name: "Clear" }))
     expect(onRemember).toHaveBeenLastCalledWith({ touched: true, strokes: [], image: null })
     await choose(new File([PNG], "a.png", { type: "image/png" }))
@@ -488,6 +525,25 @@ describe("SignaturePadField: memory across a remount", () => {
     act(() => images[0]?.onload?.())
     expect(context.drawImage).toHaveBeenCalledWith(images[0], 0, 30, 400, 100)
     expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it("fits an edge drawing on a narrower responsive remount, including its next resize", async () => {
+    const first = setup()
+    act(() => pad().stroke(strokeGroup(396, 156)))
+    const memory = first.onRemember.mock.calls.at(-1)?.[0]
+    expect(memory).toMatchObject({ dimensions: { width: 400, height: 160 } })
+    first.unmount()
+    size = { width: 300, height: 160 }
+    const second = setup({ initialMemory: memory })
+    expect(pad().toData()[0].points[0]).toMatchObject({ x: 297, y: 137 })
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation((callback) => {
+      expect(pad().toData()[0].points[0].x).toBeLessThan(size.width)
+      callback(ENCODED)
+    })
+    expect(await second.handle()?.exportPng()).toBe(ENCODED)
+    size = { width: 400, height: 160 }
+    act(() => resizeCallbacks.at(-1)?.())
+    expect(pad().toData()).toEqual([strokeGroup(396, 156)])
   })
 
   it("a remembered Clear stays empty; an untouched memory loads the saved Signature", () => {

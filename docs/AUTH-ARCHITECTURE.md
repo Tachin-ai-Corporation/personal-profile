@@ -210,7 +210,8 @@ The proxy never refreshes. On a proxy `401 TOKEN_EXPIRED`, `callApi` runs one
 `POST /api/session/refresh` (single-flight in the tab, `navigator.locks`
 across tabs), then replays each waiting call once. A non-GET is replayed only
 after a proxy `TOKEN_EXPIRED`. The refresh route answers 200 without calling
-the IdP when the token is still fresh, clears the cookie on an IdP rejection
+the IdP when more than 55 s remain (the activity guard, so ping replay can
+renew), clears the cookie on an IdP rejection
 (only a 401 or a 400 `invalid_grant`: 401 `SESSION_EXPIRED`) and keeps it
 otherwise (403, any other 400, 5xx, 3xx, timeout, unreadable answer: 503
 `REFRESH_UNAVAILABLE`; human decision 2026-10-14, spec R5-1). `expires_in` may
@@ -227,7 +228,8 @@ The server ages a session by `lastSeen` (15 min) and `iat` (8 h). `lastSeen`
 moves only on user activity (Story 1.6, AD-16):
 
 - `callApi` sends `X-PP-Activity: user` on every non-GET call and on reads
-  marked `userInitiated: true`; the proxy then re-seals `lastSeen` and echoes
+  marked `userInitiated: true`; proxy and named-op responses then re-seal
+  `lastSeen` and echo
   `X-PP-Activity-At` (the header is never forwarded upstream).
 - `POST /api/session/ping` (`recordUserActivity()`: "Stay signed in", Retry,
   app-bar page/tab moves) re-seals `lastSeen` only and answers 204 with
@@ -237,7 +239,9 @@ moves only on user activity (Story 1.6, AD-16):
   and RSC requests are not activity.
 - Race guard: within 55 s of token expiry (30 s skew + 25 s upstream
   timeout) nothing re-seals; the ping answers 401 `TOKEN_EXPIRED` so the
-  client refreshes first and replays it.
+  client refreshes first and replays it. Both proxy and named-op activity
+  responses check at request acceptance and completion, so a delayed result
+  cannot re-seal tokens after crossing the refresh boundary.
 
 On the client, `lib/api/activity.ts` keeps the latest echoed time and shares
 it across tabs over `BroadcastChannel("pp-activity")` (payload `{ t }` only).

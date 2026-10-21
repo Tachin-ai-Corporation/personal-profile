@@ -1,6 +1,6 @@
 import { http, HttpResponse, delay } from "msw"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { server } from "@/test/msw-server"
+import { server, trackAllRequests } from "@/test/msw-server"
 import { activity as defaultActivity, createActivity, type Activity } from "./activity"
 import { configureApiClient, createCallApi, getPortalUrl } from "./client"
 import { mapApiError } from "./errors"
@@ -295,6 +295,129 @@ describe("callApi transport", () => {
 })
 
 describe("callApi refresh (AD-16)", () => {
+  it.each(["read", "write-preflight"] as const)("aborts the %s caller waiting for shared refresh while another caller refreshes and replays", async (kind) => {
+    let release!: (response: Response) => void
+    let refreshCalls = 0
+    let refreshed = false
+    const hits: string[] = []
+    server.use(
+      http.post("/api/session/refresh", () => {
+        refreshCalls++
+        return new Promise<Response>((resolve) => { release = resolve })
+      }),
+      http.get("/api/1h/*", ({ request }) => {
+        hits.push(new URL(request.url).pathname)
+        return refreshed ? HttpResponse.json({ saved: true }) : proxyError("TOKEN_EXPIRED", 401)
+      }),
+    )
+    const call = freshClient()
+    const controller = new AbortController()
+    const add = vi.spyOn(controller.signal, "addEventListener")
+    const remove = vi.spyOn(controller.signal, "removeEventListener")
+    if (kind === "write-preflight") defaultPageUser.pin(42)
+    const canceled = kind === "read"
+      ? call("canceled", "/api/1h/canceled", { signal: controller.signal })
+      : call("canceled", "/api/1h/v2/user/edit", { method: "PUT", body: "{}", signal: controller.signal })
+    await vi.waitFor(() => expect(refreshCalls).toBe(1))
+    const surviving = call("surviving", "/api/1h/surviving")
+    await vi.waitFor(() => expect(hits).toHaveLength(2))
+    controller.abort()
+    expect(await canceled).toMatchObject({ success: false, errorCode: "NETWORK_ERROR" })
+    expect(published).toEqual([])
+    expect(remove.mock.calls.some(([name, listener]) => name === "abort" && add.mock.calls.some(([addedName, added]) => addedName === name && added === listener))).toBe(true)
+    refreshed = true
+    release(HttpResponse.json({ ok: true }))
+    expect(await surviving).toMatchObject({ success: true, data: { saved: true } })
+    expect(refreshCalls).toBe(1)
+    expect(hits).toEqual([kind === "read" ? "/api/1h/canceled" : "/api/1h/v2/user/myself", "/api/1h/surviving", "/api/1h/surviving"])
+    expect(published).toEqual([])
+  })
+
+  it("removes its abort listener after a shared refresh completes", async () => {
+    const controller = new AbortController()
+    const add = vi.spyOn(controller.signal, "addEventListener")
+    const remove = vi.spyOn(controller.signal, "removeEventListener")
+    expiringUpstream()
+    expect(await freshClient()("ctx", "/api/1h/x", { signal: controller.signal })).toMatchObject({ success: true })
+    // Fetch installs its own listeners too: every explicitly removed listener
+    // must have been registered, including the transport's refresh wait.
+    expect(remove.mock.calls.filter(([name]) => name === "abort").length).toBeGreaterThan(0)
+    for (const [name, listener] of remove.mock.calls) expect(add.mock.calls.some(([addedName, added]) => addedName === name && added === listener)).toBe(true)
+  })
+
+  it("does not refresh, replay or publish expiry when aborted as the expired response arrives", async () => {
+    const controller = new AbortController()
+    let hits = 0
+    server.use(http.get("/api/1h/x", () => {
+      hits++
+      controller.abort()
+      return proxyError("TOKEN_EXPIRED", 401)
+    }))
+    expect(await freshClient()("ctx", "/api/1h/x", { signal: controller.signal })).toMatchObject({ success: false, errorCode: "NETWORK_ERROR" })
+    expect(hits).toBe(1)
+    expect(published).toEqual([])
+  })
+
+  it("sends nothing for an already aborted caller", async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const requests = trackAllRequests()
+    expect(await freshClient()("ctx", "/api/1h/x", { signal: controller.signal })).toMatchObject({ success: false, errorCode: "NETWORK_ERROR" })
+    expect(requests()).toBe(0)
+    expect(published).toEqual([])
+  })
+
+  it("keeps cancellation local when it arrives as the refresh lock is acquired", async () => {
+    const controller = new AbortController()
+    let refreshCalls = 0
+    server.use(
+      http.get("/api/1h/x", () => proxyError("TOKEN_EXPIRED", 401)),
+      http.post("/api/session/refresh", () => { refreshCalls++; return HttpResponse.json({ ok: true }) }),
+    )
+    const locks: LockManagerLike = {
+      request: (_name, callback) => {
+        controller.abort()
+        return callback()
+      },
+    }
+    expect(await freshClient(() => locks)("ctx", "/api/1h/x", { signal: controller.signal })).toMatchObject({ success: false, errorCode: "NETWORK_ERROR" })
+    await vi.waitFor(() => expect(refreshCalls).toBe(1))
+    expect(published).toEqual([])
+  })
+
+  it("does not write after cancellation during a successful identity check", async () => {
+    const controller = new AbortController()
+    let writes = 0
+    server.use(http.put("/api/1h/v2/user/edit", () => { writes++; return HttpResponse.json({}) }))
+    server.use(http.get("/api/1h/v2/user/myself", () => {
+      controller.abort()
+      return HttpResponse.json({ id: 42 })
+    }))
+    const user = createPageUser()
+    user.pin(42)
+    expect(await createCallApi({ pageUser: user })("ctx", "/api/1h/v2/user/edit", { method: "PUT", body: "{}", signal: controller.signal })).toMatchObject({ success: false, errorCode: "NETWORK_ERROR" })
+    expect(writes).toBe(0)
+  })
+
+  it("aborts a held identity GET promptly without sending the guarded mutation", async () => {
+    const controller = new AbortController()
+    let release!: (response: Response) => void
+    let writes = 0
+    server.use(
+      http.get("/api/1h/v2/user/myself", () => new Promise<Response>((resolve) => { release = resolve })),
+      http.put("/api/1h/v2/user/edit", () => { writes++; return HttpResponse.json({}) }),
+    )
+    const user = createPageUser()
+    user.pin(42)
+    const call = createCallApi({ pageUser: user, events: createSessionEvents() })
+    const pending = call("ctx", "/api/1h/v2/user/edit", { method: "PUT", body: "{}", signal: controller.signal })
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"))
+    controller.abort()
+    expect(await pending).toMatchObject({ success: false, errorCode: "NETWORK_ERROR" })
+    expect(writes).toBe(0)
+    release(HttpResponse.json({ id: 42 }))
+  })
+
   function expiringUpstream() {
     let refreshed = false
     let refreshCalls = 0
@@ -669,7 +792,7 @@ describe("callApi save safeguard (D-A, spec NG-9027)", () => {
   it.each([
     ["a network failure", () => HttpResponse.error(), { success: false, errorCode: "NETWORK_ERROR" }, { kind: "network" }],
     ["a 502", () => proxyError("UPSTREAM_ERROR", 502), { success: false, statusCode: 502, errorCode: "UPSTREAM_ERROR" }, { kind: "network" }],
-    ["a body without a numeric id", () => HttpResponse.json({}), { success: false, statusCode: 200 }, { kind: "generic" }],
+    ["a body without a numeric id", () => HttpResponse.json({}), { success: false }, { kind: "network" }],
   ] as const)("a check that fails with %s: nothing sent, the check's failure returned, no publish", async (_label, answer, expected, mapped) => {
     upstream(answer)
     const res = await guardedClient()("ctx", EDIT, put)

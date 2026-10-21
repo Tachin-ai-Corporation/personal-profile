@@ -1,0 +1,26 @@
+[
+  {
+    "location": "lib/server/session/session-routes.ts:65",
+    "trigger_condition": "An activity ping occurs with 30\u201355 seconds remaining on the access token.",
+    "guard_snippet": "if (canRenewLastSeen(session, now())) return done(jsonOk({ ok: true }))",
+    "potential_consequence": "Refresh skips rotation; replay expires an otherwise valid session."
+  },
+  {
+    "location": "features/addresses/addresses-section.tsx:995-1006",
+    "trigger_condition": "User changes country, city, state or ZIP while picked suggestion details are pending.",
+    "guard_snippet": "if (rowRevision(rowKey) !== revisionAtPick) return",
+    "potential_consequence": "Late details overwrite manual edits and can incorrectly restore the Verified badge."
+  },
+  {
+    "location": "lib/api/client.ts:235",
+    "trigger_condition": "A write preflight receives HTTP 200 with malformed or missing myself identity.",
+    "guard_snippet": "if (check.kind === \"failed\") return { ...check.response, statusCode: undefined }",
+    "potential_consequence": "Unsent edits are reported saved, closing forms and discarding recoverable drafts."
+  },
+  {
+    "location": "features/shell/use-section-form.ts:559-563",
+    "trigger_condition": "A later section becomes invalid while Save all awaits identity verification or earlier saves.",
+    "guard_snippet": "if (!parsed.success) return Promise.resolve(invalidSaveResult()); return send(parsed.data, false)",
+    "potential_consequence": "Invalid current values bypass section validation and reach the save API."
+  }
+]

@@ -518,6 +518,41 @@ describe("AddressesSection: save", () => {
     expect(writes.map((write) => write.method)).toEqual(["POST", "PUT", "PUT"])
   })
 
+  it("validates and updates a created row edited after a later PUT and the recovery read fail", async () => {
+    let failing = true
+    let reads = 0
+    const { writes } = await render({
+      update: () => failing ? HttpResponse.json({ message: "boom" }, { status: 500 }) : undefined,
+      list: () => ++reads > 1 && failing ? HttpResponse.json({ message: "boom" }, { status: 500 }) : undefined,
+    })
+    const row = await addAddress({ type: "Home", line1: "7 Bay Rd", city: "Tahoe", zip: "96150" })
+    await click(primaryBox(row))
+    await click(button("Expand 1 Pine St, SF, CA 94105"))
+    await type(textbox(expandedRows()[0], "City"), "Oakland")
+    await save()
+    await waitFor(() => expect(banner()).not.toBeNull())
+    expect(writes.map((write) => write.method)).toEqual(["POST", "PUT"])
+    await click(button("Expand 7 Bay Rd, Tahoe 96150"))
+    const createdRow = expandedRows().find((expanded) => textbox(expanded, "Address line 1").value === "7 Bay Rd") as HTMLElement
+    await type(textbox(createdRow, "City"), "")
+    failing = false
+    await click(within(banner() as HTMLElement).getByRole("button", { name: "Retry" }))
+    await waitFor(() => expect(textbox(createdRow, "City").getAttribute("aria-invalid")).toBe("true"))
+    expect(writes).toHaveLength(2)
+    expect(isReadView()).toBe(false)
+    await type(textbox(createdRow, "City"), "Reno")
+    await click(within(banner() as HTMLElement).getByRole("button", { name: "Retry" }))
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(writes.map((write) => `${write.method} ${write.path}`)).toEqual([
+      "POST /api/1h/v2/person/location",
+      "PUT /api/1h/v2/person/location/2",
+      "PUT /api/1h/v2/person/location/2",
+      "PUT /api/1h/v2/person/location/31",
+    ])
+    expect(writes[3].body).toMatchObject({ cityName: "Reno", primary: true })
+    expect(within(section()).getByText("7 Bay Rd, Reno 96150")).toBeTruthy()
+  })
+
   it("a created row is never re-sent after a session end on the next step", async () => {
     const { writes } = await render({ update: () => HttpResponse.json({ errorCode: "SESSION_EXPIRED", source: "proxy" }, { status: 401 }) })
     const row = await addAddress({ type: "Home", line1: "7 Bay Rd", city: "Tahoe", zip: "96150" })

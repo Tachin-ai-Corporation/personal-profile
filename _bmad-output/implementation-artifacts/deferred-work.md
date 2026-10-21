@@ -437,3 +437,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-4-primary-address-and-removal.md`
   summary: (Foundation) `Tooltip` has no `disabled`/`open={false}` option, so the Addresses "Set as primary" checkbox stays wrapped in an always-mounted Tooltip with empty, hidden content while unlocked (to avoid a remount that loses focus). Add an option and drop the workaround.
   evidence: components/ui/tooltip.tsx; features/addresses/addresses-section.tsx (`PrimaryField`). Review row 25 of spec 4.4.
+
+## Deferred from: integrated code review (2026-10-21)
+
+- Foundation / dependency tooling: `braces@3.0.3` through `eslint-config-next → @next/eslint-plugin-next → fast-glob → micromatch` is flagged by [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm). The advisory lists no patched version as of this review. This is a development lint dependency; no production dependency path was reported. Track a supported upstream fix and rerun the complete audit then. Do not suppress the advisory globally or replace the lint stack in this maintenance patch. Production high/critical audits run in CI. **2026-10-21 follow-up: mitigated locally by user request** with the version-specific pnpm patch `patches/braces@3.0.3.patch`, bounding active brace/parenthesis AST depth to100; regression tests exercise the installed ESLint dependency. Upstream release tracking remains open: the full registry audit still reports3.0.3, and no advisory ignore rule is added. See `patches/README.md` for scope, verification and removal steps.

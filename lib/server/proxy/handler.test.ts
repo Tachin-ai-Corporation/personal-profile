@@ -452,6 +452,20 @@ describe("proxy: user activity (Story 1.6)", () => {
     expect(response.headers.get("X-PP-Activity-At")).toBe(String(NOW))
   })
 
+  it("a delayed marked response crossing the refresh boundary never restores old tokens", async () => {
+    let at = NOW
+    server.use(http.get(`${UP}/v2/user/myself`, () => {
+      at += 3_000
+      return HttpResponse.json({ id: 42 })
+    }))
+    const delayed = createProxyHandler({ allowlist: FIXTURES, env: env(), now: () => at })
+    const response = await call({ path: "v2/user/myself", session: makeSession({ accessExpiresAt: NOW + 56_000 }), headers: ACTIVITY }, delayed)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ id: 42 })
+    expect(response.headers.get("Set-Cookie")).toBeNull()
+    expect(response.headers.get("X-PP-Activity-At")).toBeNull()
+  })
+
   it("an upstream 401 (TOKEN_EXPIRED) is not re-sealed: the client refreshes and replays", async () => {
     server.use(http.get(`${UP}/v2/user/myself`, () => new HttpResponse(null, { status: 401 })))
     const response = await call({ path: "v2/user/myself", headers: ACTIVITY })

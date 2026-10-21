@@ -1,0 +1,8 @@
+[
+  {
+    "location": "lib/server/proxy/handler.ts:147",
+    "trigger_condition": "Proxy starts above 55 seconds remaining and finishes after a concurrent refresh below 55 seconds",
+    "guard_snippet": "return done(await recordSessionActivity(request, result.response, session, checkedAt, now()))",
+    "potential_consequence": "Late activity cookie restores rotated-away tokens; the next refresh can terminate the session."
+  }
+]

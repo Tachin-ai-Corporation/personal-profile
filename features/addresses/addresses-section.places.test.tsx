@@ -571,6 +571,43 @@ describe("AddressesSection: address suggestions (Story 4.3)", () => {
     expect(badgeOf("12 Elm St")).toBeNull()
   })
 
+  it.each([
+    ["City", "Oakland"],
+    ["Zip", "94612"],
+    ["State/Province (optional)", "Oregon"],
+    ["County (optional)", "Alameda"],
+    ["Address line 2 (optional)", "Suite 12"],
+    ["Country", "Canada"],
+  ])("a manual %s edit after a pick survives its held details answer", async (field, value) => {
+    const answer = held()
+    const { calls, writes } = await render({
+      details: async () => {
+        await answer.promise
+        return HttpResponse.json(COMPLETE)
+      },
+    })
+    const row = await kebabEdit("9 Oak Ave, Apt 4, SF, CA 94105")
+    await search(row, "1 Pin")
+    await pickFirst(row)
+    await waitFor(() => expect(calls.details).toHaveLength(1))
+    if (field === "Country") await pickSelect(countryTrigger(row), value)
+    else await type(textbox(row, field), value)
+    await act(async () => answer.release())
+    await pastDebounce()
+    expect(line1(row).value).toBe("1 Pine Street")
+    expect(field === "Country" ? countryTrigger(row).textContent : textbox(row, field).value).toBe(value)
+    // Dropping the entire stale fill keeps the untouched parts and never claims verification.
+    if (field !== "City") expect(textbox(row, "City").value).toBe("SF")
+    if (field !== "Zip") expect(textbox(row, "Zip").value).toBe("94105")
+    expect(status()).toBe("")
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(writes).toHaveLength(1)
+    expect(writes[0].body.validated).toBe(false)
+    // A details request ends its billing session even if a later edit makes its answer stale.
+    expect(calls.details[0].lookupId).toBe(calls.autocomplete[0].lookupId)
+  })
+
   it("line 1 is read-only while saving: readOnly + aria-readonly, a change is ignored (value and body), no search", async () => {
     const writesHeld = held()
     const { calls, writes } = await render({ holdWrites: writesHeld.promise })

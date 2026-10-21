@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { setTelemetrySink, type TelemetryEvents } from "@/lib/shared/telemetry"
 import { axeViolations } from "@/test/axe"
 import { stubViewport } from "@/test/media"
-import { FIXTURE_BASELINE, FixtureSection, type FixtureSectionProps } from "./__fixtures__/fixture-section"
+import { FIXTURE_BASELINE, fixtureDraftDiff, FixtureSection, type FixtureSectionProps } from "./__fixtures__/fixture-section"
 import { fixtureSectionSchema, type FixtureSectionValues } from "./__fixtures__/schema"
 import { z } from "zod"
 import { CONTACT_MESSAGES, PERSON_MESSAGES } from "@/lib/shared/messages"
@@ -13,6 +13,7 @@ import { SectionFooter } from "./section-footer"
 import { SectionHeader } from "./section-header"
 import { useSectionForm, type SectionForm, type UseSectionFormOptions } from "./use-section-form"
 import { runSaveSteps } from "./run-save-steps"
+import { runSaveAll } from "./save-all"
 import { createSectionRegistry, type SectionRegistry } from "./section-registry"
 import { SectionRegistryProvider, useSectionRegistry } from "./section-registry"
 import { toastError, toastSuccess } from "./toasts"
@@ -549,7 +550,7 @@ describe("review fixes", () => {
     expect(toastError).not.toHaveBeenCalled()
   })
 
-  it("registered save sends the schema-parsed values (raw when they don't parse), like the own Save", async () => {
+  it("registered save preserves schema transformations and refuses invalid current values", async () => {
     const saveFn = vi.fn<(values: FixtureSectionValues) => Promise<SaveResult>>(async () => OK)
     setup({ save: saveFn })
     await edit()
@@ -564,8 +565,39 @@ describe("review fixes", () => {
     await edit()
     type(number(), "1")
     type(note(), " x ")
-    await act(async () => void (await section.save()))
-    expect(saveFn.mock.calls[2][0]).toEqual({ number: "1", note: " x " })
+    let result: SaveResult | undefined
+    await act(async () => { result = await section.save() })
+    expect(result).toEqual({ ok: false, error: { code: "GENERIC" } })
+    expect(saveFn).toHaveBeenCalledTimes(2)
+    expect(number().value).toBe("1")
+    expect(note().value).toBe(" x ")
+    expect(number().getAttribute("aria-invalid")).toBe("true")
+    expect(screen.getByText(CONTACT_MESSAGES.phoneTenDigits)).toBeTruthy()
+    expect(registry?.isAnyDirty()).toBe(true)
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy()
+    expect(toastSuccess).toHaveBeenCalledTimes(1)
+  })
+
+  it("Save all refuses a later edit that becomes invalid while an earlier section saves", async () => {
+    const saveFn = vi.fn(async () => OK)
+    setup({ save: saveFn, draftFields: ["number", "note"], describeDraftDiff: fixtureDraftDiff })
+    await edit()
+    type(number(), "4155550000")
+    let release = (): void => undefined
+    const pending = new Promise<SaveResult>((resolve) => { release = () => resolve(OK) })
+    const earlier = vi.fn(() => pending)
+    registry?.register({ id: "personal", label: "Personal", displayOrder: 1, isDirty: true, validate: () => ({ valid: true }), save: earlier, discard: () => undefined })
+    let batch: ReturnType<typeof runSaveAll> | undefined
+    await act(async () => { batch = runSaveAll(registry!) })
+    await waitFor(() => expect(earlier).toHaveBeenCalledOnce())
+    type(number(), "1")
+    await act(async () => { release(); await batch })
+    expect(saveFn).not.toHaveBeenCalled()
+    expect(await batch).toMatchObject({ kind: "done", saved: [{ id: "personal" }], failed: [{ id: "phone" }] })
+    expect(number().value).toBe("1")
+    expect(number().getAttribute("aria-invalid")).toBe("true")
+    expect(registry?.get("phone")?.getDraftValues?.()).toEqual({ number: "1", note: "" })
+    expect(registry?.get("phone")?.isDirty).toBe(true)
   })
 
   it("after a save, a new server baseline replaces the saved values; A → B → A never resurrects the saved override", async () => {

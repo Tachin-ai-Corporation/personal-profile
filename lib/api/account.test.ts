@@ -67,7 +67,9 @@ describe("Account preserves failed identity preflights", () => {
         http.put("/api/1h/v2/user/edit", () => { sent++; return new HttpResponse(null, { status: 204 }) }),
         http.post("/api/1h/v2/user/:part", () => { sent++; return new HttpResponse(null, { status: 204 }) }),
       )
-      expect(await run()).toMatchObject({ success: false, statusCode: 200 })
+      const result = await run()
+      expect(result.success).toBe(false)
+      expect(result.statusCode).toBeUndefined()
       expect(sent).toBe(0)
     })
   }

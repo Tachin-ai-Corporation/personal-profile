@@ -3,10 +3,11 @@
  * silent unless `isLocalDev()` (never in a Vercel build or under test).
  * Redacts SSN-shaped values, MFA `code`, `qrCode`, `lpl`, token-like keys and
  * `authorization`. There is no in-app API Inspector.
- * NPI registration reads and searches log metadata only: their query strings
+ * NPI registration/search and Places calls log metadata only: their query strings
  * and all request/response payloads stay out of the console, including errors.
  */
 
+import { BFF_PATHS } from "@/lib/shared/bff-contract"
 import { isLocalDev } from "@/lib/shared/app-env"
 
 export interface ApiCallLog {
@@ -63,7 +64,7 @@ export function logApiCall(entry: ApiCallLog): void {
     .replace(/%([0-9a-f]{2})/gi, (_match, byte: string) => String.fromCharCode(Number.parseInt(byte, 16)))
     .replace(/\/{2,}/g, "/")
     .replace(/\/$/, "")
-  const metadataOnly = pathname === "/api/1h/v2/user/npi" || pathname === "/api/1h/v2/public/npi/list"
+  const metadataOnly = pathname === "/api/1h/v2/user/npi" || pathname === "/api/1h/v2/public/npi/list" || pathname === BFF_PATHS.placesAutocomplete || pathname === BFF_PATHS.placesDetails
   console.groupCollapsed(`[api] ${entry.method} ${metadataOnly ? pathname : entry.path} → ${entry.status ?? "network error"} (${entry.durationMs} ms)`)
   if (metadataOnly) {
     console.groupEnd()

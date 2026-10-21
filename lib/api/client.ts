@@ -191,6 +191,20 @@ export type CallApi = <T = unknown>(context: string, path: string, init?: CallAp
 const SESSION_EXPIRED: ApiResponse<never> = { success: false, statusCode: 401, errorCode: "SESSION_EXPIRED" }
 const REFRESH_UNAVAILABLE: ApiResponse<never> = { success: false, statusCode: 503, errorCode: "REFRESH_UNAVAILABLE" }
 
+/** Cancel only this caller's wait; other requests still need the shared refresh. */
+function waitForRefresh(refresh: Promise<RefreshOutcome>, signal: AbortSignal | null | undefined): Promise<RefreshOutcome | undefined> {
+  if (!signal) return refresh
+  if (signal.aborted) return Promise.resolve(undefined)
+  return new Promise((resolve) => {
+    const abort = (): void => { signal.removeEventListener("abort", abort); resolve(undefined) }
+    signal.addEventListener("abort", abort, { once: true })
+    void refresh.then((outcome) => {
+      signal.removeEventListener("abort", abort)
+      resolve(outcome)
+    })
+  })
+}
+
 /** Builds a `callApi` (tests inject events and locks; the app uses the default). */
 export function createCallApi(deps: ApiClientDeps = {}): CallApi {
   const events = deps.events ?? sessionEvents
@@ -218,6 +232,7 @@ export function createCallApi(deps: ApiClientDeps = {}): CallApi {
     }
 
     const { userInitiated, ...callerRest } = callerInit
+    if (callerRest.signal?.aborted) return networkError<T>(context).response
     const method = (callerRest.method ?? "GET").toUpperCase()
     // The first send and the replay carry the same init (and activity header).
     let init: RequestInit
@@ -229,10 +244,17 @@ export function createCallApi(deps: ApiClientDeps = {}): CallApi {
     }
     // D-A: a write goes out only for the page user (fail closed); a verified batch checked once already.
     if (isDataWrite(method, path) && !pageUser.isVerified()) {
-      const check = await checkPageUser(callApi, { pageUser, events })
+      const identityCall: CallApi = (checkContext, checkPath, checkInit) => callApi(checkContext, checkPath, { ...checkInit, signal: init.signal })
+      const check = await checkPageUser(identityCall, { pageUser, events })
+      if (init.signal?.aborted) return networkError<T>(context).response
       // Another user: the session-ended answer (`session-expired` already published once by the check).
       if (check.kind === "other") return SESSION_EXPIRED
-      if (check.kind === "failed") return check.response
+      if (check.kind === "failed") {
+        // This is the identity read's status, not an acknowledgement of the
+        // blocked mutation. Resource wrappers accept unreadable write 2xx.
+        const { statusCode, ...failure } = check.response
+        return statusCode !== undefined && statusCode >= 200 && statusCode < 300 ? failure : check.response
+      }
       // No `myself` ever loaded, so no page user to check against: blocked like a failed check (network error, Retry).
       if (check.kind === "unpinned") return networkError<T>(context).response
     }
@@ -242,7 +264,8 @@ export function createCallApi(deps: ApiClientDeps = {}): CallApi {
     // a non-GET is never replayed after a 5xx, timeout or network error.
     if (!(first.fromProxy && first.response.errorCode === "TOKEN_EXPIRED")) return publishFor(first)
 
-    const outcome = await coordinator.refresh()
+    const outcome = await waitForRefresh(coordinator.refresh(), init.signal)
+    if (!outcome || init.signal?.aborted) return networkError<T>(context).response
     if (outcome.kind === "expired") {
       events.publish("session-expired")
       return SESSION_EXPIRED
