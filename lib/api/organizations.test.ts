@@ -47,6 +47,12 @@ it("sorts by displayed names after trimming surrounding whitespace", async () =>
   ]))))
   expect((await listOrganizations({ name: "", page: 0 })).data?.items.map((item) => item.tenantId)).toEqual(["2", "3", "1"])
 })
+it("sorts missing full names using the displayed Not provided fallback", async () => {
+  server.use(http.get(organizationRoute, () => HttpResponse.json(organizationPage([
+    organizationRow(1, "n/a"), organizationRow(2, "Nora"), organizationRow(3, "Ocean"), organizationRow(4, " -1 "),
+  ]))))
+  expect((await listOrganizations({ name: "", page: 0 })).data?.items.map((item) => item.tenantId)).toEqual(["2", "1", "4", "3"])
+})
 it.each([
   { type: null, personContacts: null }, {},
   { type: [], personContacts: [{ contactTypes: null }] },

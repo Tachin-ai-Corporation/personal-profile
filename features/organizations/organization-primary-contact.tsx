@@ -16,8 +16,9 @@ export function OrganizationPrimaryContact({ name, contacts }: { readonly name: 
   const phone = isNotProvided(contact?.phoneNumber) ? missing : formatPhoneDisplay(contact!.phoneNumber!.trim(), contact?.phoneNumberRegion)
   const email = isNotProvided(contact?.email) ? missing : contact!.email!.trim()
   // Protocol-shaped values remain text. Only a plain address becomes a mailto URL.
-  const plainEmail = /^[^\s@:< >]+@[^\s@:< >]+\.[^\s@:< >]+$/.test(email) && !/[\u0000-\u001f\u007f?#%&/\\]/.test(email)
-  const href = plainEmail ? safeHref(`mailto:${email}`, ["mailto:"]) : undefined
+  const plainEmail = /^[^\s@:< >]+@[^\s@:< >%&/]+\.[^\s@:< >%&/]+$/.test(email) && !/[\u0000-\u001f\u007f?#\\]/.test(email)
+  // Encode mailbox delimiters literally, including '%' so encoded headers cannot be injected.
+  const href = plainEmail ? safeHref(`mailto:${email.replace(/[%&/]/g, (character) => encodeURIComponent(character))}`, ["mailto:"]) : undefined
   return (
     <InfoPopover title={ORG_MESSAGES.primaryContact} trigger={<InfoIconButton icon="info" aria-label={formatMessage(ORG_MESSAGES.primaryContactFor, { name })} />}>
       <div className="flex min-w-0 flex-col gap-2">

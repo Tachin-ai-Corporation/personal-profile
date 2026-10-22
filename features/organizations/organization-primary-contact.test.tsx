@@ -39,9 +39,24 @@ describe("OrganizationPrimaryContact", () => {
     const { dialog } = await open([{ contactTypes: ["Primary"], firstName: "n/a", phoneNumber: "-1", email: "" }])
     expect(within(dialog).getAllByText("-", { exact: true })).toHaveLength(3)
   })
-  it.each(["javascript:alert(1)", "javascript:user@example.com", "https://example.com", "mailto:ann@example.com", "bad address@example.com", "x@example.com?subject=evil"])("keeps unsafe/protocol email %s as text", async (email) => {
+  it.each([
+    ["a&b@example.test", "mailto:a%26b@example.test"],
+    ["a%b@example.test", "mailto:a%25b@example.test"],
+    ["a/b@example.test", "mailto:a%2Fb@example.test"],
+    ["a%0D%0ABcc%3Ahidden@example.test", "mailto:a%250D%250ABcc%253Ahidden@example.test"],
+  ])("links valid mailbox characters literally in %s without query/header injection", async (email, href) => {
     const { dialog } = await open([{ ...primary, email }])
-    expect(within(dialog).getByText(email)).toBeTruthy()
+    const link = within(dialog).getByRole("link", { name: email })
+    expect(link.getAttribute("href")).toBe(href)
+    const parsed = new URL(link.getAttribute("href")!)
+    expect(parsed.search).toBe("")
+    expect(parsed.hash).toBe("")
+    expect(decodeURIComponent(parsed.pathname)).toBe(email)
+    expect(/[\r\n]/.test(decodeURIComponent(parsed.pathname))).toBe(false)
+  })
+  it.each(["javascript:alert(1)", "javascript:user@example.com", "https://example.com", "mailto:ann@example.com", "bad address@example.com", "x@example.com?subject=evil", "x@example.com#fragment", "x@example.com\r\nBcc:hidden@example.com", "x@example.com%3Fsubject=evil", "x@example.com&bcc=hidden@example.com", "x@example.com/path"])("keeps unsafe/protocol email %s as text", async (email) => {
+    const { dialog } = await open([{ ...primary, email }])
+    expect(within(dialog).getByText(email, { normalizer: (text) => text })).toBeTruthy()
     expect(within(dialog).queryByRole("link")).toBeNull()
   })
 })

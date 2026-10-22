@@ -20,4 +20,17 @@ describe("organization pagination", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }))
     expect(onPage).not.toHaveBeenCalled()
   })
+  it("keeps pending page controls focusable and aria-disabled while suppressing activation", () => {
+    const onPage = vi.fn()
+    render(<OrganizationsPagination page={1} totalPages={3} pending onPage={onPage} />)
+    for (const button of screen.getAllByRole("button")) {
+      expect(button.getAttribute("aria-disabled")).toBe("true")
+      expect(button.hasAttribute("disabled")).toBe(false)
+      expect(button.tabIndex).toBe(0)
+      expect(button.className).toContain("h-11")
+      fireEvent.click(button)
+    }
+    expect(onPage).not.toHaveBeenCalled()
+  })
+
 })

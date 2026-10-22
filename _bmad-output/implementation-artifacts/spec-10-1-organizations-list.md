@@ -141,3 +141,50 @@ Integrated BMAD Build review of all three stories, including the previously merg
 All three BMAD Build review layers completed. Per-finding verdicts and grouped fixes are recorded in spec-10-1-organizations-list.md; no unresolved implementation blocker remains. Accepted patches: prevent paging an obsolete filter during debounce, trim displayed-name sort keys, scan actual zero-result accessibility, exercise both internal creation handoffs, and prove UJ104 removes a nonmatching organization. Original implementers supplied owned patches; root inspected them.
 
 Post-review verification:241 files /7,626 tests passed;100% statements/branches/functions/lines over the enforced libraries and features/organizations,139 fully covered files, no new exclusions. Production build and browser regressions:104 passed,2 expected modality skips, no retries/failures. Lint, typecheck, forbidden/tokens and whitespace checks pass. Logs: /tmp/epic10-reviewed-acceptance-tests.log and /tmp/epic10-reviewed-final-browser.log. Real-origin and intended-tenant QA remain explicitly pending under approved option1; these local checks do not claim them. Requested standalone bmad-code-review is running against the integrated story change before final delivery.
+
+### Review Findings — standalone bmad-code-review (2026-10-21)
+
+Full review of30 story-owned files against all three approved specs and loaded foundation/Epic context. All four layers completed successfully; verification-gap found no gaps and Acceptance Auditor found no violations. Findings below retain individual verdicts before grouping. Existing authorization to complete10.1–10.3 and fix necessary defects covers these private implementation corrections; no additional publication authorization is inferred.
+
+| ID / source | Title / location | Verdict | Verified evidence and route |
+| --- | --- | --- | --- |
+| 1 / blind-hunter | Legitimate mailbox characters lose links; organization-primary-contact.tsx | low | The blacklist rejects a&b@example.test and percent/slash local parts although they can safely be mailbox text when URL-encoded. Patch the private mailto construction, retaining unsafe protocol/control/query-value rejection. |
+| 2 / blind-hunter | Contradictory page envelopes; organizations.ts | false | The cited malformed combinations are not produced by the real endpoint: UserServiceImpl returns Page.of(data, requestedPage, size, totalElements), and PageImpl computes totalPages from that count/size. Structural external validation is present; no demonstrated producer or actual contradictory response justifies extra speculative metadata rules. |
+| 3 / blind-hunter | Missing-name fallback sorts differently; organizations.ts | low | A full name n/a is rendered as Not provided but sorted as n/a. Directly align only sort keys with the existing provided-value/display fallback and cover sentinels. |
+| 4 / blind-hunter | Search truncation splits supplementary Unicode; use-organizations.ts | low |99 ASCII characters followed by an emoji are sliced at its high surrogate. Direct correction preserves the100 UTF-16-unit transport bound while removing a dangling high surrogate. |
+| 5 / blind-hunter | IME composition can trigger unfinished search; organizations-tab/use-organizations | medium | No composition handlers exist; a500ms pause during composition commits provisional input. Patch private composition tracking so only completed text reaches debounce; verify no HTTP/focus loss while composing. |
+| 6 / blind-hunter | Pending-search pager has misleading enabled semantics; organizations-pagination.tsx | low | The prior confirmed stale-query guard silently ignores activation while controls still advertise availability. Expose the private pending flag as aria-disabled on pager buttons and cover it. |
+| 7 / blind-hunter | Wide/tall logo browser fixtures absent; card browser test | low | Existing tests cover successful/failing/loading protected images, geometry at360px, all grid breakpoints and shared fallback-image behavior. An extra aspect-ratio fixture is a rare enhancement, not an observed layout defect; reject because it adds fixture/test complexity without demonstrated user harm. |
+| 8 / blind-hunter | Duplicate tenant IDs; organizations.ts | false | Backend fetchUserTenantsByName passes Set.copyOf(tenantsAfterFiltration) to the one-config-per-tenant read. The proposed duplicate producer is not this endpoint; React keys use validated identity and no duplicate response was demonstrated. |
+| 9 / blind-hunter | Verification evidence is only ephemeral; specs | false | Essential command scopes, pass counts, coverage totals, ownership decisions and review verdicts are persisted in the committed specs. /tmp paths are supplemental raw local logs, not the only evidence. The committed executable tests remain reproducible in CI. |
+| 10 / blind-hunter | QA follow-ups lack completion criteria/owner; deferred-work.md | false | Both append-only entries already state concrete checks (exact live hosts, intended tenant after contract confirmation) and source specs under Team B ownership. They follow the required source_spec/summary/evidence schema; no missing acceptance criterion or proven assignment failure is established. |
+| 11 / edge-case-hunter | All memberships disappear on later page; use-organizations.ts | medium | A later-page response with totalElements0 hides the pager, leaves query.page>0, and prevents the blank page0 registration state. Patch private query recovery to page0 and verify membership-removal/search cases without stealing input focus. |
+
+- [x] [Review][Patch] Safely encode legitimate mailbox local-part characters while preserving unsafe-input handling [features/organizations/organization-primary-contact.tsx].
+- [x] [Review][Patch] Align sentinel-name sorting with displayed fallback [lib/api/organizations.ts].
+- [x] [Review][Patch] Preserve complete Unicode at the bounded search boundary [features/organizations/use-organizations.ts].
+- [x] [Review][Patch] Wait for IME composition before debounced querying [features/organizations/use-organizations.ts].
+- [x] [Review][Patch] Advertise pending-query pager controls as disabled [features/organizations/organizations-pagination.tsx].
+- [x] [Review][Patch] Recover an emptied later page to page0 [features/organizations/use-organizations.ts].
+
+#### Rejected
+
+- 2: false — real PageImpl computes the cited metadata; no contradictory producer demonstrated.
+- 7: low — additional image aspect-ratio fixtures add complexity for an unobserved rare layout risk.
+- 8: false — producer deduplicates tenant IDs and returns one configuration per tenant.
+- 9: false — essential evidence is already durable in committed specs and executable tests.
+- 10: false — concrete QA completion checks and Team B/source ownership are already documented in the prescribed format.
+
+### Final standalone review and delivery verification
+
+Requested bmad-code-review completed with all four independent layers: Blind Hunter, Edge Case Hunter, Verification Gap Reviewer and Acceptance Auditor. No layer failed. Six confirmed private corrections were applied and inspected; five findings were rejected with individual evidence in10.1's Review Findings. No unresolved high/medium implementation issue, decision-needed item or new deferred defect remains. Final corrections safely encode mailbox characters, align missing-name sort fallback, preserve complete Unicode, wait for IME composition, expose pending pager semantics, and recover removed memberships to a freshly validated page0. Recovery tests use the actual2s SWR dedup interval and held responses, including concurrent queries and expiry.
+
+Final verification on the reviewed source:
+- 241 Vitest files /7,644 tests passed with `--maxWorkers=4`. Enforced libraries plus features/organizations are100% covered:3,110 statements,2,256 branches,726 functions,2,574 lines;139 fully covered files, no new coverage exclusions.
+- Production build includes all final source changes. Playwright:104 passed,2 expected modality skips,0 failures/retries,55.4s; desktop/mobile, light/dark axe, organization journeys, Account and shared fixture regressions. Existing compiled production build was reused for this final browser pass without code changes.
+- Full ESLint, typecheck, forbidden/token checks and whitespace pass.
+- Logs: /tmp/epic10-final-limited-tests.log, /tmp/epic10-final-limited-browser.log, /tmp/epic10-delivery-{lint,types,forbidden}.log; coverage /tmp/epic10-final-limited-coverage. Essential scopes/results are durable here; temporary raw logs are supplemental.
+
+Earlier final-run attempts were invalidated by actual macOS sleep events (power log recorded Dark Wake Thermal Emergency), with simultaneous multi-minute unrelated-test timeouts. The clean final runs above used reduced concurrency and sequential suites; no application code or test timeout was changed to accommodate those interruptions.
+
+Specifications are locally done; the three sprint story keys stay review pending remote delivery/merge, preserving the sprint header and last_updated as required for feature branches. Actual demo/prod logo origins and intended-tenant navigation remain the explicitly human-approved option1 QA follow-ups. Foundation PR43 is already merged; publication of the story integration branch is a separate final action.

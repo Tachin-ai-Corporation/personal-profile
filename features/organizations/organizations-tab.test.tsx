@@ -286,6 +286,11 @@ describe("My Organizations list", () => {
     await screen.findByRole("heading", { name: "Alpha" })
     act(() => search().focus())
     fireEvent.change(search(), { target: { value: " Beta " } })
+    for (const button of screen.getByRole("navigation").querySelectorAll("button")) {
+      expect(button.getAttribute("aria-disabled")).toBe("true")
+      expect(button.hasAttribute("disabled")).toBe(false)
+      expect(button.tabIndex).toBe(0)
+    }
     fireEvent.click(screen.getByRole("button", { name: "Next" }))
     expect(requests).toEqual([":0"])
     expect(document.activeElement).toBe(search())
@@ -293,6 +298,74 @@ describe("My Organizations list", () => {
     expect(requests).toEqual([":0", "Beta:0"])
     expect(document.activeElement).toBe(search())
     expect(screen.getByRole("button", { name: "1" }).getAttribute("aria-current")).toBe("page")
+  })
+
+  it("waits for IME composition to end before debouncing the final text and keeps input focus", async () => {
+    const names: string[] = []
+    renderList([http.get(READ, ({ request }) => {
+      const name = new URL(request.url).searchParams.get("name") ?? ""
+      names.push(name)
+      return HttpResponse.json(page([row(name || "Alpha")], 24, 2))
+    })])
+    await screen.findByRole("heading", { name: "Alpha" })
+    act(() => search().focus())
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    try {
+      fireEvent.compositionStart(search())
+      fireEvent.change(search(), { target: { value: "に" } })
+      await act(async () => { await vi.advanceTimersByTimeAsync(600) })
+      fireEvent.change(search(), { target: { value: "日本" } })
+      await act(async () => { await vi.advanceTimersByTimeAsync(600) })
+      expect(names).toEqual([""])
+      expect(document.activeElement).toBe(search())
+      expect(screen.getByRole("button", { name: "Next" }).getAttribute("aria-disabled")).toBe("true")
+      fireEvent.compositionEnd(search(), { data: "日本" })
+      await act(async () => { await vi.advanceTimersByTimeAsync(499) })
+      expect(names).toEqual([""])
+      await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    } finally { vi.useRealTimers() }
+    await screen.findByRole("heading", { name: "日本" })
+    expect(names).toEqual(["", "日本"])
+    expect(document.activeElement).toBe(search())
+    expect(screen.getByRole("button", { name: "Next" }).getAttribute("aria-disabled")).toBeNull()
+  })
+  it.each([false, true])("recovers an entirely emptied later page to page zero with filtered=%s", async (filtered) => {
+    const requests: string[] = []
+    let removed = false
+    let finishRecovery!: (response: Response) => void
+    renderInPage(<SWRConfig value={{ dedupingInterval: 2000 }}><OrganizationsTab /></SWRConfig>, { page: "account", handlers: [http.get(READ, ({ request }) => {
+      const q = new URL(request.url).searchParams
+      const number = Number(q.get("page"))
+      requests.push(`${q.get("name")}:${number}`)
+      if (number === 1) removed = true
+      else if (removed) return new Promise<Response>((done) => { finishRecovery = done })
+      return HttpResponse.json(removed ? page([], 0, 0, number) : page([row()], 13, 2, number))
+    })] })
+    await screen.findByRole("heading", { name: "Alpha" })
+    if (filtered) {
+      fireEvent.change(search(), { target: { value: " filter " } })
+      await waitFor(() => expect(requests).toEqual([":0", "filter:0"]))
+      await waitFor(() => expect(screen.getByRole("article")).toBeTruthy())
+      act(() => search().focus())
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Next" }))
+    await waitFor(() => expect(finishRecovery).toBeTypeOf("function"))
+    expect(screen.queryByRole("article")).toBeNull()
+    expect(screen.queryByRole("heading", { name: ORG_MESSAGES.emptyTitle })).toBeNull()
+    await act(async () => finishRecovery(HttpResponse.json(page([], 0, 0, 0))))
+    if (filtered) {
+      await screen.findByText(ORG_MESSAGES.noResults)
+      await waitFor(() => expect(requests).toEqual([":0", "filter:0", "filter:1", "filter:0"]))
+      expect(search()).toHaveProperty("value", " filter ")
+      expect(document.activeElement).toBe(search())
+      expect(screen.queryByRole("heading", { name: ORG_MESSAGES.emptyTitle })).toBeNull()
+    } else {
+      await screen.findByRole("heading", { name: ORG_MESSAGES.emptyTitle })
+      expect(requests).toEqual([":0", ":1", ":0"])
+      expect(screen.queryByRole("searchbox")).toBeNull()
+    }
+    expect(screen.queryByRole("navigation")).toBeNull()
+    expect(screen.getByRole("status").textContent).toBe("0 organizations")
   })
 
 })

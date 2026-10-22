@@ -12,6 +12,7 @@
 
 import { BFF_PATHS } from "@/lib/shared/bff-contract"
 import { providedOrNull } from "@/lib/shared/display-value"
+import { COMMON_MESSAGES } from "@/lib/shared/messages/common"
 import { z } from "zod"
 import { callApi } from "./client"
 import { proxyPath } from "./config"
@@ -98,7 +99,11 @@ export async function listOrganizations(input: { readonly name: string; readonly
     items.push({ tenantId: row.tenantId, enabledInTenant: row.enabledInTenant, name: organization.name,
       shortName: providedOrNull(organization.shortOrganizationName), types: organization.type, personContacts: organization.personContacts })
   }
-  items.sort((left, right) => (left.shortName ?? left.name).trim().toLowerCase().localeCompare((right.shortName ?? right.name).trim().toLowerCase()))
+  items.sort((left, right) => {
+    const leftName = providedOrNull(left.shortName) ?? providedOrNull(left.name) ?? COMMON_MESSAGES.notProvided
+    const rightName = providedOrNull(right.shortName) ?? providedOrNull(right.name) ?? COMMON_MESSAGES.notProvided
+    return leftName.trim().toLowerCase().localeCompare(rightName.trim().toLowerCase())
+  })
   return { success: true, statusCode: response.statusCode, data: { items, totalElements: parsed.data.totalElements, totalPages: parsed.data.totalPages, pageNumber: parsed.data.pageNumber } }
 }
 
