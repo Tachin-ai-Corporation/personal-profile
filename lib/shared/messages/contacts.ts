@@ -75,7 +75,7 @@ export const CONTACT_MESSAGES = {
   socialEmpty: "No social links yet", // DRAFT COPY (epics Story 3.7 empty Section)
   addLink: "Add link", // DRAFT COPY (epics Story 3.7 header and empty-state action)
   socialRequired: "Enter a link", // DRAFT COPY (epics Story 3.7 empty link)
-  socialInvalid: "Enter a link that starts with https://", // DRAFT COPY (spec 3.7 https links only, human decision 2026-10-19)
+  socialInvalid: "Enter a link that starts with http:// or https://", // DRAFT COPY (spec 3.7, http links allowed: QA bug fix 2026-10-22)
   socialLimit: "You've reached the limit of 20 links", // DRAFT COPY (epics Story 3.7, follows the phone pattern)
   socialPrimaryLocked: "This link can't be removed or changed here.", // DRAFT COPY (spec 3.7 legacy Primary link)
 } as const

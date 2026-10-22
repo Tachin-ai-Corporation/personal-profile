@@ -39,7 +39,20 @@ const many = (count: number, start: number, removed = false): SocialEditRow[] =>
   Array.from({ length: count }, (_, index) => ({ ...saved({ id: start + index, value: `https://example.com/u${start + index}` }), removed }))
 
 describe("isSocialLink", () => {
-  it.each(["https://x.com/ann", " https://linkedin.com/in/ann ", "https://www.example.co.uk/path?q=1#top", "https://sub.domain.example.org"])(
+  it.each([
+    "https://x.com/ann",
+    " https://linkedin.com/in/ann ",
+    "https://www.example.co.uk/path?q=1#top",
+    "https://sub.domain.example.org",
+    // The QA cases: http and https, with or without www, a trailing slash, a query string.
+    "https://www.linkedin.com/in/someone",
+    "https://linkedin.com/in/someone",
+    "https://www.linkedin.com/in/someone/",
+    "https://www.linkedin.com/in/someone?trk=profile&lang=en",
+    "http://www.linkedin.com/in/someone",
+    "http://linkedin.com/in/someone/",
+    "http://linkedin.com/in/someone?trk=profile",
+  ])(
     "accepts %s",
     (value) => {
       expect(isSocialLink(value)).toBe(true)
@@ -48,10 +61,15 @@ describe("isSocialLink", () => {
 
   it.each([
     ["a handle", "@ann"],
-    ["http", "http://x.com"],
     ["javascript", "javascript:alert(1)"],
     ["an upper-case scheme", "HTTPS://x.com"],
+    ["an upper-case http scheme", "HTTP://x.com"],
     ["no scheme", "x.com/ann"],
+    ["no scheme, with www", "www.linkedin.com/in/someone"],
+    ["a scheme without slashes", "https:linkedin.com/in/someone"],
+    ["a doubled scheme", "https://https://linkedin.com/in/someone"],
+    ["garbage", "not a link"],
+    ["punctuation only", "://"],
     ["a host without a dot", "https://localhost/ann"],
     ["a one-letter top-level label", "https://x.c"],
     ["a numeric top-level label", "https://10.0.0.1"],
@@ -81,17 +99,22 @@ describe("socialSchema: links", () => {
   })
 
   it.each([
-    ["http", "http://x.com"],
+    ["no scheme", "www.linkedin.com/in/someone"],
     ["javascript", "javascript:alert(1)"],
     ["a handle", "@ann"],
     ["no dot", "https://x"],
-  ])("%s reads \"Enter a link that starts with https://\"", (_case, value) => {
-    expect(issues([added(value)])).toEqual(["rows.0.value: Enter a link that starts with https://"])
+    ["garbage", "not a link"],
+  ])("%s reads \"Enter a link that starts with http:// or https://\"", (_case, value) => {
+    expect(issues([added(value)])).toEqual(["rows.0.value: Enter a link that starts with http:// or https://"])
+  })
+
+  it("an http link is a valid new row", () => {
+    expect(issues([added("http://www.linkedin.com/in/someone/")])).toEqual([])
   })
 
   it("checks a saved link once it changed: emptied, invalid, then valid", () => {
     expect(issues([{ ...saved(), value: "" }])).toEqual(["rows.0.value: Enter a link"])
-    expect(issues([{ ...saved(), value: "http://x.com/ann" }])).toEqual(["rows.0.value: Enter a link that starts with https://"])
+    expect(issues([{ ...saved(), value: "x.com/ann" }])).toEqual(["rows.0.value: Enter a link that starts with http:// or https://"])
     expect(issues([{ ...saved(), value: "https://x.com/ann2" }])).toEqual([])
   })
 
@@ -116,8 +139,8 @@ describe("socialSchema: links", () => {
     ])
   })
 
-  it("a link with credentials reads \"Enter a link that starts with https://\"", () => {
-    expect(issues([added("https://x.com@evil.example")])).toEqual(["rows.0.value: Enter a link that starts with https://"])
+  it("a link with credentials reads \"Enter a link that starts with http:// or https://\"", () => {
+    expect(issues([added("https://x.com@evil.example")])).toEqual(["rows.0.value: Enter a link that starts with http:// or https://"])
   })
 
   it("a saved link edited, then struck through, is compared by its saved link", () => {
@@ -127,7 +150,7 @@ describe("socialSchema: links", () => {
   })
 
   it("an invalid value reads its own error before a duplicate", () => {
-    expect(issues([saved({ value: "@ann" }), added("@ann")])).toEqual(["rows.1.value: Enter a link that starts with https://"])
+    expect(issues([saved({ value: "@ann" }), added("@ann")])).toEqual(["rows.1.value: Enter a link that starts with http:// or https://"])
   })
 })
 
