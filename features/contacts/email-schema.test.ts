@@ -76,6 +76,35 @@ describe("emailSchema: addresses", () => {
   })
 })
 
+describe("emailSchema: provider typos (QA bug)", () => {
+  it.each([
+    ["test@gmail.cnn", "test@gmail.com"],
+    ["test@gmail.cdm", "test@gmail.com"],
+    ["test@gmial.com", "test@gmail.com"],
+    ["test@yahoo.cmo", "test@yahoo.com"],
+    ["TEST@GMAIL.CNN", "TEST@gmail.com"],
+    [" a+b@gmail.cdm ", "a+b@gmail.com"],
+  ])("%j reads \"Did you mean %s?\"", (value, suggestion) => {
+    expect(issues([added({ value })])).toEqual([`rows.0.value: Did you mean ${suggestion}?`])
+  })
+
+  it.each(["test@gmail.com", "TEST@GMAIL.COM", "a+b@gmail.com", "name@mycompany.health", "name@university.edu", "name@mail.mycompany.health", "name@yahoo.fr", "name@email.com"])(
+    "accepts %s",
+    (value) => {
+      expect(issues([added({ value })])).toEqual([])
+    },
+  )
+
+  it("an invalid address reads its format error, never a suggestion; a typo is checked before the duplicate", () => {
+    expect(issues([added({ value: "test@@gmail.cnn" })])).toEqual(["rows.0.value: Enter a valid email address"])
+    expect(issues([saved({ value: "test@gmail.cnn" }), added({ value: "test@gmail.cnn" })])).toEqual(["rows.1.value: Did you mean test@gmail.com?"])
+  })
+
+  it("a saved address with a typo is never flagged (its address is locked)", () => {
+    expect(issues([saved({ value: "test@gmail.cnn" })])).toEqual([])
+  })
+})
+
 describe("emailSchema: label", () => {
   it("an empty Label reads \"Choose a label\"; Primary or an unknown label is never pickable", () => {
     for (const label of ["", "Primary", "Partnership Organization"]) expect(issues([added({ label })])).toEqual(["rows.0.label: Choose a label"])

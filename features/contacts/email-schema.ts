@@ -2,7 +2,8 @@ import { z } from "zod"
 import type { DraftDiffRow, DraftValues } from "@/features/shell"
 import { PRIMARY_LABEL, type ContactPoint } from "@/lib/api"
 import { CONTACT_LABELS } from "@/lib/shared/contact-labels"
-import { CONTACT_MESSAGES, SECTION_MESSAGES } from "@/lib/shared/messages"
+import { suggestEmailCorrection } from "@/lib/shared/email-typo"
+import { CONTACT_MESSAGES, formatMessage, SECTION_MESSAGES } from "@/lib/shared/messages"
 
 /**
  * The Email edit view's form values and rules (Stories 3.5–3.6, FR20–FR23, NG-9024).
@@ -76,6 +77,9 @@ export function isEmailFull(rows: readonly EmailEditRow[]): boolean {
  *
  * - a new address whose trimmed value isn't an email (zod) or is over 254
  *   characters, an empty one too: "Enter a valid email address";
+ * - a new address whose domain is a likely typo of a well-known provider
+ *   (`suggestEmailCorrection`, e.g. `test@gmail.cnn`): "Did you mean
+ *   test@gmail.com?";
  * - a new address equal (trimmed, case-insensitive) to any other row's
  *   (saved, struck through or new): "This email is already on your profile";
  * - a new row's empty (or unpickable) Label: "Choose a label";
@@ -94,7 +98,9 @@ export const emailSchema = z.object({
       if (!row.isNew) return
       const issue = (field: "value" | "label", message: string) => context.addIssue({ code: "custom", path: [index, field], message })
       seen += 1
+      const suggestion = suggestEmailCorrection(row.value)
       if (!isEmailAddress(row.value)) issue("value", CONTACT_MESSAGES.emailInvalid)
+      else if (suggestion !== null) issue("value", formatMessage(CONTACT_MESSAGES.emailTypo, { suggestion }))
       else if (addresses.some((address, other) => other !== index && address === addresses[index])) issue("value", CONTACT_MESSAGES.duplicateEmail)
       else if (seen > EMAIL_LIMIT) issue("value", CONTACT_MESSAGES.emailLimit)
       if (!PICKABLE_LABELS.has(row.label)) issue("label", CONTACT_MESSAGES.chooseLabel)

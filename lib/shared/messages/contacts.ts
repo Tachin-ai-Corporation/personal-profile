@@ -51,6 +51,7 @@ export const CONTACT_MESSAGES = {
   emailsEmpty: "No emails yet", // DRAFT COPY (epics Story 3.5 empty Section)
   addEmail: "Add email", // DRAFT COPY (epics Story 3.5 header and empty-state action)
   emailInvalid: "Enter a valid email address", // verbatim: EXPERIENCE.md Voice and Tone, "Validation"
+  emailTypo: "Did you mean {suggestion}?", // DRAFT COPY (QA bug: a likely typo of a well-known provider's domain, `lib/shared/email-typo.ts`)
   emailMinimum: "You need at least one email", // DRAFT COPY (verbatim: EXPERIENCE.md Voice and Tone, "Disabled Remove (last entry)", the "…email" variant)
   emailPrimaryFirst: "Make another email primary first", // DRAFT COPY (verbatim: EXPERIENCE.md Voice and Tone, "Disabled Remove (Primary)", the "…email…" variant)
   emailLimit: "You've reached the limit of 20 emails", // DRAFT COPY (verbatim: EXPERIENCE.md Voice and Tone, "Disabled Add (limit)", the email form)

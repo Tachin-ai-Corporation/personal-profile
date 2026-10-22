@@ -467,6 +467,28 @@ describe("EmailSection: validation", () => {
     expect(document.activeElement).toBe(addressInput(row))
   })
 
+  it.each([
+    ["test@gmail.cnn", "test@gmail.com"],
+    ["test@gmail.cdm", "test@gmail.com"],
+  ])("%j reads \"Did you mean %s?\" on blur, linked to its address; Save sends nothing and focuses it", async (value, suggestion) => {
+    const { bodies } = await render()
+    const row = await addEmail({ value, label: "Work" })
+    await blur(addressInput(row))
+    await waitFor(() => expect(described(addressInput(row))).toContain(`Did you mean ${suggestion}?`))
+    expect(addressInput(row).getAttribute("aria-invalid")).toBe("true")
+    await save()
+    expect(bodies).toEqual([])
+    expect(document.activeElement).toBe(addressInput(row))
+  })
+
+  it("an address at an unknown domain (name@mycompany.health) saves as typed", async () => {
+    const { bodies } = await render()
+    await addEmail({ value: "name@mycompany.health", label: "Work" })
+    await save()
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toMatchObject({ contactPointsToAdd: [{ value: "name@mycompany.health", type: "Email", label: "Work" }] })
+  })
+
   it("\"ANN@x.com\" against a struck-through \"ann@x.com\" reads \"This email is already on your profile\"", async () => {
     const { bodies } = await render([email({ id: 42, value: "ann@example.com", label: "Primary" }), email({ id: 41, value: "ann@x.com", label: "Work" })])
     await click(button("Edit"))
