@@ -3,7 +3,7 @@
  * `./fixtures`; a story adds helpers to its own area file, never here. One
  * `export *` line per file in this folder: `test/e2e-fixture-exports.test.ts`
  * fails on a missing line or on a name exported by two files.
- * Foundation: core. Team A: defaults-profile, header, personal, contacts,
+ * Foundation: core, journey (the NG-9019 journey suite). Team A: defaults-profile, header, personal, contacts,
  * addresses, insurance. Team B: defaults-account, account, mfa, npi, orgs.
  */
 export * from "./core"
@@ -18,3 +18,4 @@ export * from "./account"
 export * from "./mfa"
 export * from "./npi"
 export * from "./orgs"
+export * from "./journey"
