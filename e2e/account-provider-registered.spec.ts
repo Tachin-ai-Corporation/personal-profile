@@ -78,6 +78,58 @@ for (const name of ["A", "-", null]) {
   })
 }
 
+for (const email of ["a@b.c", `${"a".repeat(64)}@${"b".repeat(63)}.example.com`]) {
+  test(`support email of ${email.length} characters has a 44px target and fits its popover in both themes`, async ({ page }) => {
+    await mockPracticeSupport(page, { status: 200, body: { email } })
+    for (const theme of ["light", "dark"] as const) {
+      await page.goto("/account?tab=provider")
+      await setTheme(page, theme)
+      await page.getByRole("button", { name: "Sample Clinic", exact: true }).focus()
+      const link = page.getByRole("link", { name: email, exact: true })
+      await expect(link).toBeVisible()
+      await touchTarget(link)
+      await expect(link).toHaveAttribute("href", `mailto:${email}`)
+      await page.keyboard.press("Tab")
+      await expect(link).toBeFocused()
+      const geometry = await link.evaluate((element) => {
+        const paragraph = element.parentElement!
+        const popover = element.closest('[data-slot="info-popover"]')!
+        const paragraphBox = paragraph.getBoundingClientRect()
+        const popoverBox = popover.getBoundingClientRect()
+        const linkBox = element.getBoundingClientRect()
+        const text = document.createRange()
+        text.selectNodeContents(element)
+        return {
+          popoverLeft: popoverBox.left,
+          popoverRight: popoverBox.right,
+          contentLeft: paragraphBox.left,
+          contentRight: paragraphBox.right,
+          linkLeft: linkBox.left,
+          linkRight: linkBox.right,
+          textBounds: Array.from(text.getClientRects(), (rect) => ({ left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom })),
+          linkTop: linkBox.top,
+          linkBottom: linkBox.bottom,
+          viewportWidth: document.documentElement.clientWidth,
+        }
+      })
+      expect(geometry.popoverLeft).toBeGreaterThanOrEqual(0)
+      expect(geometry.popoverRight).toBeLessThanOrEqual(geometry.viewportWidth)
+      expect(geometry.linkLeft).toBeGreaterThanOrEqual(geometry.contentLeft)
+      expect(geometry.linkRight).toBeLessThanOrEqual(geometry.contentRight)
+      expect(geometry.textBounds.length).toBeGreaterThan(0)
+      for (const rect of geometry.textBounds) {
+        expect(rect.left).toBeGreaterThanOrEqual(geometry.contentLeft)
+        expect(rect.right).toBeLessThanOrEqual(geometry.contentRight)
+        expect(rect.top).toBeGreaterThanOrEqual(geometry.linkTop)
+        expect(rect.bottom).toBeLessThanOrEqual(geometry.linkBottom)
+      }
+      await accessible(page)
+      await page.keyboard.press("Escape")
+      await expect(link).toHaveCount(0)
+    }
+  })
+}
+
 test("support403 stays local; signature image failure retains Profile navigation", async ({ page }) => {
   await mockPracticeSupport(page, { status: 403, body: { message: "Denied" } })
   await mockProfileDefaults(page)

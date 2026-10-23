@@ -36,7 +36,7 @@ export function PracticeSupportPopover({ name }: { readonly name: string }) {
     {mapped?.kind === "session" ? null : <div className="space-y-1 break-words">
       {supportName ? <p className="font-semibold">{supportName}</p> : null}
       {phone ? <p className="tabular-nums">{phone}</p> : null}
-      {email ? <p>{href ? <a className="text-link-text inline-flex min-h-11 items-center rounded-md underline-offset-4 hover:underline focus-ring" href={href}>{email}</a> : email}</p> : null}
+      {email ? <p>{href ? <a className="text-link-text inline-flex min-h-11 min-w-11 max-w-full items-center rounded-md [overflow-wrap:anywhere] underline-offset-4 hover:underline focus-ring" href={href}>{email}</a> : email}</p> : null}
       {!supportName && !phone && !email ? "-" : null}
     </div>}
   </InfoPopover>

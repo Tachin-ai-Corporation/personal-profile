@@ -528,3 +528,9 @@
 - source_spec: `spec-foundation-organizations-prerequisites.md`
   summary: Investigate intermittent initial kebab-focus assertion in the shared desktop UI-kit browser test.
   evidence: PR43 CI run39685527052 passed after one retry of e2e/ui-kit.spec.ts:220 (initial button.focus() did not retain focus); the push run39685520462 passed all1,154 browser tests without a retry. The foundation change did not edit shared row/menu UI or this test.
+
+## Deferred from: code review of spec-9-2-register / spec-9-3-registered-view (2026-10-21)
+
+- source_spec: `spec-9-2-register.md`, `spec-9-3-registered-view.md`
+  summary: (Foundation, medium) Add opt-in positive-safe path-ID constraints to the shared proxy contract for availability GETs. The current matcher accepts any1–19 digits, so0 and9007199254740992 can reach upstream through direct requests, despite typed isNpiRegistered and the registration POST body rejecting them. Preserve other endpoints' existing contracts; an additive per-entry facility must ship in its own foundation PR under T2.
+  evidence: Standalone bmad-code-review finding12; lib/server/proxy/allowlist/npi.ts:15 and lib/server/proxy/match.ts:12,36. Shared AllowlistEntry currently exposes no parameter-schema hook. This is a shared validation limitation, not evidence of authorization bypass or a duplicate successful registration.

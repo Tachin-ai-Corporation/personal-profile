@@ -468,6 +468,52 @@ describe("Provider registration completion integration", () => {
     expect(personal()).toBeTruthy()
   })
 
+  it.each([200, 500])("queues one fresh restoration read after an older pending%s read", async (status) => {
+    let reads = 0
+    let finishOld!: (response: Response) => void
+    let finishFresh!: (response: Response) => void
+    renderProvider([http.get(READ, () => {
+      reads++
+      return new Promise<Response>((resolve) => {
+        if (reads === 1) finishOld = resolve
+        else finishFresh = resolve
+      })
+    })])
+    await waitFor(() => expect(finishOld).toBeTypeOf("function"))
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true }))
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }))
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }))
+    })
+    expect(reads).toBe(1)
+    await act(async () => finishOld(HttpResponse.json({}, { status })))
+    await waitFor(() => expect(finishFresh).toBeTypeOf("function"))
+    expect(reads).toBe(2)
+    expect(screen.queryByRole("combobox")).toBeNull()
+    expect(screen.queryByRole("alert")).toBeNull()
+    await act(async () => finishFresh(HttpResponse.json(registered)))
+    expect(await screen.findByRole("table")).toBeTruthy()
+    expect(reads).toBe(2)
+  })
+
+  it.each(["unmount", "expiry"])("drops a queued restoration read on%s", async (abandon) => {
+    let reads = 0
+    let finish!: (response: Response) => void
+    const view = renderProvider([http.get(READ, () => {
+      reads++
+      return new Promise<Response>((resolve) => { finish = resolve })
+    })])
+    await waitFor(() => expect(finish).toBeTypeOf("function"))
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }))
+      if (abandon === "unmount") view.unmount()
+      else sessionEvents.publish("session-expired")
+    })
+    await act(async () => finish(HttpResponse.json({})))
+    expect(reads).toBe(1)
+    expect(screen.queryByRole("combobox")).toBeNull()
+  })
+
   it("re-announces successive valid-but-unregistered read failures after acknowledgement", async () => {
     let reads = 0
     let posts = 0

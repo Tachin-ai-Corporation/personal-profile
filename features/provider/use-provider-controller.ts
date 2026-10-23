@@ -40,7 +40,9 @@ export function useProviderController() {
     mounted.current = true
     void refreshRegistration()
     const resume = (event: PageTransitionEvent): void => {
-      if (event.persisted) void refreshRegistration()
+      // A pre-navigation read may contain an obsolete snapshot. Reconcile after
+      // it settles; simultaneous restoration events share the next fresh read.
+      if (event.persisted) void (running.current ?? Promise.resolve()).then(refreshRegistration)
     }
     window.addEventListener("pageshow", resume)
     return () => { mounted.current = false; window.removeEventListener("pageshow", resume) }
