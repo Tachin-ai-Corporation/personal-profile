@@ -43,7 +43,7 @@ const TYPE_KEY = {
       relKey: "InsuranceBelongsToPerson",
       attributes: [
         { attrKey: "insurancePrecedence", type: "VALUE_LIST", attributeValues: values(["n/a", "Primary", "Secondary", "Supplemental", "Other"]) },
-        { attrKey: "relationshipToInsured", type: "VALUE_LIST", attributeValues: values(["n/a", "Self", "Spouse", "Parent", "Child", "Dependent"]) },
+        { attrKey: "relationshipToInsured", type: "VALUE_LIST", attributeValues: values(["n/a", "Self", "Spouse", "Child", "Dependent", "Parent"]) },
       ],
     },
   ],
@@ -281,7 +281,7 @@ describe("Insurance editor: entry points", () => {
     expect(within(drawer()).queryByRole("group", { name: "Subscriber" })).toBeNull()
   })
 
-  it("Type, Precedence and Relationship offer the type key's values in title case, without n/a", async () => {
+  it("Type, Precedence and Relationship offer the type key's values in title case, without n/a; Relationship in the type key's order", async () => {
     await renderSection()
     await openAdd()
     const optionsOf = async (label: string) => {
@@ -294,7 +294,7 @@ describe("Insurance editor: entry points", () => {
     }
     expect(await optionsOf("Type")).toEqual(["Medical", "Dental", "Vision", "Drug"])
     expect(await optionsOf("Precedence")).toEqual(["Primary", "Secondary", "Supplemental", "Other"])
-    expect(await optionsOf("Relationship")).toEqual(["Self", "Spouse", "Parent", "Child", "Dependent"])
+    expect(await optionsOf("Relationship")).toEqual(["Self", "Spouse", "Child", "Dependent", "Parent"])
   })
 })
 

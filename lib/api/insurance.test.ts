@@ -244,7 +244,7 @@ describe("Story 5.2 paths and constants", () => {
     expect(insurerSearchPath("Blue Shield & Co", 3)).toBe("/api/1h/v2/health/insurance/organizations?name=Blue+Shield+%26+Co&page=3&size=20")
     expect(INSURANCE_TYPES).toEqual(["MEDICAL", "DENTAL", "HOSPICE", "VISION", "DRUG"])
     expect(INSURANCE_PRECEDENCES).toEqual(["PRIMARY", "SECONDARY", "SUPPLEMENTAL", "OTHER"])
-    expect(INSURANCE_RELATIONSHIPS).toEqual(["SELF", "SPOUSE", "PARENT", "CHILD", "DEPENDENT"])
+    expect(INSURANCE_RELATIONSHIPS).toEqual(["SELF", "SPOUSE", "CHILD", "DEPENDENT", "PARENT"])
     expect(INSURANCE_SELF).toBe("SELF")
   })
 
@@ -275,16 +275,36 @@ const TYPE_KEY = toTypeInfo({
 })
 
 describe("insuranceValueOptions (Story 5.2)", () => {
-  it("offers the type key's values as the backend's constants, in the constants' order, without n/a or unknown values", () => {
+  it("offers the type key's values as the backend's constants, without n/a or unknown values: Type and Precedence in the constants' order", () => {
     expect(insuranceValueOptions(TYPE_KEY, "type")).toEqual(["MEDICAL", "DENTAL", "HOSPICE", "VISION", "DRUG"])
     expect(insuranceValueOptions(TYPE_KEY, "precedence")).toEqual(["PRIMARY", "SECONDARY", "SUPPLEMENTAL", "OTHER"])
-    expect(insuranceValueOptions(TYPE_KEY, "relationship")).toEqual(["SELF", "SPOUSE", "CHILD", "DEPENDENT"])
+  })
+
+  it("offers Relationship in the type key's order (1health-fe parity), each value once, without n/a or unknown values", () => {
+    expect(insuranceValueOptions(TYPE_KEY, "relationship")).toEqual(["SPOUSE", "SELF", "CHILD", "DEPENDENT"])
+    const backend = toTypeInfo({
+      boKey: "Insurance",
+      attributes: [],
+      relationships: [
+        {
+          attributes: [
+            { attrKey: "relationshipToInsured", type: "TEXT", attributeValues: [{ id: 1, name: "Parent" }] },
+            { attrKey: "relationshipToInsured", type: "VALUE_LIST", attributeValues: ["n/a", "Self", "Spouse", "Child", "Dependent", "Parent", "SELF", "Cousin"].map((name, id) => ({ id, name })) },
+          ],
+        },
+      ],
+    })
+    expect(insuranceValueOptions(backend, "relationship")).toEqual(["SELF", "SPOUSE", "CHILD", "DEPENDENT", "PARENT"])
   })
 
   it("offers nothing without a type key (loading or failed); a type key without the list falls back to the backend's constants", () => {
     expect(insuranceValueOptions(undefined, "type")).toEqual([])
     expect(insuranceValueOptions(null, "type")).toEqual([])
     expect(insuranceValueOptions(toTypeInfo({ boKey: "Insurance", attributes: [] }), "precedence")).toEqual(["PRIMARY", "SECONDARY", "SUPPLEMENTAL", "OTHER"])
+    // Relationship falls back in the backend enum's order (InsuranceConstants.RelationshipToInsured).
+    expect(insuranceValueOptions(toTypeInfo({ boKey: "Insurance", attributes: [] }), "relationship")).toEqual(["SELF", "SPOUSE", "CHILD", "DEPENDENT", "PARENT"])
+    const unknownRelationship = toTypeInfo({ boKey: "Insurance", attributes: [{ attrKey: "relationshipToInsured", type: "VALUE_LIST", attributeValues: [{ id: 1, name: "Cousin" }] }] })
+    expect(insuranceValueOptions(unknownRelationship, "relationship")).toEqual(["SELF", "SPOUSE", "CHILD", "DEPENDENT", "PARENT"])
     const unknownOnly = toTypeInfo({ boKey: "Insurance", attributes: [{ attrKey: "insuranceType", type: "VALUE_LIST", attributeValues: [{ id: 1, name: "Pet" }] }] })
     expect(insuranceValueOptions(unknownOnly, "type")).toEqual(["MEDICAL", "DENTAL", "HOSPICE", "VISION", "DRUG"])
   })

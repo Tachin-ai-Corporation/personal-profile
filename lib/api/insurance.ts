@@ -107,7 +107,7 @@ export interface InsurancePolicy {
   readonly type: string | null
   /** `insurancePrecedence`: PRIMARY, SECONDARY, SUPPLEMENTAL, OTHER or N_A. */
   readonly precedence: string | null
-  /** `relationshipToInsured`: SELF, SPOUSE, PARENT, CHILD, DEPENDENT or N_A. */
+  /** `relationshipToInsured`: SELF, SPOUSE, CHILD, DEPENDENT, PARENT or N_A. */
   readonly relationship: string | null
   /** `label === "Deleted"`. */
   readonly deleted: boolean
@@ -232,8 +232,12 @@ registerFetcher("insurance", () => loadInsurance())
 export const INSURANCE_TYPES = ["MEDICAL", "DENTAL", "HOSPICE", "VISION", "DRUG"] as const
 /** `insurancePrecedence` values (`InsuranceConstants.InsurancePrecedence`, `N_A` left out). */
 export const INSURANCE_PRECEDENCES = ["PRIMARY", "SECONDARY", "SUPPLEMENTAL", "OTHER"] as const
-/** `relationshipToInsured` values (`InsuranceConstants.RelationshipToInsured`, `N_A` left out). */
-export const INSURANCE_RELATIONSHIPS = ["SELF", "SPOUSE", "PARENT", "CHILD", "DEPENDENT"] as const
+/**
+ * `relationshipToInsured` values (`InsuranceConstants.RelationshipToInsured`,
+ * `N_A` left out), in the backend enum's order: the Relationship options when
+ * the type key has no such list.
+ */
+export const INSURANCE_RELATIONSHIPS = ["SELF", "SPOUSE", "CHILD", "DEPENDENT", "PARENT"] as const
 
 /** The relationship whose subscriber is the user: no `subscriber` is sent. */
 export const INSURANCE_SELF = "SELF"
@@ -248,29 +252,44 @@ export type InsuranceValueList = "type" | "precedence" | "relationship"
 /**
  * Each list's type key attribute (Type is an attribute of `Insurance`;
  * Precedence and Relationship are attributes of its `InsuranceBelongsToPerson`
- * relation, decision 1A) and the constants it may offer.
+ * relation, decision 1A), the constants it may offer, and whose order it
+ * shows: the constants' (Type, Precedence: Story 5.2, RC10) or the type key's
+ * (Relationship, like 1health-fe FlyInInsurance.tsx:386-416).
  */
-const VALUE_LISTS: Readonly<Record<InsuranceValueList, { readonly attrKey: string; readonly values: readonly string[] }>> = {
+const VALUE_LISTS: Readonly<Record<InsuranceValueList, { readonly attrKey: string; readonly values: readonly string[]; readonly typeKeyOrder?: true }>> = {
   type: { attrKey: "insuranceType", values: INSURANCE_TYPES },
   precedence: { attrKey: "insurancePrecedence", values: INSURANCE_PRECEDENCES },
-  relationship: { attrKey: "relationshipToInsured", values: INSURANCE_RELATIONSHIPS },
+  relationship: { attrKey: "relationshipToInsured", values: INSURANCE_RELATIONSHIPS, typeKeyOrder: true },
 }
 
 /** A type key value name (`"Medical"`, `"Supplemental"`) as its enum constant (`MEDICAL`). */
 const toConstant = (name: string): string => name.trim().toUpperCase().replaceAll(/\s+/g, "_")
 
 /**
+ * One attribute's VALUE_LIST values (`n/a` dropped by `valueListOptions`) as
+ * enum constants, each once, in the order the type key sends them
+ * (`valueListOptions` sorts by name, so the order is read from the attribute
+ * it picks).
+ */
+function typeKeyConstants(info: TypeInfo, attrKey: string): string[] {
+  const kept = new Set(valueListOptions(info, attrKey).map((value) => value.name))
+  const attribute = [...info.attributes, ...(info.relationAttributes ?? [])].find((candidate) => candidate.attrKey === attrKey && candidate.type === "VALUE_LIST")
+  return [...new Set((attribute?.values ?? []).filter((value) => kept.has(value.name)).map((value) => toConstant(value.name)))]
+}
+
+/**
  * The constants one list offers (`keys.typeKey("Insurance")`, Story 5.2): the
- * type key's VALUE_LIST values (`n/a` dropped by `valueListOptions`) as enum
- * constants, kept only when the backend accepts them, in the constants'
- * order. The backend's constants when the type key has no such list; empty
- * while there is no type key (loading or failed).
+ * type key's VALUE_LIST values (`n/a` dropped) as enum constants, kept only
+ * when the backend accepts them, in the constants' order or, for
+ * Relationship, the type key's. The backend's constants (in enum order for
+ * Relationship) when the type key has no such list; empty while there is no
+ * type key (loading or failed).
  */
 export function insuranceValueOptions(info: TypeInfo | null | undefined, list: InsuranceValueList): string[] {
   if (!info) return []
-  const { attrKey, values } = VALUE_LISTS[list]
-  const offered = new Set(valueListOptions(info, attrKey).map((value) => toConstant(value.name)))
-  const listed = values.filter((value) => offered.has(value))
+  const { attrKey, values, typeKeyOrder } = VALUE_LISTS[list]
+  const offered = typeKeyConstants(info, attrKey)
+  const listed = typeKeyOrder ? offered.filter((value) => values.includes(value)) : values.filter((value) => offered.includes(value))
   // A type key without the list (or none the backend takes) falls back to the backend's own constants.
   return listed.length > 0 ? listed : [...values]
 }

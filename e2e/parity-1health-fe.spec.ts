@@ -7,6 +7,7 @@ import {
   mockAddresses,
   mockCountries,
   mockFileDownload,
+  mockInsuranceTypeKey,
   mockMyself,
   mockNpiAvailability,
   mockRegisterNpi,
@@ -353,6 +354,14 @@ test.describe("Resolved gaps vs 1health-fe", () => {
 
 test.describe("Open gaps vs 1health-fe", () => {
   test.fixme("P2 · A legacy `en-us` locale shows as \"English - United States\", not raw text", async () => {})
-  test.fixme("P2 · Insurance Relationship options follow the backend order", async () => {})
+  test("P2 · Insurance Relationship options follow the backend order", async ({ page }) => {
+    // Resolved 2026-10-23 (NG-9029): the type key's order, as legacy (InsuranceConstants.RelationshipToInsured order).
+    await mockProfileDefaults(page)
+    await mockInsuranceTypeKey(page)
+    await page.goto("/?tab=insurance")
+    await region(page, "Insurance").locator('[data-slot="section-header"]').getByRole("button", { name: "Add insurance" }).click()
+    const sheet = page.getByRole("dialog", { name: "Add insurance" })
+    expect(await optionsOf(page, sheet.getByLabel("Relationship", { exact: true }))).toEqual(["Self", "Spouse", "Child", "Dependent", "Parent"])
+  })
   test.fixme("P3 · Verify is offered from the Phone and Email edit view, as in legacy", async () => {})
 })

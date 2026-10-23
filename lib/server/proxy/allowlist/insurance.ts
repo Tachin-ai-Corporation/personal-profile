@@ -10,7 +10,7 @@ const CARD_RELATIONS = ["InsuranceHasFrontSideCardFile", "InsuranceHasBackSideCa
 /** The backend's enum constants a policy may be saved with (`InsuranceConstants`, `N_A` left out). */
 export const INSURANCE_TYPES = ["MEDICAL", "DENTAL", "HOSPICE", "VISION", "DRUG"] as const
 export const INSURANCE_PRECEDENCES = ["PRIMARY", "SECONDARY", "SUPPLEMENTAL", "OTHER"] as const
-export const INSURANCE_RELATIONSHIPS = ["SELF", "SPOUSE", "PARENT", "CHILD", "DEPENDENT"] as const
+export const INSURANCE_RELATIONSHIPS = ["SELF", "SPOUSE", "CHILD", "DEPENDENT", "PARENT"] as const
 
 /** A text field of the body (the backend trims and checks the lengths it cares about). */
 const text = z.string().max(255)
