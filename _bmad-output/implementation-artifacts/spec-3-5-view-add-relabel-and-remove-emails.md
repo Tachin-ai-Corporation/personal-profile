@@ -130,6 +130,8 @@ context:
 
 ## Spec Change Log
 
+- **2026-10-22, QA bug fix (Daniel, branch `bugfix/NG-9024-NG-9025-contacts-email-and-social-validation`):** new rule for a new address. When its domain is a likely typo of a well-known provider (`suggestEmailCorrection` in `lib/shared/email-typo.ts`: `test@gmail.cnn`, `test@gmail.cdm`, `test@gmial.com`), it reads "Did you mean test@gmail.com?" (DRAFT COPY) at the address and nothing is sent. Unknown domains (`name@mycompany.health`) are never flagged. The check runs after the format check and before the duplicate check.
+
 ## Review Triage Log
 
 Pass 1. The layers were blind hunter (B), edge-case hunter (E) and verification gap (VG).

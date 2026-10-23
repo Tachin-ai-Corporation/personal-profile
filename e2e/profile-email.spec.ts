@@ -279,6 +279,31 @@ test.describe("Email edit (Story 3.5)", () => {
     expect(posts()).toEqual([])
   })
 
+  test("provider typos: gmail.cnn and gmail.cdm read \"Did you mean test@gmail.com?\", linked to the address; an unknown domain saves", async ({ page }) => {
+    await openWith(page)
+    const posts = await mockContactManage(page)
+    await section(page).getByRole("button", { name: "Add email" }).click()
+    const row = newRow(page)
+    await pick(page, labelSelect(row), "Work")
+    for (const value of ["test@gmail.cnn", "test@gmail.cdm"]) {
+      await addressInput(row).fill(value)
+      await addressInput(row).blur()
+      await expect(row.locator('[data-slot="field-error"]')).toHaveText("Did you mean test@gmail.com?")
+      await expect(addressInput(row)).toHaveAttribute("aria-invalid", "true")
+      const describedBy = (await addressInput(row).getAttribute("aria-describedby")) ?? ""
+      const descriptions = await Promise.all(describedBy.split(" ").filter(Boolean).map((id) => page.locator(`[id="${id}"]`).textContent()))
+      expect(descriptions).toContain("Did you mean test@gmail.com?")
+      await saveButton(page).click()
+      await expect(addressInput(row)).toBeFocused()
+    }
+    expect(posts()).toEqual([])
+
+    await addressInput(row).fill("name@mycompany.health")
+    await saveButton(page).click()
+    await expect(footer(page)).toHaveCount(0)
+    expect(posts()).toEqual([{ contactPointsToAdd: [{ value: "name@mycompany.health", type: "Email", label: "Work", isNotificationEnabled: false }], contactPointsToUpdate: [], contactPointsToRemove: [] }])
+  })
+
   test("a 400 \"… is not a valid email.\" and a duplicate 400 show at the new address; stays in edit", async ({ page }) => {
     await openWith(page)
     const posts = await mockContactManage(page, { status: 400, body: { message: "new@example.com is not a valid email.", code: 400 } })

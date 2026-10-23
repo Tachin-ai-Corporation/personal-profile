@@ -211,7 +211,7 @@ describe("contacts errors: social rules (Story 3.7)", () => {
   })
 
   it("names the catalog copy the Section shows", () => {
-    expect(messageFor("contacts.socialInvalid")).toBe("Enter a link that starts with https://")
+    expect(messageFor("contacts.socialInvalid")).toBe("Enter a link that starts with http:// or https://")
     expect(messageFor("contacts.socialLimit")).toBe("You've reached the limit of 20 links")
     expect(messageFor("contacts.duplicateSocial")).toBe("This link is already on your profile")
   })

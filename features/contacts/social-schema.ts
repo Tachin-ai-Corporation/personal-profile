@@ -41,17 +41,17 @@ export interface SocialValues {
 }
 
 /**
- * `true` when the trimmed `value` is a link the backend takes and the Section
- * opens: it starts with lower-case `https://` (the backend's
- * `Helper.validateURL` is case-sensitive, restricted to https here), parses
- * as a URL, holds no whitespace, and its host has a dot whose last label is
- * two or more letters. A handle (`@name`), `http:` and `javascript:` fail,
- * and so does a link with credentials (`https://x.com@evil.example` reads like
- * x.com but opens evil.example).
+ * `true` when the trimmed `value` is a link the backend takes: it starts with
+ * lower-case `http://` or `https://` (the backend's `Helper.validateURL` is
+ * case-sensitive), parses as a URL, holds no whitespace, and its host has a
+ * dot whose last label is two or more letters. A link without its scheme
+ * (`www.x.com/ann`), a handle (`@name`) and `javascript:` fail, and so does a
+ * link with credentials (`https://x.com@evil.example` reads like x.com but
+ * opens evil.example).
  */
 export function isSocialLink(value: string): boolean {
   const trimmed = value.trim()
-  if (!trimmed.startsWith("https://") || /\s/.test(trimmed)) return false
+  if (!/^https?:\/\//.test(trimmed) || /\s/.test(trimmed)) return false
   let url: URL
   try {
     url = new URL(trimmed)
@@ -97,7 +97,7 @@ export function isSocialFull(rows: readonly SocialEditRow[]): boolean {
  * such as a handle never blocks a save):
  *
  * - an empty link (trimmed): "Enter a link";
- * - not an https link (`isSocialLink`): "Enter a link that starts with https://";
+ * - not an http or https link (`isSocialLink`): "Enter a link that starts with http:// or https://";
  * - equal (trimmed, case-insensitive) to any other row's (saved, struck
  *   through or new): "This link is already on your profile";
  * - a new row past the limit of 20 (saved rows not struck through count

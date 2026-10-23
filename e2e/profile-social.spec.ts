@@ -172,6 +172,25 @@ test.describe("Social media edit (Story 3.7)", () => {
     expect(verifies()).toEqual([])
   })
 
+  test("QA links: https with www, and http with a trailing slash and a query string, save as typed in one POST", async ({ page }) => {
+    await openWith(page)
+    const posts = await mockContactManage(page)
+    await section(page).getByRole("button", { name: "Add link" }).click()
+    await linkInput(newRow(page)).fill("https://www.linkedin.com/in/someone")
+    await footer(page).getByRole("button", { name: "Add row" }).click()
+    await linkInput(newRow(page)).fill("http://linkedin.com/in/someone/?trk=profile")
+    await saveButton(page).click()
+    await expect(footer(page)).toHaveCount(0)
+    expect(posts()).toEqual([
+      {
+        contactPointsToAdd: [addOf("https://www.linkedin.com/in/someone"), addOf("http://linkedin.com/in/someone/?trk=profile")],
+        contactPointsToUpdate: [],
+        contactPointsToRemove: [],
+      },
+    ])
+    await expect(toastWith(page, "Social media saved.")).toBeVisible()
+  })
+
   test("replace: changing 51 sends remove [51] plus the new link in one POST", async ({ page }) => {
     await openWith(page)
     const posts = await mockContactManage(page)
@@ -202,16 +221,19 @@ test.describe("Social media edit (Story 3.7)", () => {
     await expect(section(page).locator('[data-slot="empty-state-line"]')).toHaveText("No social links yet·Add link")
   })
 
-  test("invalid: http, javascript, a handle and empty show their errors; a duplicate of a struck link too; nothing is sent", async ({ page }) => {
+  test("invalid: no scheme, javascript, a handle, garbage and empty show their errors, linked to the link; a duplicate of a struck link too; nothing is sent", async ({ page }) => {
     await openWith(page)
     const posts = await mockContactManage(page)
     await section(page).getByRole("button", { name: "Add link" }).click()
     const row = newRow(page)
-    for (const value of ["http://x.com", "javascript:alert(1)", "@ann2"]) {
+    for (const value of ["www.linkedin.com/in/someone", "javascript:alert(1)", "@ann2", "not a link"]) {
       await linkInput(row).fill(value)
       await linkInput(row).blur()
-      await expect(row.locator('[data-slot="field-error"]')).toHaveText("Enter a link that starts with https://")
+      await expect(row.locator('[data-slot="field-error"]')).toHaveText("Enter a link that starts with http:// or https://")
       await expect(linkInput(row)).toHaveAttribute("aria-invalid", "true")
+      const describedBy = (await linkInput(row).getAttribute("aria-describedby")) ?? ""
+      const descriptions = await Promise.all(describedBy.split(" ").filter(Boolean).map((id) => page.locator(`[id="${id}"]`).textContent()))
+      expect(descriptions).toContain("Enter a link that starts with http:// or https://")
     }
     await linkInput(row).fill("")
     await saveButton(page).click()
@@ -248,7 +270,7 @@ test.describe("Social media edit (Story 3.7)", () => {
     const input = linkInput(editRow(page, 0))
     await input.fill("https://x.com/ann2")
     await saveButton(page).click()
-    await expect(editRow(page, 0).locator('[data-slot="field-error"]')).toHaveText("Enter a link that starts with https://")
+    await expect(editRow(page, 0).locator('[data-slot="field-error"]')).toHaveText("Enter a link that starts with http:// or https://")
     await expect(input).toBeFocused()
     await expect(saveButton(page)).toBeVisible()
     expect(posts()).toHaveLength(1)
@@ -278,7 +300,7 @@ test.describe("Social media edit (Story 3.7)", () => {
     await section(page).getByRole("button", { name: "More actions for @ann" }).click()
     await page.getByRole("menuitem", { name: "Remove" }).click()
     await footer(page).getByRole("button", { name: "Add row" }).click()
-    await linkInput(newRow(page)).fill("http://x.com")
+    await linkInput(newRow(page)).fill("www.x.com")
     await saveButton(page).click()
     await expect(linkInput(newRow(page))).toHaveAttribute("aria-invalid", "true")
     await axe(page, "Social media edit")

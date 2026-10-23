@@ -141,6 +141,8 @@ context:
 
 ## Spec Change Log
 
+- **2026-10-22, QA bug fix (Daniel, branch `bugfix/NG-9024-NG-9025-contacts-email-and-social-validation`):** deliberate change to the client URL rule and the human decision of 2026-10-19. `http://` links are now accepted as well as `https://` (the backend's `Helper.validateURL` takes both). The invalid-link copy is now "Enter a link that starts with http:// or https://". A link without a scheme (`www.x.com/ann`) is still refused with that message. The read view is unchanged: only an https link is an anchor, and an http link shows as plain text.
+
 ## Review Triage Log
 
 Pass 1. The layers were blind hunter (B), edge-case hunter (E) and verification gap (VG).

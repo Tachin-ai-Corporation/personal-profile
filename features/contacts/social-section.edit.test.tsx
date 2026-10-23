@@ -299,6 +299,21 @@ describe("SocialSection: save", () => {
     expect(verifies).toEqual([])
   })
 
+  it("QA links: an https link with www and an http link with a trailing slash and query save as typed, in one POST", async () => {
+    const { bodies } = await render()
+    await addLink("https://www.linkedin.com/in/someone")
+    await addLink("http://linkedin.com/in/someone/?trk=profile")
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(bodies).toEqual([
+      {
+        contactPointsToAdd: [addOf("https://www.linkedin.com/in/someone"), addOf("http://linkedin.com/in/someone/?trk=profile")],
+        contactPointsToUpdate: [],
+        contactPointsToRemove: [],
+      },
+    ])
+  })
+
   it("Replace: a changed saved link goes as remove [51] plus an add of the new value, in one POST", async () => {
     const { bodies } = await render()
     await click(button("Edit"))
@@ -445,14 +460,14 @@ describe("SocialSection: save", () => {
 
 describe("SocialSection: validation", () => {
   it.each([
-    ["http", "http://x.com"],
+    ["no scheme", "www.linkedin.com/in/someone"],
     ["javascript", "javascript:alert(1)"],
     ["a handle", "@ann"],
-  ])("%s reads \"Enter a link that starts with https://\" on blur; Save sends nothing and focuses it", async (_case, value) => {
+  ])("%s reads \"Enter a link that starts with http:// or https://\" on blur; Save sends nothing and focuses it", async (_case, value) => {
     const { bodies } = await render()
     const row = await addLink(value)
     await blur(linkInput(row))
-    await waitFor(() => expect(described(linkInput(row))).toContain("Enter a link that starts with https://"))
+    await waitFor(() => expect(described(linkInput(row))).toContain("Enter a link that starts with http:// or https://"))
     expect(linkInput(row).getAttribute("aria-invalid")).toBe("true")
     await save()
     expect(bodies).toEqual([])
@@ -577,7 +592,7 @@ describe("SocialSection: save failures", () => {
     const row = editRows()[0]
     await type(linkInput(row), "https://x.com/ann2")
     await save()
-    await waitFor(() => expect(described(linkInput(row))).toContain("Enter a link that starts with https://"))
+    await waitFor(() => expect(described(linkInput(row))).toContain("Enter a link that starts with http:// or https://"))
     expect(bodies).toHaveLength(1)
     expect(document.activeElement).toBe(linkInput(row))
     expect(banner()).toBeNull()
@@ -605,7 +620,7 @@ describe("SocialSection: save failures", () => {
     await type(linkInput(editRows()[0]), "https://x.com/ann2")
     await addLink("https://new.example/ann")
     await save()
-    await waitFor(() => expect(banner()?.textContent).toContain("Enter a link that starts with https://"))
+    await waitFor(() => expect(banner()?.textContent).toContain("Enter a link that starts with http:// or https://"))
   })
 
   it("an unknown 400 shows \"Couldn't save social media.\" with Retry; stays in edit", async () => {
