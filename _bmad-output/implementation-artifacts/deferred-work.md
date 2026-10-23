@@ -543,6 +543,9 @@
 - source_spec: `NG-9019 integrated e2e`
   summary: (Foundation) Intermittent e2e failure in `e2e/launch.spec.ts:127` "an unencoded lpl whose '+' arrives as a space still launches" (mobile-360) during the full suite.
   evidence: One failure in a full `CI=1` run on `cdde11c` (1275 passed, 1 flaky, retried green); the file alone passed 80/80 with `--repeat-each=5`.
+- source_spec: `spec-9-3-registered-view.md`
+  summary: (Foundation) Intermittent unit failure in `features/provider/provider-tab.test.tsx` "does not refresh for an ordinary non-persisted pageshow" (also seen once in "queues one fresh restoration read after an older pending500 read").
+  evidence: PR #49 CI failed it once (passed on rerun). On main `cdde11c` it failed 2/96 runs with four copies of the file in parallel, never alone (0/25) or with its neighbour (0/25). The initial `GET /api/1h/v2/user/npi` escaped MSW 3.0.3 interception (no MSW event, `fetch failed` AggregateError → NETWORK_ERROR → tab load error). Test-infrastructure race, not an app bug.
 - source_spec: `NG-9019 live e2e (e2e-live/)`
   summary: (Team A) A test address is left on the dev account of the person who ran the first live write run; the backend never deletes or demotes a Primary location.
   evidence: Address id 139121045 ("… E2E Live St") is that account's only, Primary, location on dev (`PersonLocationFactory.java:164`, "first set another Location as the primary one"). The account owner chose to keep it. The live address test now only runs when the account already has an address, and its cleanup runs in fixture teardown.

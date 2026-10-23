@@ -37,13 +37,17 @@ pnpm check:tokens     # bash scripts/check-tokens.sh, design-token gate only
 pnpm vitest run app/account.test.tsx         # one unit test file (add -t "<name>" for one test)
 pnpm vitest run --project server             # Vitest projects: "server" (node, lib/server + routes) and "client" (jsdom)
 pnpm test:e2e e2e/account-page.spec.ts --project=desktop   # one e2e spec; Playwright projects: "desktop", "mobile-360"
+pnpm exec playwright test -c playwright.live.config.ts      # opt-in live suite against 1health dev (e2e-live/README.md); never in CI
 ```
+
+- **e2e layout:** per-story specs (`e2e/profile-*`, `e2e/account-*`, shell/foundation specs) plus `e2e/journey-*.spec.ts` (one real launch, then a stateful in-memory backend from `createJourneyBackend` in `e2e/fixtures/journey.ts`, so saves change later reads across `/` and `/account`) and `e2e/parity-1health-fe.spec.ts` (legacy labels/options/empty states; open gaps are `test.fixme`, tracked in `docs/PARITY-1health-fe.md`). Specs import from `./fixtures` and use its fail-fast `test` (any unmocked `/api/{1h,pp,places}` call fails); start from `mockProfileDefaults` / `mockAccountDefaults` and override. Helpers go in the owning area file under `e2e/fixtures/`, with one `export *` line in `index.ts` (`test/e2e-fixture-exports.test.ts` fails on a missing line or a name clash).
+- **Live suite (`e2e-live/`):** reads `.env.live.local` (gitignored). `LIVE_PORTAL_LOGIN=1` signs in through the dev portal in a visible browser and reuses that session; token mode needs a plain patient user (dev refuses launches for admin/support users). Read-only by default; `LIVE_ALLOW_WRITES=1` / `LIVE_ALLOW_LOGOUT=1` add reversible writes and the exit test (it revokes the user's sessions on every device). Vitest skips this folder (`vitest.config.test.ts`).
 
 - **Local preview without real credentials:** start `pnpm dev` with the e2e dummy env from `e2e/server-env.ts` (`ONEHEALTH_SECRET_KEY_*`/`APP_ID_*` starting with `e2e-`, a 32+ char `SESSION_SECRET`) plus `PP_E2E_MOCK=1`. The server then answers 1health's token exchange, `myself` and logout in-process (`test/e2e-upstream-mock.ts`) and blocks every other 1health call; boot fails if the mock is on with non-`e2e-` credentials. Sign in by opening `/auth?lpl=<payload>` built like `makeLpl()` in `e2e/fixtures/core.ts` (one-time code; open it directly, since pasting into Chrome's address bar can prerender and consume it).
 
 - Stack: Next.js 16 (App Router), React 19, Tailwind v4, zod 4, Node 24.
 - TypeScript is pinned to 6.x, because typescript-eslint doesn't support TS 7 yet.
-- Tests: Vitest (`*.test.ts(x)` colocated; `lib/server` in node, client code in jsdom), Testing Library, MSW at the `/api` boundary (`test/msw-server.ts`, unhandled requests error), Playwright in `e2e/`. CI: `.github/workflows/ci.yml`.
+- Tests: Vitest (`*.test.ts(x)` colocated; `lib/server` in node, client code in jsdom), Testing Library, MSW 3 at the `/api` boundary (`test/msw-server.ts`; handlers per test via `server.use`/`renderInPage`; an unmatched request is not blocked, it falls through to the network and surfaces as `NETWORK_ERROR`), Playwright in `e2e/`. Known intermittent tests are listed in `deferred-work.md` (Foundation). CI: `.github/workflows/ci.yml`.
 - `typescript.ignoreBuildErrors` is gone: `pnpm build` type-checks.
 - Env vars (see `.env.example`; `.env*` is gitignored): `ONEHEALTH_SECRET_KEY_DEMO`, `ONEHEALTH_SECRET_KEY_PROD`, `APP_ID_DEMO`, `APP_ID_PROD`, `SESSION_SECRET` (≥ 32 chars), optional pair `ONEHEALTH_SECRET_KEY_DEV` + `APP_ID_DEV` (both or neither; enables dev, D18), optional `SESSION_SECRET_PREVIOUS`, `PP_DISABLED`, `ACCOUNT_DISABLED`, `PP_E2E_FIXTURES` (test only: serves `/test-fixtures/**`), `PP_E2E_MOCK` (test only: in-process 1health mock, `e2e-` credentials only), `PLACES_ENABLED` (on only for `"1"`; `GOOGLE_PLACES_KEY` required with Places). Only `lib/server/env.ts` reads `process.env` (lint-enforced); it validates at boot via `instrumentation.ts`. Base URLs are hardcoded per environment in `lib/shared/environments.ts` (`https://1health.demo.1health.io`, `https://1health.app.1health.io`, and dev `https://dev.1hdev.io`) and chosen per request from the session's `environment`.
 
@@ -88,7 +92,7 @@ Read `docs/AUTH-ARCHITECTURE.md` and the architecture spine (`_bmad-output/plann
 - shadcn/ui components live in `components/ui/` (`components.json`).
 
 ## Project & related context
-This app rebuilds the **Personal Profile** and **Account** screens of `1health-fe` with a new Tailwind UI. It is tracked in Jira as **NG-9019** (1hio.atlassian.net); each story's Jira key is on its heading in `_bmad-output/planning-artifacts/epics.md` (e.g. Story 7.1 → NG-9030).
+This app rebuilds the **Personal Profile** and **Account** screens of `1health-fe` with a new Tailwind UI. It is tracked in Jira as **NG-9019** (1hio.atlassian.net); each story's Jira key is on its heading in `_bmad-output/planning-artifacts/epics.md` (e.g. Story 7.1 → NG-9030). Status (2026-10-23, `sprint-status.yaml`): every defined story is built and merged except 1.16 (Ops runbooks/promote workflow, backlog); Epic 6 (Medical) is an intentional placeholder until the PM defines it. Legacy-vs-new differences are tracked row by row in `docs/PARITY-1health-fe.md`.
 
 Use these sibling repos in `../` as the source of truth:
 - `1health-fe`: the current profile UI, including fields, option lists, and API calls
