@@ -2,7 +2,7 @@
 title: 'Register provider and optional practice NPI (NG-9040)'
 type: 'feature'
 created: '2026-10-21'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '0001fdd03b28ba25f83c19fa6d24218e0e42f4b8'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -143,7 +143,7 @@ Integrated review findings and individual verdicts are recorded in spec-9-3-regi
 This is the separately requested `bmad-code-review` workflow, not the earlier Build review. Target: eb264d7 against origin/main faf0dfe (26 files,2200 insertions,59 deletions). Both story specs and their Foundation/Epic9 context were loaded. Four independent layers completed: blind hunter10 findings, edge hunter1, acceptance auditor1, verification-gap reviewer reported no gaps. All12 findings received an individual verdict before grouping. The complete evidence and rejected appendix are in [Story9.3's review report](spec-9-3-registered-view.md#review-findings--standalone-bmad-code-review-2026-10-21).
 
 - [x] [Review][Patch] Persisted restoration must perform a fresh read after an already-running pre-navigation read settles [features/provider/use-provider-controller.ts:27]. Medium; a deterministic held-read repro displays stale unregistered state after restoration with only one GET. Queue one restoration revalidation without replaying mutation.
-- [x] [Review][Defer] Availability path IDs use the broader shared proxy matcher [lib/server/proxy/allowlist/npi.ts:15] — deferred: the existing foundation matcher accepts0 and unsafe1–19-digit integers, while the typed helper and POST body require safe positive IDs. A separate additive foundation extension is required under T2; no shared matcher changes belong in this story.
+- [x] [Review][Defer → Resolved 2026-10-23] Availability path IDs use the broader shared proxy matcher [lib/server/proxy/allowlist/npi.ts:15] — resolved: foundation PR #42 added `pathParams`; the entry now constrains `{n}` to a positive safe integer (0, leading zeros and ids past 2^53 − 1 → 400 `BAD_PATH`), tested in `allowlist/npi.test.ts`. Original note — deferred: the existing foundation matcher accepts0 and unsafe1–19-digit integers, while the typed helper and POST body require safe positive IDs. A separate additive foundation extension is required under T2; no shared matcher changes belong in this story.
 
 Review results:0 decision-needed,3 patch across both stories (1 here,2 in9.3),1 foundation defer,8 rejected. No implementation patches were applied by this review run; the workflow's action checkpoint is pending.
 
@@ -155,3 +155,5 @@ The human selected option1, apply all3 local patches. Finding1 is fixed on the s
 Actual-branch validation after all3 patches:6796 unit tests/223 files passed with100% enforced library coverage (2805 statements,1919 branches,636 functions,2325 lines);122 Provider tests with100% across8 implementation files (299 statements,261 branches,68 functions,223 lines); fresh production build and51 Provider browser passes with1 intentional desktop skip for a mobile-only case. Lint, standalone typecheck, forbidden/token checks and whitespace checks pass. Logs: /tmp/provider-code-review-controller-red.log, /tmp/provider-code-review-controller-green.log, /tmp/provider-code-review-fixed-units.log, /tmp/provider-code-review-fixed-feature.log, /tmp/provider-code-review-fixed-browser.log.
 
 All approved local patches are checked off. Finding12 remains a medium foundation contract follow-up, unchanged by this action, so this specification is in-progress under the standalone review completion rule rather than claiming complete acceptance of the positive-safe proxy requirement. No frozen intent/baseline changes, commit, push or PR action. Sprint status was not synced: the review target was identified from conversation as a combined branch review, without a single workflow story_key; existing review entries and the protected tracking header/last_updated are preserved.
+
+2026-10-23: Finding12 resolved with the foundation `pathParams` hook from PR #42 (`lib/server/proxy/allowlist/npi.ts`, tests in `npi.test.ts`); the branch is rebased on main (#45) and the specification is done.

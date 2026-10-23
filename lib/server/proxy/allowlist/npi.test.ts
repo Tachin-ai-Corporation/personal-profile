@@ -144,12 +144,22 @@ it.each([
   ["v2/health/npi/-1/is-registered", 403, "NOT_ALLOWED"],
   ["v2/health/npi/1.5/is-registered", 403, "NOT_ALLOWED"],
   ["v2/health/npi/12345678901234567890/is-registered", 403, "NOT_ALLOWED"],
+  ["v2/health/npi/0/is-registered", 400, "BAD_PATH"],
+  ["v2/health/npi/007/is-registered", 400, "BAD_PATH"],
+  ["v2/health/npi/9007199254740992/is-registered", 400, "BAD_PATH"],
+  ["v2/health/npi/9999999999999999999/is-registered", 400, "BAD_PATH"],
 ] as const)("rejects invalid availability route %s before upstream", async (path, status, errorCode) => {
   const calls = trackAllRequests()
   const response = await readNpi(path)
   expect(response.status).toBe(status)
   expect(await response.json()).toEqual({ errorCode, source: "proxy" })
   expect(calls()).toBe(0)
+})
+it("forwards the largest safe NPI row id", async () => {
+  server.use(http.get(`${DEMO.apiBase}/v2/health/npi/9007199254740991/is-registered`, () => HttpResponse.json(false)))
+  const response = await readNpi("v2/health/npi/9007199254740991/is-registered")
+  expect(response.status).toBe(200)
+  expect(await response.json()).toBe(false)
 })
 it("Account switch blocks availability without upstream", async () => {
   const calls = trackAllRequests()
