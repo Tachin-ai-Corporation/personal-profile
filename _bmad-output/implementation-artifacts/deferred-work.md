@@ -534,3 +534,15 @@
 - source_spec: `spec-9-2-register.md`, `spec-9-3-registered-view.md`
   summary: RESOLVED 2026-10-23 (foundation PR #42 `pathParams`, used by `allowlist/npi.ts` is-registered). (Foundation, medium) Add opt-in positive-safe path-ID constraints to the shared proxy contract for availability GETs. The current matcher accepts any1–19 digits, so0 and9007199254740992 can reach upstream through direct requests, despite typed isNpiRegistered and the registration POST body rejecting them. Preserve other endpoints' existing contracts; an additive per-entry facility must ship in its own foundation PR under T2.
   evidence: Standalone bmad-code-review finding12; lib/server/proxy/allowlist/npi.ts:15 and lib/server/proxy/match.ts:12,36. Shared AllowlistEntry currently exposes no parameter-schema hook. This is a shared validation limitation, not evidence of authorization bypass or a duplicate successful registration.
+
+## Deferred from: integrated e2e journeys and 1health-fe parity (NG-9019, 2026-10-23)
+
+- source_spec: `NG-9019 integrated e2e (e2e/journey-*.spec.ts, e2e/parity-1health-fe.spec.ts)`
+  summary: (Foundation) Intermittent unit failure in `features/organizations/organizations-tab.test.tsx` "ignores pagination while a different search waits for its debounce and keeps search focus" under full-suite load.
+  evidence: On main `cdde11c` the full `pnpm test` failed it in 2 of 4 runs (`expected [ ':0', ':0' ] to deeply equal [ ':0' ]`); the file alone passed 6/6, and the run without the NG-9019 e2e changes passed too.
+- source_spec: `NG-9019 integrated e2e`
+  summary: (Foundation) Intermittent e2e failure in `e2e/launch.spec.ts:127` "an unencoded lpl whose '+' arrives as a space still launches" (mobile-360) during the full suite.
+  evidence: One failure in a full `CI=1` run on `cdde11c` (1275 passed, 1 flaky, retried green); the file alone passed 80/80 with `--repeat-each=5`.
+- source_spec: `NG-9019 live e2e (e2e-live/)`
+  summary: (Team A) A test address is left on the dev account of the person who ran the first live write run; the backend never deletes or demotes a Primary location.
+  evidence: Address id 139121045 ("… E2E Live St") is that account's only, Primary, location on dev (`PersonLocationFactory.java:164`, "first set another Location as the primary one"). The account owner chose to keep it. The live address test now only runs when the account already has an address, and its cleanup runs in fixture teardown.

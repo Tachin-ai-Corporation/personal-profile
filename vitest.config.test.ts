@@ -9,12 +9,13 @@ import { CLIENT_TESTS, SERVER_TESTS } from "./vitest.config"
  * that matches both runs twice in two environments. Every `*.test.ts(x)` in
  * the repository (outside dependencies, build output, agent worktrees and the
  * Playwright tree) must belong to exactly one project. A `*.spec.ts(x)` or a
- * `*.test.mts` / `*.test.cts` outside `e2e/` matches no project (Vitest
- * would never run it, Playwright only reads `e2e/`), so it fails too.
+ * `*.test.mts` / `*.test.cts` outside `e2e/` and `e2e-live/` matches no project
+ * (Vitest would never run it; Playwright reads `e2e/`, and `e2e-live/` through
+ * `playwright.live.config.ts`), so it fails too.
  */
 const TEST_FILES = "**/*.{test,spec}.{ts,tsx,mts,cts}"
 const ROOT = fileURLToPath(new URL(".", import.meta.url))
-const SKIPPED = /^(node_modules|\.next|\.git|\.claude|_bmad|_bmad-output|coverage|playwright-report|test-results|e2e)(\/|$)/
+const SKIPPED = /^(node_modules|\.next|\.git|\.claude|_bmad|_bmad-output|coverage|playwright-report|test-results|e2e|e2e-live)(\/|$)/
 
 function projectsOf(file: string): string[] {
   return [
