@@ -151,6 +151,9 @@ describe("ProfileTabs", () => {
     const before = window.history.length
     tab("Insurance").focus()
     await act(async () => fireEvent.keyDown(tab("Insurance"), { key: "Enter" }))
+    // Not on keydown: on the keyup (WCAG 2.1.1, see the leave-guard keyboard tests below).
+    expect(selected()).toBe("Contacts")
+    await act(async () => fireEvent.keyUp(tab("Insurance"), { key: "Enter" }))
     expect(selected()).toBe("Insurance")
     expect(`${window.location.search}${window.location.hash}`).toBe("?tab=insurance")
     expect(window.history.length).toBe(before)
@@ -166,6 +169,7 @@ describe("ProfileTabs", () => {
   it("activates with Space and a click", async () => {
     setup()
     await act(async () => fireEvent.keyDown(tab(MEDICAL), { key: " " }))
+    await act(async () => fireEvent.keyUp(tab(MEDICAL), { key: " " }))
     expect(selected()).toContain("Medical")
     await act(async () => fireEvent.mouseDown(tab("Contacts"), { button: 0 }))
     expect(selected()).toBe("Contacts")
@@ -196,6 +200,84 @@ describe("ProfileTabs", () => {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Keep editing" })))
     expect(selected()).toBe("Contacts")
     expect(window.location.search).toBe("?tab=contacts")
+  })
+
+  describe("keyboard activation while dirty (WCAG 2.1.1; deferred-work spec NG-9027)", () => {
+    const guard = () => screen.queryByRole("alertdialog", { name: "You have unsaved changes" })
+    const keepEditing = () => screen.getByRole("button", { name: "Keep editing" })
+
+    async function dirtyAndFocus(name: string) {
+      const user = userEvent.setup()
+      setup(true)
+      fireEvent.change(screen.getByLabelText("Fixture phone"), { target: { value: "1" } })
+      act(() => tab(name).focus())
+      return user
+    }
+
+    it.each([
+      ["Enter", "{Enter}"],
+      ["Space", " "],
+    ])("%s opens the leave dialog on keyup; it stays open with focus on Keep editing", async (_name, keys) => {
+      const user = await dirtyAndFocus("Insurance")
+      await user.keyboard(keys)
+      await waitFor(() => expect(document.activeElement).toBe(keepEditing()))
+      // The same key press didn't activate "Keep editing": the dialog is still open, the tab unchanged.
+      await act(() => new Promise<void>((resolve) => setTimeout(resolve, 50)))
+      expect(guard()).toBeTruthy()
+      expect(selected()).toBe("Contacts")
+      expect(window.location.search).toBe("?tab=contacts")
+    })
+
+    it.each([
+      ["Enter", "{Enter}"],
+      ["Space", " "],
+    ])("%s, then Tab to Discard and Enter: the tab changes", async (_name, keys) => {
+      const user = await dirtyAndFocus("Insurance")
+      await user.keyboard(keys)
+      await waitFor(() => expect(document.activeElement).toBe(keepEditing()))
+      await user.tab()
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Discard" }))
+      await user.keyboard("{Enter}")
+      await waitFor(() => expect(selected()).toBe("Insurance"))
+      expect(guard()).toBeNull()
+      expect(window.location.search).toBe("?tab=insurance")
+    })
+
+    it("Keep editing from the keyboard, and Escape, keep the user on the tab", async () => {
+      const user = await dirtyAndFocus("Insurance")
+      await user.keyboard("{Enter}")
+      await waitFor(() => expect(document.activeElement).toBe(keepEditing()))
+      await user.keyboard("{Enter}")
+      await waitFor(() => expect(guard()).toBeNull())
+      expect(selected()).toBe("Contacts")
+      act(() => tab("Insurance").focus())
+      await user.keyboard(" ")
+      await waitFor(() => expect(guard()).toBeTruthy())
+      await user.keyboard("{Escape}")
+      await waitFor(() => expect(guard()).toBeNull())
+      expect(selected()).toBe("Contacts")
+      expect(window.location.search).toBe("?tab=contacts")
+    })
+
+    it("a keyup without its keydown on the same tab, or after a blur, does nothing", async () => {
+      await dirtyAndFocus("Insurance")
+      await act(async () => fireEvent.keyUp(tab("Insurance"), { key: "Enter" }))
+      await act(async () => fireEvent.keyDown(tab("Contacts"), { key: "Enter" }))
+      await act(async () => fireEvent.keyUp(tab("Insurance"), { key: "Enter" }))
+      await act(async () => fireEvent.keyDown(tab("Insurance"), { key: " " }))
+      await act(async () => fireEvent.blur(tab("Insurance")))
+      await act(async () => fireEvent.keyUp(tab("Insurance"), { key: " " }))
+      expect(guard()).toBeNull()
+      expect(selected()).toBe("Contacts")
+    })
+
+    it("arrow keys still only move focus", async () => {
+      const user = await dirtyAndFocus("Contacts")
+      await user.keyboard("{ArrowRight}")
+      await waitFor(() => expect(document.activeElement).toBe(tab("Insurance")))
+      expect(guard()).toBeNull()
+      expect(selected()).toBe("Contacts")
+    })
   })
 
   it.each(["light", "dark"])("has no axe violations in %s mode", async (theme) => {

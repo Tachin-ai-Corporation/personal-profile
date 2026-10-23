@@ -527,12 +527,48 @@ test.describe("leave guard: every Story 1.13 case (fixture page; spec NG-9027)",
     await expect(page.getByLabel("Fixture phone")).toHaveValue("415")
   })
 
+  for (const key of ["Enter", "Space"] as const) {
+    test(`keyboard tab switch while dirty (WCAG 2.1.1): ${key} on a tab opens the dialog and it stays open; Keep editing stays; Tab → Discard → Enter changes the tab`, async ({ page }) => {
+      await open(page)
+      await page.getByLabel("Fixture phone").fill("415")
+      const tab = page.getByRole("tab", { name: "Insurance" })
+      // Arrow keys still only move focus between tabs.
+      await page.getByRole("tab", { name: "Contacts" }).focus()
+      await page.keyboard.press("ArrowRight")
+      await expect(tab).toBeFocused()
+      await expect(dialog(page)).toBeHidden()
+      // The same press must not activate the dialog's initially focused button.
+      await page.keyboard.press(key)
+      const keepEditing = dialog(page).getByRole("button", { name: "Keep editing" })
+      await expect(keepEditing).toBeFocused()
+      await page.waitForTimeout(300)
+      await expect(dialog(page)).toBeVisible()
+      await expect(page).toHaveURL(/\?tab=contacts$/)
+      // Keep editing (from the keyboard) keeps the user on the tab.
+      await page.keyboard.press(key)
+      await expect(dialog(page)).toBeHidden()
+      await expect(tab).toBeFocused()
+      await expect(page).toHaveURL(/\?tab=contacts$/)
+      await expect(page.getByLabel("Fixture phone")).toHaveValue("415")
+      // Again, then Tab to Discard and Enter: the tab changes.
+      await page.keyboard.press(key)
+      await expect(keepEditing).toBeFocused()
+      await page.keyboard.press("Tab")
+      await expect(dialog(page).getByRole("button", { name: "Discard" })).toBeFocused()
+      await page.keyboard.press("Enter")
+      await expect(dialog(page)).toBeHidden()
+      await expect(page).toHaveURL(/\?tab=insurance$/)
+      await expect(tab).toHaveAttribute("aria-selected", "true")
+    })
+  }
+
   test("Escape keeps editing and returns focus to the trigger (a tab, the hand-off button)", async ({ page }) => {
     await open(page)
     await page.getByLabel("Fixture phone").fill("415")
-    // A tab (pressed with the pointer: see the NG-9027 notes on keyboard activation of a tab while dirty).
+    // A tab, from the keyboard.
     const tab = page.getByRole("tab", { name: "Insurance" })
-    await tab.click()
+    await tab.focus()
+    await page.keyboard.press("Enter")
     await expect(dialog(page)).toBeVisible()
     await page.keyboard.press("Escape")
     await expect(dialog(page)).toBeHidden()

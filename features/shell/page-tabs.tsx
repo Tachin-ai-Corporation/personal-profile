@@ -1,7 +1,7 @@
 "use client"
 
 import { useSearchParams } from "next/navigation"
-import { useEffect, useRef, type ReactNode } from "react"
+import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { SHELL_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
@@ -53,6 +53,9 @@ function keepInView(list: HTMLElement | null, focused?: HTMLElement): void {
   else if (end > list.scrollLeft + list.clientWidth) list.scrollLeft = end - list.clientWidth
 }
 
+/** The keys that activate a tab (manual activation). */
+const isActivationKey = (event: KeyboardEvent): boolean => event.key === "Enter" || event.key === " "
+
 function ComingSoonTag() {
   return (
     <span className="rounded-sm bg-muted px-1.5 py-0.5 text-caption font-medium text-muted-foreground">
@@ -68,6 +71,14 @@ function ComingSoonTag() {
  * change goes through `navigate()`. A missing, unknown or repeated `?tab=`
  * (`?tab=a&tab=b`) shows `defaultTab` and is normalized to one value with a
  * replace (other params and the hash kept).
+ *
+ * Enter and Space activate on keyup, not on Radix's keydown (WCAG 2.1.1;
+ * deferred-work, spec NG-9027): a dirty page opens the leave dialog, which
+ * focuses "Keep editing", and the rest of a keydown-time press (Enter's
+ * keypress click, Space's keyup click) would land on that button and close
+ * it at once. The keydown is prevented (Radix then skips its own activation,
+ * and the browser synthesizes no click); the keyup on the same tab activates.
+ * Arrow keys, Home/End and the pointer are Radix's, unchanged.
  */
 export function PageTabs<T extends string>({ page, tabs, panels, defaultTab, "aria-label": ariaLabel }: PageTabsProps<T>) {
   assertPageTabsConfig(page, tabs, defaultTab)
@@ -79,6 +90,14 @@ export function PageTabs<T extends string>({ page, tabs, panels, defaultTab, "ar
   const current: T = isTab(single) ? single : defaultTab
   const normalized = single === current
   const listRef = useRef<HTMLDivElement>(null)
+  /** The tab that took the Enter/Space keydown: only its own keyup activates. */
+  const pressedRef = useRef<T | null>(null)
+
+  const activate = (next: string): void => {
+    // Routed by the configured ids (validated as routable above).
+    if (next === current || !isTab(next)) return
+    void navigate({ page, tab: next } as NavTarget)
+  }
 
   useEffect(() => {
     if (normalized) return
@@ -94,15 +113,27 @@ export function PageTabs<T extends string>({ page, tabs, panels, defaultTab, "ar
   return (
     <Tabs
       value={current}
-      onValueChange={(next) => {
-        // Routed by the configured ids (validated as routable above).
-        if (next === current || !isTab(next)) return
-        void navigate({ page, tab: next } as NavTarget)
-      }}
+      onValueChange={activate}
     >
       <TabsList ref={listRef} aria-label={ariaLabel} className="px-4 md:px-6" onFocusCapture={(event) => keepInView(listRef.current, event.target)}>
         {tabs.map((tab) => (
-          <TabsTrigger key={tab.id} value={tab.id}>
+          <TabsTrigger
+            key={tab.id}
+            value={tab.id}
+            onKeyDown={(event) => {
+              if (!isActivationKey(event)) return
+              event.preventDefault()
+              pressedRef.current = tab.id
+            }}
+            onKeyUp={(event) => {
+              if (!isActivationKey(event) || pressedRef.current !== tab.id) return
+              pressedRef.current = null
+              activate(tab.id)
+            }}
+            onBlur={() => {
+              pressedRef.current = null
+            }}
+          >
             {tab.comingSoon ? (
               <>
                 {tab.label}
