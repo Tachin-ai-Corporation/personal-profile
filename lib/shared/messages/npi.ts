@@ -7,7 +7,24 @@ export const NPI_MESSAGES = {
   personalSearch: "Search for your personal NPI number", // DRAFT COPY
   practiceSearch: "Search for your practice's (hospital, clinic, lab, etc.) NPI Number", // DRAFT COPY
   register: "Register", // DRAFT COPY
+  personalNpiRequired: "Personal NPI is required", // DRAFT COPY
+  registering: "Registering…", // DRAFT COPY
+  registrationFailed: "There was an error in the registration. Please call 1-888-555-1212 for assistance.", // DRAFT COPY
+  providerRegistered: "Provider NPI registered", // DRAFT COPY
+  providerPracticeRegistered: "Provider and practice NPIs registered", // DRAFT COPY
   npi: "NPI", // DRAFT COPY
+  taxonomy: "Taxonomy", // DRAFT COPY
+  healthInformationExchange: "Health Information Exchange", // DRAFT COPY
+  practiceName: "Practice name", // DRAFT COPY
+  practiceAddress: "Practice address", // DRAFT COPY
+  practiceNpi: "Practice NPI", // DRAFT COPY
+  licenses: "Licenses", // DRAFT COPY
+  addressOfPractice: "Address of practice", // DRAFT COPY
+  organizationExists: "This organization already exists - please contact their support to be added to their portal.", // DRAFT COPY
+  registerPractice: "Register your practice to enable ordering", // DRAFT COPY
+  signatureUnavailable: "No signature available", // DRAFT COPY
+  aboutSignature: "About the signature", // DRAFT COPY
+  signatureHelp: "The signature can be changed from the Personal Profile", // DRAFT COPY
   personalNpiTaken: "This personal NPI is already registered. Check that you selected your own.",
   practiceNpiTaken: "This practice NPI is already registered. Check that you selected the right practice.",
   practiceSupportLoadError: "Couldn't load the support contact.", // DRAFT COPY (epics Story 9.3 Practice-name popover error; moved from F5-1)
