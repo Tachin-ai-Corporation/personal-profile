@@ -47,7 +47,7 @@ The rebuild reaches functional parity with the legacy app on the Personal Profil
 2. **Enter portal lands on the portal root instead of inside the organization.** This is a documented degradation (OQ1).
 3. **A few small undocumented behaviour differences**:
    - ~~Changing the country doesn't clear the address fields.~~ Resolved 2026-10-23 (NG-9026).
-   - The insurance Relationship options are in a different order from the backend.
+   - ~~The insurance Relationship options are in a different order from the backend.~~ Resolved 2026-10-23 (NG-9029).
    - A locale written by the legacy app (`en-us`) shows as raw text.
    - The Maps link, Verify in edit view, the Privacy/Terms/Dark mode menu items and a few legacy MIME types are gone.
 
@@ -323,8 +323,8 @@ II = `fe:views/privatePages/ProfilePage/components/Insurance/InsuranceInfo.tsx`,
 | Field order | IF:300-575 | PE:431-452 | DIFF-INTENTIONAL | Story 5.2. |
 | Insurer field | IF:309-327 ("Insurance Company:", freeSolo) | PE:52-91 ("Insurer", ≥2 characters, "Add “{name}”") | DIFF-INTENTIONAL | Story 5.2. Same search endpoint (insurance.ts:75-77). |
 | Type / Precedence / Relationship labels | IF:389, 355, 466 ("The subscriber is my") | PE:432-436 ("Type", "Precedence", "Relationship") | DIFF-INTENTIONAL | Story 5.2 DRAFT. The epic says "Relationship to the insured" (§4). |
-| Option source | FII:386-416 (`type/key/Insurance` order) | insurance.ts:232-236,269-276 (type key filtered by backend constants, in constant order) | DIFF-INTENTIONAL | Story 5.2, RC10. |
-| Relationship option order | type-key order | pp:lib/api/insurance.ts:236 (Self, Spouse, Parent, Child, Dependent) | DIFF-GAP | Backend enum order is Self, Spouse, Child, Dependent, Parent (1h-ng-bo-core-be InsuranceConstants.java:224-230). No decision (P2). |
+| Option source | FII:386-416 (`type/key/Insurance` order) | insurance.ts:232-236,269-276 (type key filtered by backend constants, in constant order; Relationship in type-key order, next row) | DIFF-INTENTIONAL | Story 5.2, RC10. |
+| Relationship option order | type-key order | pp:lib/api/insurance.ts:240,277-296 (type-key order; fallback Self, Spouse, Child, Dependent, Parent) | MATCH (was DIFF-GAP) | Backend enum order is Self, Spouse, Child, Dependent, Parent (1h-ng-bo-core-be InsuranceConstants.java:224-230). No decision (P2). **Resolved 2026-10-23 (NG-9029): Relationship follows the type key's order; the fallback when the type key has no list is the backend enum order; checked by `e2e/parity-1health-fe.spec.ts` "Insurance Relationship options".** |
 | Options load failure | FII:417 (silently empty) | PE:397-410 | NEW-ONLY | Story 5.2. |
 | Member / Group ID 3–32 | FIU:42-60; IF:414,435 | pp:features/insurance/schema.ts:145-147 | MATCH | DRAFT copy. |
 | Date ordering rules | FIU:61-118 | schema.ts:149-164; IM:37 | MATCH | DRAFT copy. |
@@ -556,7 +556,7 @@ MO = `fe:views/privatePages/AccountSettings/Components/MyOrganizations/`, OC = `
 
 3. ~~**Address: changing the country doesn't clear the address parts** (fe AC:123-144 vs pp:features/addresses/addresses-section.tsx:549-550). Only "verified" is cleared, so a stale state or ZIP can be saved under the new country.~~ **Resolved 2026-10-23 (NG-9026):** a Country change empties line 1/2, city, county, state and zip and clears "Verified" (pp:features/addresses/addresses-section.tsx:261-277).
 4. **Account: a locale written by the legacy app shows as raw "en-us".** Legacy writes lowercase `en-us` (fe ASF:19). The new read view and Select recognize only `en-US` (pp:features/account/view-model.ts:46; account-edit-fields.tsx:50). Fix by matching without regard to case, and check real `myself.locale` values on demo.
-5. **Insurance: Relationship option order** is Self, Spouse, Parent, Child, Dependent (pp:lib/api/insurance.ts:236). The backend enum and type key order is Self, Spouse, Child, Dependent, Parent. Use the backend order or record a decision.
+5. ~~**Insurance: Relationship option order** is Self, Spouse, Parent, Child, Dependent (pp:lib/api/insurance.ts:236). The backend enum and type key order is Self, Spouse, Child, Dependent, Parent. Use the backend order or record a decision.~~ **Resolved 2026-10-23 (NG-9029):** the options follow the type key's order, as legacy; without a type key list they fall back to the backend enum order (pp:lib/api/insurance.ts:240,277-296).
 6. **App bar: Privacy, Terms and Dark mode** from the legacy user menu (fe:components/AppHeaderV2/components/UserMenu.tsx:113-131) have no counterpart and no decision.
 
 ### P3: cosmetic or edge
