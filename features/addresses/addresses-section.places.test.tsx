@@ -577,7 +577,6 @@ describe("AddressesSection: address suggestions (Story 4.3)", () => {
     ["State/Province (optional)", "Oregon"],
     ["County (optional)", "Alameda"],
     ["Address line 2 (optional)", "Suite 12"],
-    ["Country", "Canada"],
   ])("a manual %s edit after a pick survives its held details answer", async (field, value) => {
     const answer = held()
     const { calls, writes } = await render({
@@ -590,12 +589,11 @@ describe("AddressesSection: address suggestions (Story 4.3)", () => {
     await search(row, "1 Pin")
     await pickFirst(row)
     await waitFor(() => expect(calls.details).toHaveLength(1))
-    if (field === "Country") await pickSelect(countryTrigger(row), value)
-    else await type(textbox(row, field), value)
+    await type(textbox(row, field), value)
     await act(async () => answer.release())
     await pastDebounce()
     expect(line1(row).value).toBe("1 Pine Street")
-    expect(field === "Country" ? countryTrigger(row).textContent : textbox(row, field).value).toBe(value)
+    expect(textbox(row, field).value).toBe(value)
     // Dropping the entire stale fill keeps the untouched parts and never claims verification.
     if (field !== "City") expect(textbox(row, "City").value).toBe("SF")
     if (field !== "Zip") expect(textbox(row, "Zip").value).toBe("94105")
@@ -605,6 +603,30 @@ describe("AddressesSection: address suggestions (Story 4.3)", () => {
     expect(writes).toHaveLength(1)
     expect(writes[0].body.validated).toBe(false)
     // A details request ends its billing session even if a later edit makes its answer stale.
+    expect(calls.details[0].lookupId).toBe(calls.autocomplete[0].lookupId)
+  })
+
+  it("a Country change after a pick empties the parts and drops its held details answer (NG-9026)", async () => {
+    const answer = held()
+    const { calls, writes } = await render({
+      details: async () => {
+        await answer.promise
+        return HttpResponse.json(COMPLETE)
+      },
+    })
+    const row = await kebabEdit("9 Oak Ave, Apt 4, SF, CA 94105")
+    await search(row, "1 Pin")
+    await pickFirst(row)
+    await waitFor(() => expect(calls.details).toHaveLength(1))
+    await pickSelect(countryTrigger(row), "Canada")
+    await act(async () => answer.release())
+    await pastDebounce()
+    expect(countryTrigger(row).textContent).toBe("Canada")
+    expect([line1(row).value, ...["Address line 2 (optional)", "City", "County (optional)", "State/Province (optional)", "Zip"].map((name) => textbox(row, name).value)]).toEqual(["", "", "", "", "", ""])
+    expect(status()).toBe("")
+    await save()
+    await waitFor(() => expect(described(textbox(row, "City"))).toEqual(["Enter a city"]))
+    expect(writes).toEqual([])
     expect(calls.details[0].lookupId).toBe(calls.autocomplete[0].lookupId)
   })
 

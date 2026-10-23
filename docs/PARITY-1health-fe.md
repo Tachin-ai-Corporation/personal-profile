@@ -46,7 +46,7 @@ The rebuild reaches functional parity with the legacy app on the Personal Profil
 1. ~~**Individual Provider Registration is only half built.**~~ Resolved 2026-10-23: Stories 9.2 (Register) and 9.3 (registered view) merged in #48. Remaining intentional differences from legacy (parallel availability checks, errors under the field, the practice-name fallback, the CTA handoff, DRAFT COPY) are listed in the story specs.
 2. **Enter portal lands on the portal root instead of inside the organization.** This is a documented degradation (OQ1).
 3. **A few small undocumented behaviour differences**:
-   - Changing the country doesn't clear the address fields.
+   - ~~Changing the country doesn't clear the address fields.~~ Resolved 2026-10-23 (NG-9026).
    - The insurance Relationship options are in a different order from the backend.
    - A locale written by the legacy app (`en-us`) shows as raw text.
    - The Maps link, Verify in edit view, the Privacy/Terms/Dark mode menu items and a few legacy MIME types are gone.
@@ -275,7 +275,7 @@ LAW = `fe:…/LocationAddressWrapper/LocationAddressWrapper.tsx`, LAC = `…/Loc
 | Country source and order | UCO:16-57 (`public/countries`; US, Canada, Australia pinned, the rest A–Z; n/a dropped) | pp:lib/api/addresses.ts:72-73,215-232 | MATCH | The new app also removes duplicate names. |
 | Default country of a new row | fe:ProfilePageForms.ts:231 (`null`) | pp:features/addresses/schema.ts:85; addresses.ts:59 ("United States") | DIFF-INTENTIONAL | Story 4.2. |
 | Countries load failure | UCO:60 (toast) | AS:666-675; schema.ts:202 (inline + Retry; Save blocked) | DIFF-INTENTIONAL | Story 4.2. |
-| Changing the country clears the parts | AC:123-144 (clears line 1/2, city, county, state, zip, lat/lon) | AS:549-550 (clears only `validated`) | DIFF-GAP | Not covered by specs 4.2 or 4.3. Stale parts can be saved under the new country (P2). |
+| Changing the country clears the parts | AC:123-144 (clears line 1/2, city, county, state, zip, lat/lon) | AS:261-277,563-565 (`clearAddressParts`: line 1/2, city, county, state, zip and `validated`; Type and Primary kept; the same country is a no-op) | MATCH (was DIFF-GAP) | Not covered by specs 4.2 or 4.3. Stale parts can be saved under the new country (P2). **Resolved 2026-10-23 (NG-9026): a Country change to another value empties the parts, as in legacy, on a new and a saved row; the new app stores no lat/lon. Checked by `e2e/parity-1health-fe.spec.ts` "P2 · Changing an address's country…" and `e2e/profile-addresses.spec.ts`.** |
 | Set-as-primary control | AC:95-108 (radio "Set As Primary") | AS:600-640; AM:11 (checkbox "Set as primary") | DIFF-INTENTIONAL | Story 4.4. |
 | Line 1 label | AC:198 ("Address Line 1") | AM:12 ("Address line 1") | DIFF-INTENTIONAL | DRAFT. |
 | Line 2 label | AC:228 ("Address Line 2 (optional)") | AM:13 plus "(optional)" | DIFF-INTENTIONAL | Only the case differs. |
@@ -554,7 +554,7 @@ MO = `fe:views/privatePages/AccountSettings/Components/MyOrganizations/`, OC = `
 
 ### P2: behaviour or visible data mismatch
 
-3. **Address: changing the country doesn't clear the address parts** (fe AC:123-144 vs pp:features/addresses/addresses-section.tsx:549-550). Only "verified" is cleared, so a stale state or ZIP can be saved under the new country.
+3. ~~**Address: changing the country doesn't clear the address parts** (fe AC:123-144 vs pp:features/addresses/addresses-section.tsx:549-550). Only "verified" is cleared, so a stale state or ZIP can be saved under the new country.~~ **Resolved 2026-10-23 (NG-9026):** a Country change empties line 1/2, city, county, state and zip and clears "Verified" (pp:features/addresses/addresses-section.tsx:261-277).
 4. **Account: a locale written by the legacy app shows as raw "en-us".** Legacy writes lowercase `en-us` (fe ASF:19). The new read view and Select recognize only `en-US` (pp:features/account/view-model.ts:46; account-edit-fields.tsx:50). Fix by matching without regard to case, and check real `myself.locale` values on demo.
 5. **Insurance: Relationship option order** is Self, Spouse, Parent, Child, Dependent (pp:lib/api/insurance.ts:236). The backend enum and type key order is Self, Spouse, Child, Dependent, Parent. Use the backend order or record a decision.
 6. **App bar: Privacy, Terms and Dark mode** from the legacy user menu (fe:components/AppHeaderV2/components/UserMenu.tsx:113-131) have no counterpart and no decision.
