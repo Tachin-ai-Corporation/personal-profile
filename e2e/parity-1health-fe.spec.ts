@@ -2,7 +2,10 @@ import { expect, type Locator, type Page } from "@playwright/test"
 import {
   ANN,
   REGISTERED_PROVIDER_NPI,
+  addressRow,
   mockAccountDefaults,
+  mockAddresses,
+  mockCountries,
   mockFileDownload,
   mockMyself,
   mockNpiAvailability,
@@ -323,8 +326,32 @@ test.describe("Individual Provider Registration (Stories 9.2, 9.3; legacy Indivi
  * Open gaps against 1health-fe (DIFF-GAP in docs/PARITY-1health-fe.md). Each
  * stays `fixme` until its story lands; then turn it into a real test.
  */
+test.describe("Resolved gaps vs 1health-fe", () => {
+  // Resolved 2026-10-23 (NG-9026): legacy AddressComponent.tsx:123-144 empties line 1/2, city, county, state, zip and lat/lon on a Country change.
+  test("P2 · Changing an address's country clears the address fields, as in legacy", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await mockProfileDefaults(page)
+    await mockAddresses(page, [addressRow({ id: 1, addressLine1: "9 Oak Ave", addressLine2: "Apt 4", county: "SF County", primary: true, validated: true })])
+    await mockCountries(page, { body: [{ id: 1, name: "Canada" }, { id: 2, name: "United States" }] })
+    await page.goto("/")
+    const addresses = region(page, "Addresses")
+    await addresses.getByRole("button", { name: "More actions for 9 Oak Ave, Apt 4, SF, CA 94105" }).click()
+    await page.getByRole("menuitem", { name: "Edit" }).click()
+    const row = addresses.locator('[data-slot="address-expanded"]').first()
+    await expect(row.getByRole("combobox", { name: "Address line 1", exact: true })).toHaveValue("9 Oak Ave")
+    await row.getByRole("combobox", { name: "Country" }).click()
+    await page.getByRole("option", { name: "Canada", exact: true }).click()
+    await expect(row.getByRole("combobox", { name: "Address line 1", exact: true })).toHaveValue("")
+    for (const label of ["Address line 2 (optional)", "City", "County (optional)", "State/Province (optional)", "Zip"]) {
+      await expect(row.getByRole("textbox", { name: label, exact: true })).toHaveValue("")
+    }
+    // As in legacy, the Address Type and the Primary flag stay.
+    await expect(row.getByRole("combobox", { name: "Address Type" })).toHaveText("Home")
+    await expect(row.getByRole("checkbox", { name: "Set as primary" })).toBeChecked()
+  })
+})
+
 test.describe("Open gaps vs 1health-fe", () => {
-  test.fixme("P2 · Changing an address's country clears the address fields, as in legacy", async () => {})
   test.fixme("P2 · A legacy `en-us` locale shows as \"English - United States\", not raw text", async () => {})
   test.fixme("P2 · Insurance Relationship options follow the backend order", async () => {})
   test.fixme("P3 · Verify is offered from the Phone and Email edit view, as in legacy", async () => {})

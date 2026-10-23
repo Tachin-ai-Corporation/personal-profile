@@ -469,6 +469,94 @@ test.describe("Addresses edit (Story 4.2)", () => {
   })
 })
 
+// --- NG-9026 parity: a Country change empties the address parts (1health-fe AddressComponent) ---
+
+const ADDRESS_PARTS = ["Address line 1", "Address line 2 (optional)", "City", "County (optional)", "State/Province (optional)", "Zip"] as const
+
+async function expectPartsEmpty(row: Locator): Promise<void> {
+  for (const name of ADDRESS_PARTS) await expect(field(row, name)).toHaveValue("")
+}
+
+test.describe("Addresses: a Country change empties the address parts (NG-9026)", () => {
+  test("a saved Primary row: US → Canada empties the parts, keeps Type and Primary; Save shows the required errors; re-entered parts PUT with the cleared optional ones as n/a", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 })
+    const { rows } = await openEditable(page)
+    const puts = await mockAddressUpdate(page, (request) => {
+      const target = rows.find((row) => row.id === 1) as Record<string, unknown>
+      applyBody(target, request.postDataJSON())
+      return { body: target }
+    })
+    await section(page).getByRole("button", { name: "More actions for 9 Oak Ave, Apt 4, SF, CA 94105" }).click()
+    await page.getByRole("menuitem", { name: "Edit" }).click()
+    const row = expandedRows(page).first()
+    await expect(field(row, "Address line 1")).toHaveValue("9 Oak Ave")
+    await pick(page, countrySelect(row), "Canada")
+    await expectPartsEmpty(row)
+    await expect(countrySelect(row)).toHaveText("Canada")
+    await expect(typeSelect(row)).toHaveText("Home")
+    await expect(row.getByRole("checkbox", { name: "Set as primary" })).toBeChecked()
+    await saveButton(page).click()
+    await expect(field(row, "Address line 1")).toBeFocused()
+    await expect(row.getByText("Enter address line 1")).toBeVisible()
+    await expect(row.getByText("Enter a city")).toBeVisible()
+    await expect(row.getByText("Enter a ZIP code")).toBeVisible()
+    expect(puts()).toEqual([])
+    await field(row, "Address line 1").fill("12 King St W")
+    await field(row, "City").fill("Toronto")
+    await field(row, "Zip").fill("M5H 1A1")
+    await saveButton(page).click()
+    await expect(footer(page)).toHaveCount(0)
+    expect(puts()).toEqual([
+      {
+        id: 1,
+        body: {
+          personLocationType: "Home",
+          addressLine1: "12 King St W",
+          addressLine2: "n/a",
+          cityName: "Toronto",
+          stateName: "n/a",
+          postalCode: "M5H 1A1",
+          country: "Canada",
+          primary: true,
+          validated: false,
+          fullAddress: "12 King St W, Toronto, M5H 1A1, Canada",
+        },
+      },
+    ])
+  })
+
+  test("at 360 px, a new row: the same country keeps the parts; another empties them and the POST sends only the re-entered ones", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 })
+    const { rows } = await openEditable(page)
+    const posts = await mockAddressCreate(page, (request) => {
+      const created = addressRow({ id: 31, ...request.postDataJSON(), addressLine2: null, county: null, stateName: null })
+      rows.push(created)
+      return { body: created }
+    })
+    await section(page).getByRole("button", { name: "Add address" }).click()
+    const row = expandedRows(page).first()
+    await pick(page, typeSelect(row), "Home")
+    await field(row, "Address line 1").fill("1 Pine St")
+    await field(row, "Address line 2 (optional)").fill("Apt 4")
+    await field(row, "City").fill("SF")
+    await field(row, "State/Province (optional)").fill("CA")
+    await field(row, "Zip").fill("94105")
+    await pick(page, countrySelect(row), "United States")
+    await expect(field(row, "Address line 1")).toHaveValue("1 Pine St")
+    await expect(field(row, "Zip")).toHaveValue("94105")
+    await pick(page, countrySelect(row), "Germany")
+    await expectPartsEmpty(row)
+    await expect(typeSelect(row)).toHaveText("Home")
+    await field(row, "Address line 1").fill("Hauptstraße 1")
+    await field(row, "City").fill("Berlin")
+    await field(row, "Zip").fill("10115")
+    await saveButton(page).click()
+    await expect(footer(page)).toHaveCount(0)
+    expect(posts()).toEqual([{ personLocationType: "Home", addressLine1: "Hauptstraße 1", cityName: "Berlin", postalCode: "10115", country: "Germany", primary: false, validated: false }])
+    await expectNoHorizontalScroll(page)
+  })
+})
+
 // --- Story 4.3: address suggestions via server --------------------------------------------------
 
 const PLACES_SUGGESTIONS = [1, 2, 3].map((n) => ({ placeId: `ChIJ-place-${n}`, mainText: `${n} Pine Street`, secondaryText: "San Francisco, CA, USA", matches: [{ start: 0, end: 5 }] }))

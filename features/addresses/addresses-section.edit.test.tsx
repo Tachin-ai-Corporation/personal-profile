@@ -711,10 +711,13 @@ describe("AddressesSection: save", () => {
     await pick(typeTrigger(row), "Other Work")
     await waitFor(() => expect(countryTrigger(row).getAttribute("aria-busy")).toBeNull())
     await pick(countryTrigger(row), "Canada")
+    // A Country change empties the parts (NG-9026): they are entered again.
+    await type(textbox(row, "Address line 1"), "12 King St W")
+    await type(textbox(row, "City"), "Toronto")
     await type(textbox(row, "Zip"), "M5H 1A1")
     await save()
     await waitFor(() => expect(writes).toHaveLength(1))
-    expect(writes[0].body).toMatchObject({ personLocationType: "Other Work", country: "Canada", postalCode: "M5H 1A1" })
+    expect(writes[0].body).toMatchObject({ personLocationType: "Other Work", country: "Canada", addressLine1: "12 King St W", cityName: "Toronto", postalCode: "M5H 1A1" })
   })
 
   it("Enter in a field never submits; Cancel reverts only Addresses, focus on the h2", async () => {
@@ -730,6 +733,85 @@ describe("AddressesSection: save", () => {
     expect(isReadView()).toBe(true)
     expect(document.activeElement).toBe(heading())
     expect(within(section()).getByText("1 Pine St, SF, CA 94105")).toBeTruthy()
+  })
+})
+
+describe("AddressesSection: a Country change empties the address parts (NG-9026, legacy parity)", () => {
+  const PARTS = ["Address line 1", "Address line 2 (optional)", "City", "County (optional)", "State/Province (optional)", "Zip"] as const
+  const partValues = (row: HTMLElement): string[] => PARTS.map((name) => textbox(row, name).value)
+
+  it("a new row: the parts and their errors empty, Type and Primary stay; Save shows the required errors, then sends the re-entered parts", async () => {
+    const { writes } = await render({ rows: [] })
+    const row = await addAddress({ type: "Main Work", line1: "1 Pine St", city: "SF", state: "CA", zip: "123" })
+    await type(textbox(row, "Address line 2 (optional)"), "Apt 4")
+    await type(textbox(row, "County (optional)"), "San Francisco")
+    await blur(textbox(row, "Zip"))
+    await waitFor(() => expect(described(textbox(row, "Zip"))).toEqual(["Enter a 5-digit ZIP code"]))
+    expect(primaryBox(row).getAttribute("aria-checked")).toBe("true")
+    await waitFor(() => expect(countryTrigger(row).getAttribute("aria-busy")).toBeNull())
+    await pick(countryTrigger(row), "Germany")
+    expect(partValues(row)).toEqual(["", "", "", "", "", ""])
+    expect(described(textbox(row, "Zip"))).toEqual([])
+    expect(countryTrigger(row).textContent).toBe("Germany")
+    expect(typeTrigger(row).textContent).toBe("Main Work")
+    expect(primaryBox(row).getAttribute("aria-checked")).toBe("true")
+    await save()
+    await waitFor(() => expect(described(textbox(row, "Address line 1"))).toEqual(["Enter address line 1"]))
+    expect(described(textbox(row, "City"))).toEqual(["Enter a city"])
+    expect(described(textbox(row, "Zip"))).toEqual(["Enter a ZIP code"])
+    expect(writes).toEqual([])
+    await type(textbox(row, "Address line 1"), "Hauptstraße 1")
+    await type(textbox(row, "City"), "Berlin")
+    await type(textbox(row, "Zip"), "10115")
+    await save()
+    await waitFor(() => expect(writes).toHaveLength(1))
+    expect(writes[0]).toMatchObject({ method: "POST" })
+    expect(writes[0].body).toEqual({ personLocationType: "Main Work", addressLine1: "Hauptstraße 1", cityName: "Berlin", postalCode: "10115", country: "Germany", primary: true, validated: false })
+  })
+
+  it("a saved row (verified, Primary): the parts and Verified clear; the PUT sends the re-entered parts and the cleared optional ones as n/a", async () => {
+    const { writes } = await render({ rows: [location({ id: 1, addressLine1: "9 Oak Ave", addressLine2: "Apt 4", county: "SF County", primary: true, validated: true })] })
+    await kebabEdit("9 Oak Ave, Apt 4, SF, CA 94105")
+    const [row] = expandedRows()
+    await waitFor(() => expect(countryTrigger(row).getAttribute("aria-busy")).toBeNull())
+    await pick(countryTrigger(row), "Canada")
+    expect(partValues(row)).toEqual(["", "", "", "", "", ""])
+    expect(typeTrigger(row).textContent).toBe("Home")
+    expect(primaryBox(row).getAttribute("aria-checked")).toBe("true")
+    await save()
+    await waitFor(() => expect(described(textbox(row, "City"))).toEqual(["Enter a city"]))
+    expect(writes).toEqual([])
+    await type(textbox(row, "Address line 1"), "12 King St W")
+    await type(textbox(row, "City"), "Toronto")
+    await type(textbox(row, "Zip"), "M5H 1A1")
+    await save()
+    await waitFor(() => expect(writes).toHaveLength(1))
+    expect(writes[0]).toMatchObject({ method: "PUT", path: "/api/1h/v2/person/location/1" })
+    expect(writes[0].body).toEqual({
+      personLocationType: "Home",
+      addressLine1: "12 King St W",
+      addressLine2: "n/a",
+      cityName: "Toronto",
+      county: "n/a",
+      stateName: "n/a",
+      postalCode: "M5H 1A1",
+      country: "Canada",
+      primary: true,
+      validated: false,
+      fullAddress: "12 King St W, Toronto, M5H 1A1, Canada",
+    })
+  })
+
+  it("re-selecting the same country changes nothing (no write; Verified kept)", async () => {
+    const { writes } = await render({ rows: [location({ id: 1, addressLine2: "Apt 4", validated: true })] })
+    await kebabEdit("1 Pine St, Apt 4, SF, CA 94105")
+    const [row] = expandedRows()
+    await waitFor(() => expect(countryTrigger(row).getAttribute("aria-busy")).toBeNull())
+    await pick(countryTrigger(row), "United States")
+    expect(partValues(row)).toEqual(["1 Pine St", "Apt 4", "SF", "", "CA", "94105"])
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(writes).toEqual([])
   })
 })
 

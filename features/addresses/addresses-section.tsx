@@ -258,6 +258,24 @@ function clearVerified(form: AddressForm, index: number): void {
   if (form.getValues(path) === true) form.setValue(path, false as PathValue<AddressValues, typeof path>, { shouldDirty: true })
 }
 
+/** The parts a Country change empties (legacy 1health-fe AddressComponent): never Address Type or "Set as primary". */
+const COUNTRY_CLEARED_PARTS = ["line1", "line2", "city", "county", "state", "zip"] as const
+
+/**
+ * A user change of the Country to another value (NG-9026, legacy parity):
+ * the row's address parts empty and "Verified" clears, as in 1health-fe, so
+ * no part of the old country is saved under the new one. The emptied parts'
+ * errors go too; the required ones show theirs again on blur or Save.
+ */
+function clearAddressParts(form: AddressForm, index: number): void {
+  for (const field of COUNTRY_CLEARED_PARTS) {
+    const path = fieldPath(index, field)
+    if (form.getValues(path) !== "") form.setValue(path, "" as PathValue<AddressValues, typeof path>, { shouldDirty: true })
+  }
+  clearVerified(form, index)
+  form.clearErrors(COUNTRY_CLEARED_PARTS.map((field) => fieldPath(index, field)))
+}
+
 /** A row's typed line 1 and "Verified" before a pick (a failed pick puts them back); never a pending pick's street. */
 interface Line1Snapshot {
   readonly line1: string
@@ -541,9 +559,10 @@ function AddressSelectField({ section, index, field, label, options, placeholder
             if (!next) binding.onBlur()
           }}
           onValueChange={(next) => {
-            if (binding.readOnly) return
+            // Re-selecting the same value changes nothing (a same Country keeps the parts).
+            if (binding.readOnly || next === value) return
             binding.onChange(next as PathValue<AddressValues, Path<AddressValues>>)
-            if (field === "country") clearVerified(section.form, index)
+            if (field === "country") clearAddressParts(section.form, index)
             onUserChange?.(next)
           }}
           placeholder={placeholder}
@@ -708,9 +727,9 @@ function AddressExpandedRow({ section, item, name, onToggle, countries, places, 
           placeholder={ADDRESS_MESSAGES.chooseCountry}
           loading={countries.loading}
           helper={countriesHelper}
-          onUserChange={(next) => {
-            // Another Places country: the row's lookup ends (its suggestions belong to the old country).
-            if (placesCountryCodeOf(next) !== placesCountryCodeOf(row.country)) places.lookups.end(row.key)
+          onUserChange={() => {
+            // Another country empties line 1 (`clearAddressParts`): the row's lookup ends.
+            places.lookups.end(row.key)
           }}
         />
         <PrimaryField section={section} index={index} onChecked={onPrimaryChecked} onlyRow={onlyRow} className="md:col-span-2 md:pt-7" />
