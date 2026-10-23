@@ -353,7 +353,17 @@ test.describe("Resolved gaps vs 1health-fe", () => {
 })
 
 test.describe("Open gaps vs 1health-fe", () => {
-  test.fixme("P2 · A legacy `en-us` locale shows as \"English - United States\", not raw text", async () => {})
+  test("P2 · A legacy `en-us` locale shows as \"English - United States\", not raw text", async ({ page }) => {
+    // Resolved 2026-10-23 (NG-9033): the locale is matched without regard to case.
+    await mockAccountDefaults(page)
+    await mockMyself(page, { body: { ...ANN, locale: "en-us" } })
+    await page.goto("/account")
+    const section = region(page, "Personal account settings")
+    await expect(section.getByText("English - United States", { exact: true })).toBeVisible()
+    await expect(section.getByText("en-us", { exact: true })).toHaveCount(0)
+    await section.getByRole("button", { name: "Edit", exact: true }).click()
+    await expect(section.getByRole("combobox", { name: "Preferred locale for date, time, and currency", exact: true })).toHaveText("English - United States")
+  })
   test("P2 · Insurance Relationship options follow the backend order", async ({ page }) => {
     // Resolved 2026-10-23 (NG-9029): the type key's order, as legacy (InsuranceConstants.RelationshipToInsured order).
     await mockProfileDefaults(page)

@@ -149,6 +149,27 @@ test("unlisted regional values remain selected and are omitted from a names-only
   expect(writes()).toEqual([{ firstName: "Bea" }])
 })
 
+test("a legacy `en-us` locale reads as English - United States, is the listed option and gets no locale write (NG-9033)", async ({ page }) => {
+  await mockMyself(page, { body: { ...ACCOUNT_SETTINGS_MYSELF, locale: "en-us" } })
+  const writes = await mockUserEdit(page, { status: 204 })
+  const locales = await mockAccountLocale(page)
+  await page.goto("/account")
+  const section = account(page)
+  await expect(section.getByText("English - United States", { exact: true })).toBeVisible()
+  await expect(section.getByText("en-us", { exact: true })).toHaveCount(0)
+  await section.getByRole("button", { name: "Edit", exact: true }).click()
+  const select = section.getByRole("combobox", { name: "Preferred locale for date, time, and currency", exact: true })
+  await expect(select).toHaveText("English - United States")
+  await select.click()
+  await expect(page.getByRole("option")).toHaveText(["English - United States"])
+  await page.keyboard.press("Escape")
+  await section.getByRole("textbox", { name: "First name", exact: true }).fill("Bea")
+  await section.getByRole("button", { name: "Save", exact: true }).click()
+  await expect(section.getByRole("button", { name: "Edit", exact: true })).toBeVisible()
+  expect(writes()).toEqual([{ firstName: "Bea" }])
+  expect(locales()).toHaveLength(0)
+})
+
 test("identity mismatch blocks all writes and keeps draft under its original owner", async ({ page }) => {
   const writes = await mockUserEdit(page)
   const zones = await mockAccountTimeZone(page)

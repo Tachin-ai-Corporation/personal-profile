@@ -1,6 +1,7 @@
 import { primarySelection, samePrimary, type PrimaryContactLists } from "./primary-contacts"
 import { z } from "zod"
-import type { Myself, AccountDetailsPayload } from "@/lib/api"
+import { ACCOUNT_LOCALE, type Myself, type AccountDetailsPayload } from "@/lib/api"
+import { canonicalAccountLocale } from "./view-model"
 import { isNotProvided } from "@/lib/shared/display-value"
 import { displayToWireDate, wireToDisplayDate } from "@/lib/shared/dates"
 import { nameIssue, normalizeName, isBirthDateInRange, birthDateAgeRange } from "@/lib/shared/person-rules"
@@ -26,7 +27,8 @@ export function accountFormDefaults(myself?: Myself): AccountFormValues {
     firstName: provided(myself?.firstName), lastName: provided(myself?.lastName),
     birthDate: wireToDisplayDate(myself?.birthDate) ?? "",
     preferredLanguage: provided(myself?.preferredLanguage), timeZone: provided(myself?.timeZone),
-    locale: provided(myself?.locale) || "en-US",
+    // A legacy `en-us` is the listed `en-US`, so its Select shows the option and a save sends no locale write.
+    locale: canonicalAccountLocale(provided(myself?.locale)) || ACCOUNT_LOCALE,
   }
 }
 

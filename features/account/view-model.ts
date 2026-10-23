@@ -1,4 +1,4 @@
-import { primaryPhoneRegion, type ContactPoint, type Myself } from "@/lib/api"
+import { ACCOUNT_LOCALE, primaryPhoneRegion, type ContactPoint, type Myself } from "@/lib/api"
 import { wireToDisplayDate } from "@/lib/shared/dates"
 import { providedOrNull } from "@/lib/shared/display-value"
 import { ACCOUNT_MESSAGES } from "@/lib/shared/messages"
@@ -17,6 +17,16 @@ export interface AccountView {
   readonly preferredLanguage: string | null
   readonly timeZone: string | null
   readonly locale: string
+}
+
+/**
+ * `en-US` for any spelling of it (`en-us`, `EN-US`, `en_US`), else the value
+ * unchanged. Legacy 1health-fe writes `en-us` (PersonalAccountUtils.ts:88-90);
+ * the backend validates a locale case-insensitively and stores it as sent
+ * (1h-ng-bo-core-be StringUtil.isValidLocale), so these are the same locale.
+ */
+export function canonicalAccountLocale(value: string): string {
+  return value.replace("_", "-").toLowerCase() === ACCOUNT_LOCALE.toLowerCase() ? ACCOUNT_LOCALE : value
 }
 
 function provided(value: string | null | undefined): string | null {
@@ -43,6 +53,6 @@ export function toAccountView(myself: Myself, mobileRows?: readonly ContactPoint
     birthDate: isBirthDateInRange(myself.birthDate, myself.roles, today) ? wireToDisplayDate(myself.birthDate) : null,
     preferredLanguage: language === "en" ? ACCOUNT_MESSAGES.english : language,
     timeZone: ACCOUNT_TIME_ZONES.find((entry) => entry.value === zone)?.label ?? zone,
-    locale: locale === null || locale === "en-US" ? ACCOUNT_MESSAGES.localeEnglishUS : locale,
+    locale: locale === null || canonicalAccountLocale(locale) === ACCOUNT_LOCALE ? ACCOUNT_MESSAGES.localeEnglishUS : locale,
   }
 }

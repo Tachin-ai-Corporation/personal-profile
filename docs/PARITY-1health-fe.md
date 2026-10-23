@@ -48,7 +48,7 @@ The rebuild reaches functional parity with the legacy app on the Personal Profil
 3. **A few small undocumented behaviour differences**:
    - ~~Changing the country doesn't clear the address fields.~~ Resolved 2026-10-23 (NG-9026).
    - ~~The insurance Relationship options are in a different order from the backend.~~ Resolved 2026-10-23 (NG-9029).
-   - A locale written by the legacy app (`en-us`) shows as raw text.
+   - ~~A locale written by the legacy app (`en-us`) shows as raw text.~~ Resolved 2026-10-23 (NG-9033).
    - The Maps link, Verify in edit view, the Privacy/Terms/Dark mode menu items and a few legacy MIME types are gone.
 
 ---
@@ -380,7 +380,7 @@ PA = `fe:views/privatePages/AccountSettings/Components/PersonalAccount/`, ASF = 
 | Primary phone display | PersonalAccountView.tsx:64 (raw) | AF/view-model.ts:42 (`+1 (415) 551-2125`) | DIFF-INTENTIONAL | FR104. |
 | Time zone display | PersonalAccountUtils.ts:123-129 | AF/view-model.ts:45 | DIFF-INTENTIONAL | FR108 / Story 7.4 (an unknown value shows the raw code). |
 | Language display | PersonalAccountUtils.ts:130-133 (LOCALE_DETAILS, ~90 tags, fe:config/LocaleDetails.ts:1) | AF/view-model.ts:44 (only `en`→English, else the raw code) | DIFF-GAP | Story 7.4 says to show "its known label", but legacy knew `es`→"Spanish" (P3). |
-| Locale display | PersonalAccountUtils.ts:134-135 (always "English - United States") | AF/view-model.ts:46 (only null or `en-US`) | DIFF-GAP | Legacy writes lowercase `en-us` (ASF:19, PersonalAccountUtils.ts:88-90). Those users see raw "en-us" in the read view, and it shows as an unlisted Select value (P2). |
+| Locale display | PersonalAccountUtils.ts:134-135 (always "English - United States") | AF/view-model.ts:28-30,56; AF/schema.ts:31 (null or any spelling of `en-US`) | MATCH (was DIFF-GAP) | Legacy writes lowercase `en-us` (ASF:19, PersonalAccountUtils.ts:88-90). Those users see raw "en-us" in the read view, and it shows as an unlisted Select value (P2). **Resolved 2026-10-23 (NG-9033): `en-us`, `EN-US` and `en_US` read as "English - United States" and select the listed `en-US`; a save sends no locale write for a case-only difference (the backend validates locales case-insensitively and stores them as sent, 1h-ng-bo-core-be StringUtil.java:170-181, UserServiceImpl.java:1433-1444); checked by `e2e/parity-1health-fe.spec.ts` "legacy `en-us` locale".** Other locales (for example the backend default `en`) still show raw. |
 | Edit / Cancel / Save | fe:components/ProfileCard/components/ActionButtonsContactPoint/ActionButtonsContactPoint.tsx:66,77,93 | AF/account-settings-section.tsx:212,228; section.ts:3; common.ts:8-9 | MATCH | |
 | Edit field order | PersonalAccountUpdateForm.tsx:100-513 | AF/account-edit-fields.tsx:41-51 | MATCH | |
 | Username in edit (locked) | PersonalAccountUpdateForm.tsx:156-170 | AF/account-edit-fields.tsx:43; ACM:27 | DIFF-INTENTIONAL | FR106 (help text added). |
@@ -555,7 +555,7 @@ MO = `fe:views/privatePages/AccountSettings/Components/MyOrganizations/`, OC = `
 ### P2: behaviour or visible data mismatch
 
 3. ~~**Address: changing the country doesn't clear the address parts** (fe AC:123-144 vs pp:features/addresses/addresses-section.tsx:549-550). Only "verified" is cleared, so a stale state or ZIP can be saved under the new country.~~ **Resolved 2026-10-23 (NG-9026):** a Country change empties line 1/2, city, county, state and zip and clears "Verified" (pp:features/addresses/addresses-section.tsx:261-277).
-4. **Account: a locale written by the legacy app shows as raw "en-us".** Legacy writes lowercase `en-us` (fe ASF:19). The new read view and Select recognize only `en-US` (pp:features/account/view-model.ts:46; account-edit-fields.tsx:50). Fix by matching without regard to case, and check real `myself.locale` values on demo.
+4. ~~**Account: a locale written by the legacy app shows as raw "en-us".** Legacy writes lowercase `en-us` (fe ASF:19). The new read view and Select recognize only `en-US` (pp:features/account/view-model.ts:46; account-edit-fields.tsx:50). Fix by matching without regard to case, and check real `myself.locale` values on demo.~~ **Resolved 2026-10-23 (NG-9033):** matched without regard to case or `-`/`_` (pp:features/account/view-model.ts:28-30); the form takes the canonical `en-US`, so a case-only difference never triggers `POST v2/user/locale`. Real demo `myself.locale` values are still unchecked.
 5. ~~**Insurance: Relationship option order** is Self, Spouse, Parent, Child, Dependent (pp:lib/api/insurance.ts:236). The backend enum and type key order is Self, Spouse, Child, Dependent, Parent. Use the backend order or record a decision.~~ **Resolved 2026-10-23 (NG-9029):** the options follow the type key's order, as legacy; without a type key list they fall back to the backend enum order (pp:lib/api/insurance.ts:240,277-296).
 6. **App bar: Privacy, Terms and Dark mode** from the legacy user menu (fe:components/AppHeaderV2/components/UserMenu.tsx:113-131) have no counterpart and no decision.
 

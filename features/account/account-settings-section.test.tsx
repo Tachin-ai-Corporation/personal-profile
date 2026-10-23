@@ -454,6 +454,26 @@ describe("Account settings editing (Story 7.5)", () => {
     expect(valueOf("First name").textContent).toBe("Bea")
     expect(document.activeElement).toBe(screen.getByRole("heading", { name: TITLE }))
   })
+  it("shows a legacy `en-us` locale as the listed option and saves other fields without a locale write (NG-9033)", async () => {
+    const user = userEvent.setup()
+    const details: unknown[] = []
+    let locales = 0
+    renderInPage(<AccountSettingsSection />, { page: "account", myself: myselfWire({ locale: "en-us" }), handlers: [
+      http.put("/api/1h/v2/user/edit", async ({ request }) => { details.push(await request.json()); return new HttpResponse(null, { status: 204 }) }),
+      http.post("/api/1h/v2/user/locale", () => { locales++; return new HttpResponse(null, { status: 204 }) }),
+    ] })
+    await user.click(await screen.findByRole("button", { name: "Edit" }))
+    const locale = screen.getByRole("combobox", { name: "Preferred locale for date, time, and currency" })
+    expect(locale.textContent).toBe("English - United States")
+    const first = screen.getByRole("textbox", { name: "First name" })
+    await user.clear(first)
+    await user.type(first, "Bea")
+    await user.click(screen.getByRole("button", { name: "Save" }))
+    await screen.findByRole("button", { name: "Edit" })
+    expect(details).toEqual([{ firstName: "Bea" }])
+    expect(locales).toBe(0)
+    expect(valueOf("Preferred locale for date, time, and currency").textContent).toBe("English - United States")
+  })
 })
 
 function AccountRevisions() {
