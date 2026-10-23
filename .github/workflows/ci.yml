@@ -18,7 +18,9 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Unit + coverage (~10 min) and e2e (~15 min) take ~25 min alone and run longer when several
+    # PRs share runners (PR #54 was cancelled at 30 min mid-e2e); 45 leaves headroom.
+    timeout-minutes: 45
     env:
       # Dummy values scoped to this workflow: CI never needs real 1health credentials.
       ONEHEALTH_SECRET_KEY_DEMO: ci-demo-secret-key
