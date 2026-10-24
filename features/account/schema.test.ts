@@ -34,6 +34,11 @@ describe("Account form rules", () => {
   })
 })
 
+it.each(["en-us", " EN-US ", "en_US"])("defaults a legacy locale %j to the listed en-US, so an unchanged Save writes no locale (NG-9033)", (locale) => {
+  expect(accountFormDefaults(toMyself(myselfWire({ locale }))!).locale).toBe("en-US")
+  expect(accountFormDefaults(toMyself(myselfWire({ locale: " fr-FR " }))!).locale).toBe("fr-FR")
+})
+
 it.each(["n/a", "N/A", " -1 ", "   "])("treats PM3 withheld values %s as missing, including default locale", (withheld) => {
   const myself = toMyself(myselfWire({ firstName: withheld, lastName: withheld, birthDate: withheld, preferredLanguage: withheld, timeZone: withheld, locale: withheld }))!
   expect(accountFormDefaults(myself)).toEqual({ primaryEmail: "ann.lee@example.com", primaryPhone: "+14155552671", firstName: "", lastName: "", birthDate: "", preferredLanguage: "", timeZone: "", locale: "en-US" })

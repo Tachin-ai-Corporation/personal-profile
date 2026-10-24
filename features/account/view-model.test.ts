@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { toContactPoints, toMyself, type Myself } from "@/lib/api"
 import { contactPointWire, myselfWire } from "@/test/myself-fixture"
-import { toAccountView } from "./view-model"
+import { canonicalAccountLocale, toAccountView } from "./view-model"
 
 function identity(overrides: Record<string, unknown> = {}): Myself {
   return toMyself(myselfWire(overrides))!
@@ -47,6 +47,15 @@ describe("toAccountView (Story 7.4)", () => {
     })
     expect(source.firstName).toBe("  Ana  María ")
     expect(source.phoneNumber).toBe(" 4155552125 ")
+  })
+
+  it.each(["en-us", " EN-US ", "en_US", "En_us"])("shows the legacy spelling %j of en-US as English - United States (NG-9033)", (locale) => {
+    expect(toAccountView(identity({ locale })).locale).toBe("English - United States")
+  })
+
+  it("canonicalAccountLocale maps only spellings of en-US to en-US", () => {
+    expect(["en-US", "en-us", "EN-US", "en_US"].map(canonicalAccountLocale)).toEqual(["en-US", "en-US", "en-US", "en-US"])
+    expect(["fr-FR", "en", "en-GB", "en-USA", ""].map(canonicalAccountLocale)).toEqual(["fr-FR", "en", "en-GB", "en-USA", ""])
   })
 
   it("preserves trimmed unlisted language, time-zone and locale codes", () => {
