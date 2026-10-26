@@ -106,10 +106,16 @@ test.describe("Personal account settings read view (Story 7.4)", () => {
   }
 
   test("unknown regional codes are trimmed and preserved in their respective cells", async ({ page }) => {
-    await mockMyself(page, { body: { ...ACCOUNT_SETTINGS_MYSELF, preferredLanguage: " fr-CA ", timeZone: " Europe/Paris ", locale: " fr-FR " } })
+    await mockMyself(page, { body: { ...ACCOUNT_SETTINGS_MYSELF, preferredLanguage: " x-klingon ", timeZone: " Europe/Paris ", locale: " fr-FR " } })
     await page.goto("/account?tab=personal")
-    await expectFields(page, [...FILLED_VALUES.slice(0, 7), "fr-CA", "Europe/Paris", "fr-FR"])
+    await expectFields(page, [...FILLED_VALUES.slice(0, 7), "x-klingon", "Europe/Paris", "fr-FR"])
     await expectNoOverflow(page)
+  })
+
+  test("a stored language 1health-fe knows shows its label in any letter case (parity)", async ({ page }) => {
+    await mockMyself(page, { body: { ...ACCOUNT_SETTINGS_MYSELF, preferredLanguage: " FR-ca " } })
+    await page.goto("/account?tab=personal")
+    await expectFields(page, [...FILLED_VALUES.slice(0, 7), "French - Canada", ...FILLED_VALUES.slice(8)])
   })
 
   test("long stored values wrap inside their cells at 360 px and the desktop breakpoint", async ({ page }) => {

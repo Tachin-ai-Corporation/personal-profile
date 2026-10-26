@@ -97,7 +97,8 @@ for (const failure of ["upstream403", "proxy403", "network", "500"] as const) {
       await expect(search(page)).toHaveCount(0)
       await expect(page.getByRole("button", { name: "Retry" })).toHaveCount(0)
     } else {
-      await expect(page.getByRole("alert")).toBeVisible()
+      // Scoped to the tab: Next's empty route announcer is also role="alert" once hydrated.
+      await expect(page.getByRole("tabpanel").getByRole("alert")).toBeVisible()
       for (const theme of ["light", "dark"] as const) { await setTheme(page, theme); await noOverflow(page); await axe(page) }
       await page.getByRole("button", { name: "Retry", exact: true }).click()
       await expect(page.getByRole("article")).toHaveCount(1)
@@ -167,3 +168,17 @@ for (const empty of [false, true]) {
     expect(await page.evaluate((key) => localStorage.getItem(key), draftKey)).toBe(draft)
   })
 }
+
+test("a searched page of only null organizations shows no results without a pager, as in 1health-fe (parity)", async ({ page }) => {
+  await page.route("**/api/1h/v2/user/organization/portal?**", (route) => {
+    const name = new URL(route.request().url()).searchParams.get("name") ?? ""
+    return route.fulfill({ json: name ? organizationsPage([organizationWire({ organization: null })], { totalElements: 1, totalPages: 1 }) : organizationsPage([organizationWire()]) })
+  })
+  await page.goto("/account?tab=organizations")
+  await expect(page.getByRole("heading", { name: "Sample Organization", exact: true })).toBeVisible()
+  await expect(page.getByRole("navigation", { name: "Organization pages" })).toBeVisible()
+  await search(page).fill("ghost")
+  await expect(page.getByText("Sorry, no results were found", { exact: true })).toBeVisible()
+  await expect(page.getByRole("navigation", { name: "Organization pages" })).toHaveCount(0)
+  await expect(search(page)).toHaveValue("ghost")
+})

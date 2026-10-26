@@ -276,6 +276,22 @@ describe("My Organizations list", () => {
     expect(screen.getByRole("button", { name: "1" }).getAttribute("aria-current")).toBe("page")
   })
 
+  it.each([
+    ["one page", 1, false],
+    ["first of two pages", 2, true],
+  ] as const)("a searched null-only %s shows no results with the pager only when another page exists (parity)", async (_label, totalPages, pager) => {
+    renderList([http.get(READ, ({ request }) => new URL(request.url).searchParams.get("name")
+      ? HttpResponse.json(page([{ tenantId: 2, organization: null }], totalPages === 1 ? 1 : 13, totalPages))
+      : HttpResponse.json(page()))])
+    await screen.findByRole("article")
+    fireEvent.change(search(), { target: { value: "ghost" } })
+    await screen.findByText(ORG_MESSAGES.noResults)
+    expect(screen.queryByRole("article")).toBeNull()
+    if (pager) expect(screen.getByRole("button", { name: "2" }).getAttribute("aria-current")).toBeNull()
+    else expect(screen.queryByRole("navigation")).toBeNull()
+    expect(screen.queryAllByRole("navigation", { name: ORG_MESSAGES.paginationLabel })).toHaveLength(pager ? 1 : 0)
+  })
+
   it("ignores pagination while a different search waits for its debounce and keeps search focus", async () => {
     const requests: string[] = []
     renderList([http.get(READ, ({ request }) => {

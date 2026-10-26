@@ -140,12 +140,12 @@ describe("AccountSettingsSection (Story 7.4)", () => {
 
   it("renders trimmed unlisted regional values as safe text", async () => {
     renderInPage(<AccountSettingsSection />, { page: "account", myself: myselfWire({
-      firstName: " <script>example</script> ", preferredLanguage: " fr ", timeZone: " Europe/Paris ", locale: " fr-FR ",
+      firstName: " <script>example</script> ", preferredLanguage: " x-klingon ", timeZone: " Europe/Paris ", locale: " fr-FR ",
     }) })
     await screen.findByRole("table", { name: TITLE })
     expect(valueOf("First name").textContent).toBe("<script>example</script>")
     expect(valueOf("First name").querySelector("script")).toBeNull()
-    expect(valueOf("Preferred language").textContent).toBe("fr")
+    expect(valueOf("Preferred language").textContent).toBe("x-klingon")
     expect(valueOf("Default time zone").textContent).toBe("Europe/Paris")
     expect(valueOf(LABELS[9]).textContent).toBe("fr-FR")
   })

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { toContactPoints, toMyself, type Myself } from "@/lib/api"
 import { contactPointWire, myselfWire } from "@/test/myself-fixture"
-import { canonicalAccountLocale, toAccountView } from "./view-model"
+import { accountLanguageLabel, canonicalAccountLocale, toAccountView } from "./view-model"
 
 function identity(overrides: Record<string, unknown> = {}): Myself {
   return toMyself(myselfWire(overrides))!
@@ -59,9 +59,20 @@ describe("toAccountView (Story 7.4)", () => {
   })
 
   it("preserves trimmed unlisted language, time-zone and locale codes", () => {
-    expect(toAccountView(identity({ preferredLanguage: " fr ", timeZone: " Europe/Paris ", locale: " fr-FR " }))).toMatchObject({
-      preferredLanguage: "fr", timeZone: "Europe/Paris", locale: "fr-FR",
+    expect(toAccountView(identity({ preferredLanguage: " x-klingon ", timeZone: " Europe/Paris ", locale: " fr-FR " }))).toMatchObject({
+      preferredLanguage: "x-klingon", timeZone: "Europe/Paris", locale: "fr-FR",
     })
+  })
+
+  it.each([
+    [" fr ", "French"], ["es", "Spanish"], ["FR-ca", "French - Canada"], ["zh-TW", "Chinese - Taiwan"],
+    ["EN", "English"], ["en-GB", "English - Great Britain"], ["mk", "Maori"],
+  ])("shows the label 1health-fe knows for stored language %j: %s", (preferredLanguage, expected) => {
+    expect(toAccountView(identity({ preferredLanguage })).preferredLanguage).toBe(expected)
+  })
+
+  it("accountLanguageLabel keeps an unknown tag raw and never reads inherited keys", () => {
+    expect(["xx", "fr_CA", "toString", "constructor", "__proto__"].map(accountLanguageLabel)).toEqual(["xx", "fr_CA", "toString", "constructor", "__proto__"])
   })
 
   it.each([

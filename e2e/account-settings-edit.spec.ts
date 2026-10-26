@@ -38,6 +38,14 @@ test("edit six fields, birth-date help, unchanged save and Cancel", async ({ pag
   await expect(section.getByRole("button", { name: "Edit", exact: true })).toBeFocused()
 })
 
+test("Primary email address is required like Primary phone number (parity)", async ({ page }) => {
+  await openEdit(page)
+  const section = account(page)
+  for (const name of ["Primary email address", "Primary phone number"]) {
+    await expect(section.getByRole("combobox", { name, exact: true })).toHaveAttribute("aria-required", "true")
+  }
+})
+
 test("validation distinguishes invalid and missing dates and focuses first invalid", async ({ page }) => {
   await openEdit(page)
   const section = account(page)
@@ -140,7 +148,7 @@ test("unlisted regional values remain selected and are omitted from a names-only
   const writes = await mockUserEdit(page, { status: 204 })
   await openEdit(page)
   const section = account(page)
-  await expect(section.getByRole("combobox", { name: "Preferred language", exact: true })).toHaveText("es")
+  await expect(section.getByRole("combobox", { name: "Preferred language", exact: true })).toHaveText("Spanish")
   await expect(section.getByRole("combobox", { name: "Default time zone", exact: true })).toHaveText("Europe/Paris")
   await expect(section.getByRole("combobox", { name: "Preferred locale for date, time, and currency", exact: true })).toHaveText("fr-FR")
   await section.getByRole("textbox", { name: "First name", exact: true }).fill(" Bea ")

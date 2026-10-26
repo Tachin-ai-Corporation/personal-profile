@@ -46,6 +46,25 @@ it("shows current while busy, keeps first-change notice through reversion and re
   expect(screen.queryByText(/Changing your primary email/)).toBeNull()
   expect(screen.getByText("There are no changes")).toBeTruthy()
 })
+it("marks Primary email address required like Primary phone number (parity: PersonalAccountUpdateForm.tsx:229)", async () => {
+  await open()
+  for (const name of ["Primary email address", "Primary phone number"]) {
+    const picker = screen.getByRole("combobox", { name })
+    expect(picker.getAttribute("aria-required")).toBe("true")
+  }
+})
+it("an unlisted stored language keeps its known label on the edit Select; an unknown one stays raw", async () => {
+  for (const [preferredLanguage, label] of [["FR-ca", "French - Canada"], ["x-klingon", "x-klingon"]] as const) {
+    const rendered = renderInPage(<AccountSettingsSection />, { page: "account", myself: myselfWire({ preferredLanguage }) })
+    await screen.findByRole("table", { name: title })
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }))
+    const select = screen.getByRole("combobox", { name: "Preferred language" })
+    expect(select.textContent).toBe(label)
+    fireEvent.keyDown(select, { key: "Enter" })
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["English"])
+    rendered.unmount()
+  }
+})
 it("failed picker reads cannot authorize changed drafts but names remain savable", async () => {
   const writes: unknown[] = []
   const rendered = await open([

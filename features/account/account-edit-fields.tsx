@@ -15,7 +15,7 @@ import { displayToWireDate } from "@/lib/shared/dates"
 import { ACCOUNT_TIME_ZONES } from "@/lib/shared/time-zones"
 import { ACCOUNT_FIELD_LABELS, type AccountFormValues } from "./schema"
 import { AccountPrimaryPicker, type PrimaryRead } from "./account-primary-picker"
-import type { AccountView } from "./view-model"
+import { accountLanguageLabel, type AccountView } from "./view-model"
 
 export function AccountEditFields({ section, view, roles, contacts, notices, onPrimaryChange }: { readonly section: SectionForm<AccountFormValues>; readonly view: AccountView; readonly roles?: readonly string[]; readonly contacts: { readonly email: PrimaryRead; readonly mobile: PrimaryRead }; readonly notices: { readonly email: boolean; readonly mobile: boolean }; readonly onPrimaryChange: (kind: "email" | "mobile") => void }) {
   const textRow = (key: "firstName" | "lastName"): KeyValueEditRow => {
@@ -31,7 +31,7 @@ export function AccountEditFields({ section, view, roles, contacts, notices, onP
   const selectRow = (key: "preferredLanguage" | "timeZone" | "locale", options: readonly { readonly value: string; readonly label: string }[]): KeyValueEditRow => {
     const { ref, value, onChange, onBlur, readOnly } = section.control(key)
     return { key, label: ACCOUNT_FIELD_LABELS[key], required: true, error: section.errorFor(key), render: (props) => (
-      <Select value={value} onValueChange={onChange} ariaDisabled={readOnly} placeholder={ACCOUNT_MESSAGES.selectValue} unlistedValue={value && !options.some((option) => option.value === value) ? { value } : undefined}>
+      <Select value={value} onValueChange={onChange} ariaDisabled={readOnly} placeholder={ACCOUNT_MESSAGES.selectValue} unlistedValue={value && !options.some((option) => option.value === value) ? { value, label: key === "preferredLanguage" ? accountLanguageLabel(value) : undefined } : undefined}>
         <SelectTrigger {...props} ref={ref} onBlur={onBlur} className="w-full"><SelectValue /></SelectTrigger>
         <SelectContent>{options.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
       </Select>
@@ -42,7 +42,7 @@ export function AccountEditFields({ section, view, roles, contacts, notices, onP
     textRow("firstName"), textRow("lastName"),
     { key: "username", label: ACCOUNT_MESSAGES.username, render: (props) => <InputLocked {...props} value={view.username ?? ""} help={ACCOUNT_MESSAGES.usernameHelp} /> },
     { key: "password", label: ACCOUNT_MESSAGES.password, render: (props) => <InputLocked {...props} value={view.password} help={ACCOUNT_MESSAGES.passwordHelp} className="mono-value" /> },
-    { key: "primaryEmail", label: ACCOUNT_MESSAGES.primaryEmail, error: section.errorFor("primaryEmail"), render: (wiring) => <AccountPrimaryPicker kind="Email" changed={notices.email} onFirstChange={() => onPrimaryChange("email")} current={section.baseline.primaryEmail} section={section} wiring={wiring} read={contacts.email} /> },
+    { key: "primaryEmail", label: ACCOUNT_MESSAGES.primaryEmail, required: true, error: section.errorFor("primaryEmail"), render: (wiring) => <AccountPrimaryPicker kind="Email" changed={notices.email} onFirstChange={() => onPrimaryChange("email")} current={section.baseline.primaryEmail} section={section} wiring={wiring} read={contacts.email} /> },
     { key: "primaryPhone", label: ACCOUNT_MESSAGES.primaryPhone, required: true, error: section.errorFor("primaryPhone"), render: (wiring) => <AccountPrimaryPicker kind="Mobile" changed={notices.mobile} onFirstChange={() => onPrimaryChange("mobile")} current={section.baseline.primaryPhone} section={section} wiring={wiring} read={contacts.mobile} /> },
     { key: "birthDate", label: ACCOUNT_FIELD_LABELS.birthDate, required: true, error: section.errorFor("birthDate"), labelAddon: <Tooltip wide content={ACCOUNT_MESSAGES.birthDateHelp}><InfoIconButton aria-label={ACCOUNT_MESSAGES.aboutBirthDate} /></Tooltip>, render: (props) => <AccountBirthDateControl wiring={props} binding={dateControl} roles={roles} /> },
     selectRow("preferredLanguage", [{ value: "en", label: ACCOUNT_MESSAGES.english }]),

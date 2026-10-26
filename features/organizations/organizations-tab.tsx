@@ -64,7 +64,8 @@ export function OrganizationsTab() {
           {data?.items.length ? data.items.map((organization, index) => <OrganizationCard key={organization.tenantId} organization={organization} headingRef={index === 0 ? firstHeading : undefined} portalAction={<EnterPortalButton organization={organization} />} />)
             : <p ref={noResults} tabIndex={-1} className="col-span-full flex min-h-11 items-center text-body-sm text-muted-foreground outline-none focus-ring">{ORG_MESSAGES.noResults}</p>}
         </div>
-        {data && data.totalElements > 0 ? <OrganizationsPagination page={query.page} totalPages={data.totalPages} pending={list.pendingSearch} onPage={list.setPage} /> : null}
+        {/* Like 1health-fe, no pager under "no results"; a null-only page keeps it while another page exists. */}
+        {data && data.totalElements > 0 && (data.items.length > 0 || data.totalPages > 1) ? <OrganizationsPagination page={query.page} totalPages={data.totalPages} pending={list.pendingSearch} onPage={list.setPage} /> : null}
       </div>}
   </StateFrame>
   if (denied) return frame
