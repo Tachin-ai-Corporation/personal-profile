@@ -1,5 +1,5 @@
 import { ESLint } from "eslint"
-import { describe, expect, it } from "vitest"
+import { beforeAll, describe, expect, it } from "vitest"
 
 /**
  * Lint fixtures for the ownership rules of spec F1: each snippet is linted as
@@ -11,6 +11,13 @@ async function ruleHits(filePath: string, code: string): Promise<string[]> {
   const [result] = await eslint.lintText(code, { filePath })
   return result.messages.filter((m) => m.severity === 2).map((m) => `${m.ruleId}: ${m.message}`)
 }
+
+/**
+ * The first lint loads the config, its plugins and the TypeScript parser
+ * (about 1.4 s alone, over 5 s under full-suite load). Load them once here,
+ * with a hook budget for that one-off cost, so no test pays for it.
+ */
+beforeAll(() => eslint.lintText("export {}\n", { filePath: "features/x.ts" }), 60_000)
 
 const UPDATE_ACCOUNT = 'import { updateAccount } from "@/lib/api"\nexport const f = updateAccount\n'
 const ACCOUNT_MODULE = 'import { updateAccount } from "@/lib/api/account"\nexport const f = updateAccount\n'

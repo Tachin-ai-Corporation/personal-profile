@@ -172,6 +172,11 @@ describe("picture file rules", () => {
     ["a.jpeg", "image/pjpeg", "JPG"],
     ["a.bmp", "image/x-bmp", "BMP"],
     ["a.bmp", "image/x-windows-bmp", "BMP"],
+    ["a.jpg", "image/x-citrix-jpeg", "JPG"],
+    ["a.png", "image/x-png", "PNG"],
+    ["a.PNG", "image/x-citrix-png", "PNG"],
+    ["a.jpg", "image/x-png", null],
+    ["a.png", "image/x-citrix-jpeg", null],
     ["a.png", "image/pjpeg", null],
     ["a.jpg", "image/x-bmp", null],
     ["a.png", "image/jpeg", null],
@@ -271,6 +276,19 @@ describe("the Change profile picture dialog (Story 1.10)", () => {
     expect(log).toEqual([])
   })
 
+  it.each([
+    ["scan.png", "image/x-png", "PNG · 1.0 MB"],
+    ["scan.png", "image/x-citrix-png", "PNG · 1.0 MB"],
+    ["scan.jpg", "image/x-citrix-jpeg", "JPG · 1.0 MB"],
+    ["scan.jpg", "image/pjpeg", "JPG · 1.0 MB"],
+  ])("accepts the legacy MIME alias of %s (%s) once its bytes decode", async (name, type, summary) => {
+    const file = pngOf(name, MB, type)
+    await openWith(file)
+    expect(within(dialog()).getByText(summary)).toBeTruthy()
+    expect(saveButton().getAttribute("aria-disabled")).toBeNull()
+    expect(vi.mocked(canDecodeImage)).toHaveBeenCalledWith(file)
+  })
+
   it("a file over 6 MB keeps the current picture, names the file and size, and Save points at the error and does nothing", async () => {
     await openWith(pngOf("maria-portrait.bmp", 9.2 * MB, "image/bmp"))
     expect(within(dialog()).getByText("Current picture")).toBeTruthy()
@@ -296,6 +314,7 @@ describe("the Change profile picture dialog (Story 1.10)", () => {
     ["a HEIC", pngOf("photo.heic", MB, "image/heic"), true],
     ["a PDF", pngOf("scan.pdf", MB, "application/pdf"), true],
     ["a .png that doesn't decode", pngOf("broken.png", 1000), false],
+    ["a legacy image/x-png alias that doesn't decode", pngOf("renamed.png", 1000, "image/x-png"), false],
   ])("%s shows the wrong-type line and Save is aria-disabled", async (_label, file, decodes) => {
     vi.mocked(canDecodeImage).mockResolvedValue(decodes)
     await openWith(file)

@@ -272,7 +272,9 @@ describe("My Organizations list", () => {
     fireEvent.click(screen.getByRole("button", { name: "Previous" }))
     const heading = await screen.findByRole("heading", { name: "Alpha" })
     await waitFor(() => expect(document.activeElement).toBe(heading))
-    expect(requests.slice(0, 2)).toEqual([0, 1])
+    // The first page renders from the cache while SWR revalidates it. Wait for that read:
+    // left in flight, it reached the next test's handler under load.
+    await waitFor(() => expect(requests).toEqual([0, 1, 0]))
     expect(screen.getByRole("button", { name: "1" }).getAttribute("aria-current")).toBe("page")
   })
 

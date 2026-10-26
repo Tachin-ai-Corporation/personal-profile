@@ -22,11 +22,19 @@ export const PICTURE_REENCODE: ReencodeOptions = {
 export type PictureFileType = "JPG" | "PNG" | "BMP"
 
 const BY_EXTENSION: Readonly<Record<string, PictureFileType>> = { jpg: "JPG", jpeg: "JPG", png: "PNG", bmp: "BMP" }
+/**
+ * MIME types, with the legacy aliases 1health-fe accepts (AppEnums.ts:232-234:
+ * `image/x-citrix-jpeg`, `image/pjpeg`, `image/x-citrix-png`, `image/x-png`).
+ * An alias only names the type; the real decode still checks the bytes.
+ */
 const BY_MIME: Readonly<Record<string, PictureFileType>> = {
   "image/jpeg": "JPG",
   "image/jpg": "JPG",
   "image/pjpeg": "JPG",
+  "image/x-citrix-jpeg": "JPG",
   "image/png": "PNG",
+  "image/x-png": "PNG",
+  "image/x-citrix-png": "PNG",
   "image/bmp": "BMP",
   "image/x-bmp": "BMP",
   "image/x-ms-bmp": "BMP",

@@ -7,5 +7,6 @@ allowBuilds:
   unrs-resolver: false
   esbuild: true
 patchedDependencies:
+  '@mswjs/interceptors@0.45.8': patches/@mswjs__interceptors@0.45.8.patch
   '@radix-ui/react-tooltip@1.2.16': patches/@radix-ui__react-tooltip@1.2.16.patch
   braces@3.0.3: patches/braces@3.0.3.patch

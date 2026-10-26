@@ -116,6 +116,13 @@ describe("AuthScreen without lpl", () => {
 })
 
 describe("AuthScreen with lpl", () => {
+  it("keeps a leading '+' of an unencoded lpl that arrives as a space", async () => {
+    setUrl("/auth?lpl=+ab+cd%3D")
+    const attempt = vi.fn(async (): Promise<LaunchAttempt> => ({ kind: "ok", environment: "demo" }))
+    render(<AuthScreen environments={BASE_ENVS} rememberedEnvironment={null} flowDeps={{ ...noSleep, attempt }} navigate={vi.fn()} />)
+    await waitFor(() => expect(attempt).toHaveBeenCalledWith("+ab+cd="))
+  })
+
   it("removes lpl from the address bar before the request, then lands on a / login intent after 1200 ms", async () => {
     setUrl("/auth?lpl=ab%20cd&x=1#h")
     window.sessionStorage.setItem(LOGIN_INTENT_KEY, "/?tab=insurance")

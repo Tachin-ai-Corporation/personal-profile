@@ -204,7 +204,9 @@ describe("GET /api/pp/org-logo/[tenantId] (AD-24)", () => {
       logo(() => new HttpResponse(IMAGES.png))
       const old = get()
       await vi.waitFor(() => expect(reads).toBe(1))
-      for (let gen = 1; gen <= 256; gen += 1) await get("7", { session: makeSession({ gen }) })
+      // Tenant 9 is not on the page: each read is retained without a logo fetch, which keeps
+      // the 256 sequential exchanges well inside the test timeout under full-suite load.
+      for (let gen = 1; gen <= 256; gen += 1) await get("9", { session: makeSession({ gen }) })
       expect((await get()).status).toBe(200)
       expect(reads).toBe(258)
       release()
@@ -264,8 +266,9 @@ describe("GET /api/pp/org-logo/[tenantId] (AD-24)", () => {
     it("bounds retained pages to 256 and isolates handler instances", async () => {
       const { requests } = portal([page([item(7)])])
       logo(() => new HttpResponse(IMAGES.png))
-      for (let gen = 0; gen < 257; gen += 1) await get("7", { session: makeSession({ gen }) })
-      await get("7", { session: makeSession({ gen: 1 }) })
+      // Tenant 9 is not on the page: the page is retained without a logo fetch per read.
+      for (let gen = 0; gen < 257; gen += 1) await get("9", { session: makeSession({ gen }) })
+      await get("9", { session: makeSession({ gen: 1 }) })
       expect(requests).toHaveLength(257)
       await get()
       expect(requests).toHaveLength(258)

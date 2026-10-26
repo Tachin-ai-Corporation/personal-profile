@@ -1,9 +1,11 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, type Locator, type Page } from "@playwright/test"
 import {
+  ANN,
   expectHeaderTabOrder,
   mockAccountDefaults,
   mockHeaderPicture,
+  mockMyself,
   mockProfileDefaults,
   PROFILE_PICTURE_FILE_ID,
   setTheme,
@@ -106,6 +108,18 @@ test.describe("header Profile Picture (Story 1.9)", () => {
         clientWidth: document.documentElement.clientWidth,
       }))
       expect(scrollWidth).toBeLessThanOrEqual(clientWidth)
+    })
+  }
+
+  for (const [path, mockDefaults] of PAGES) {
+    test(`capitalizes a lowercase name for display only on ${path}, as 1health-fe's header`, async ({ page }) => {
+      await mockDefaults(page)
+      await mockMyself(page, { body: { ...ANN, firstName: "ann marie", lastName: "lee" } })
+      await page.goto(path)
+      const heading = page.getByRole("heading", { level: 1, name: "ann marie lee" })
+      await expect(heading).toBeVisible()
+      expect(await heading.evaluate((el) => getComputedStyle(el).textTransform)).toBe("capitalize")
+      expect(await heading.evaluate((el: HTMLElement) => el.innerText)).toBe("Ann Marie Lee")
     })
   }
 })
