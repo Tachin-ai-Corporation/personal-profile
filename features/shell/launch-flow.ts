@@ -25,6 +25,16 @@ export function normalizeLpl(value: string): string {
 }
 
 /**
+ * The `lpl` query value: every space in it was a `+` (base64 has no spaces),
+ * so restore them before trimming. Trimming first, as `normalizeLpl` does for
+ * pasted text, drops a leading `+` and the launch fails to decrypt. A value of
+ * only whitespace still counts as no LPL.
+ */
+export function lplFromQuery(value: string): string {
+  return value.trim() === "" ? "" : value.replace(/ /g, "+").trim()
+}
+
+/**
  * Runs the launch: retries on a non-OK answer (unless `retryable: false`), on
  * an OK answer without success and on a network error. The error is the last
  * attempt's, never raw codes or upstream text.

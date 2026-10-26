@@ -132,6 +132,14 @@ test("an unencoded lpl whose '+' arrives as a space still launches", async ({ pa
   await expect(page).toHaveURL(LAND, { timeout: 15_000 })
 })
 
+// One payload in 64 starts with '+': trimming its leading space used to fail the launch at random.
+test("an unencoded lpl that starts with '+' still launches", async ({ page }) => {
+  let lpl = makeLpl(freshCode())
+  while (!lpl.startsWith("+")) lpl = makeLpl(freshCode())
+  await page.goto(`/auth?lpl=${lpl.replace(/\//g, "%2F").replace(/=/g, "%3D")}`)
+  await expect(page).toHaveURL(LAND, { timeout: 15_000 })
+})
+
 test("a replayed one-time code: five POSTs, then the error, and the previous session is cleared", async ({ page }) => {
   test.slow()
   const lpl = makeLpl(freshCode())

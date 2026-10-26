@@ -2,7 +2,7 @@ import { http, HttpResponse } from "msw"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { LAUNCH_MESSAGES } from "@/lib/shared/messages"
 import { server } from "@/test/msw-server"
-import { AUTH_RETRY_DELAY_MS, MAX_AUTH_ATTEMPTS, normalizeLpl, runLaunchFlow } from "./launch-flow"
+import { AUTH_RETRY_DELAY_MS, lplFromQuery, MAX_AUTH_ATTEMPTS, normalizeLpl, runLaunchFlow } from "./launch-flow"
 
 afterEach(() => vi.useRealTimers())
 
@@ -80,5 +80,15 @@ describe("runLaunchFlow (D9)", () => {
 
   it("normalizes a pasted LPL", () => {
     expect(normalizeLpl("  ab cd \n")).toBe("ab+cd")
+  })
+
+  it.each([
+    [" ab cd", "+ab+cd"],
+    ["ab cd ", "ab+cd+"],
+    [" ab\n", "+ab"],
+    ["   ", ""],
+    ["", ""],
+  ])("restores the '+' signs of the query value %j, edges included", (value, lpl) => {
+    expect(lplFromQuery(value)).toBe(lpl)
   })
 })

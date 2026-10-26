@@ -1,0 +1,37 @@
+diff --git a/lib/node/source-Dpwqoq2R.js b/lib/node/source-Dpwqoq2R.js
+index f0022018f079bea1db8b281ac4210aeefa4c3e44..0702bbc8c9b660c167b32aec09bd8cb06f9c0ceb 100644
+--- a/lib/node/source-Dpwqoq2R.js
++++ b/lib/node/source-Dpwqoq2R.js
+@@ -2024,24 +2024,15 @@ var NodeHttpRequestSource = class extends Interceptor {
+ 			socket.on("data", onRequestData);
+ 			socket.on("close", () => requestParser?.free());
+ 			/**
+-			* @note A client that waits for the server to speak first (e.g. a
+-			* SQL handshake) starts reading without writing anything, so
+-			* protocol detection never runs. Pass such connections through
+-			* once the client reads and still no bytes have arrived. Clients
+-			* that write after an async setup (e.g. Undici loading its parser)
+-			* attach their readers right before writing; "setImmediate" lets
+-			* those writes, including ones from nested ticks of the "connect"
+-			* listeners, land first.
++			* @note personal-profile patch (mswjs/interceptors#879, #881): the
++			* upstream "read-before-write" check passed a connection through when
++			* the client attached a reader and wrote nothing within one
++			* "setImmediate". After an aborted fetch, Undici opens a connection it
++			* does not write to at once; the check dialed the real host for it and
++			* the next mocked request on that connection failed (ECONNREFUSED).
++			* The unit tests only talk HTTP (the client always speaks first), so
++			* such a connection stays mocked until its first write.
+ 			*/
+-			const onClientRead = (event) => {
+-				if (event !== "data" && event !== "readable") return;
+-				rawSocket.removeListener("newListener", onClientRead);
+-				setImmediate(() => {
+-					if (isHttpConnection === void 0 && shouldPassthrough()) socketController.passthrough();
+-				});
+-			};
+-			rawSocket.on("newListener", onClientRead);
+-			if (rawSocket.listenerCount("data") + rawSocket.listenerCount("readable") > 0) onClientRead("data");
+ 		}, { signal: controller.signal });
+ 	}
+ 	async respondWith(args) {

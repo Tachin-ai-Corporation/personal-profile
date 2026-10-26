@@ -8,8 +8,9 @@ import { DESKTOP_QUERY, useCurrentPage, useMediaQuery, useMyself } from "@/featu
 import { initials } from "@/lib/shared/initials"
 import { HEADER_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 import { formatPhoneDisplay } from "@/lib/shared/phone"
+import { cn } from "@/lib/utils"
 import { ChangePictureDialog } from "./change-picture-dialog"
-import { displayName } from "./names"
+import { displayName, hasPersonName } from "./names"
 import { evaluatePictureFile, PICTURE_ACCEPT, type PictureChoice } from "./picture-file"
 import { usePrimaryContacts } from "./use-primary-contacts"
 import { useProfilePictureSrc } from "./use-profile-picture"
@@ -170,6 +171,8 @@ export function ProfileHeader() {
   const pictureSrc = useProfilePictureSrc()
 
   const name = myself ? displayName(myself) : ""
+  // Display-only, as in 1health-fe: CSS capitalizes the shown name; the text itself is unchanged.
+  const capitalize = myself ? hasPersonName(myself) : false
   const avatarText = myself ? initials(myself.firstName, myself.lastName) : ""
 
   return (
@@ -190,7 +193,7 @@ export function ProfileHeader() {
           ) : (
             <PictureAvatar src={pictureSrc} text={avatarText} />
           )}
-          <h1 className="min-w-0 truncate text-h4 text-foreground">{name || <span className="sr-only">{pageName}</span>}</h1>
+          <h1 className={cn("min-w-0 truncate text-h4 text-foreground", capitalize && "capitalize")}>{name || <span className="sr-only">{pageName}</span>}</h1>
         </>
       )}
       {isDesktop && (phone || email) ? (

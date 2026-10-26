@@ -327,6 +327,19 @@ test.describe("change the Profile Picture (Story 1.10)", () => {
     })
   }
 
+  // 1health-fe accepts these legacy MIME aliases (AppEnums.ts:232-234); the bytes still decide.
+  for (const mimeType of ["image/x-png", "image/x-citrix-png"]) {
+    test(`a PNG typed ${mimeType} is accepted when it decodes, refused when it doesn't`, async ({ page }) => {
+      await openProfile(page, { current: 9001 })
+      await choose(page, { name: "scan.png", mimeType, buffer: noisePng(80, 80) })
+      await expect(dialog(page).getByRole("img", { name: "Preview of your new profile picture" })).toBeVisible()
+      await expect(saveButton(page)).not.toHaveAttribute("aria-disabled", "true")
+      await choose(page, { name: "fake.png", mimeType, buffer: Buffer.from("this is not a png at all") }, () => dialog(page).getByRole("button", { name: "Choose another file" }).click())
+      await expect(dialog(page).getByText("fake.png isn't a JPG, PNG or BMP. Choose another file.")).toBeVisible()
+      await expect(saveButton(page)).toHaveAttribute("aria-disabled", "true")
+    })
+  }
+
   test("Choose another file re-evaluates the new file", async ({ page }) => {
     await openProfile(page, { current: 9001 })
     await choose(page, { name: "anim.gif", mimeType: "image/gif", buffer: Buffer.from("GIF89a") })

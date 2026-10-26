@@ -13,7 +13,7 @@ import { environmentConfig, environmentFromReferrer, type Environment } from "@/
 import { consumeLaunchIntent } from "@/lib/shared/login-intent"
 import { LAUNCH_MESSAGES as M } from "@/lib/shared/messages"
 import { startSession } from "@/lib/api"
-import { normalizeLpl, runLaunchFlow, type LaunchFlowDeps } from "./launch-flow"
+import { lplFromQuery, normalizeLpl, runLaunchFlow, type LaunchFlowDeps } from "./launch-flow"
 
 /** D9: "Success!" stays on screen this long before the hard navigation. */
 export const SUCCESS_REDIRECT_DELAY_MS = 1200
@@ -52,7 +52,7 @@ function takeLplFromUrl(): string {
   if (lpl === null) return ""
   url.searchParams.delete("lpl")
   window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`)
-  return normalizeLpl(lpl)
+  return lplFromQuery(lpl)
 }
 
 function Logo({ pulse = false, size = 80 }: { pulse?: boolean; size?: number }) {

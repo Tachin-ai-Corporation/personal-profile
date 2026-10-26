@@ -98,9 +98,19 @@ describe("ProfileHeader", () => {
     expect(screen.getByRole("status", { name: "Loading your profile" })).toBeTruthy()
     const h1 = await screen.findByRole("heading", { level: 1, name: "Ann Lee" })
     expect(h1.className).toContain("text-h4")
+    expect(h1.classList.contains("capitalize")).toBe(true)
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1)
     expect(screen.getByText("AL").className).toContain("text-primary-text")
     expect(screen.getByText("AL").className).toContain("size-10")
+  })
+
+  it("capitalizes a lowercase name for display only, as 1health-fe's header does", async () => {
+    stubViewport(360)
+    myself({ id: 1, firstName: "ann marie", lastName: "lee", username: "ann.lee" })
+    setup("account")
+    const h1 = await screen.findByRole("heading", { level: 1, name: "ann marie lee" })
+    expect(h1.textContent).toBe("ann marie lee")
+    expect(h1.classList.contains("capitalize")).toBe(true)
   })
 
   it("names the page in an h1 while myself loads", () => {
@@ -115,7 +125,9 @@ describe("ProfileHeader", () => {
     stubViewport(360)
     myself({ id: 1, firstName: "", lastName: null, username: "ann.lee" })
     const { container } = setup()
-    expect(await screen.findByRole("heading", { level: 1, name: "ann.lee" })).toBeTruthy()
+    const h1 = await screen.findByRole("heading", { level: 1, name: "ann.lee" })
+    // A username keeps its case: only a person's name is capitalized for display.
+    expect(h1.classList.contains("capitalize")).toBe(false)
     expect(container.querySelector("span[aria-hidden='true']:not([data-slot]) > svg")).not.toBeNull()
   })
 
