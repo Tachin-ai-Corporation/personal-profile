@@ -52,9 +52,9 @@ import { CONTACT_LABEL_HOME, CONTACT_PHONE_TYPES, contactLabelsFrom, type Contac
 import { COMMON_MESSAGES, CONTACT_MESSAGES, formatMessage, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 import { formatPhoneDisplay, isPhoneRegion, normalizeRegion, regionFlag, toE164, type PhoneInputValue } from "@/lib/shared/phone"
 import { useContactRead } from "./use-contact-read"
-import { CellField, ChoiceCell, isRepeatKey, nextNewKey, NotApplicable, NotificationsSwitch, uniqueRowKeys } from "./contact-edit-kit"
+import { blockAddWhileInvalid, CellField, ChoiceCell, isRepeatKey, nextNewKey, NotApplicable, NotificationsSwitch, uniqueRowKeys } from "./contact-edit-kit"
 import { useMakePrimary } from "./contact-primary"
-import { contactVerifyAction, ContactVerifyStatus, useContactVerification, useResendSeconds, type ContactVerifyState, type ContactVerifyStates } from "./contact-verify"
+import { contactVerifyAction, ContactEditVerifyStatus, ContactVerifyStatus, useContactVerification, useResendSeconds, type ContactVerifyState, type ContactVerifyStates } from "./contact-verify"
 import {
   arePhoneTypesFull,
   isPhoneTypeFull,
@@ -373,6 +373,8 @@ interface EditColumnsInput {
   readonly primaryKey: string | undefined
   /** The Section's verification states (the saved rows' Status). */
   readonly verifyStates: ContactVerifyStates
+  /** Verify / Resend verification on a saved, verifiable row (parity with 1health-fe `MobileNumberRow`). */
+  readonly onVerify: (id: number) => void
 }
 
 const rowStateOf = (row: PhoneEditRow): RowEditState => (row.isNew ? "new" : row.removed ? "removed" : "saved")
@@ -381,7 +383,7 @@ const rowStateOf = (row: PhoneEditRow): RowEditState => (row.isNew ? "new" : row
 const statusIdOf = (key: string) => `phone-row-${key}-status`
 
 /** The edit table: Number, Label and Type as controls (locked on a saved row), Status and Notifications as read. */
-function phoneEditColumns({ section, rows, labelOptions, saved, primaryKey, verifyStates }: EditColumnsInput): SectionTableColumn<EditItem>[] {
+function phoneEditColumns({ section, rows, labelOptions, saved, primaryKey, verifyStates, onVerify }: EditColumnsInput): SectionTableColumn<EditItem>[] {
   const labelChoices = labelOptions.map((label) => ({ value: label, label }))
   return [
     {
@@ -422,7 +424,18 @@ function phoneEditColumns({ section, rows, labelOptions, saved, primaryKey, veri
         const state = rowStateOf(row)
         if (state !== "saved") return <RowEditStatus state={state} id={statusIdOf(row.key)} />
         const read = saved.get(row.key)
-        return read ? <PhoneStatus row={read} state={verifyStateOf(verifyStates, read)} /> : null
+        if (!read) return null
+        // A saved, verifiable row offers Verify here too (never a new row, a Landline, a Home or a Verified one).
+        const id = verifyIdOf(read)
+        return (
+          <ContactEditVerifyStatus
+            label={read.point.label}
+            isVerified={read.point.isVerified}
+            state={verifyStateOf(verifyStates, read)}
+            cooldownHelp={CONTACT_MESSAGES.verifyCooldown}
+            onVerify={id !== null && isVerifiable(read) ? () => onVerify(id) : undefined}
+          />
+        )
       },
     },
     {
@@ -503,7 +516,8 @@ function editedContactPoints(before: readonly ContactPoint[], rows: readonly Pho
  * (`newUnverifiedContactPoints`; Save all too); nothing it does fails the
  * save. The read view offers Verify / Resend verification on every
  * unverified, non-Home saved Mobile: it sends at once, with no confirm and
- * no edit mode. A sent link counts down "Link sent · Resend in {n} s" for
+ * no edit mode; the edit view offers it under the Status of the same rows
+ * (NG-9023, 1health-fe parity) and leaves the edit as it is. A sent link counts down "Link sent · Resend in {n} s" for
  * 60 s ("Link sent" announced once); a send error or the backend's
  * cooldown shows as the row's help with Resend available at once; a
  * manual send that can't get through shows an error toast with Retry. The
@@ -630,13 +644,27 @@ export function PhoneSection() {
   /** The rows the next change starts from: the form's while editing, else the saved ones. */
   const currentRows = (): PhoneEditRow[] => (isEditing ? form.getValues("rows") : baseline.rows)
 
+  /**
+   * Add phone (header, empty state, footer): like 1health-fe (`PhoneWrapper`
+   * `addNew`), the new row goes at the top, and while editing only once the
+   * rows already there are valid; else their errors show and focus goes to
+   * the first instead. Focus moves to the new row's number.
+   */
   function addPhone(): void {
     if (isSaving) return
     const current = currentRows()
     if (arePhoneTypesFull(current)) return
-    const next = [...current, newPhoneEditRow(nextNewKey(current, newKeys))]
-    section.startEdit({ focus: numberPath(current.length) })
-    rowsControl.onChange(next)
+    if (isEditing) {
+      const invalid = blockAddWhileInvalid(section, phoneSchema, phoneFieldOrder(rowsShape(current)))
+      if (invalid !== undefined) {
+        section.startEdit({ focus: invalid })
+        return
+      }
+      // Every row moves down one index: no error is left on a shifted path (the rows are valid, so none is lost).
+      form.clearErrors("rows")
+    }
+    section.startEdit({ focus: numberPath(0) })
+    rowsControl.onChange([newPhoneEditRow(nextNewKey(current, newKeys)), ...current])
   }
 
   function setRemoved(key: string, removed: boolean): void {
@@ -763,7 +791,7 @@ export function PhoneSection() {
               <>
                 <SectionTable<EditItem>
                   rows={formRows.map((row, index) => ({ row, index }))}
-                  columns={phoneEditColumns({ section, rows: formRows, labelOptions, saved: savedByKey, primaryKey, verifyStates })}
+                  columns={phoneEditColumns({ section, rows: formRows, labelOptions, saved: savedByKey, primaryKey, verifyStates, onVerify: verification.verify })}
                   getRowKey={({ row }) => row.key}
                   labelledBy={headingId}
                   editing

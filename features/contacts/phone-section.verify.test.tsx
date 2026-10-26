@@ -155,8 +155,8 @@ async function pick(trigger: HTMLElement, name: string | RegExp) {
 async function addPhone(number: string, label: string, type: "Mobile" | "Landline") {
   const footer = section().querySelector<HTMLElement>('[data-slot="section-footer"]')
   await click(footer ? within(footer).getByRole("button", { name: "Add row" }) : within(section()).getByRole("button", { name: "Add phone" }))
-  const rows = section().querySelectorAll<HTMLElement>('[data-state="new"]')
-  const row = rows[rows.length - 1]
+  // The latest added row: a new row goes at the top (1health-fe parity, NG-9023).
+  const row = section().querySelector<HTMLElement>('[data-state="new"]') as HTMLElement
   await act(async () => fireEvent.change(within(row).getByRole("textbox", { name: "Number" }), { target: { value: number } }))
   await pick(within(row).getByRole("combobox", { name: "Label" }), label)
   await pick(within(row).getByRole("combobox", { name: "Type" }), type)
@@ -544,13 +544,81 @@ describe("PhoneSection: Verify / Resend verification in the read view (Story 3.3
     await click(within(section()).getByRole("button", { name: "Edit" }))
     const work = () =>
       [...section().querySelectorAll<HTMLElement>("tbody tr")].find((row) => row.querySelector('input[value="+1 (415) 555-0111"]')) as HTMLElement
-    // The edit view's saved row shows the same countdown.
-    expect(within(work()).getByText("Link sent · Resend in 60 s")).toBeTruthy()
+    // The edit view's saved row shows the same countdown, and its Resend verification is aria-disabled with it.
+    expect(within(work()).getByText("Link sent · Resend in 60 s", { selector: '[data-slot="status-badge"]' })).toBeTruthy()
+    expect(within(work()).getByRole("button", { name: "Resend verification" }).getAttribute("aria-disabled")).toBe("true")
     await pick(within(work()).getByRole("combobox", { name: "Label" }), "Personal")
     await refetch({ Mobile: [{ ...MOBILE[0], isVerified: true }, MOBILE[1]], Landline: LANDLINE })
     await waitFor(() => expect(within(work()).getByText("Verified")).toBeTruthy())
+    expect(within(work()).queryByRole("button", { name: /Verif/ })).toBeNull()
     expect(within(work()).getByRole("combobox", { name: "Label" }).textContent).toBe("Personal")
     expect(isReadView()).toBe(false)
+  })
+})
+
+describe("PhoneSection: Verify in the edit view (NG-9023, 1health-fe MobileNumberRow parity)", () => {
+  /** The edit row (table row or card) whose locked number is `number`, or the new row. */
+  const editRowOf = (number: string): HTMLElement =>
+    [...section().querySelectorAll<HTMLElement>("tbody tr, li[data-slot='section-table-card']")].find((row) => row.querySelector(`input[value="${number}"]`)) as HTMLElement
+
+  it("only the saved, unverified, non-Home Mobile offers Verify; it sends [11] at once and the edit stays as it was", async () => {
+    const { verifies, manage } = await render()
+    const announced = watchAnnouncements()
+    await click(within(section()).getByRole("button", { name: "Edit" }))
+    await addPhone("4155550101", "Personal", "Mobile")
+    // Not on the verified Primary, the Home Landline or the new row.
+    expect(within(editRowOf("+1 (415) 551-2125")).queryByRole("button", { name: /Verif/ })).toBeNull()
+    expect(within(editRowOf("+44 20 7183 8750")).queryByRole("button", { name: /Verif/ })).toBeNull()
+    expect(within(section().querySelector<HTMLElement>('[data-state="new"]') as HTMLElement).queryByRole("button", { name: /Verif/ })).toBeNull()
+    await pick(within(editRowOf("+1 (415) 555-0111")).getByRole("combobox", { name: "Label" }), "Personal")
+    await click(within(editRowOf("+1 (415) 555-0111")).getByRole("button", { name: "Verify" }))
+    await waitFor(() => expect(verifies).toEqual([{ contactPointIds: [11] }]))
+    expect(manage).toEqual([])
+    expect(isReadView()).toBe(false)
+    await waitFor(() => expect(within(editRowOf("+1 (415) 555-0111")).getByText("Link sent · Resend in 60 s", { selector: '[data-slot="status-badge"]' })).toBeTruthy())
+    expect(announced).toEqual(["Link sent"])
+    const resend = within(editRowOf("+1 (415) 555-0111")).getByRole("button", { name: "Resend verification" })
+    expect(resend.getAttribute("aria-disabled")).toBe("true")
+    await click(resend)
+    expect(verifies).toHaveLength(1)
+    // The edits are kept: the relabel and the new row.
+    expect(within(editRowOf("+1 (415) 555-0111")).getByRole("combobox", { name: "Label" }).textContent).toBe("Personal")
+    expect(section().querySelectorAll('[data-state="new"]')).toHaveLength(1)
+    // Back in read view (Cancel) the same countdown shows.
+    await click(within(section()).getByRole("button", { name: "Cancel" }))
+    expect(statusOf("+1 (415) 555-0111")).toBe("Link sent · Resend in 60 s")
+  })
+
+  it("a struck-through row shows \"Removed on save\" and no Verify; Restore brings Verify back", async () => {
+    await render()
+    await click(within(section()).getByRole("button", { name: "Edit" }))
+    const row = () => editRowOf("+1 (415) 555-0111")
+    await click(within(row()).getByRole("button", { name: "Remove" }))
+    expect(within(row()).queryByRole("button", { name: /Verif/ })).toBeNull()
+    await click(within(row()).getByRole("button", { name: "Restore" }))
+    expect(within(row()).getByRole("button", { name: "Verify" })).toBeTruthy()
+  })
+
+  it("a network failure toasts with Retry and leaves the edit view as it was", async () => {
+    const { verifies } = await render({ lists: { Mobile: MOBILE, Landline: LANDLINE }, verify: [() => HttpResponse.error(), verifyOk()] })
+    await click(within(section()).getByRole("button", { name: "Edit" }))
+    await click(within(editRowOf("+1 (415) 555-0111")).getByRole("button", { name: "Verify" }))
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(toastError).mock.calls[0][0]).toBe("Couldn't send the link. Check your connection.")
+    expect(isReadView()).toBe(false)
+    await act(async () => vi.mocked(toastError).mock.calls[0][1].onRetry())
+    await waitFor(() => expect(verifies).toEqual([{ contactPointIds: [11] }, { contactPointIds: [11] }]))
+  })
+
+  it("has no axe violations in light and dark with Verify and a countdown in the edit view", async () => {
+    await render({ lists: { Mobile: [...MOBILE, mobileWire(40)], Landline: LANDLINE } })
+    await click(within(section()).getByRole("button", { name: "Edit" }))
+    await click(within(editRowOf("+1 (415) 555-0111")).getByRole("button", { name: "Verify" }))
+    await waitFor(() => expect(within(editRowOf("+1 (415) 555-0111")).getByRole("button", { name: "Resend verification" })).toBeTruthy())
+    expect(within(editRowOf("+1 (415) 555-0040")).getByRole("button", { name: "Verify" })).toBeTruthy()
+    expect(await axeViolations()).toEqual([])
+    document.documentElement.classList.add("dark")
+    expect(await axeViolations()).toEqual([])
   })
 
   it("has no axe violations in light and dark with a countdown, a send error and the cooldown help", async () => {

@@ -3,8 +3,11 @@ import {
   ANN,
   REGISTERED_PROVIDER_NPI,
   addressRow,
+  contactPointRow,
   mockAccountDefaults,
   mockAddresses,
+  mockContacts,
+  mockContactVerify,
   mockCountries,
   mockFileDownload,
   mockInsuranceTypeKey,
@@ -373,5 +376,23 @@ test.describe("Open gaps vs 1health-fe", () => {
     const sheet = page.getByRole("dialog", { name: "Add insurance" })
     expect(await optionsOf(page, sheet.getByLabel("Relationship", { exact: true }))).toEqual(["Self", "Spouse", "Child", "Dependent", "Parent"])
   })
-  test.fixme("P3 · Verify is offered from the Phone and Email edit view, as in legacy", async () => {})
+  test("P3 · Verify is offered from the Phone and Email edit view, as in legacy", async ({ page }) => {
+    // Resolved 2026-10-26 (NG-9023): saved, unverified, non-Home Mobiles and emails offer Verify while editing
+    // (legacy MobileNumberRow.tsx:120, EmailRow.tsx:119); the click verifies at once and keeps the edit open.
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await mockProfileDefaults(page)
+    await mockContacts(page, {
+      Mobile: [contactPointRow({ id: 11, value: "+14155550111", label: "Work", isVerified: false })],
+      Email: [contactPointRow({ id: 31, value: "ann.work@example.test", type: "Email", label: "Work", isVerified: false })],
+    })
+    const verifies = await mockContactVerify(page)
+    await page.goto("/")
+    for (const [name, id] of [["Phone", 11], ["Email", 31]] as const) {
+      const section = region(page, name)
+      await section.getByRole("button", { name: "Edit", exact: true }).click()
+      await section.getByRole("button", { name: "Verify", exact: true }).click()
+      await expect.poll(() => verifies().map((body) => body.contactPointIds)).toContainEqual([id])
+      await expect(section.locator('[data-slot="section-footer"]')).toBeVisible()
+    }
+  })
 })

@@ -1,6 +1,8 @@
 "use client"
 
 import { useCallback, useLayoutEffect, useRef, useState } from "react"
+import { Button } from "@/components/ui/button"
+import { DisabledAction } from "@/components/ui/disabled-action"
 import { useAnnounce } from "@/components/ui/live-status"
 import { StatusBadge } from "@/components/ui/status-badge"
 import { toastError, useCountdown, type RowAction } from "@/features/shell"
@@ -95,6 +97,40 @@ export function contactVerifyAction(state: ContactVerifyState | undefined, secon
     disabledReason: seconds > 0 ? contactResendInText(seconds) : undefined,
     onSelect,
   }
+}
+
+export interface ContactEditVerifyStatusProps extends ContactVerifyStatusProps {
+  /** Verify is offered on this row (a saved, verifiable row as read); `undefined` shows only the Status. */
+  readonly onVerify: (() => void) | undefined
+}
+
+/**
+ * The Status cell of a saved row in edit view (NG-9023 parity with
+ * 1health-fe `MobileNumberRow`/`EmailRow`, which offer Verify on a saved,
+ * unverified row while editing): the shared Status, then, on a verifiable
+ * row, the same Verify / Resend verification action as the read view
+ * (aria-disabled with "Link sent · Resend in {n} s" during the countdown).
+ * It sends at once and leaves the edit as it is.
+ */
+export function ContactEditVerifyStatus({ onVerify, ...status }: ContactEditVerifyStatusProps) {
+  const seconds = useResendSeconds(status.state)
+  const cell = <ContactVerifyStatus {...status} />
+  if (!onVerify) return cell
+  const action = contactVerifyAction(status.state, seconds, onVerify)
+  return (
+    <span data-slot="edit-verify" className="flex flex-col items-start gap-1">
+      {cell}
+      {action.disabledReason ? (
+        <DisabledAction reason={action.disabledReason} className="text-body-sm">
+          {action.label}
+        </DisabledAction>
+      ) : (
+        <Button type="button" variant="ghost" size="touch" className="text-body-sm -ml-3" onClick={action.onSelect}>
+          {action.label}
+        </Button>
+      )}
+    </span>
+  )
 }
 
 export interface ContactVerification {

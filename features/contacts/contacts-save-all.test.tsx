@@ -85,8 +85,8 @@ async function pick(trigger: HTMLElement, name: string) {
 /** The new row (Add email / Add phone) of the Section named `name`. */
 async function addRow(name: string, action: string): Promise<HTMLElement> {
   await click(within(region(name)).getByRole("button", { name: action }))
-  const rows = region(name).querySelectorAll<HTMLElement>('[data-state="new"]')
-  return rows[rows.length - 1]
+  // The latest added row: a new row goes at the top (1health-fe parity, NG-9023).
+  return region(name).querySelector<HTMLElement>('[data-state="new"]') as HTMLElement
 }
 
 beforeEach(() => {

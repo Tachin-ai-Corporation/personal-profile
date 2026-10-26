@@ -43,7 +43,7 @@ import { ENVIRONMENTS, environmentConfig } from "@/lib/shared/environments"
 import { safeHref } from "@/lib/shared/safe-href"
 import { COMMON_MESSAGES, CONTACT_MESSAGES, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 import { useContactRead } from "./use-contact-read"
-import { CellField, isRepeatKey, nextNewKey, uniqueRowKeys } from "./contact-edit-kit"
+import { blockAddWhileInvalid, CellField, isRepeatKey, nextNewKey, uniqueRowKeys } from "./contact-edit-kit"
 import {
   isSocialFull,
   isSocialRowChanged,
@@ -397,13 +397,27 @@ export function SocialSection() {
   /** The rows the next change starts from: the form's while editing, else the saved ones. */
   const currentRows = (): SocialEditRow[] => (isEditing ? form.getValues("rows") : baseline.rows)
 
+  /**
+   * Add link (header, empty state, footer): like 1health-fe
+   * (`SocialMediaWrapper` `addNew`), the new row goes at the top, and while
+   * editing only once the rows already there are valid; else their errors
+   * show and focus goes to the first instead. Focus moves to the new link.
+   */
   function addLink(): void {
     if (isSaving) return
     const current = currentRows()
     if (isSocialFull(current)) return
-    const next = [...current, newSocialEditRow(nextNewKey(current, newKeys))]
-    section.startEdit({ focus: valuePath(current.length) })
-    rowsControl.onChange(next)
+    if (isEditing) {
+      const invalid = blockAddWhileInvalid(section, socialSchema, socialFieldOrder(rowsShape(current)))
+      if (invalid !== undefined) {
+        section.startEdit({ focus: invalid })
+        return
+      }
+      // Every row moves down one index: no error is left on a shifted path (the rows are valid, so none is lost).
+      form.clearErrors("rows")
+    }
+    section.startEdit({ focus: valuePath(0) })
+    rowsControl.onChange([newSocialEditRow(nextNewKey(current, newKeys)), ...current])
   }
 
   function setRemoved(key: string, removed: boolean): void {

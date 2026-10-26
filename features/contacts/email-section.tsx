@@ -51,9 +51,9 @@ import {
 import { CONTACT_LABEL_HOME, contactLabelsFrom } from "@/lib/shared/contact-labels"
 import { COMMON_MESSAGES, CONTACT_MESSAGES, formatMessage, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 import { useContactRead } from "./use-contact-read"
-import { CellField, ChoiceCell, isRepeatKey, nextNewKey, NotApplicable, NotificationsSwitch, uniqueRowKeys } from "./contact-edit-kit"
+import { blockAddWhileInvalid, CellField, ChoiceCell, isRepeatKey, nextNewKey, NotApplicable, NotificationsSwitch, uniqueRowKeys } from "./contact-edit-kit"
 import { useMakePrimary } from "./contact-primary"
-import { contactVerifyAction, ContactVerifyStatus, useContactVerification, useResendSeconds, type ContactVerifyState, type ContactVerifyStates } from "./contact-verify"
+import { contactVerifyAction, ContactEditVerifyStatus, ContactVerifyStatus, useContactVerification, useResendSeconds, type ContactVerifyState, type ContactVerifyStates } from "./contact-verify"
 import { emailDraftDiff, emailEditRowOf, emailSchema, isEmailFull, newEmailEditRow, type EmailEditRow, type EmailValues } from "./email-schema"
 
 /** The Contact Type of every row here (the list key, the add `type`). */
@@ -308,10 +308,12 @@ interface EditColumnsInput {
   readonly primaryKey: string | undefined
   /** The Section's verification states (the saved rows' Status). */
   readonly verifyStates: ContactVerifyStates
+  /** Verify / Resend verification on a saved, verifiable row (parity with 1health-fe `EmailRow`). */
+  readonly onVerify: (id: number) => void
 }
 
 /** The edit table: the address (locked on a saved row) and Label as controls, Status as read, the Primary's Notifications switch. */
-function emailEditColumns({ section, labelOptions, saved, primaryKey, verifyStates }: EditColumnsInput): SectionTableColumn<EditItem>[] {
+function emailEditColumns({ section, labelOptions, saved, primaryKey, verifyStates, onVerify }: EditColumnsInput): SectionTableColumn<EditItem>[] {
   const labelChoices = labelOptions.map((label) => ({ value: label, label }))
   return [
     {
@@ -343,7 +345,18 @@ function emailEditColumns({ section, labelOptions, saved, primaryKey, verifyStat
         const state = rowStateOf(row)
         if (state !== "saved") return <RowEditStatus state={state} id={statusIdOf(row.key)} />
         const read = saved.get(row.key)
-        return read ? <EmailStatus row={read} state={verifyStateOf(verifyStates, read)} /> : null
+        if (!read) return null
+        // A saved, verifiable row offers Verify here too (never a new row, a Home or a Verified one).
+        const id = verifyIdOf(read)
+        return (
+          <ContactEditVerifyStatus
+            label={read.point.label}
+            isVerified={read.point.isVerified}
+            state={verifyStateOf(verifyStates, read)}
+            cooldownHelp={CONTACT_MESSAGES.emailVerifyCooldown}
+            onVerify={id !== null && isVerifiable(read) ? () => onVerify(id) : undefined}
+          />
+        )
       },
     },
     {
@@ -430,7 +443,9 @@ const emailLoadError = (failure: unknown): MappedError | undefined => (failure =
  * the save. The read view offers Verify / Resend verification on every
  * unverified, non-Home saved email (an unverified Primary too): it sends at
  * once, with no confirm and no edit mode, and counts down "Link sent ·
- * Resend in {n} s" for 60 s. The states live here, keyed by id.
+ * Resend in {n} s" for 60 s. The edit view offers it under the Status of
+ * the same rows (NG-9023, 1health-fe parity) and leaves the edit as it is.
+ * The states live here, keyed by id.
  *
  * Make primary (Story 3.6, FR22): a read-view row action (after Verify,
  * before Edit) enabled only on a Verified email that isn't the Primary,
@@ -557,13 +572,27 @@ export function EmailSection() {
   /** The rows the next change starts from: the form's while editing, else the saved ones. */
   const currentRows = (): EmailEditRow[] => (isEditing ? form.getValues("rows") : baseline.rows)
 
+  /**
+   * Add email (header, empty state, footer): like 1health-fe (`EmailWrapper`
+   * `addNew`), the new row goes at the top, and while editing only once the
+   * rows already there are valid; else their errors show and focus goes to
+   * the first instead. Focus moves to the new row's address.
+   */
   function addEmail(): void {
     if (isSaving) return
     const current = currentRows()
     if (isEmailFull(current)) return
-    const next = [...current, newEmailEditRow(nextNewKey(current, newKeys))]
-    section.startEdit({ focus: valuePath(current.length) })
-    rowsControl.onChange(next)
+    if (isEditing) {
+      const invalid = blockAddWhileInvalid(section, emailSchema, emailFieldOrder(rowsShape(current)))
+      if (invalid !== undefined) {
+        section.startEdit({ focus: invalid })
+        return
+      }
+      // Every row moves down one index: no error is left on a shifted path (the rows are valid, so none is lost).
+      form.clearErrors("rows")
+    }
+    section.startEdit({ focus: valuePath(0) })
+    rowsControl.onChange([newEmailEditRow(nextNewKey(current, newKeys)), ...current])
   }
 
   function setRemoved(key: string, removed: boolean): void {
@@ -686,7 +715,7 @@ export function EmailSection() {
               <>
                 <SectionTable<EditItem>
                   rows={formRows.map((row, index) => ({ row, index }))}
-                  columns={emailEditColumns({ section, labelOptions, saved: savedByKey, primaryKey, verifyStates: verification.states })}
+                  columns={emailEditColumns({ section, labelOptions, saved: savedByKey, primaryKey, verifyStates: verification.states, onVerify: verification.verify })}
                   getRowKey={({ row }) => row.key}
                   labelledBy={headingId}
                   editing
