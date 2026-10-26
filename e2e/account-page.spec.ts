@@ -208,6 +208,10 @@ test.describe("/account read failures in one flow (Story 7.1 deferred page e2e)"
 
     // 2. My Organizations: no Section claims myself, so the page banner shows it; the tab's own read fails in its frame.
     await page.getByRole("tab", { name: "My Organizations" }).click()
+    // Wait for the switch: until then `panel` is still Personal Account's, with its two errors.
+    await expect(page.getByRole("tab", { name: "My Organizations" })).toHaveAttribute("aria-selected", "true")
+    await expect(page).toHaveURL(/\?tab=organizations$/)
+    await expect(account).toHaveCount(0)
     await expect(panel.getByText(LOAD_ERROR, { exact: true })).toBeVisible()
     await expect(main.getByText(LOAD_ERROR, { exact: true })).toHaveCount(2)
     await expect(main.getByRole("button", { name: "Retry", exact: true })).toHaveCount(2)
