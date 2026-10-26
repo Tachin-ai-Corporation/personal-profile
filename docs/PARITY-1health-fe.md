@@ -22,24 +22,24 @@ Medical is out of scope on purpose (Epic 6 is on hold).
 
 ## 1. Summary
 
-Counts come from the checklist rows in §2–§3.
+Counts come from the checklist rows in §2–§3 (recounted 2026-10-26; a row resolved after the audit counts under its new status, e.g. "MATCH (was DIFF-GAP)" counts as MATCH).
 
 | Screen | Section | Rows | MATCH | DIFF-INTENTIONAL | DIFF-GAP | NEW-ONLY |
 |---|---|---|---|---|---|---|
 | Personal Profile | 2.1 Page shell and tabs | 9 | 3 | 2 | 1 | 3 |
-| Personal Profile | 2.2 Header and profile picture | 12 | 4 | 4 | 2 | 2 |
-| Personal Profile | 2.3 Personal Information | 49 | 12 | 29 | 2 | 6 |
-| Personal Profile | 2.4 Phone | 54 | 15 | 33 | 2 | 4 |
-| Personal Profile | 2.5 Email | 21 | 7 | 12 | 1 | 1 |
+| Personal Profile | 2.2 Header and profile picture | 12 | 6 | 4 | 0 | 2 |
+| Personal Profile | 2.3 Personal Information | 49 | 13 | 30 | 0 | 6 |
+| Personal Profile | 2.4 Phone | 54 | 17 | 33 | 0 | 4 |
+| Personal Profile | 2.5 Email | 21 | 8 | 12 | 0 | 1 |
 | Personal Profile | 2.6 Social Media | 13 | 3 | 8 | 0 | 2 |
-| Personal Profile | 2.7 Location Addresses | 40 | 7 | 27 | 3 | 3 |
-| Personal Profile | 2.8 Insurance | 38 | 7 | 28 | 1 | 2 |
+| Personal Profile | 2.7 Location Addresses | 40 | 10 | 27 | 0 | 3 |
+| Personal Profile | 2.8 Insurance | 38 | 8 | 28 | 0 | 2 |
 | Account | 3.1 Page and tabs | 9 | 2 | 4 | 0 | 3 |
-| Account | 3.2 Personal Account Settings | 48 | 15 | 24 | 3 | 6 |
+| Account | 3.2 Personal Account Settings | 48 | 18 | 24 | 0 | 6 |
 | Account | 3.3 Authenticator app (MFA) | 26 | 8 | 15 | 0 | 3 |
-| Account | 3.4 Individual Provider Registration | 38 | 14 | 9 | 12 | 3 |
-| Account | 3.5 My Organizations | 26 | 9 | 14 | 2 | 1 |
-| **Total** | | **383** | **106** | **209** | **29** | **39** |
+| Account | 3.4 Individual Provider Registration | 38 | 26 | 9 | 0 | 3 |
+| Account | 3.5 My Organizations | 26 | 10 | 15 | 0 | 1 |
+| **Total** | | **383** | **132** | **211** | **1** | **39** |
 
 The rebuild reaches functional parity with the legacy app on the Personal Profile and on Account → Personal Account. Almost every difference traces back to a story or decision. The real gaps are:
 
@@ -49,7 +49,7 @@ The rebuild reaches functional parity with the legacy app on the Personal Profil
    - ~~Changing the country doesn't clear the address fields.~~ Resolved 2026-10-23 (NG-9026).
    - ~~The insurance Relationship options are in a different order from the backend.~~ Resolved 2026-10-23 (NG-9029).
    - ~~A locale written by the legacy app (`en-us`) shows as raw text.~~ Resolved 2026-10-23 (NG-9033).
-   - The Maps link, Verify in edit view, the Privacy/Terms/Dark mode menu items and a few legacy MIME types are gone.
+   - ~~The Maps link, Verify in edit view and a few legacy MIME types are gone.~~ Resolved 2026-10-26. Still open: the legacy user menu's Privacy, Terms and Dark mode items (needs a PM/UX decision).
 
 ---
 
@@ -67,17 +67,17 @@ The rebuild reaches functional parity with the legacy app on the Personal Profil
 | Section order: Personal, Phone, Email, Social, Addresses | fe:…/ContactInfo/ContactInfo.tsx:38-49 | pp:features/shell/anchors.ts:11-16 | MATCH | |
 | Page title | none (route fe:route/AppRoute.tsx:1225) | pp:app/layout.tsx:24 ("Personal Profile") | NEW-ONLY | |
 | Access gate (default tenant only) | fe:route/AppRoute.tsx:1222 | pp:lib/server/launch/launch.ts:157 (403 `WRONG_TENANT`) | MATCH | Same rule, now enforced at launch. |
-| Global user menu / context switcher | fe:components/AppHeaderV2/components/UserMenu.tsx:73-155 (My Account, Profile, Provider registration, My organizations, Privacy, Terms, Dark mode, Sign out); ContextSwitcherV2.tsx:195 | pp:features/shell/app-bar.tsx:16; page-nav.tsx:10-11,33; return-link.tsx:35 | DIFF-GAP | The app bar has the wordmark, a Pages nav (Personal Profile / Account) and "Return to 1health" (epics.md:1249-1254, D4/D11). **Privacy, Terms and Dark mode** have no decision. |
+| Global user menu / context switcher | fe:components/AppHeaderV2/components/UserMenu.tsx:73-155 (My Account, Profile, Provider registration, My organizations, Privacy, Terms, Dark mode, Sign out); ContextSwitcherV2.tsx:195 | pp:features/shell/app-bar.tsx:16; page-nav.tsx:10-11,33; return-link.tsx:35 | DIFF-GAP | The app bar has the wordmark, a Pages nav (Personal Profile / Account) and "Return to 1health" (epics.md:1249-1254, D4/D11). **Privacy, Terms and Dark mode** have no decision. Narrowed 2026-10-26: Profile, Provider registration and My organizations match the `/account` tabs and Sign out is "Return to 1health" (DIFF-INTENTIONAL). Still open, pending a PM/UX decision (the app bar contents are fixed by UX-DR13): Privacy and Terms (legacy opens `https://www.tachin.ai/privacy` and `/terms`), the Dark mode toggle and the "Session active" footer. |
 
 ### 2.2 Header and profile picture
 
 | Item | Legacy (file:line) | New (file:line) | Status | Notes |
 |---|---|---|---|---|
-| Header name | fe:…/ContactInfo/ProfileInfoCard/ProfileInfoCard.tsx:50,119,127 (`h3`, CSS `capitalize`) | pp:features/header/names.ts:4-7; profile-header.tsx:193 (`h1`) | DIFF-GAP | The CSS capitalization is gone (P3). Using `h1` is intended (epics.md:1353). The username fallback exists only in the new app. |
+| Header name | fe:…/ContactInfo/ProfileInfoCard/ProfileInfoCard.tsx:50,119,127 (`h3`, CSS `capitalize`) | pp:features/header/names.ts:4-7; profile-header.tsx:193 (`h1`) | MATCH (was DIFF-GAP) | The CSS capitalization is gone (P3). Using `h1` is intended (epics.md:1353). The username fallback exists only in the new app. Resolved 2026-10-26: the name is capitalized for display, as legacy (`features/header/profile-header.tsx`); `h1` and the username fallback stay intentional. |
 | Avatar source | fe:ProfilePageQueries.ts:38-57 (GraphQL); ProfilePicture.tsx:21 (`/user/profile-picture/preview?v=`) | pp:lib/api/profile-picture.ts:27-29,87-89; features/header/use-profile-picture.ts:16-19 | MATCH | GraphQL moved server-side into the named op `/api/pp/profile-picture-id` (epics.md:1365-1376). |
 | Avatar with no picture | fe:ProfilePicture.tsx:54 (MUI default icon) | pp:features/header/profile-header.tsx:18-27 | NEW-ONLY | Initials, or a user icon (epics.md:1381). |
 | Avatar control name "Change profile picture" | fe:ProfilePicture.tsx:54 (`title`, clickable Avatar) | pp:features/header/profile-header.tsx:98-113 | MATCH | Now a real `<button>` with a camera badge, shown only on `/` (epics.md:1391, 1408). |
-| Picture accept list | fe:ProfilePicture.tsx:51; fe:utils/appEnums/AppEnums.ts:232-234 (includes `image/x-png`, `image/x-citrix-*`, `image/pjpeg`) | pp:features/header/picture-file.ts:10,25-46 | DIFF-GAP | The new app also requires a matching extension. Files typed `image/x-png` or `image/x-citrix-jpeg/png` are rejected (P3). |
+| Picture accept list | fe:ProfilePicture.tsx:51; fe:utils/appEnums/AppEnums.ts:232-234 (includes `image/x-png`, `image/x-citrix-*`, `image/pjpeg`) | pp:features/header/picture-file.ts:10,25-46 | MATCH (was DIFF-GAP) | The new app also requires a matching extension. Files typed `image/x-png` or `image/x-citrix-jpeg/png` are rejected (P3). Resolved 2026-10-26: `image/x-png`, `image/x-citrix-png` and `image/x-citrix-jpeg` are accepted when the extension matches and the file decodes (stricter than legacy on purpose). |
 | Picture size limit 6 MB | fe:utils/AppUtils.ts:37; ProfileInfoCard.tsx:80 | pp:features/header/picture-file.ts:13 | MATCH | |
 | Picture change flow | fe:ProfileInfoCard.tsx:70-109 (uploads immediately, no preview) | pp:features/header/change-picture-dialog.tsx:219-328 | DIFF-INTENTIONAL | Preview dialog (epics.md:1417-1431). |
 | Invalid picture copy | fe:ProfileInfoCard.tsx:81 (toast "Unsupported files and images larger than 6mb are not acceptable.") | pp:lib/shared/messages/header.ts:10,13 | DIFF-INTENTIONAL | epics.md:1420-1428. |
@@ -105,7 +105,7 @@ The rebuild reaches functional parity with the legacy app on the Personal Profil
 | Edit/Cancel/Save placement | fe:PersonalInformationWrapper.tsx:517-537 (in the header) | pp:personal-section.tsx:483-487; features/shell/section-footer.tsx:76-89 | DIFF-INTENTIONAL | Footer with "Unsaved changes" and "Editing" (epics.md:2005-2008). |
 | Edit field order | fe:…/PersonalInformationForm/PersonalInformationForm.tsx:55-461 | pp:personal-section.tsx:249-279,515-531 | DIFF-INTENTIONAL | F1 order, Prefix first (epics.md:2013). |
 | "(optional)" marker | none | pp:features/personal/schema.ts:95-103; key-value-table.tsx:182 | NEW-ONLY | epics.md:2027. |
-| Field placeholders | fe:PersonalInformationForm.tsx:63,79,96,115… ("Middle name", "Name prefix", "City of birth", …) | only Birth date "MM/DD/YYYY" (pp:lib/shared/messages/controls.ts:12) | DIFF-GAP | Nothing decides to drop them (P3). |
+| Field placeholders | fe:PersonalInformationForm.tsx:63,79,96,115… ("Middle name", "Name prefix", "City of birth", …) | only Birth date "MM/DD/YYYY" (pp:lib/shared/messages/controls.ts:12) | MATCH (was DIFF-GAP) | Nothing decides to drop them (P3). Resolved 2026-10-26: each field shows its label as placeholder, as legacy; SSN shows "Social Security number" (DRAFT COPY, sentence case). |
 | First / Last name required | fe:PersonalInformationWrapper.tsx:163,174 ("First Name cannot be empty") | pp:lib/shared/messages/person.ts:9-10; schema.ts:184,186 | DIFF-INTENTIONAL | PA4 copy (epics.md:2038). |
 | Name max length | none | pp:lib/shared/person-rules.ts:11,14; messages/person.ts:11-12,42,44 | DIFF-INTENTIONAL | ≤24, and ≤10 for Prefix and Suffix (epics.md:2038; spec-2-2:30). |
 | Name character set | fe:Wrapper.tsx:165-167; validators/validatorConstants.ts:11 (allow-list; rejects `( ) , ? = _ $ +`) | pp:lib/shared/person-rules.ts:27; messages/person.ts:38 | DIFF-INTENTIONAL | A deny-list of control characters and emoji (epics.md:2040), so it accepts more than legacy. |
@@ -121,7 +121,7 @@ The rebuild reaches functional parity with the legacy app on the Personal Profil
 | Biological gender fallback | none | pp:person-options.ts:42-45 | NEW-ONLY | Only "Asked but not answered" plus the current value. |
 | Unset picker defaults | fe:Wrapper.tsx:319-322 (preselected but not dirty, not sent) | pp:use-person-options.ts:43-48; personal-section.tsx:464-469 | DIFF-INTENTIONAL | Preselects count as changes and are sent (epics.md:2052, 2058). |
 | Gender identity list | fe:…/ContactInfo/ContactInfoUtils.ts:12-17; ContactInfoEnums.ts:8-13 | pp:person-options.ts:35 | MATCH | Asked but not answered, Female, Male, Other. |
-| Gender identity free text | fe:PersonalInformationForm.tsx:354-379 (freeSolo with an "Add {label}" row) | pp:personal-section.tsx:182-201 | DIFF-GAP | Free text is still accepted, but there is no "Add …" row (P3). |
+| Gender identity free text | fe:PersonalInformationForm.tsx:354-379 (freeSolo with an "Add {label}" row) | pp:personal-section.tsx:182-201 | DIFF-INTENTIONAL (was DIFF-GAP) | Free text is still accepted, but there is no "Add …" row (P3). Resolved 2026-10-26: the Combobox now offers the "Add …" row (`allowAdd`). Only wording differs: `Add “Non-binary”` with quotes (the shared copy), and a case-only match shows no Add row. |
 | Gender identity required copy | fe:Wrapper.tsx:258 | pp:schema.ts:203 ("Choose a value") | DIFF-INTENTIONAL | |
 | SSN validation | fe:Wrapper.tsx:264-266; validatorConstants.ts:82 | pp:schema.ts:205-207; messages/person.ts:65 | DIFF-INTENTIONAL | "Enter all 9 digits of your SSN" (epics.md:2167). |
 | SSN input formatting | fe:PersonalInformationForm.tsx:448 (`formatSSN`) | pp:features/personal/ssn.ts; ssn-field.tsx:357 | MATCH | |
@@ -161,7 +161,7 @@ Abbreviations: PW = `fe:views/privatePages/ProfilePage/components/ContactInfo/co
 | Verify request `POST v2/health/contact-point/verify {contactPointIds}` | fe:utils/verify.ts:5-8; fe:config/axios/apis/profile/profile.ts:25-27 | API:288-291,329 | MATCH | Sent in chunks of 10. |
 | Verify feedback | success/error toasts (verify.ts:10-16) | CV:67-83,155-180 ("Link sent · Resend in {n} s") | DIFF-INTENTIONAL | Story 3.3. The 60 s countdown vs the 60 min backend cooldown is open (deferred-work.md:59-61). |
 | Action text after a send | "Verify" | CV:93 ("Resend verification") | DIFF-INTENTIONAL | Story 3.3. |
-| Verify in edit view | MNR:35-65,120 (Verify on saved unverified Mobiles) | PS:419-426 (status badge only) | DIFF-GAP | No decision found (P3). |
+| Verify in edit view | MNR:35-65,120 (Verify on saved unverified Mobiles) | PS:419-426 (status badge only) | MATCH (was DIFF-GAP) | No decision found (P3). Resolved 2026-10-26 (NG-9023): saved, unverified, non-Home Mobiles and emails offer Verify in edit view; the edit stays open. |
 | OTP entry | none (link-based) | none | MATCH | |
 | Auto-verify after save | PW:179-189,280-288 | API:228-233; PS:596 | MATCH | Matched by new id. |
 | Notifications, read view | bell with tooltip (CPI:108-131) | PS:203-210; CEK:52-59 ("On" / "Off" / "—") | DIFF-INTENTIONAL | Story 3.1, RC3. |
@@ -180,7 +180,7 @@ Abbreviations: PW = `fe:views/privatePages/ProfilePage/components/ContactInfo/co
 | Header and footer actions | ABC:41-95 ("Edit"; in edit: "Add New" / "Cancel" / "Save") | PS:720-738,788 | DIFF-INTENTIONAL | Story 3.2. |
 | Empty state | CPI:37-46 ("Not Provided") | CM:8,16; PS:771,796 ("No phones yet" + "Add phone") | DIFF-INTENTIONAL | Story 3.1. |
 | Edit with no phones opens one empty row | PW:370-372 | PS:723 | MATCH | |
-| Where a new row goes | PW:375-385 (top; only once the other rows are valid) | PS:633-640 (bottom, no validity check) | DIFF-GAP | Not documented (P3). |
+| Where a new row goes | PW:375-385 (top; only once the other rows are valid) | PS:633-640 (bottom, no validity check) | MATCH (was DIFF-GAP) | Not documented (P3). Resolved 2026-10-26 (NG-9023): new Phone, Email and Social rows go on top, and only once the other rows are valid; otherwise their errors show. |
 | New number input | MN:111-149 | PS:315-343; CM:20 | DIFF-INTENTIONAL | Story 3.2. |
 | Type control | MN:188-205 ("Mobile" checkbox, on by default) | PS:409-416; PSC:146 (Select Mobile/Landline, no default) | DIFF-INTENTIONAL | Story 3.2. |
 | Label control | MN:156-186 (Autocomplete) | PS:399-407,549 (Select, Primary removed) | DIFF-INTENTIONAL | Story 3.2. |
@@ -213,7 +213,7 @@ EW = `fe:…/EmailWrapper/EmailWrapper.tsx`, EM / ER = `fe:components/ContactPoi
 | Status | CPI:161-178 (check icon, or a Verify button) | ES:109-111 ("Verified" / "Not verified") | DIFF-INTENTIONAL | Story 3.5. |
 | Home rows show no status or Verify | CPI:240; ER:119 | ES:96; CV:69 | MATCH | |
 | Verify, auto-verify and request | CPI:240; EW:170-180,265-274 | ES:96,490-493; API:228 | MATCH | |
-| Verify in edit view | ER:33-63 | ES:342-347 (badge only) | DIFF-GAP | Same as Phone (P3). |
+| Verify in edit view | ER:33-63 | ES:342-347 (badge only) | MATCH (was DIFF-GAP) | Same as Phone (P3). Resolved 2026-10-26 (NG-9023): saved, unverified, non-Home Mobiles and emails offer Verify in edit view; the edit stays open. |
 | Notifications | CPI:216-239; ER:87-117 | ES:114-121,357 | DIFF-INTENTIONAL | Story 3.6, RC3. |
 | Primary eligibility | EM:50-63 | ES:166-170 | MATCH | Same rule, new mechanism (Story 3.6). |
 | Primary confirm copy | EW:82-91,405-406 | CM:37,64-65 | DIFF-INTENTIONAL | Story 3.6. |
@@ -261,7 +261,7 @@ LAW = `fe:…/LocationAddressWrapper/LocationAddressWrapper.tsx`, LAC = `…/Loc
 | Row order | platform order (usePersonalProfileLocations.tsx:38) | AS:105-113 (Primary first) | DIFF-INTENTIONAL | Story 4.1. |
 | Primary marker in read view | none | AS:139 | NEW-ONLY | Story 4.1. |
 | Verified indicator | LAC:80-97 ("Google verified" / "Verified" / "Unverified Address") | AS:142 ("Verified" badge; nothing when false) | DIFF-INTENTIONAL | Story 4.1. |
-| Google Maps pin link | LAC:22-26,41-53 | none | DIFF-GAP | No story, spec or deferred item drops it (P3). |
+| Google Maps pin link | LAC:22-26,41-53 | none | MATCH (was DIFF-GAP) | No story, spec or deferred item drops it (P3). Resolved 2026-10-26: a Verified address with real coordinates links to `https://maps.google.com/?ll=lat,lon` (new tab). Legacy's "cannot find location" icon for addresses without coordinates is not shown (DIFF-INTENTIONAL). |
 | Empty state | LAC:28-35 ("Not Provided") | AS:1368; AM:3,5 ("No addresses yet" + "Add address") | DIFF-INTENTIONAL | Story 4.1. |
 | Header actions, read view | LAW:543-551 ("Edit") | AS:1300-1311 ("Edit" + "Add address") | DIFF-INTENTIONAL | Story 4.1; spec 4.2 decision 1a. |
 | Header actions, edit view | ABC:44-77 (in the header) | AS:1360 (footer) | DIFF-INTENTIONAL | Story 4.2. |
@@ -288,7 +288,7 @@ LAW = `fe:…/LocationAddressWrapper/LocationAddressWrapper.tsx`, LAC = `…/Loc
 | 255-character limit | none | schema.ts:203-204 | NEW-ONLY | spec 4.2. |
 | Duplicate check | LAW:94-129; AC:54 (case-sensitive) | schema.ts:157-164,206-208 (case-insensitive) | DIFF-INTENTIONAL | Story 4.2. |
 | Places suggestions | AC:169-179 (Google JS in the browser) | AS:440-505 (server `/api/places/*`, ≥3 characters, 250 ms, ≤5 results) | DIFF-INTENTIONAL | Story 4.3. `PLACES_ENABLED` stays off until the Google BAA (spec-4-3:54). |
-| Fill on pick | LAW:271-325 (fills the parts and lat/lon; clears line 2) | pp:features/addresses/suggestion.ts:44-60 (keeps line 2; no lat/lon) | DIFF-GAP | The field mask that drops lat/lon is from Story 4.3. Keeping line 2 is undocumented (P3; Places is off). |
+| Fill on pick | LAW:271-325 (fills the parts and lat/lon; clears line 2) | pp:features/addresses/suggestion.ts:44-60 (keeps line 2; no lat/lon) | MATCH (was DIFF-GAP) | The field mask that drops lat/lon is from Story 4.3. Keeping line 2 is undocumented (P3; Places is off). Resolved 2026-10-26: a successful pick clears line 2, as legacy; lat/lon stay dropped (Story 4.3, DIFF-INTENTIONAL). |
 | Write payload | LAW:374-389 (`countryCode`, `fullAddress`, lat, lon) | pp:lib/api/addresses.ts:268-332 | DIFF-INTENTIONAL | spec 4.2 decisions 2a and 3a (spec-4-2:79). Stored lat/lon go stale after an edit. |
 | Write endpoints (POST/PUT/DELETE `person/location`) | profile.ts:13-20 | addresses.ts:77-90; allowlist/addresses.ts:84-97 | MATCH | |
 | Save order | LAW:464-486 | pp:features/addresses/save.ts:20-30 | DIFF-INTENTIONAL | Story 4.4; decision 1B (spec-4-4:57,142). |
@@ -379,7 +379,7 @@ PA = `fe:views/privatePages/AccountSettings/Components/PersonalAccount/`, ASF = 
 | Birth date display MM/DD/YYYY | PersonalAccountUtils.ts:94-99 | AF/view-model.ts:43 | MATCH | |
 | Primary phone display | PersonalAccountView.tsx:64 (raw) | AF/view-model.ts:42 (`+1 (415) 551-2125`) | DIFF-INTENTIONAL | FR104. |
 | Time zone display | PersonalAccountUtils.ts:123-129 | AF/view-model.ts:45 | DIFF-INTENTIONAL | FR108 / Story 7.4 (an unknown value shows the raw code). |
-| Language display | PersonalAccountUtils.ts:130-133 (LOCALE_DETAILS, ~90 tags, fe:config/LocaleDetails.ts:1) | AF/view-model.ts:44 (only `en`→English, else the raw code) | DIFF-GAP | Story 7.4 says to show "its known label", but legacy knew `es`→"Spanish" (P3). |
+| Language display | PersonalAccountUtils.ts:130-133 (LOCALE_DETAILS, ~90 tags, fe:config/LocaleDetails.ts:1) | AF/view-model.ts:44 (only `en`→English, else the raw code) | MATCH (was DIFF-GAP) | Story 7.4 says to show "its known label", but legacy knew `es`→"Spanish" (P3). Resolved 2026-10-26: the legacy table of 91 tags is used, case-insensitively (`features/account/language-labels.ts`, kept verbatim incl. `mk` → "Maori"); an unknown tag stays raw. The edit Select still offers only English (Story 7.5). |
 | Locale display | PersonalAccountUtils.ts:134-135 (always "English - United States") | AF/view-model.ts:28-30,56; AF/schema.ts:31 (null or any spelling of `en-US`) | MATCH (was DIFF-GAP) | Legacy writes lowercase `en-us` (ASF:19, PersonalAccountUtils.ts:88-90). Those users see raw "en-us" in the read view, and it shows as an unlisted Select value (P2). **Resolved 2026-10-23 (NG-9033): `en-us`, `EN-US` and `en_US` read as "English - United States" and select the listed `en-US`; a save sends no locale write for a case-only difference (the backend validates locales case-insensitively and stores them as sent, 1h-ng-bo-core-be StringUtil.java:170-181, UserServiceImpl.java:1433-1444); checked by `e2e/parity-1health-fe.spec.ts` "legacy `en-us` locale".** Other locales (for example the backend default `en`) still show raw. |
 | Edit / Cancel / Save | fe:components/ProfileCard/components/ActionButtonsContactPoint/ActionButtonsContactPoint.tsx:66,77,93 | AF/account-settings-section.tsx:212,228; section.ts:3; common.ts:8-9 | MATCH | |
 | Edit field order | PersonalAccountUpdateForm.tsx:100-513 | AF/account-edit-fields.tsx:41-51 | MATCH | |
@@ -401,7 +401,7 @@ PA = `fe:views/privatePages/AccountSettings/Components/PersonalAccount/`, ASF = 
 | Phone picker options | PersonalAccountWrapper.tsx:87 (Mobile + Landline) | AF/primary-contacts.ts:17 (Mobile only) | DIFF-INTENTIONAL | Story 7.6 amendment of 2026-10-14 (epics.md ~3822). |
 | Picker disabled, with helper | PersonalAccountUpdateForm.tsx:37-62,206,267 | AF/account-primary-picker.tsx:27-28; ACM:6-8 | DIFF-INTENTIONAL | FR107 (in-app link to `/?tab=contacts#email` or `#phone`). |
 | Change notice | PersonalAccountUpdateForm.tsx:208-219,269-280 (toast) | AF/account-primary-picker.tsx:33; ACM:9-10 (inline) | DIFF-INTENTIONAL | FR107 Δ D5. |
-| Email required marker | PersonalAccountUpdateForm.tsx:229 (`required`) | AF/account-edit-fields.tsx:45 (none; the phone row at :46 has one) | DIFF-GAP | P3. |
+| Email required marker | PersonalAccountUpdateForm.tsx:229 (`required`) | AF/account-edit-fields.tsx:45 (none; the phone row at :46 has one) | MATCH (was DIFF-GAP) | P3. Resolved 2026-10-26: the email control is `aria-required`, as the phone row. |
 | Email / phone validation | ASF:50-61 | AF/schema.ts:43-48; ACM:3-5 | DIFF-INTENTIONAL | FR107. |
 | Save details `PUT v2/user/edit` | fe:config/axios/apis/user/user.ts:44-46; PersonalAccountUtils.ts:68-92 | pp:lib/api/account.ts:50-55; AF/schema.ts:60-67; account-save.ts:28-39 | DIFF-INTENTIONAL | Only changed fields; adds `phoneNumberRegion`; no `locale` (FR107/FR108). |
 | Save time zone `POST v2/user/time-zone` | user.ts:40-42 | pp:lib/api/account.ts:25-27,57-59; allowlist/account.ts:14-15 | MATCH | |
@@ -511,7 +511,7 @@ MO = `fe:views/privatePages/AccountSettings/Components/MyOrganizations/`, OC = `
 | Empty card title, body and 4 feature rows | OrganizationListPage.tsx:23-52,188,192-193 | OF/organizations-tab.tsx:17-30; OM:9-10,22-25,32-35 | MATCH | Verbatim copy. |
 | "Register organization" | OrganizationListPage.tsx:215-229 | OF/organizations-tab.tsx:31-32; OM:7-8 | DIFF-INTENTIONAL | PA1. |
 | "Sorry, no results were found" | OrganizationListPage.tsx:250-256 | OF/organizations-tab.tsx:65; OM:11 | MATCH | Same copy, shown under different conditions. |
-| Pager when a page has only null organizations | hidden when the list is empty | OF/organizations-tab.tsx:65-67 (shows "no results" plus the pager) | DIFF-GAP | Edge case (P3). |
+| Pager when a page has only null organizations | hidden when the list is empty | OF/organizations-tab.tsx:65-67 (shows "no results" plus the pager) | MATCH (was DIFF-GAP) | Edge case (P3). Resolved 2026-10-26: a single null-only page shows "no results" without the pager. On a multi-page list the pager stays (spec 10.1), where legacy would leave the user stuck. |
 | Loading | OrganizationListPage.tsx:284-286 | OF/organizations-tab.tsx:60 | DIFF-INTENTIONAL | Story 10.1. |
 | Load error | OrganizationListPage.tsx:107-117 (toast) | OF/organizations-tab.tsx:60,81 | DIFF-INTENTIONAL | Story 10.1. |
 | Pagination | OrganizationListPage.tsx:265-280 (arrow icons) | OF/organizations-pagination.tsx:13-22 | DIFF-INTENTIONAL | Text "Previous" / "Next". |
@@ -522,7 +522,7 @@ MO = `fe:views/privatePages/AccountSettings/Components/MyOrganizations/`, OC = `
 | Primary contact popover | OC:114-185; OrganizationCardUtils.ts:6-12 | OF/organization-primary-contact.tsx:13-28; OM:14-15,21 | MATCH | The content matches. Accessibility and formatting differ on purpose. |
 | "Enter portal" label | OC:208 | OF/enter-portal-button.tsx:27-33; OM:16-17 | MATCH | |
 | Enter portal disabled when `!enabledInTenant` | OC:207 | OF/enter-portal-button.tsx:17-22; OM:18 | DIFF-INTENTIONAL | FR120 (aria-disabled with a reason). |
-| Current-tenant card (grey, Enter portal disabled) | OC:61-65,89-92,207 | none | DIFF-GAP | No decision. Probably moot, since the app always runs in the default tenant (P3). |
+| Current-tenant card (grey, Enter portal disabled) | OC:61-65,89-92,207 | none | DIFF-INTENTIONAL (was DIFF-GAP) | No decision. Probably moot, since the app always runs in the default tenant (P3). Resolved 2026-10-26 as moot: the session is always the default tenant (`lib/server/launch/launch.ts:157`, WRONG_TENANT otherwise) and the backend never lists it as an organization (`UserServiceImpl.fetchUserTenantsByName`, `OrganizationRepository.buildTenantOrganizationsByNameCondition`). |
 | Enter portal behaviour | OC:91,207 → fe:Hooks/useTenantSwitching.ts (switch-tenant) | OF/enter-portal-button.tsx:31; pp:features/shell/handoff.ts:29-36; pp:lib/server/handoff.ts:15,45-50 | DIFF-INTENTIONAL | FR120 / R7. With `TENANT_HANDOFF_SHAPE="root"` (OQ1 open), the user lands on the portal root, **not inside the organization** (deferred-work.md:517-519). See §4. |
 
 ---
@@ -561,17 +561,17 @@ MO = `fe:views/privatePages/AccountSettings/Components/MyOrganizations/`, OC = `
 
 ### P3: cosmetic or edge
 
-7. **Phone / Email: Verify is no longer offered in edit view** (fe MNR:35-65, ER:33-63 vs pp PS:419-426, ES:342-347).
-8. **Phone (also Email and Social): new rows go to the bottom**, and can be added while other rows are invalid (fe PW:375-385 vs pp PS:633-640).
-9. **Address: the Google Maps pin link is gone** (fe LAC:22-53).
-10. **Address: a Places pick keeps line 2** where legacy cleared it (fe LAW:306 vs pp:features/addresses/suggestion.ts:44-60). Places is off for now.
-11. **Profile picture: legacy MIME variants are rejected**: `image/x-png`, `image/x-citrix-jpeg` and `image/x-citrix-png` (pp:features/header/picture-file.ts:25-34).
-12. **Header: the name is no longer capitalized** (fe ProfileInfoCard.tsx:127).
-13. **Personal Information: no "Add {typed value}" row** in the Gender identity combobox, and the per-field placeholders are gone.
-14. **Account: language labels.** Only `en` gets a label. Legacy mapped about 90 tags, for example `es` → "Spanish" (pp:features/account/view-model.ts:44).
-15. **Account: Primary email has no required marker**, while the phone row has one (pp:features/account/account-edit-fields.tsx:45).
-16. **Orgs: the legacy current-tenant card state has no counterpart.** It is probably moot.
-17. **Orgs: pager on a page of only null organizations.** The "no results" text and the pager show together.
+7. ~~**Phone / Email: Verify is no longer offered in edit view** (fe MNR:35-65, ER:33-63 vs pp PS:419-426, ES:342-347).~~ **Resolved 2026-10-26.**
+8. ~~**Phone (also Email and Social): new rows go to the bottom**, and can be added while other rows are invalid (fe PW:375-385 vs pp PS:633-640).~~ **Resolved 2026-10-26.**
+9. ~~**Address: the Google Maps pin link is gone** (fe LAC:22-53).~~ **Resolved 2026-10-26.**
+10. ~~**Address: a Places pick keeps line 2** where legacy cleared it (fe LAW:306 vs pp:features/addresses/suggestion.ts:44-60). Places is off for now.~~ **Resolved 2026-10-26.**
+11. ~~**Profile picture: legacy MIME variants are rejected**: `image/x-png`, `image/x-citrix-jpeg` and `image/x-citrix-png` (pp:features/header/picture-file.ts:25-34).~~ **Resolved 2026-10-26.**
+12. ~~**Header: the name is no longer capitalized** (fe ProfileInfoCard.tsx:127).~~ **Resolved 2026-10-26.**
+13. ~~**Personal Information: no "Add {typed value}" row** in the Gender identity combobox, and the per-field placeholders are gone.~~ **Resolved 2026-10-26.**
+14. ~~**Account: language labels.** Only `en` gets a label. Legacy mapped about 90 tags, for example `es` → "Spanish" (pp:features/account/view-model.ts:44).~~ **Resolved 2026-10-26.**
+15. ~~**Account: Primary email has no required marker**, while the phone row has one (pp:features/account/account-edit-fields.tsx:45).~~ **Resolved 2026-10-26.**
+16. ~~**Orgs: the legacy current-tenant card state has no counterpart.** It is probably moot.~~ **Resolved 2026-10-26.**
+17. ~~**Orgs: pager on a page of only null organizations.** The "no results" text and the pager show together.~~ **Resolved 2026-10-26.**
 
 ### Needs product confirmation (documented, but questionable against legacy)
 
