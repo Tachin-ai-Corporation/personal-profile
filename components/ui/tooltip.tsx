@@ -84,26 +84,30 @@ function TooltipRoot({ content, children, wide = false, side = "top", contentId,
    * the tap, and that focus already opens it.
    */
   const openAtPressRef = React.useRef(false)
-  /** True only while the trigger's own press events run (Radix closes on pointerdown and click). */
-  const ignoreCloseRef = React.useRef(false)
+  /**
+   * The trigger's own press events (pointerdown, click): Radix closes on both,
+   * so a close dispatched while one of them is the current event is ignored.
+   * Tied to the event object, not a timer: Chromium runs input before timers,
+   * so an Escape right after a press could land before a `setTimeout(0)` reset.
+   */
+  const pressEventsRef = React.useRef(new WeakSet<Event>())
   const resetTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   React.useEffect(() => () => clearTimeout(resetTimerRef.current), [])
 
-  const ignoreTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  React.useEffect(() => () => clearTimeout(ignoreTimerRef.current), [])
-
+  const ignoreClosesFrom = (event: React.SyntheticEvent): void => {
+    pressEventsRef.current.add(event.nativeEvent)
+  }
   /**
-   * Ignores closes until the current event's task ends. A task, not a
-   * microtask: the browser runs microtasks between React's capture and bubble
-   * listeners of one click, and Radix closes in the bubble phase.
+   * `window.event` is the event being dispatched, for React's handlers and
+   * Radix's document listeners alike; Radix's own outside-press event carries
+   * the press in `detail.originalEvent`.
    */
-  const ignoreClosesForThisEvent = (): void => {
-    ignoreCloseRef.current = true
-    clearTimeout(ignoreTimerRef.current)
-    ignoreTimerRef.current = setTimeout(() => {
-      ignoreCloseRef.current = false
-    }, 0)
+  const closeIsFromPress = (): boolean => {
+    const current = window.event
+    if (current === undefined) return false
+    const original: unknown = current instanceof CustomEvent ? (current.detail as { originalEvent?: unknown } | null)?.originalEvent : undefined
+    return pressEventsRef.current.has(current) || (original instanceof Event && pressEventsRef.current.has(original))
   }
   const resetPointer = (): void => {
     clearTimeout(resetTimerRef.current)
@@ -114,7 +118,7 @@ function TooltipRoot({ content, children, wide = false, side = "top", contentId,
     <TooltipPrimitive.Root
       open={open}
       onOpenChange={(next) => {
-        if (!next && ignoreCloseRef.current) return
+        if (!next && closeIsFromPress()) return
         setOpen(next)
       }}
     >
@@ -124,7 +128,7 @@ function TooltipRoot({ content, children, wide = false, side = "top", contentId,
           clearTimeout(resetTimerRef.current)
           pointerTypeRef.current = event.pointerType
           openAtPressRef.current = open
-          if (keepOpenOnPress || isTapPointer(event.pointerType)) ignoreClosesForThisEvent()
+          if (keepOpenOnPress || isTapPointer(event.pointerType)) ignoreClosesFrom(event)
         }}
         onPointerUp={() => {
           // A press that ends without a click (e.g. the finger moved away) must not make a later click look like a tap.
@@ -137,9 +141,9 @@ function TooltipRoot({ content, children, wide = false, side = "top", contentId,
           const pointerType = (event.nativeEvent as Partial<PointerEvent>).pointerType || pointerTypeRef.current
           const tapped = event.detail !== 0 && isTapPointer(pointerType)
           resetPointer()
-          if (keepOpenOnPress) ignoreClosesForThisEvent()
+          if (keepOpenOnPress) ignoreClosesFrom(event)
           if (!tapped) return
-          ignoreClosesForThisEvent()
+          ignoreClosesFrom(event)
           setOpen(!openAtPressRef.current)
         }}
       >
