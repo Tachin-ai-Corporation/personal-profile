@@ -39,6 +39,7 @@ describe("placeAddressFill", () => {
   it("a complete address fills every part, the listed country and validated", () => {
     expect(placeAddressFill(place(), COUNTRIES, STREET)).toEqual({
       line1: "1 Pine St",
+      line2: "",
       city: "San Francisco",
       county: "San Francisco County",
       state: "California",
@@ -48,6 +49,11 @@ describe("placeAddressFill", () => {
     })
   })
 
+  it("any pick empties line 2, complete or not (1health-fe LocationAddressWrapper.tsx:271-325)", () => {
+    expect(placeAddressFill(place(), COUNTRIES, STREET).line2).toBe("")
+    expect(placeAddressFill(place({ complete: false, postalCode: "" }), COUNTRIES, STREET).line2).toBe("")
+  })
+
   it("a complete address empties a part Google didn't return", () => {
     expect(placeAddressFill(place({ county: "", stateName: " " }), COUNTRIES, STREET)).toMatchObject({ county: "", state: "", validated: true })
   })
@@ -55,6 +61,7 @@ describe("placeAddressFill", () => {
   it("an incomplete address fills only the parts it returns and stays unvalidated", () => {
     expect(placeAddressFill(place({ postalCode: "", county: "", complete: false }), COUNTRIES, STREET)).toEqual({
       line1: "1 Pine St",
+      line2: "",
       city: "San Francisco",
       state: "California",
       country: "United States",

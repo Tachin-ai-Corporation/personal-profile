@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Address } from "@/lib/api"
-import { formatAddressOneLine, isUnitedStatesName } from "./format"
+import { addressMapsHref, formatAddressOneLine, isUnitedStatesName } from "./format"
 
 const address = (overrides: Partial<Address> = {}): Address => ({
   id: 1,
@@ -88,5 +88,17 @@ describe("isUnitedStatesName (Story 4.2)", () => {
 
   it.each(["Canada", "", "United Kingdom", "U.S. Virgin Islands"])("%j is not", (name) => {
     expect(isUnitedStatesName(name)).toBe(false)
+  })
+})
+
+describe("addressMapsHref (1health-fe LocationAddressCard.tsx:22-26,41-53)", () => {
+  it("a Verified address with stored coordinates links to its Google Maps pin", () => {
+    expect(addressMapsHref({ validated: true, mapPoint: { lat: 37.79, lon: -122.39 } })).toBe("https://maps.google.com/?ll=37.79,-122.39")
+    expect(addressMapsHref({ validated: true, mapPoint: { lat: 0, lon: 0 } })).toBe("https://maps.google.com/?ll=0,0")
+  })
+
+  it("no link for an unverified address or one without coordinates (legacy shows no pin link then)", () => {
+    expect(addressMapsHref({ validated: false, mapPoint: { lat: 37.79, lon: -122.39 } })).toBeUndefined()
+    expect(addressMapsHref({ validated: true })).toBeUndefined()
   })
 })

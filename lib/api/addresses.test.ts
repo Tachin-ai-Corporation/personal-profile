@@ -53,6 +53,8 @@ const address = (overrides: Partial<Address> = {}): Address => ({
   countryCode: "US",
   primary: false,
   validated: false,
+  // The coordinates of `wire()` (lat 37.79, lon -122.39).
+  mapPoint: { lat: 37.79, lon: -122.39 },
   ...overrides,
 })
 
@@ -166,6 +168,28 @@ describe("toAddresses (Story 4.1)", () => {
         validated: false,
       },
     ])
+  })
+
+  it("keeps real coordinates as mapPoint (the Google Maps link, 1health-fe LocationAddressCard.tsx:22-26)", () => {
+    expect(toAddresses([wire({ lat: -33.86, lon: 151.21 })])?.[0]?.mapPoint).toEqual({ lat: -33.86, lon: 151.21 })
+    expect(toAddresses([wire({ lat: 0, lon: 0 })])?.[0]?.mapPoint).toEqual({ lat: 0, lon: 0 })
+    expect(toAddresses([wire({ lat: 90, lon: -180 })])?.[0]?.mapPoint).toEqual({ lat: 90, lon: -180 })
+  })
+
+  it.each([
+    ["the backend's 999.9 for both", { lat: 999.9, lon: 999.9 }],
+    ["999.9 for lat only", { lat: 999.9 }],
+    ["999.9 for lon only", { lon: 999.9 }],
+    ["null", { lat: null, lon: null }],
+    ["missing", { lat: undefined, lon: undefined }],
+    ["strings", { lat: "37.79", lon: "-122.39" }],
+    ["out of range", { lat: 91, lon: 10 }],
+    ["lon out of range", { lat: 10, lon: 181 }],
+    ["not finite", { lat: Number.POSITIVE_INFINITY, lon: 1 }],
+  ])("drops mapPoint for %s coordinates, keeping the row", (_case, coordinates) => {
+    const [row] = toAddresses([wire(coordinates)]) ?? []
+    expect(row?.id).toBe(1)
+    expect(row && "mapPoint" in row).toBe(false)
   })
 
   it("drops inactive rows (active: false only)", () => {

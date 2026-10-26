@@ -47,9 +47,9 @@ const location = (overrides: Wire): Wire => ({
 /** The backend's `PageImpl` (`{ data, …, lastPage }`), as `GET v2/person/location/list` answers. */
 const page = (data: Wire[]) => ({ data, pageNumber: 0, pageSize: 100, firstPage: true, lastPage: true, totalElements: data.length, totalPages: data.length === 0 ? 0 : 1 })
 
-/** The matrix's "Read" row: Main Work 2 (verified), then Home 1 (Primary, unverified). Shown as 1, 2. */
+/** The matrix's "Read" row: Main Work 2 (verified, with coordinates: a map pin), then Home 1 (Primary, unverified). Shown as 1, 2. */
 const ADDRESSES: Wire[] = [
-  location({ id: 2, personLocationType: "Main Work", validated: true }),
+  location({ id: 2, personLocationType: "Main Work", validated: true, lat: 37.79, lon: -122.39 }),
   location({ id: 1, addressLine1: "9 Oak Ave", addressLine2: "Apt 4", primary: true }),
 ]
 
@@ -248,6 +248,40 @@ describe("AddressesSection: read view", () => {
     await screen.findByRole("table", { name: "Addresses" })
     await waitFor(() => expect(frameReady).toHaveBeenCalledWith("addresses"))
     await waitFor(() => expect(counts.addresses).toBe(2))
+  })
+})
+
+describe("AddressesSection: Google Maps pin (1health-fe LocationAddressCard.tsx:22-26,41-53)", () => {
+  const mapLinks = (): HTMLAnchorElement[] => [...section().querySelectorAll<HTMLAnchorElement>('a[data-slot="address-map-link"]')]
+
+  it("a Verified address with stored coordinates has a pin link to maps.google.com that opens a new tab; the others have none", async () => {
+    await renderLoaded()
+    const links = mapLinks()
+    expect(links).toHaveLength(1)
+    const [link] = links
+    expect(link.getAttribute("href")).toBe("https://maps.google.com/?ll=37.79,-122.39")
+    expect(link.getAttribute("target")).toBe("_blank")
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer")
+    expect(within(section()).getByRole("link", { name: "View 1 Pine St, SF, CA 94105 on Google Maps (opens in a new tab)" })).toBe(link)
+    // The pin sits in the verified row's address cell, after the text (which it leaves unchanged).
+    expect(link.closest("td")?.textContent).toBe("1 Pine St, SF, CA 94105")
+    expect(link.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true")
+  })
+
+  it.each([
+    ["unverified, with coordinates", { validated: false, lat: 37.79, lon: -122.39 }],
+    ["verified, the backend's 999.9 (no coordinates)", { validated: true, lat: 999.9, lon: 999.9 }],
+    ["verified, no coordinates", { validated: true }],
+  ])("no pin for an address %s", async (_case, overrides) => {
+    await renderLoaded(ok(page([location({ id: 1, primary: true, ...overrides })])))
+    expect(mapLinks()).toHaveLength(0)
+  })
+
+  it("below 768 px the pin is on the card's first line", async () => {
+    stubViewport(360)
+    await renderLoaded(ok(page([location({ id: 1, primary: true, validated: true, lat: -33.86, lon: 151.21 })])))
+    const card = within(within(section()).getByRole("list", { name: "Addresses" })).getAllByRole("listitem")[0]
+    expect(card.querySelector('[data-column="address"] a[data-slot="address-map-link"]')?.getAttribute("href")).toBe("https://maps.google.com/?ll=-33.86,151.21")
   })
 })
 

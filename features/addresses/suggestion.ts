@@ -21,7 +21,7 @@ export function suggestionStreet(suggestion: PlaceSuggestion): string {
 }
 
 /** The fields a pick may fill. */
-export type PlaceFill = Partial<Pick<AddressEditRow, "line1" | "city" | "county" | "state" | "zip" | "country" | "validated">>
+export type PlaceFill = Partial<Pick<AddressEditRow, "line1" | "line2" | "city" | "county" | "state" | "zip" | "country" | "validated">>
 
 /** The Country select's entry with this name (case-insensitive, trimmed), as the list spells it; `null` when unlisted. */
 function listed(countries: readonly string[], name: string): string | null {
@@ -33,6 +33,7 @@ function listed(countries: readonly string[], name: string): string | null {
 /**
  * What a picked suggestion's details fill in its row:
  * - line 1 is the answer's, else the suggestion's `street` (its main text);
+ * - line 2 is emptied, as 1health-fe does on a pick (LocationAddressWrapper.tsx:271-325);
  * - a complete address fills city, county, state/province and zip (a part
  *   Google didn't return is emptied) and sets `validated`, unless its country
  *   can't be shown in the Select (then `validated` stays false);
@@ -42,7 +43,7 @@ function listed(countries: readonly string[], name: string): string | null {
  *   names), else the answer's country name if listed, else left unchanged.
  */
 export function placeAddressFill(address: PlaceAddress, countries: readonly string[], street: string): PlaceFill {
-  const fill: PlaceFill = { line1: address.addressLine1.trim() || street }
+  const fill: PlaceFill = { line1: address.addressLine1.trim() || street, line2: "" }
   const parts = [
     ["city", address.cityName],
     ["county", address.county],

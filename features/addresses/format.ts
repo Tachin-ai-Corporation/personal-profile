@@ -1,5 +1,6 @@
 import { isUnitedStatesName, type Address } from "@/lib/api"
 import { isNotProvided, joinProvided } from "@/lib/shared/display-value"
+import { safeHref } from "@/lib/shared/safe-href"
 
 /** "United States", "USA", "U.S.A", "US", any case or spacing (Story 4.2; it lives in `lib/api/addresses.ts` since Story 4.3, which maps it to "US"). */
 export { isUnitedStatesName }
@@ -28,4 +29,16 @@ export function formatAddressOneLine(address: Address): string {
   const locality = isNotProvided(stateName) ? joinProvided([cityName, postalCode]) : joinProvided([cityName, joinProvided([stateName, postalCode])], ", ")
   const countryPart = isUnitedStates(address) ? null : isNotProvided(country) ? (countryCode?.toUpperCase() ?? null) : country
   return joinProvided([addressLine1, addressLine2, locality, countryPart], ", ")
+}
+
+/**
+ * The address's Google Maps pin link, as 1health-fe's read view builds it
+ * (LocationAddressCard.tsx:22-26,41-53: `https://maps.google.com/?ll={lat},{lon}`),
+ * only for a Verified address with real stored coordinates; `undefined`
+ * otherwise. Through `safeHref` (https only, AD-11).
+ */
+export function addressMapsHref(address: Pick<Address, "validated" | "mapPoint">): string | undefined {
+  const { validated, mapPoint } = address
+  if (!validated || !mapPoint) return undefined
+  return safeHref(`https://maps.google.com/?ll=${mapPoint.lat},${mapPoint.lon}`, ["https:"])
 }

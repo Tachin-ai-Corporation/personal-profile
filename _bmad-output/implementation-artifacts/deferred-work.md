@@ -112,6 +112,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-4-primary-address-and-removal.md`
   summary: Untested — after a save where one `DELETE` succeeds, a later step fails and the list refetch also fails, the deleted row leaves the form (`!rebased && … deleted.size > 0`), so Retry doesn't `DELETE` it again.
   evidence: features/addresses/addresses-section.tsx (the no-rebase branch of `save`); the `addresses-section.primary.test.tsx` server never fails the refetch during a removal. The regression would be masked by "already gone counts as done", so it costs one redundant request. Review row 14 of spec 4.4.
+  resolution: RESOLVED 2026-10-26 (fix/NG-9019-team-a-parity-p3): tests "DELETE ok → a later step fails → the refetch fails: the deleted row leaves the form, error + Retry; Retry never DELETEs it again" in `features/addresses/addresses-section.primary.test.tsx` (fails if the no-rebase branch keeps the deleted row) and the e2e twin "DELETE ok → a later DELETE fails → the refetch fails …" in `e2e/profile-addresses.spec.ts`. No code change.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-4-primary-address-and-removal.md`
   summary: Flaky under full-suite load: `e2e/profile-phone.spec.ts:324` "axe passes in edit view … with a new row, a struck row and errors" failed once on desktop during the Story 4.4 full run and passed on retry; 8/8 on a repeat run alone. Diagnose from a trace (likely a scan during a transition) before changing the test.

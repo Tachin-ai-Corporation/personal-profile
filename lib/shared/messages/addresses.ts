@@ -1,6 +1,8 @@
 /** Addresses (Epic 4) copy; its stories add the strings. */
 export const ADDRESS_MESSAGES = {
   addressesEmpty: "No addresses yet", // DRAFT COPY (epics Story 4.1 empty Section)
+  /** The read view's Google Maps pin link (1health-fe LocationAddressCard.tsx:41-53); `{address}` is the one-line address. */
+  viewOnMap: "View {address} on Google Maps (opens in a new tab)", // DRAFT COPY (1health-fe map pin, no visible text)
   // Edit view (Story 4.2).
   addAddress: "Add address", // DRAFT COPY (epics Story 4.2 header, empty row and footer action)
   newAddress: "New address", // DRAFT COPY (key-addresses-edit mock, new row header)
