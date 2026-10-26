@@ -5,6 +5,7 @@ import { ACCOUNT_MESSAGES } from "@/lib/shared/messages"
 import { isBirthDateInRange } from "@/lib/shared/person-rules"
 import { formatPhoneDisplay, phoneDigits } from "@/lib/shared/phone"
 import { ACCOUNT_TIME_ZONES } from "@/lib/shared/time-zones"
+import { languageLabel } from "./language-labels"
 
 export interface AccountView {
   readonly firstName: string | null
@@ -29,6 +30,11 @@ export function canonicalAccountLocale(value: string): string {
   return value.replace("_", "-").toLowerCase() === ACCOUNT_LOCALE.toLowerCase() ? ACCOUNT_LOCALE : value
 }
 
+/** `en` reads "English"; any other tag 1health-fe knows reads its label (any letter case), else the raw tag (FR108). */
+export function accountLanguageLabel(tag: string): string {
+  return tag.toLowerCase() === "en" ? ACCOUNT_MESSAGES.english : languageLabel(tag) ?? tag
+}
+
 function provided(value: string | null | undefined): string | null {
   return providedOrNull((value ?? "").trim())
 }
@@ -51,7 +57,7 @@ export function toAccountView(myself: Myself, mobileRows?: readonly ContactPoint
     primaryEmail: provided(myself.email),
     primaryPhone: phone === null ? null : formatPhoneDisplay(phone, phoneRegion),
     birthDate: isBirthDateInRange(myself.birthDate, myself.roles, today) ? wireToDisplayDate(myself.birthDate) : null,
-    preferredLanguage: language === "en" ? ACCOUNT_MESSAGES.english : language,
+    preferredLanguage: language === null ? null : accountLanguageLabel(language),
     timeZone: ACCOUNT_TIME_ZONES.find((entry) => entry.value === zone)?.label ?? zone,
     locale: locale === null || canonicalAccountLocale(locale) === ACCOUNT_LOCALE ? ACCOUNT_MESSAGES.localeEnglishUS : locale,
   }

@@ -441,7 +441,7 @@
   summary: (Team B) `/account?lpl=x` with a session keeps `lpl` in the address bar/history after tab normalization; consider dropping it with the same replace.
   evidence: AC 7.1 only requires that `lpl` is ignored (no exchange); the code is single-use, so this is hygiene, not a leak of a usable credential.
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-1-account-page.md`
-  summary: (Team B) add page-level e2e on `/account` for a non-403 read failure with per-frame Retry, a `myself` failure (page banner vs `useClaimMyselfError`) and session expiry, once Stories 7.4/8.1/9.1/10.1 add real reads.
+  summary: (Team B) add page-level e2e on `/account` for a non-403 read failure with per-frame Retry, a `myself` failure (page banner vs `useClaimMyselfError`) and session expiry, once Stories 7.4/8.1/9.1/10.1 add real reads. (resolved 2026-10-26, fix/NG-9019-team-b-parity-p3: `e2e/account-page.spec.ts` "/account read failures in one flow", desktop and mobile-360: a `myself` 400 is claimed by both Personal Account Sections (each with Retry, no page banner) and shown as the page banner on My Organizations; an organizations 500 fails in its tab frame, whose Retry recovers only that read; the banner Retry recovers `myself`; then a `SESSION_EXPIRED` read on Individual Provider Registration opens the session dialog with no frame error or Retry.)
   evidence: the stubs make no reads today; the behaviour is unit-tested in the foundation (`state-frame`, `page-frame`, `session-dialog`).
 
 

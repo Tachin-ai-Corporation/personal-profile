@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, type Page } from "@playwright/test"
-import { expectHeaderTabOrder, mockAccountDefaults, mockMyself, mockProfileDefaults, setTheme, signIn, test } from "./fixtures"
+import { expectHeaderTabOrder, mockAccountDefaults, mockMyself, mockOrganizations, mockProfileDefaults, mockUserNpi, organizationsPage, organizationWire, setTheme, signIn, test } from "./fixtures"
 
 /**
  * Story 7.1: the `/account` route on the real page (Team B). Every test runs
@@ -180,6 +180,70 @@ test.describe("/account with a session (Story 7.1)", () => {
       await expectNoAxeViolations(page, `/account?tab=${tab}`)
     })
   }
+})
+
+test.describe("/account read failures in one flow (Story 7.1 deferred page e2e)", () => {
+  const LOAD_ERROR = "Something went wrong while loading profile information"
+
+  test("myself failure claimed by Sections vs the page banner, per-frame Retry, then session expiry", async ({ page }) => {
+    await signIn(page)
+    await mockAccountDefaults(page)
+    // A 400 avoids myself's transient 5xx retry budget (foundation-tested); the orgs read never auto-retries.
+    const failedMyself = await mockMyself(page, { status: 400, body: { message: "Private upstream diagnostic", code: 400 } })
+    const failedOrgs = await mockOrganizations(page, { status: 500, body: { message: "Private upstream diagnostic", code: 500 } })
+    await page.goto("/account?tab=personal")
+    const main = page.getByRole("main")
+    const panel = page.getByRole("tabpanel")
+    const account = page.getByRole("region", { name: "Personal account settings", exact: true })
+    const authenticator = page.getByRole("region", { name: "Authenticator app", exact: true })
+
+    // 1. Personal Account: both Sections claim the myself failure, each with its own Retry; no page banner.
+    for (const section of [account, authenticator]) {
+      await expect(section.getByText(LOAD_ERROR, { exact: true })).toBeVisible()
+      await expect(section.getByRole("button", { name: "Retry", exact: true })).toBeVisible()
+    }
+    await expect(main.getByText(LOAD_ERROR, { exact: true })).toHaveCount(2)
+    await expect(page.getByText("Private upstream diagnostic")).toHaveCount(0)
+    expect(failedMyself()).toBe(1)
+
+    // 2. My Organizations: no Section claims myself, so the page banner shows it; the tab's own read fails in its frame.
+    await page.getByRole("tab", { name: "My Organizations" }).click()
+    // Wait for the switch: until then `panel` is still Personal Account's, with its two errors.
+    await expect(page.getByRole("tab", { name: "My Organizations" })).toHaveAttribute("aria-selected", "true")
+    await expect(page).toHaveURL(/\?tab=organizations$/)
+    await expect(account).toHaveCount(0)
+    await expect(panel.getByText(LOAD_ERROR, { exact: true })).toBeVisible()
+    await expect(main.getByText(LOAD_ERROR, { exact: true })).toHaveCount(2)
+    await expect(main.getByRole("button", { name: "Retry", exact: true })).toHaveCount(2)
+    expect(failedOrgs()).toHaveLength(1)
+
+    // 3. The tab frame's Retry recovers only its own read; the myself banner stays.
+    const orgs = await mockOrganizations(page, { body: organizationsPage([organizationWire()]) })
+    const myselfAfterOrgsRetry = await mockMyself(page, { status: 400, body: { message: "Private upstream diagnostic", code: 400 } })
+    await panel.getByRole("button", { name: "Retry", exact: true }).click()
+    await expect(panel.getByRole("heading", { name: "Sample Organization", exact: true })).toBeVisible()
+    await expect(panel.getByText(LOAD_ERROR, { exact: true })).toHaveCount(0)
+    await expect(main.getByText(LOAD_ERROR, { exact: true })).toHaveCount(1)
+    expect(orgs()).toHaveLength(1)
+    expect(myselfAfterOrgsRetry()).toBe(0)
+
+    // 4. The page banner's Retry recovers myself; the banner goes away and the header names the user.
+    const recovered = await mockMyself(page)
+    await main.getByRole("button", { name: "Retry", exact: true }).click()
+    await expect(h1(page)).toBeVisible()
+    await expect(main.getByText(LOAD_ERROR, { exact: true })).toHaveCount(0)
+    expect(recovered()).toBe(1)
+
+    // 5. A read that finds the session expired opens the session dialog instead of a frame error or Retry.
+    await mockUserNpi(page, { status: 401, body: { errorCode: "SESSION_EXPIRED", source: "proxy" } })
+    await page.getByRole("tab", { name: "Individual Provider Registration" }).click()
+    const dialog = page.getByRole("alertdialog", { name: "Your session ended" })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByRole("button", { name: "Return to 1health" })).toBeFocused()
+    await expect(main.getByText(LOAD_ERROR, { exact: true })).toHaveCount(0)
+    await expect(main.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0)
+    expect(await page.evaluate(() => sessionStorage.getItem("pp:login-intent"))).toBe("/account?tab=provider")
+  })
 })
 
 test.describe("/account without a session (Story 7.1)", () => {
