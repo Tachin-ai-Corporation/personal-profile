@@ -83,8 +83,8 @@ const banner = (): HTMLElement | null => section().querySelector('[data-slot~="i
 /** The body rows of the edit table (desktop) or its cards (mobile). */
 const editRows = (): HTMLElement[] => [...section().querySelectorAll<HTMLElement>("tbody tr, li[data-slot='section-table-card']")]
 const newRow = (): HTMLElement => {
-  const rows = section().querySelectorAll<HTMLElement>('[data-state="new"]')
-  return rows[rows.length - 1]
+  // The latest added row: a new row goes at the top (1health-fe parity, NG-9023).
+  return section().querySelector<HTMLElement>('[data-state="new"]') as HTMLElement
 }
 const addressInput = (row: HTMLElement): HTMLInputElement => within(row).getByRole("textbox", { name: "Email address" }) as HTMLInputElement
 const lockedInput = (row: HTMLElement): HTMLInputElement => row.querySelector('[data-slot="input-locked"] input') as HTMLInputElement
@@ -257,6 +257,8 @@ describe("EmailSection: read-view entry points", () => {
     await click(button("Add email"))
     expect(editRows()).toHaveLength(4)
     const row = newRow()
+    // At the top, as in 1health-fe (EmailWrapper `addNew` prepends).
+    expect(row).toBe(editRows()[0])
     const input = addressInput(row)
     expect(document.activeElement).toBe(input)
     expect([input.type, input.getAttribute("autocomplete"), input.getAttribute("spellcheck"), input.getAttribute("autocapitalize"), input.getAttribute("aria-required")]).toEqual([
@@ -507,10 +509,31 @@ describe("EmailSection: validation", () => {
     expect(bodies).toEqual([])
     expect(described(labelTrigger(row))).toContain("Choose a label")
     expect(document.activeElement).toBe(labelTrigger(row))
-    const empty = await addEmail()
-    await save()
+    // Like 1health-fe, Add row adds nothing while a row is invalid: the error stays and focus goes to it.
+    act(() => labelTrigger(row).blur())
+    await addEmail()
+    expect(section().querySelectorAll('[data-state="new"]')).toHaveLength(1)
     expect(document.activeElement).toBe(labelTrigger(row))
-    expect(described(addressInput(empty))).toContain("Enter a valid email address")
+  })
+
+  it("Add row on an untouched invalid new row shows its errors and adds nothing; once it is valid, the next row goes on top", async () => {
+    const { bodies } = await render()
+    const first = await addEmail()
+    expect(described(addressInput(first))).not.toContain("Enter a valid email address")
+    await addEmail()
+    expect(bodies).toEqual([])
+    expect(section().querySelectorAll('[data-state="new"]')).toHaveLength(1)
+    expect(described(addressInput(first))).toContain("Enter a valid email address")
+    expect(document.activeElement).toBe(addressInput(first))
+    await typeAddress(first, "new@example.com")
+    await pick(labelTrigger(first), "Work")
+    const second = await addEmail()
+    expect(second).not.toBe(first)
+    expect(editRows()[0]).toBe(second)
+    expect(editRows()[1]).toBe(first)
+    expect(document.activeElement).toBe(addressInput(second))
+    expect(addressInput(first).value).toBe("new@example.com")
+    expect(described(addressInput(first))).not.toContain("Enter a valid email address")
   })
 })
 

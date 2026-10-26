@@ -30,7 +30,7 @@ const region = (page: Page, name: string): Locator => page.getByRole("region", {
 const toastWith = (page: Page, text: string): Locator => page.getByRole("region", { name: /Notifications/ }).locator("li").filter({ hasText: text })
 const header = (page: Page): Locator => page.locator("div:has(> h1)")
 const footer = (section: Locator): Locator => section.locator('[data-slot="section-footer"]')
-const newRow = (section: Locator): Locator => section.locator('[data-state="new"]').last()
+const newRow = (section: Locator): Locator => section.locator('[data-state="new"]').first() // the latest added: new rows go on top (1health-fe parity)
 /** A read row (desktop table) or card (360 px) holding `text`. */
 const readRow = (section: Locator, text: string): Locator => section.locator("tbody tr, li[data-slot='section-table-card']").filter({ hasText: text })
 const personalTable = (page: Page): Locator => region(page, "Personal information").getByRole("table", { name: "Personal information" })

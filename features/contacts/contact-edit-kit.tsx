@@ -2,6 +2,7 @@
 
 import { useId, type ReactNode } from "react"
 import type { FieldValues, Path, PathValue } from "react-hook-form"
+import type { z } from "zod"
 import { FieldError } from "@/components/ui/form-field"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
@@ -46,6 +47,29 @@ export function nextNewKey(rows: readonly KeyedRow[], counter: { current: number
     key = `new-${counter.current}`
   } while (rows.some((row) => row.key === key))
   return key
+}
+
+/**
+ * The 1health-fe add rule (NG-9023 parity, `PhoneWrapper`/`EmailWrapper`/
+ * `SocialMediaWrapper` `addNew`: `trigger()`, then `prepend` only when
+ * valid): while editing, a new row is added only once the rows already there
+ * are valid. When they aren't, every schema issue is shown at its field (as
+ * Save does) and the first one in reading order (`fieldOrder`) is returned,
+ * for the caller to focus instead of adding; `undefined` when they are valid.
+ */
+export function blockAddWhileInvalid<T extends FieldValues>(
+  section: Pick<SectionForm<T>, "form">,
+  schema: z.ZodType<T, T>,
+  fieldOrder: readonly Path<T>[],
+): Path<T> | undefined {
+  const parsed = schema.safeParse(section.form.getValues())
+  if (parsed.success) return undefined
+  const paths = parsed.error.issues.map((issue) => {
+    const path = issue.path.map(String).join(".") as Path<T>
+    section.form.setError(path, { type: "schema", message: issue.message })
+    return path
+  })
+  return fieldOrder.find((path) => paths.includes(path)) ?? paths[0]
 }
 
 /** The "—" of a row that has no notifications setting, with its meaning for screen readers. */

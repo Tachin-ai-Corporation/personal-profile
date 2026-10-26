@@ -89,8 +89,8 @@ const banner = (): HTMLElement | null => section().querySelector('[data-slot~="i
 /** The body rows of the edit table (desktop) or its cards (mobile). */
 const editRows = (): HTMLElement[] => [...section().querySelectorAll<HTMLElement>("tbody tr, li[data-slot='section-table-card']")]
 const newRow = (): HTMLElement => {
-  const rows = section().querySelectorAll<HTMLElement>('[data-state="new"]')
-  return rows[rows.length - 1]
+  // The latest added row: a new row goes at the top (1health-fe parity, NG-9023).
+  return section().querySelector<HTMLElement>('[data-state="new"]') as HTMLElement
 }
 const linkInput = (row: HTMLElement): HTMLInputElement => within(row).getByRole("textbox", { name: "Link" }) as HTMLInputElement
 const lockedInput = (row: HTMLElement): HTMLInputElement => row.querySelector('[data-slot="input-locked"] input') as HTMLInputElement
@@ -234,9 +234,34 @@ describe("SocialSection: read-view entry points", () => {
     await click(button("Add link"))
     expect(editRows()).toHaveLength(3)
     const row = newRow()
+    // At the top, as in 1health-fe (SocialMediaWrapper `addNew` prepends).
+    expect(row).toBe(editRows()[0])
     expect(document.activeElement).toBe(linkInput(row))
     expect(linkInput(row).value).toBe("")
     expect(within(row).getByText("New · not saved")).toBeTruthy()
+  })
+
+  it("Add row while a row is invalid (an empty new row, a changed saved link) shows the error and adds nothing; once valid, the next row goes on top", async () => {
+    const { bodies } = await render()
+    const first = await addLink()
+    await addLink()
+    expect(bodies).toEqual([])
+    expect(section().querySelectorAll('[data-state="new"]')).toHaveLength(1)
+    expect(document.activeElement).toBe(linkInput(first))
+    expect(linkInput(first).getAttribute("aria-invalid")).toBe("true")
+    await type(linkInput(first), "https://new.example/ann")
+    // A changed saved link counts too.
+    await type(linkInput(editRows()[1]), "not a link")
+    await addLink()
+    expect(section().querySelectorAll('[data-state="new"]')).toHaveLength(1)
+    expect(document.activeElement).toBe(linkInput(editRows()[1]))
+    await type(linkInput(editRows()[1]), "https://x.com/ann2")
+    const second = await addLink()
+    expect(editRows()[0]).toBe(second)
+    expect(editRows()[1]).toBe(first)
+    expect(document.activeElement).toBe(linkInput(second))
+    expect(linkInput(first).value).toBe("https://new.example/ann")
+    expect(linkInput(first).getAttribute("aria-invalid")).not.toBe("true")
   })
 
   it("the empty-state Add link (and the header Edit with no links) opens edit with one new row focused", async () => {
@@ -307,7 +332,8 @@ describe("SocialSection: save", () => {
     await waitFor(() => expect(isReadView()).toBe(true))
     expect(bodies).toEqual([
       {
-        contactPointsToAdd: [addOf("https://www.linkedin.com/in/someone"), addOf("http://linkedin.com/in/someone/?trk=profile")],
+        // The later link was added on top (1health-fe parity), so it is sent first.
+        contactPointsToAdd: [addOf("http://linkedin.com/in/someone/?trk=profile"), addOf("https://www.linkedin.com/in/someone")],
         contactPointsToUpdate: [],
         contactPointsToRemove: [],
       },
@@ -666,7 +692,7 @@ describe("SocialSection: drafts", () => {
     await click(await within(section()).findByRole("button", { name: "Restore" }))
     await waitFor(() => expect(section().querySelector('[data-state="new"]')).not.toBeNull())
     expect(linkInput(newRow()).value).toBe("https://new.example/ann")
-    expect(linkInput(editRows()[0]).value).toBe("https://x.com/ann2")
+    expect(linkInput(editRows()[1]).value).toBe("https://x.com/ann2")
     await save()
     await waitFor(() => expect(isReadView()).toBe(true))
     expect(bodies).toEqual([

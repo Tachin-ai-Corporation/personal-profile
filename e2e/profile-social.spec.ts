@@ -25,7 +25,7 @@ const socialTable = (page: Page): Locator => section(page).getByRole("table", { 
 const socialCards = (page: Page): Locator => section(page).getByRole("list", { name: "Social media" })
 const sectionMeta = (page: Page): Locator => section(page).locator('[data-slot="section-meta"]')
 const toastWith = (page: Page, text: string): Locator => page.getByRole("region", { name: /Notifications/ }).locator("li").filter({ hasText: text })
-const newRow = (page: Page): Locator => section(page).locator('[data-state="new"]').last()
+const newRow = (page: Page): Locator => section(page).locator('[data-state="new"]').first() // the latest added: new rows go on top (1health-fe parity)
 const linkInput = (row: Locator): Locator => row.getByRole("textbox", { name: "Link" })
 const footer = (page: Page): Locator => section(page).locator('[data-slot="section-footer"]')
 const saveButton = (page: Page): Locator => footer(page).getByRole("button", { name: "Save" })
@@ -183,7 +183,8 @@ test.describe("Social media edit (Story 3.7)", () => {
     await expect(footer(page)).toHaveCount(0)
     expect(posts()).toEqual([
       {
-        contactPointsToAdd: [addOf("https://www.linkedin.com/in/someone"), addOf("http://linkedin.com/in/someone/?trk=profile")],
+        // The later link was added on top (1health-fe parity), so it is sent first.
+        contactPointsToAdd: [addOf("http://linkedin.com/in/someone/?trk=profile"), addOf("https://www.linkedin.com/in/someone")],
         contactPointsToUpdate: [],
         contactPointsToRemove: [],
       },
@@ -240,7 +241,7 @@ test.describe("Social media edit (Story 3.7)", () => {
     await expect(row.locator('[data-slot="field-error"]')).toHaveText("Enter a link")
     await expect(linkInput(row)).toBeFocused()
 
-    await editRow(page, 0).getByRole("button", { name: "Remove" }).click()
+    await editRow(page, 1).getByRole("button", { name: "Remove" }).click()
     await linkInput(row).fill("https://X.com/ann")
     await saveButton(page).click()
     await expect(row.locator('[data-slot="field-error"]')).toHaveText("This link is already on your profile")
@@ -306,6 +307,44 @@ test.describe("Social media edit (Story 3.7)", () => {
     await axe(page, "Social media edit")
     await expectNoHorizontalScroll(page)
   })
+})
+
+// --- NG-9023 parity with 1health-fe: where a new row goes ------------------------------------------
+
+test.describe("Social media 1health-fe parity (NG-9023)", () => {
+  for (const width of [1280, 360] as const) {
+    test(`at ${width} px: Add row puts the new row on top, focused; while a row is invalid it adds nothing and focuses the error`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 })
+      await openWith(page)
+      await section(page).getByRole("button", { name: "Add link" }).click()
+      await expect(editRow(page, 0)).toHaveAttribute("data-state", "new")
+      await expect(linkInput(editRow(page, 0))).toBeFocused()
+      // The untouched new row is invalid: Add row shows its error and adds nothing (SocialMediaWrapper:235-245).
+      await footer(page).getByRole("button", { name: "Add row" }).click()
+      await expect(section(page).locator('[data-state="new"]')).toHaveCount(1)
+      await expect(editRow(page, 0).locator('[data-slot="field-error"]')).toHaveText("Enter a link")
+      await expect(linkInput(editRow(page, 0))).toBeFocused()
+      await linkInput(editRow(page, 0)).fill("https://new.example/ann")
+      // A changed saved link that is invalid blocks it too.
+      await linkInput(editRow(page, 1)).fill("not a link")
+      // Blur first: the error line it shows moves the footer, which would otherwise make the press miss.
+      await linkInput(editRow(page, 1)).blur()
+      await expect(editRow(page, 1).locator('[data-slot="field-error"]')).toHaveText("Enter a link that starts with http:// or https://")
+      await footer(page).getByRole("button", { name: "Add row" }).click()
+      await expect(section(page).locator('[data-state="new"]')).toHaveCount(1)
+      await expect(linkInput(editRow(page, 1))).toBeFocused()
+      await linkInput(editRow(page, 1)).fill("https://x.com/ann2")
+      await linkInput(editRow(page, 1)).blur()
+      await expect(editRow(page, 1).locator('[data-slot="field-error"]')).toHaveCount(0)
+      await footer(page).getByRole("button", { name: "Add row" }).click()
+      await expect(section(page).locator('[data-state="new"]')).toHaveCount(2)
+      await expect(linkInput(editRow(page, 0))).toBeFocused()
+      await expect(linkInput(editRow(page, 0))).toHaveValue("")
+      await expect(linkInput(editRow(page, 1))).toHaveValue("https://new.example/ann")
+      await expect(editRow(page, 1).locator('[data-slot="field-error"]')).toHaveCount(0)
+      await expectNoHorizontalScroll(page)
+    })
+  }
 })
 
 test("post-save list failure requires a read Retry before the next replacement uses the new ID", async ({ page }) => {

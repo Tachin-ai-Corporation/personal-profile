@@ -169,7 +169,7 @@ test.describe("Phone read view (Story 3.1)", () => {
 // --- Story 3.2: add, relabel and remove phones -------------------------------------------------
 
 const toastWith = (page: Page, text: string): Locator => page.getByRole("region", { name: /Notifications/ }).locator("li").filter({ hasText: text })
-const newRow = (page: Page): Locator => section(page).locator('[data-state="new"]').last()
+const newRow = (page: Page): Locator => section(page).locator('[data-state="new"]').first() // the latest added: new rows go on top (1health-fe parity)
 const numberInput = (row: Locator): Locator => row.getByRole("textbox", { name: "Number" })
 const labelSelect = (row: Locator): Locator => row.getByRole("combobox", { name: "Label" })
 const typeSelect = (row: Locator): Locator => row.getByRole("combobox", { name: "Type" })
@@ -658,4 +658,87 @@ test("restoring a stale phone draft preserves the principal changed in another s
   await expect(section(page).getByRole("button", { name: "Edit", exact: true })).toBeVisible()
   expect(posts()).toEqual([])
   await expect(readRow(page, "+1 (415) 555-0113").getByText("Primary", { exact: true })).toBeVisible()
+})
+
+// --- NG-9023 parity with 1health-fe: Verify in the edit view, where a new row goes ---------------
+
+test.describe("Phone 1health-fe parity (NG-9023)", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 })
+  })
+
+  test("edit view: only the saved, unverified Mobile offers Verify; it sends [11] at once and the edit stays open with its changes", async ({ page }) => {
+    await openWith(page)
+    const verifies = await mockContactVerify(page)
+    const posts = await mockContactManage(page)
+    await section(page).getByRole("button", { name: "Edit", exact: true }).click()
+    await footer(page).getByRole("button", { name: "Add row" }).click()
+    // Not on the verified Primary, the Home Landline or the new row (MobileNumberRow:120).
+    await expect(section(page).getByRole("button", { name: "Verify", exact: true })).toHaveCount(1)
+    await expect(newRow(page).getByRole("button", { name: /Verif/ })).toHaveCount(0)
+    const work = savedRow(page, "+1 (415) 555-0111")
+    await pick(page, labelSelect(work), "Personal")
+    await work.getByRole("button", { name: "Verify", exact: true }).click()
+    await expect.poll(() => verifies()).toEqual([{ contactPointIds: [11] }])
+    expect(posts()).toEqual([])
+    await expect(footer(page)).toBeVisible()
+    await expect(work.locator('[data-slot="status-badge"]')).toHaveText(/^Link sent · Resend in (60|59) s$/)
+    await expect(liveStatus(page)).toHaveText("Link sent")
+    await expect(work.getByRole("button", { name: "Resend verification" })).toHaveAttribute("aria-disabled", "true")
+    await expect(labelSelect(work)).toHaveText("Personal")
+    await expect(section(page).locator('[data-state="new"]')).toHaveCount(1)
+  })
+
+  test("axe passes in light and dark in edit view with Verify and a countdown", async ({ page }) => {
+    await openWith(page, { ...CONTACT_PHONES, Mobile: [...CONTACT_PHONES.Mobile, contactPointRow({ id: 14, value: "+14155550114", label: "Personal", isVerified: false })] })
+    await mockContactVerify(page)
+    await section(page).getByRole("button", { name: "Edit", exact: true }).click()
+    await savedRow(page, "+1 (415) 555-0111").getByRole("button", { name: "Verify", exact: true }).click()
+    await expect(savedRow(page, "+1 (415) 555-0111").locator('[data-slot="status-badge"]')).toHaveText(/^Link sent/)
+    await expect(savedRow(page, "+1 (415) 555-0114").getByRole("button", { name: "Verify", exact: true })).toBeVisible()
+    for (const theme of ["light", "dark"] as const) {
+      await setThemeSettled(page, theme)
+      const results = await new AxeBuilder({ page }).include("#phone").withTags(WCAG).analyze()
+      expect(results.violations, `Phone edit Verify (${theme})`).toEqual([])
+    }
+  })
+
+  test("Add row: the new row goes on top, focused; while a row is invalid it adds nothing and focuses the first error", async ({ page }) => {
+    await openWith(page)
+    await section(page).getByRole("button", { name: "Add phone" }).click()
+    const rows = section(page).locator("tbody tr")
+    await expect(rows).toHaveCount(4)
+    await expect(rows.first()).toHaveAttribute("data-state", "new")
+    await expect(numberInput(rows.first())).toBeFocused()
+    // The untouched new row is invalid: Add row shows its errors and adds nothing (PhoneWrapper:375-385).
+    await footer(page).getByRole("button", { name: "Add row" }).click()
+    await expect(section(page).locator('[data-state="new"]')).toHaveCount(1)
+    await expect(rows.first().locator('[data-slot="field-error"]')).toHaveText(["Enter a 10-digit US number", "Choose a label", "Choose Mobile or Landline"])
+    await expect(numberInput(rows.first())).toBeFocused()
+    await numberInput(rows.first()).fill("4155550101")
+    await pick(page, labelSelect(rows.first()), "Personal")
+    await pick(page, typeSelect(rows.first()), "Mobile")
+    await footer(page).getByRole("button", { name: "Add row" }).click()
+    await expect(section(page).locator('[data-state="new"]')).toHaveCount(2)
+    await expect(numberInput(rows.first())).toBeFocused()
+    await expect(numberInput(rows.first())).toHaveValue("")
+    await expect(numberInput(rows.nth(1))).toHaveValue("(415) 555-0101")
+    await expect(rows.nth(1).locator('[data-slot="field-error"]')).toHaveCount(0)
+  })
+
+  test("at 360 px: the edit card offers Verify with the status, the new card goes first, no horizontal scroll", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 })
+    await openWith(page)
+    const verifies = await mockContactVerify(page)
+    await section(page).getByRole("button", { name: "Add phone" }).click()
+    const cards = phoneCards(page).locator("li[data-slot='section-table-card']")
+    await expect(cards.first()).toHaveAttribute("data-state", "new")
+    await expect(numberInput(cards.first())).toBeFocused()
+    const work = savedRow(page, "+1 (415) 555-0111")
+    await work.getByRole("button", { name: "Verify", exact: true }).click()
+    await expect.poll(() => verifies()).toEqual([{ contactPointIds: [11] }])
+    await expect(work.locator('[data-slot="status-badge"]')).toHaveText(/^Link sent · Resend in \d+ s$/)
+    await expect(footer(page)).toBeVisible()
+    await expectNoHorizontalScroll(page)
+  })
 })

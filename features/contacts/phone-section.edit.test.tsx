@@ -85,8 +85,8 @@ const isReadView = (): boolean => section().querySelector('[data-slot="section-f
 /** The body rows of the edit table (desktop) or its cards (mobile). */
 const editRows = (): HTMLElement[] => [...section().querySelectorAll<HTMLElement>("tbody tr, li[data-slot='section-table-card']")]
 const newRow = (): HTMLElement => {
-  const rows = section().querySelectorAll<HTMLElement>('[data-state="new"]')
-  return rows[rows.length - 1]
+  // The latest added row: a new row goes at the top (1health-fe parity, NG-9023).
+  return section().querySelector<HTMLElement>('[data-state="new"]') as HTMLElement
 }
 const numberInput = (row: HTMLElement): HTMLInputElement => within(row).getByRole("textbox", { name: "Number" }) as HTMLInputElement
 const labelTrigger = (row: HTMLElement): HTMLElement => within(row).getByRole("combobox", { name: "Label" })
@@ -278,7 +278,8 @@ describe("PhoneSection: read-view entry points (Story 3.2)", () => {
     const rows = editRows()
     expect(rows).toHaveLength(4)
     const row = newRow()
-    expect(row).toBe(rows[3])
+    // At the top, as in 1health-fe (PhoneWrapper `addNew` prepends).
+    expect(row).toBe(rows[0])
     expect(document.activeElement).toBe(numberInput(row))
     expect(described(numberInput(row))).toEqual(["Include the area code. Mobile numbers get a verification link by text after you save."])
     expect(within(row).getByRole("combobox", { name: /Country code/ }).textContent).toBe("🇺🇸+1")
@@ -532,11 +533,35 @@ describe("PhoneSection: validation (Story 3.2)", () => {
     expect(described(labelTrigger(row))).toContain("Choose a label")
     expect(described(typeTrigger(row))).toContain("Choose Mobile or Landline")
     expect(document.activeElement).toBe(labelTrigger(row))
-    const empty = await addPhone()
-    await save()
-    // The first invalid field in page order: the first new row's Label.
+    // Like 1health-fe, Add row adds nothing while a row is invalid: the errors stay and focus goes to the first.
+    act(() => labelTrigger(row).blur())
+    await addPhone()
+    expect(section().querySelectorAll('[data-state="new"]')).toHaveLength(1)
     expect(document.activeElement).toBe(labelTrigger(row))
-    expect(described(numberInput(empty))).toContain("Enter a 10-digit US number")
+    expect(described(typeTrigger(row))).toContain("Choose Mobile or Landline")
+  })
+
+  it("Add row on an untouched invalid new row shows its errors and adds nothing; once it is valid, the next row goes on top", async () => {
+    const { bodies } = await render()
+    const first = await addPhone()
+    expect(described(numberInput(first))).not.toContain("Enter a 10-digit US number")
+    await addPhone()
+    expect(bodies).toEqual([])
+    expect(section().querySelectorAll('[data-state="new"]')).toHaveLength(1)
+    expect(described(numberInput(first))).toContain("Enter a 10-digit US number")
+    expect(described(labelTrigger(first))).toContain("Choose a label")
+    expect(document.activeElement).toBe(numberInput(first))
+    await typeNumber(first, "4155550101")
+    await pick(labelTrigger(first), "Work")
+    await pick(typeTrigger(first), "Mobile")
+    const second = await addPhone()
+    expect(second).not.toBe(first)
+    expect(editRows()[0]).toBe(second)
+    expect(editRows()[1]).toBe(first)
+    expect(document.activeElement).toBe(numberInput(second))
+    // The shifted row keeps its values and shows no stale error.
+    expect(numberInput(first).value).toBe("(415) 555-0101")
+    expect(described(labelTrigger(first))).not.toContain("Choose a label")
   })
 })
 
@@ -562,7 +587,8 @@ describe("PhoneSection: Remove rules (Story 3.2)", () => {
     await click(within(editRows()[0]).getByRole("button", { name: "Remove" }))
     expect(within(editRows()[1]).getByRole("button", { name: "Remove" }).getAttribute("aria-disabled")).toBe("true")
     await addPhone()
-    expect(within(editRows()[1]).getByRole("button", { name: "Remove" }).getAttribute("aria-disabled")).toBeNull()
+    // The new row is on top: the last saved one moved to index 2.
+    expect(within(editRows()[2]).getByRole("button", { name: "Remove" }).getAttribute("aria-disabled")).toBeNull()
   })
 
   it("the Primary row: Remove is aria-disabled with \"Make another phone primary first\"", async () => {

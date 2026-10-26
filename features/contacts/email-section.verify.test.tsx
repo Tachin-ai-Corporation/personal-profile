@@ -154,8 +154,8 @@ async function pick(trigger: HTMLElement, name: string | RegExp) {
 async function addEmail(address: string, label: string) {
   const footer = section().querySelector<HTMLElement>('[data-slot="section-footer"]')
   await click(footer ? within(footer).getByRole("button", { name: "Add row" }) : within(section()).getByRole("button", { name: "Add email" }))
-  const rows = section().querySelectorAll<HTMLElement>('[data-state="new"]')
-  const row = rows[rows.length - 1]
+  // The latest added row: a new row goes at the top (1health-fe parity, NG-9023).
+  const row = section().querySelector<HTMLElement>('[data-state="new"]') as HTMLElement
   await act(async () => fireEvent.change(within(row).getByRole("textbox", { name: "Email address" }), { target: { value: address } }))
   await pick(within(row).getByRole("combobox", { name: "Label" }), label)
 }
@@ -410,7 +410,44 @@ describe("EmailSection: Verify / Resend verification in the read view (Story 3.6
     await waitFor(() => expect(statusOf("ann@work.example")).toBe("Link sent · Resend in 60 s"))
     await click(within(section()).getByRole("button", { name: "Edit" }))
     const work = [...section().querySelectorAll<HTMLElement>("tbody tr")].find((row) => row.querySelector('input[value="ann@work.example"]')) as HTMLElement
-    expect(within(work).getByText("Link sent · Resend in 60 s")).toBeTruthy()
+    expect(within(work).getByText("Link sent · Resend in 60 s", { selector: '[data-slot="status-badge"]' })).toBeTruthy()
+    expect(within(work).getByRole("button", { name: "Resend verification" }).getAttribute("aria-disabled")).toBe("true")
+  })
+})
+
+describe("EmailSection: Verify in the edit view (NG-9023, 1health-fe EmailRow parity)", () => {
+  /** The edit row (table row or card) whose locked address is `address`. */
+  const editRowOf = (address: string): HTMLElement =>
+    [...section().querySelectorAll<HTMLElement>("tbody tr, li[data-slot='section-table-card']")].find((row) => row.querySelector(`input[value="${address}"]`)) as HTMLElement
+
+  it("only the saved, unverified, non-Home email offers Verify; it sends [41] at once and the edit stays as it was", async () => {
+    const { verifies, manage } = await render()
+    const announced = watchAnnouncements()
+    await click(within(section()).getByRole("button", { name: "Edit" }))
+    await addEmail("new@example.com", "Personal")
+    // Not on the verified Primary, the Home row or the new row.
+    expect(within(editRowOf("ann@example.com")).queryByRole("button", { name: /Verif/ })).toBeNull()
+    expect(within(editRowOf("ann@home.example")).queryByRole("button", { name: /Verif/ })).toBeNull()
+    expect(within(section().querySelector<HTMLElement>('[data-state="new"]') as HTMLElement).queryByRole("button", { name: /Verif/ })).toBeNull()
+    await click(within(editRowOf("ann@work.example")).getByRole("button", { name: "Verify" }))
+    await waitFor(() => expect(verifies).toEqual([{ contactPointIds: [41] }]))
+    expect(manage).toEqual([])
+    expect(section().querySelector('[data-slot="section-footer"]')).not.toBeNull()
+    await waitFor(() => expect(within(editRowOf("ann@work.example")).getByText("Link sent · Resend in 60 s", { selector: '[data-slot="status-badge"]' })).toBeTruthy())
+    expect(announced).toEqual(["Link sent"])
+    expect(within(editRowOf("ann@work.example")).getByRole("button", { name: "Resend verification" }).getAttribute("aria-disabled")).toBe("true")
+    expect(section().querySelectorAll('[data-state="new"]')).toHaveLength(1)
+  })
+
+  it("has no axe violations in light and dark with Verify and a countdown in the edit view", async () => {
+    await render({ list: [...EMAILS, added(44)] })
+    await click(within(section()).getByRole("button", { name: "Edit" }))
+    await click(within(editRowOf("ann@work.example")).getByRole("button", { name: "Verify" }))
+    await waitFor(() => expect(within(editRowOf("ann@work.example")).getByRole("button", { name: "Resend verification" })).toBeTruthy())
+    expect(within(editRowOf("user44@example.com")).getByRole("button", { name: "Verify" })).toBeTruthy()
+    expect(await axeViolations()).toEqual([])
+    document.documentElement.classList.add("dark")
+    expect(await axeViolations()).toEqual([])
   })
 
   it("has no axe violations in light and dark with a countdown, a send error and the cooldown help", async () => {
