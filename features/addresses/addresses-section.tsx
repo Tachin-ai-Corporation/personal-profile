@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronDown, ChevronRight, Plus } from "lucide-react"
+import { ChevronDown, ChevronRight, MapPin, Plus } from "lucide-react"
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { flushSync } from "react-dom"
 import { useWatch, type Path, type PathValue, type UseFormReturn } from "react-hook-form"
@@ -64,7 +64,7 @@ import type { PlaceSuggestion } from "@/lib/shared/bff-contract"
 import { deepEqual } from "@/lib/shared/deep-equal"
 import { ADDRESS_MESSAGES, COMBOBOX_MESSAGES, COMMON_MESSAGES, formatMessage, messageFor, PLACES_MESSAGES, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
-import { formatAddressOneLine } from "./format"
+import { addressMapsHref, formatAddressOneLine } from "./format"
 import { addressRowsToDelete, addressRowsToSend, mergeAddressRows } from "./save"
 import {
   addressDraftDiff,
@@ -125,6 +125,35 @@ function editRowsOf(rows: readonly AddressRow[]): AddressEditRow[] {
 const [ADDRESS, LABEL, TYPE, STATUS] = SECTION_COLUMNS.addresses
 
 /**
+ * The read view's address: the one-line text, then (for a Verified address
+ * with stored coordinates) its Google Maps pin, a 44 px icon link that opens
+ * a new tab, as 1health-fe's location pin (LocationAddressCard.tsx:22-26,41-53;
+ * an external site, so `target="_blank"` with `rel="noopener noreferrer"`,
+ * the AD-5 exception, never `navigate()`).
+ */
+function AddressReadCell({ row }: { readonly row: AddressRow }) {
+  const text = row.oneLine || COMMON_MESSAGES.notProvided
+  const href = addressMapsHref(row.address)
+  return (
+    <span className="inline-flex max-w-full min-w-0 items-center gap-1">
+      <span className="cell-strong text-foreground min-w-0">{text}</span>
+      {href ? (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={formatMessage(ADDRESS_MESSAGES.viewOnMap, { address: text })}
+          data-slot="address-map-link"
+          className="text-link-text focus-ring inline-flex size-11 shrink-0 items-center justify-center rounded-sm outline-none"
+        >
+          <MapPin aria-hidden="true" className="size-4" />
+        </a>
+      ) : null}
+    </span>
+  )
+}
+
+/**
  * Address · Label · Type · Status. Below 768 px line 1 is the address and
  * line 2 (muted) the Primary chip, the type and Verified.
  */
@@ -134,7 +163,7 @@ const ADDRESS_READ_COLUMNS: SectionTableColumn<AddressRow>[] = [
     header: ADDRESS,
     width: "w-[50%]",
     mobileLine: 1,
-    cell: (row) => <span className="cell-strong text-foreground">{row.oneLine || COMMON_MESSAGES.notProvided}</span>,
+    cell: (row) => <AddressReadCell row={row} />,
   },
   { key: "label", header: LABEL, cell: (row) => (row.primary ? <Chip variant="primary">{COMMON_MESSAGES.primary}</Chip> : null) },
   // The backend's type as received (Billing, Mailing and Temporary included).
@@ -1046,7 +1075,7 @@ export function AddressesSection() {
       return
     }
     const fill = placeAddressFill(answer.address, latestCountries.current, street)
-    for (const field of ["line1", "city", "county", "state", "zip", "country", "validated"] as const) {
+    for (const field of ["line1", "line2", "city", "county", "state", "zip", "country", "validated"] as const) {
       const value = fill[field]
       if (value !== undefined) setRowField(latest, index, field, value)
     }

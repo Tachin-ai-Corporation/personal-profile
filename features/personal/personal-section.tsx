@@ -31,7 +31,7 @@ import {
 } from "@/features/shell"
 import { fileDownloadPath, keys, mapFetchError, type Myself } from "@/lib/api"
 import { displayToWireDate, wireToDisplayDate } from "@/lib/shared/dates"
-import { COMBOBOX_MESSAGES, COMMON_MESSAGES, FIELD_MESSAGES, PERSON_MESSAGES, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
+import { COMBOBOX_MESSAGES, COMMON_MESSAGES, FIELD_MESSAGES, formatMessage, PERSON_MESSAGES, SECTION_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 import { birthDateBounds, normalizeName, type BirthDateBounds } from "@/lib/shared/person-rules"
 import {
   ageRangeMessage,
@@ -116,10 +116,12 @@ interface ChoiceControlProps {
   readonly wiring: FieldControlProps
   readonly binding: Binding
   readonly options: readonly string[]
+  /** Shown while the control is empty: its label, as in 1health-fe (PersonalInformationForm.tsx). */
+  readonly placeholder: string
 }
 
 /** Race, Ethnicity or Biological gender: a Select of the offered values (no picker value can be a 400). */
-function ChoiceControl({ wiring, binding: { ref, ...binding }, options }: ChoiceControlProps) {
+function ChoiceControl({ wiring, binding: { ref, ...binding }, options, placeholder }: ChoiceControlProps) {
   // A value that isn't offered (a saved platform-only value, or a fallback pick a later list dropped)
   // still shows on the trigger; it can't be picked again once changed (Cancel brings a saved one back).
   const unlisted = binding.value !== "" && !options.includes(binding.value) ? { value: binding.value } : undefined
@@ -134,7 +136,7 @@ function ChoiceControl({ wiring, binding: { ref, ...binding }, options }: Choice
       unlistedValue={unlisted}
     >
       <SelectTrigger {...wiring} ref={ref} onBlur={binding.onBlur} aria-readonly={binding.readOnly || undefined} className="w-full">
-        <SelectValue />
+        <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>
         {options.map((option) => (
@@ -178,11 +180,17 @@ function BirthDateControl({ wiring, binding: { ref, ...binding }, bounds }: Birt
   )
 }
 
-/** Gender identity: the fixed list or free text (F5-2 Combobox), wired to the table row (`control`). */
-function GenderIdentityControl({ wiring, binding: { ref, ...binding }, options }: ChoiceControlProps) {
+/**
+ * Gender identity: the fixed list or free text (F5-2 Combobox), wired to the
+ * table row (`control`). Text that matches no option offers a last
+ * `Add "{name}"` row, as 1health-fe's freeSolo list does
+ * (PersonalInformationForm.tsx:354-379); picking it keeps the trimmed text.
+ */
+function GenderIdentityControl({ wiring, binding: { ref, ...binding }, options, placeholder }: ChoiceControlProps) {
   return (
     <Combobox<string>
       label={PERSON_MESSAGES.genderIdentity}
+      placeholder={placeholder}
       control={wiring}
       inputRef={ref}
       name={binding.name}
@@ -190,6 +198,7 @@ function GenderIdentityControl({ wiring, binding: { ref, ...binding }, options }
       getKey={(option) => option}
       getLabel={(option) => option}
       mode="free-text"
+      allowAdd={(name) => formatMessage(COMBOBOX_MESSAGES.addOption, { name })}
       text={binding.value}
       onTextChange={(text) => {
         // Read-only while saving: typing doesn't change the controlled text.
@@ -241,9 +250,10 @@ function personalEditRows({ section, offered, genderIdentityOptions, bounds, age
     render,
   })
   const text = (field: PersonalField, help?: ReactNode): KeyValueEditRow =>
-    base(field, (wiring) => <Input {...wiring} {...section.field(field)} autoComplete={AUTOCOMPLETE[field] ?? "off"} />, help)
+    // Placeholders repeat the label, as in 1health-fe (PersonalInformationForm.tsx:63,79,96,115…).
+    base(field, (wiring) => <Input {...wiring} {...section.field(field)} placeholder={PERSONAL_LABELS[field]} autoComplete={AUTOCOMPLETE[field] ?? "off"} />, help)
   const choice = (field: "race" | "ethnicity" | "biologicalGender"): KeyValueEditRow =>
-    base(field, (wiring) => <ChoiceControl wiring={wiring} binding={section.control(field)} options={offered[field]} />)
+    base(field, (wiring) => <ChoiceControl wiring={wiring} binding={section.control(field)} options={offered[field]} placeholder={PERSONAL_LABELS[field]} />)
   const birthDateError = section.errorFor("birthDate")
 
   return [
@@ -262,7 +272,7 @@ function personalEditRows({ section, offered, genderIdentityOptions, bounds, age
     choice("biologicalGender"),
     base(
       "genderIdentity",
-      (wiring) => <GenderIdentityControl wiring={wiring} binding={section.control("genderIdentity")} options={genderIdentityOptions} />,
+      (wiring) => <GenderIdentityControl wiring={wiring} binding={section.control("genderIdentity")} options={genderIdentityOptions} placeholder={PERSONAL_LABELS.genderIdentity} />,
       COMBOBOX_MESSAGES.genderIdentityHelp,
     ),
     // Its help is also its length error: hidden while the field shows an error.

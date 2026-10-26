@@ -729,6 +729,35 @@ describe("AddressesSection: save order and failures (Story 4.4)", () => {
     expect(writeLog(writes)).toEqual(["PUT /2", "PUT /3"])
   })
 
+  it("DELETE ok → a later step fails → the refetch fails: the deleted row leaves the form, error + Retry; Retry never DELETEs it again", async () => {
+    let failing = true
+    let failList = false
+    const { writes } = await render({
+      remove: (id) => (failing && id === 3 ? HttpResponse.json({ message: "boom" }, { status: 500 }) : undefined),
+      list: () => (failList ? HttpResponse.json({ message: "boom" }, { status: 500 }) : undefined),
+    })
+    await kebab(B, "Remove")
+    await waitFor(() => expect(isReadView()).toBe(false))
+    await click(removeIn(rowOf(C)))
+    failList = true
+    await save()
+    await waitFor(() => expect(banner()?.textContent).toContain("Couldn't save addresses."))
+    expect(within(banner() as HTMLElement).getByRole("button", { name: "Retry" })).toBeTruthy()
+    expect(writeLog(writes)).toEqual(["DELETE /2", "DELETE /3"])
+    // No rebase (the refetch failed): B, deleted, still leaves the form; C stays struck through, A stays.
+    expect(rowOf(B)).toBeUndefined()
+    expect(rowOf(C).getAttribute("data-state")).toBe("removed")
+    expect(rowOf(A)).toBeTruthy()
+    expect(isReadView()).toBe(false)
+    failing = false
+    failList = false
+    await click(within(banner() as HTMLElement).getByRole("button", { name: "Retry" }))
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(writeLog(writes)).toEqual(["DELETE /2", "DELETE /3", "DELETE /3"])
+    expect(readRows()).toEqual([A])
+    expect(toastSuccess).toHaveBeenCalledWith("Addresses saved.")
+  })
+
   it("Removed elsewhere (DELETE): the row already gone counts as done; the save succeeds", async () => {
     const { writes, state } = await render()
     await kebab(B, "Remove")

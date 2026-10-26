@@ -465,6 +465,8 @@ export function SsnInput({ wiring, binding: { ref: bindingRef, ...binding }, sav
           data-lpignore="true"
           data-form-type="other"
           data-slot="input"
+          // As 1health-fe (PersonalInformationForm.tsx:442-445); the saved mask, when there is one, fills the input instead.
+          placeholder={PERSON_MESSAGES.ssnPlaceholder}
           readOnly={binding.readOnly}
           className={cn(INPUT_STYLES, "min-w-0 flex-1")}
           onChange={(event) => onChange(event.currentTarget)}

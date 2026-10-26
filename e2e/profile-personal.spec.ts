@@ -242,6 +242,45 @@ test.describe("Personal information edit and save (Story 2.2)", () => {
     expect(puts()).toEqual([{ race: "White" }])
   })
 
+  test("placeholders as in 1health-fe: each empty field shows its label (SSN: \"Social Security number\"); axe passes with them shown", async ({ page }) => {
+    await mockProfileDefaults(page)
+    await mockMyself(page, { body: { ...PERSONAL_FULL_MYSELF, namePrefix: null, middleName: null, nameSuffix: null, otherNames: null, titles: null, cityOfBirth: null, sexualOrientation: null, socialSecurityNumber: null } })
+    await mockFileDownload(page, PERSONAL_SIGNATURE_FILE_ID)
+    await page.goto("/")
+    await section(page).getByRole("button", { name: "Edit" }).click()
+    for (const label of ["Name prefix", "Middle name", "Name suffix", "Other names", "Titles", "City of birth", "Sexual orientation"]) {
+      await expect(control(page, label), label).toHaveValue("")
+      await expect(control(page, label), label).toHaveAttribute("placeholder", label)
+    }
+    for (const label of ["First name", "Last name", "Gender identity"]) await expect(control(page, label), label).toHaveAttribute("placeholder", label)
+    await expect(control(page, "Birth date")).toHaveAttribute("placeholder", "MM/DD/YYYY")
+    await expect(control(page, "SSN")).toHaveAttribute("placeholder", "Social Security number")
+    for (const theme of ["light", "dark"] as const) {
+      await setTheme(page, theme)
+      const results = await new AxeBuilder({ page }).include("#personal").withTags(WCAG).analyze()
+      expect(results.violations, `placeholders (${theme})`).toEqual([])
+    }
+  })
+
+  test("Gender identity: typed text matching no option offers \"Add “…”\" last; picking it keeps the trimmed text and Save sends it", async ({ page }) => {
+    await openEdit(page)
+    const puts = await mockUserEdit(page)
+    await control(page, "Gender identity").fill(" Non-binary  ")
+    const listbox = page.getByRole("listbox", { name: "Gender identity" })
+    await expect(listbox.getByRole("option")).toHaveText(["Add “Non-binary”"])
+    const scan = await new AxeBuilder({ page }).include("#personal").withTags(WCAG).analyze()
+    expect(scan.violations, "Gender identity with the Add row").toEqual([])
+    await page.keyboard.press("ArrowDown")
+    await page.keyboard.press("Enter")
+    await expect(listbox).toHaveCount(0)
+    await expect(control(page, "Gender identity")).toHaveValue("Non-binary")
+    await mockMyself(page, { body: { ...PERSONAL_FULL_MYSELF, genderIdentity: "Non-binary" } })
+    await section(page).getByRole("button", { name: "Save" }).click()
+    await expectReadView(page)
+    expect(puts()).toEqual([{ genderIdentity: "Non-binary" }])
+    await expect(await valueCell(page, "Gender identity")).toHaveText("Non-binary")
+  })
+
   test("a failed save keeps the edit; Retry resends the same diff", async ({ page }) => {
     await openEdit(page)
     let fail = true

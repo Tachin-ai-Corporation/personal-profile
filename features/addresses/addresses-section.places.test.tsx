@@ -329,6 +329,8 @@ describe("AddressesSection: address suggestions (Story 4.3)", () => {
     await search(row, "1 Pin")
     await pickFirst(row)
     await waitFor(() => expect(textbox(row, "Zip").value).toBe("94104"))
+    // The pick empties line 2 ("Apt 4"), as 1health-fe (LocationAddressWrapper.tsx:271-325).
+    expect(textbox(row, "Address line 2 (optional)").value).toBe("")
     // Line 2 never clears Verified (decision 2a).
     await type(textbox(row, "Address line 2 (optional)"), "Floor 3")
     await click(button("Collapse 9 Oak Ave, Apt 4, SF, CA 94105"))
@@ -338,6 +340,29 @@ describe("AddressesSection: address suggestions (Story 4.3)", () => {
     await waitFor(() => expect(isReadView()).toBe(true))
     expect(writes).toHaveLength(1)
     expect(writes[0]).toMatchObject({ method: "PUT", body: { addressLine1: "1 Pine Street", addressLine2: "Floor 3", cityName: "San Francisco", validated: true, primary: true } })
+  })
+
+  it("a pick empties line 2 (1health-fe LocationAddressWrapper.tsx:271-325): Save clears the saved line 2 (n/a); a failed details call keeps it", async () => {
+    let failing = true
+    const { writes, calls } = await render({
+      details: () => (failing ? HttpResponse.json({ errorCode: "UPSTREAM_TIMEOUT", source: "proxy" }, { status: 504 }) : HttpResponse.json(COMPLETE)),
+    })
+    const row = await kebabEdit("9 Oak Ave, Apt 4, SF, CA 94105")
+    // A failed details call fills nothing: line 2 stays.
+    await search(row, "1 Pin")
+    await pickFirst(row)
+    await waitFor(() => expect(calls.details).toHaveLength(1))
+    await waitFor(() => expect(line1(row).value).toBe("1 Pin"))
+    expect(textbox(row, "Address line 2 (optional)").value).toBe("Apt 4")
+    failing = false
+    await search(row, "1 Pine")
+    await pickFirst(row)
+    await waitFor(() => expect(textbox(row, "Zip").value).toBe("94104"))
+    expect(textbox(row, "Address line 2 (optional)").value).toBe("")
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(writes).toHaveLength(1)
+    expect(writes[0]).toMatchObject({ method: "PUT", body: { addressLine1: "1 Pine Street", addressLine2: "n/a", validated: true } })
   })
 
   it("Partial pick: the returned parts fill, the zip stays empty, not Verified; Save shows \"Enter a ZIP code\" and sends nothing", async () => {

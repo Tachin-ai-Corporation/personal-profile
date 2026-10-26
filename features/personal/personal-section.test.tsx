@@ -605,6 +605,52 @@ describe("PersonalSection: edit view (Story 2.2)", () => {
     expect(section().querySelectorAll("input").length).toBe(13)
   })
 
+  it("placeholders as in 1health-fe (PersonalInformationForm.tsx:63,79,96,115…): each field's label; the SSN \"Social Security number\"", async () => {
+    const { registry } = await renderEditing(myselfWire({ socialSecurityNumber: null }))
+    for (const label of ["Name prefix", "First name", "Middle name", "Last name", "Name suffix", "Other names", "Titles", "City of birth", "Sexual orientation", "Gender identity"]) {
+      expect(control(label).getAttribute("placeholder"), label).toBe(label)
+    }
+    expect(control("Birth date").getAttribute("placeholder")).toBe("MM/DD/YYYY")
+    expect(control("SSN").getAttribute("placeholder")).toBe("Social Security number")
+    // A Select shows its label while empty (a draft that empties Race).
+    await act(async () => {
+      registry.get("personal")?.applyDraft?.({ race: "" })
+    })
+    expect(control("Race").textContent).toBe("Race")
+    expect(control("Race").hasAttribute("data-placeholder")).toBe(true)
+  })
+
+  it("Gender identity: text matching no option offers a last \"Add “{text}”\" row (1health-fe :354-379); picking it keeps the trimmed text and Save sends it", async () => {
+    const { bodies, handler } = recordPuts()
+    await renderEditing(FULL, [handler])
+    await type("Gender identity", "  Non-binary ")
+    const listbox = screen.getByRole("listbox", { name: "Gender identity" })
+    const options = within(listbox).getAllByRole("option")
+    expect(options.map((option) => option.textContent)).toEqual(["Add “Non-binary”"])
+    await act(async () => fireEvent.click(options[0]))
+    expect((control("Gender identity") as HTMLInputElement).value).toBe("Non-binary")
+    expect(screen.queryByRole("listbox", { name: "Gender identity" })).toBeNull()
+    await save()
+    await waitFor(() => expect(isReadView()).toBe(true))
+    expect(bodies).toEqual([{ genderIdentity: "Non-binary" }])
+  })
+
+  it("Gender identity: no Add row when the text names an option (any case), or for partial matches beside it", async () => {
+    await renderEditing()
+    await type("Gender identity", "male")
+    const labels = within(screen.getByRole("listbox", { name: "Gender identity" }))
+      .getAllByRole("option")
+      .map((option) => option.textContent)
+    expect(labels).not.toContain("Add “male”")
+    expect(labels).toEqual(expect.arrayContaining(["Male"]))
+    await type("Gender identity", "Fem")
+    expect(
+      within(screen.getByRole("listbox", { name: "Gender identity" }))
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["Female", "Add “Fem”"])
+  })
+
   it("lays out a 240 px key column from 768 px", async () => {
     stubViewport(1024)
     await renderEditing()

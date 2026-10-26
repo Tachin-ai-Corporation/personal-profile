@@ -198,6 +198,29 @@ test.describe("Addresses read view (Story 4.1)", () => {
     await expect(addressTable(page).or(addressCards(page))).toBeVisible()
   })
 
+  test("Google Maps pin as 1health-fe (LocationAddressCard.tsx:22-26,41-53): a Verified address with coordinates links to maps.google.com in a new tab; 44 px; axe", async ({ page }) => {
+    await openWith(page, [
+      addressRow({ id: 2, personLocationType: "Main Work", validated: true, lat: 37.79, lon: -122.39 }),
+      addressRow({ id: 1, addressLine1: "9 Oak Ave", addressLine2: "Apt 4", primary: true, lat: 37.8, lon: -122.4 }),
+      addressRow({ id: 4, addressLine1: "4 Elm St", validated: true, lat: 999.9, lon: 999.9 }),
+    ])
+    await expect(addressTable(page).or(addressCards(page))).toBeVisible()
+    const links = section(page).locator('a[data-slot="address-map-link"]')
+    // Only the Verified row with real coordinates: not the unverified Primary, not the 999.9 ("no value") one.
+    await expect(links).toHaveCount(1)
+    const link = section(page).getByRole("link", { name: "View 1 Pine St, SF, CA 94105 on Google Maps (opens in a new tab)" })
+    await expect(link).toHaveAttribute("href", "https://maps.google.com/?ll=37.79,-122.39")
+    await expect(link).toHaveAttribute("target", "_blank")
+    await expect(link).toHaveAttribute("rel", "noopener noreferrer")
+    const box = await link.boundingBox()
+    expect(box?.height).toBeGreaterThanOrEqual(44)
+    expect(box?.width).toBeGreaterThanOrEqual(44)
+    await link.focus()
+    await expect(link).toBeFocused()
+    await expectNoHorizontalScroll(page)
+    await axe(page, "Addresses with a map pin")
+  })
+
   test("axe passes in light and dark, loaded, empty and with the load error", async ({ page }) => {
     await openWith(page)
     await expect(addressTable(page).or(addressCards(page))).toBeVisible()
@@ -611,6 +634,8 @@ test.describe("Address suggestions (Story 4.3)", () => {
     const { posts, row } = await newRowWithSuggestions(page)
     const searches = await mockPlacesAutocomplete(page, { body: { enabled: true, suggestions: PLACES_SUGGESTIONS } })
     const details = await mockPlacesDetails(page, { body: PLACE_COMPLETE })
+    // A pick empties line 2, as 1health-fe (LocationAddressWrapper.tsx:271-325).
+    await field(row, "Address line 2 (optional)").fill("Apt 9")
     // No answer yet: no help line.
     await expect(row.getByText(HELP)).toHaveCount(0)
     // Room under line 1 for the list (with no room below, the popup flips above).
@@ -635,6 +660,7 @@ test.describe("Address suggestions (Story 4.3)", () => {
     await expect(field(row, "County (optional)")).toHaveValue("San Francisco County")
     await expect(field(row, "State/Province (optional)")).toHaveValue("California")
     await expect(field(row, "Zip")).toHaveValue("94104")
+    await expect(field(row, "Address line 2 (optional)")).toHaveValue("")
     await saveButton(page).click()
     await expect(footer(page)).toHaveCount(0)
     expect(posts()).toEqual([
@@ -860,6 +886,46 @@ test.describe("Primary address and removal (Story 4.4)", () => {
     await banner.getByRole("button", { name: "Retry" }).click()
     await expect(footer(page)).toHaveCount(0)
     expect(puts()).toHaveLength(1)
+  })
+
+  test("DELETE ok → a later DELETE fails → the refetch fails: the deleted row leaves the form, error + Retry; Retry never DELETEs it again", async ({ page }) => {
+    const BAY = "3 Bay Rd, SF, CA 94105"
+    const { rows } = await openEditable(page, [...ADDRESSES.map((row) => ({ ...row })), addressRow({ id: 3, addressLine1: "3 Bay Rd" })])
+    let failing = true
+    // Bay's (id 3) DELETE fails until Retry; every other DELETE soft-deletes in the mock backend.
+    const deletes = await mockAddressDelete(page, (request) => {
+      const id = Number(new URL(request.url()).pathname.split("/").pop())
+      if (failing && id === 3) return { status: 500, body: { message: "boom" } }
+      rows.splice(
+        rows.findIndex((row) => row.id === id),
+        1,
+      )
+      return { body: { id } }
+    })
+    let failList = false
+    await mockProxy(page, "v2/person/location/list?**", () => (failList ? { status: 500, body: { message: "boom" } } : { body: addressesPage(rows) }))
+    await section(page).getByRole("button", { name: "Edit", exact: true }).click()
+    await editRow(page, PINE).getByRole("button", { name: "Remove" }).click()
+    await editRow(page, BAY).getByRole("button", { name: "Remove" }).click()
+    failList = true
+    await saveButton(page).click()
+    const banner = footer(page).locator('[data-slot~="inline-banner"]')
+    await expect(banner).toContainText("Couldn't save addresses.")
+    expect(deletes()).toEqual([2, 3])
+    // Pine was deleted: it leaves the form although the refetch failed; Bay stays struck through; Oak stays.
+    await expect(editRow(page, PINE)).toHaveCount(0)
+    await expect(editRow(page, BAY)).toHaveAttribute("data-state", "removed")
+    await expect(editRow(page, OAK)).toHaveCount(1)
+    failing = false
+    failList = false
+    await banner.getByRole("button", { name: "Retry" }).click()
+    await expect(footer(page)).toHaveCount(0)
+    await expect(addressTable(page).or(addressCards(page))).toBeVisible()
+    await expect(section(page).getByRole("button", { name: /^More actions for / })).toHaveCount(1)
+    await expect(sectionMeta(page)).toHaveText("1")
+    // Retry sent only Bay's DELETE: Pine's was never sent again.
+    expect(deletes()).toEqual([2, 3, 3])
+    expect(rows.map((row) => row.id)).toEqual([1])
   })
 
   test("at 360 px: a struck-through card with Restore, the kebab's Make primary, 44 px targets, no horizontal scroll", async ({ page }) => {

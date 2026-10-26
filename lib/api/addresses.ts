@@ -109,7 +109,22 @@ export interface Address {
   readonly countryCode: string | null
   readonly primary: boolean
   readonly validated: boolean
+  /**
+   * The stored coordinates (`lat`, `lon`), only when both are real ones: finite,
+   * in range and not the backend's "no value" `999.9`. The read view's Google
+   * Maps link uses them (1health-fe LocationAddressCard.tsx:22-26,41-53).
+   */
+  readonly mapPoint?: AddressMapPoint
 }
+
+/** A stored address's coordinates (see `Address.mapPoint`). */
+export interface AddressMapPoint {
+  readonly lat: number
+  readonly lon: number
+}
+
+/** The backend's "no value" for a number (`BO_CORE_DEFAULT_NUMBER_VALUE`; a new location's lat and lon). */
+const ADDRESS_NO_COORDINATE = 999.9
 
 const text = z.string().nullish()
 const flag = z.boolean().nullish()
@@ -131,6 +146,9 @@ const addressWireSchema = z.object({
   postalCode: text,
   country: text,
   countryCode: text,
+  // Read leniently: a malformed coordinate only drops the map link, never the row.
+  lat: z.unknown().optional(),
+  lon: z.unknown().optional(),
   primary: flag,
   isPrimary: flag,
   validated: flag,
@@ -154,7 +172,15 @@ const part = (value: string | null | undefined): string | null => {
   return provided === null ? null : provided.trim()
 }
 
+/** The coordinate pair when both are real (see `Address.mapPoint`), else `undefined`. */
+function mapPointOf(lat: unknown, lon: unknown): AddressMapPoint | undefined {
+  const real = (value: unknown, limit: number): value is number =>
+    typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= limit && value !== ADDRESS_NO_COORDINATE
+  return real(lat, 90) && real(lon, 180) ? { lat, lon } : undefined
+}
+
 function toAddress(wire: AddressWire): Address {
+  const mapPoint = mapPointOf(wire.lat, wire.lon)
   return {
     id: wire.id ?? null,
     type: part(wire.personLocationType),
@@ -168,6 +194,7 @@ function toAddress(wire: AddressWire): Address {
     countryCode: part(wire.countryCode),
     primary: (wire.primary ?? wire.isPrimary) === true,
     validated: (wire.validated ?? wire.isValidated) === true,
+    ...(mapPoint ? { mapPoint } : {}),
   }
 }
 

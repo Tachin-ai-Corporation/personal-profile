@@ -63,6 +63,8 @@ export const PERSON_MESSAGES = {
   ssnRevealFailed: "Couldn't show your SSN. Try again.", // DRAFT COPY (Story 2.3 spec)
   /** A partial SSN on blur or Save. */
   ssnIncomplete: "Enter all 9 digits of your SSN", // DRAFT COPY (Story 2.3 spec)
+  /** The empty SSN input's placeholder (1health-fe PersonalInformationForm.tsx:442-445; the other fields' placeholders are their labels). */
+  ssnPlaceholder: "Social Security number", // DRAFT COPY (1health-fe placeholder, sentence case)
   // Signature (Team A, Story 2.4). The row label is SHELL_MESSAGES.signature; "Clear" and "Cancel" are COMMON_MESSAGES.
   /** The pad's cue while empty, and the canvas's accessible name. */
   signatureCue: "Draw your signature",
