@@ -151,6 +151,22 @@ describe("Tooltip", () => {
     await waitFor(() => expect(tooltip()).toBeNull())
   })
 
+  it("keepOpenOnPress: an Escape right after a press closes it before any timer runs (Chromium runs input before timers)", async () => {
+    render(<Tooltip content={TEXT} keepOpenOnPress><button type="button">Protected</button></Tooltip>)
+    const trigger = screen.getByRole("button", { name: "Protected" })
+    act(() => trigger.focus())
+    await waitFor(() => expect(tooltip()).not.toBeNull())
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    fireEvent.pointerDown(trigger, { pointerType: "mouse" })
+    fireEvent.pointerUp(trigger, { pointerType: "mouse" })
+    fireEvent.click(trigger, { detail: 1 })
+    expect(tooltip()?.textContent).toBe(TEXT)
+    act(() => {
+      fireEvent.keyDown(trigger, { key: "Escape" })
+    })
+    expect(tooltip()).toBeNull()
+  })
+
   it("closes on Escape", async () => {
     const trigger = setup()
     act(() => trigger.focus())
