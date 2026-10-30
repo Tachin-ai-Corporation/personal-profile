@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react"
+import type { CSSProperties, ReactNode } from "react"
 import type { AnimatedIconTone } from "@/components/ui/animated-icon"
+import { useConfirmationWindow } from "@/components/ui/use-confirmation-window"
 import { cn } from "@/lib/utils"
 import { SectionDraftNotice } from "./draft-banner"
 import type { SectionId } from "./nav-types"
@@ -50,12 +51,7 @@ export function SectionContainer({ editing, sectionId, animated = false, accent,
   const saved = useSectionSavedCount(animated && sectionId ? sectionId : null)
   // The saved ring is unmounted once its pulse ends: a lasting absolutely positioned overlay that resizes with the
   // container would make Chrome suppress scroll anchoring (see `accent`).
-  const [flashDoneFor, setFlashDoneFor] = useState(0)
-  useEffect(() => {
-    if (saved === 0) return
-    const timer = setTimeout(() => setFlashDoneFor(saved), SAVED_FLASH_MS)
-    return () => clearTimeout(timer)
-  }, [saved])
+  const flashing = useConfirmationWindow(saved, SAVED_FLASH_MS)
   return (
     <div
       data-slot="section-container"
@@ -74,7 +70,7 @@ export function SectionContainer({ editing, sectionId, animated = false, accent,
     >
       {sectionId ? <SectionDraftNotice sectionId={sectionId} /> : null}
       <SectionToneContext value={accent ?? null}>{children}</SectionToneContext>
-      {saved > 0 && flashDoneFor !== saved ? (
+      {flashing ? (
         // Restarted per save by its key; opacity 0 at rest, so it shows nothing under reduced motion.
         <span key={saved} aria-hidden="true" data-slot="section-saved-flash" className="animate-saved-flash ring-success pointer-events-none absolute -inset-px rounded-md ring-2" />
       ) : null}

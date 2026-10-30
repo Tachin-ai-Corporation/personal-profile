@@ -157,6 +157,40 @@ describe("SectionContainer", () => {
     }
   })
 
+  it("`animated` off and back on: no ring while off; the next save after re-enabling rings again (#61 review)", () => {
+    vi.useFakeTimers()
+    try {
+      let registry: SectionRegistry | undefined
+      function Capture() {
+        registry = useSectionRegistry()
+        return null
+      }
+      const ui = (animated: boolean) => (
+        <SectionRegistryProvider>
+          <Capture />
+          <SectionContainer editing={false} sectionId="email" animated={animated}>
+            x
+          </SectionContainer>
+        </SectionRegistryProvider>
+      )
+      const { rerender } = render(ui(true))
+      const flash = () => screen.getByText("x").querySelector("[data-slot='section-saved-flash']")
+      act(() => registry?.report({ type: "saved", id: "email" }))
+      expect(flash()).not.toBeNull()
+      rerender(ui(false))
+      expect(flash()).toBeNull()
+      act(() => registry?.report({ type: "saved", id: "email" }))
+      expect(flash()).toBeNull()
+      act(() => vi.advanceTimersByTime(SAVED_FLASH_MS))
+      rerender(ui(true))
+      expect(flash()).toBeNull()
+      act(() => registry?.report({ type: "saved", id: "email" }))
+      expect(flash()).not.toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("`accent`: a 4 px left border in the tone's brand hue, with no positioned overlay; none by default", () => {
     const { rerender } = render(<SectionContainer editing={false}>x</SectionContainer>)
     const box = screen.getByText("x")

@@ -4,6 +4,7 @@ import * as React from "react"
 import { Check, Copy } from "lucide-react"
 
 import { useAnnounce } from "@/components/ui/live-status"
+import { useConfirmationWindow } from "@/components/ui/use-confirmation-window"
 import { COMMON_MESSAGES, formatMessage } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
 
@@ -33,16 +34,10 @@ export interface CopyButtonProps {
  *   live region. If the clipboard refuses, it announces how to copy by hand.
  */
 export function CopyButton({ value, label = value, className }: CopyButtonProps): React.JSX.Element {
-  // Each copy bumps `copies`; its confirmation hides once that copy's timer ends (a newer copy restarts it).
+  // Each copy bumps `copies`; its confirmation hides once that copy's window ends (a newer copy restarts it).
   const [copies, setCopies] = React.useState(0)
-  const [doneFor, setDoneFor] = React.useState(0)
   const { message, announce } = useAnnounce({ clearAfterMs: 5000 })
-  React.useEffect(() => {
-    if (copies === 0) return
-    const timer = setTimeout(() => setDoneFor(copies), COPY_CONFIRM_MS)
-    return () => clearTimeout(timer)
-  }, [copies])
-  const confirming = copies > 0 && doneFor !== copies
+  const confirming = useConfirmationWindow(copies, COPY_CONFIRM_MS)
 
   const copy = async (): Promise<void> => {
     try {

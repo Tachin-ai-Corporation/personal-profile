@@ -295,10 +295,11 @@ export function SectionNav({ state, accent = false }: SectionNavProps) {
                     onClick={(event) => onMenuClick(event, section.id)}
                     onKeyDown={(event) => onMenuKeyDown(event, section.id)}
                     className={cn(
-                      "focus-ring text-foreground hover:bg-accent relative grid min-h-11 grid-cols-[24px_1fr_auto] items-center pr-4 pl-5 text-body-sm tabular-nums outline-none",
+                      "focus-ring text-foreground relative grid min-h-11 grid-cols-[24px_1fr_auto] items-center pr-4 pl-5 text-body-sm tabular-nums outline-none",
                       // The 3 px bar is a pseudo-element: focus-ring's glow would replace an inset box-shadow.
-                      // With `accent` the sliding indicator draws the current item's fill and bar (no hover fill over it).
-                      tone && !current && tone.navHover,
+                      // With `accent` the sliding indicator draws the current item's fill and bar, under the (positioned)
+                      // link: the current link takes no hover fill, which would cover it (#61 review).
+                      tone ? !current && tone.navHover : "hover:bg-accent",
                       current && "font-semibold",
                       current && !tone && "bg-accent text-primary-text before:bg-primary before:absolute before:inset-y-0 before:left-0 before:w-[3px]",
                     )}

@@ -371,8 +371,22 @@ Premium, purposeful, never bouncy-for-fun.
 > loosens §1's "if a screen feels colorful, it's wrong" for decorative icon
 > tiles, Section accents (bars, table header rows, row hover, header
 > actions), label chips, the Section menu, the page tabs and the profile header
-> band only. Every piece below is **opt-in**, so `/account` is unchanged until
-> it opts in. Accept, amend or reject it here, and in DESIGN.md if accepted.
+> band only. Every piece below is **opt-in**, except the three shared effects
+> listed next, so `/account` changes only by those until it opts in. Accept,
+> amend or reject it here, and in DESIGN.md if accepted.
+
+**Shared effects (not opt-in; every page, `/account` included).**
+
+- **Outline and ghost button hover** (`components/ui/button.tsx`): the hover
+  fill is the blue tint `bg-tint-blue` with `text-tint-blue-foreground` (AA in
+  both themes, table below), instead of `bg-accent`. Dark mode uses the same
+  tint instead of `bg-input/50` (outline) or `bg-accent/50` (ghost).
+- **Press scale** (every `Button`): `active:scale-[0.98]` is now
+  `motion-safe:active:scale-[0.98]`, so a press doesn't scale under reduced
+  motion.
+- **Toast check pop** (`components/ui/toast.tsx`): the success toast's
+  `CheckCircle` pops in once (`animate-icon-pop`, 300 ms; none under reduced
+  motion).
 
 **Tints.** These are brand tints mixed from the brand layer, so a rebrand
 flows through. The soft ones are for hovers; the strong ones only behind
@@ -424,6 +438,12 @@ never moves:
   makes Chrome suppress scroll anchoring, so content appearing above a control
   (a field error on blur) would move it mid-click. The saved ring is unmounted
   once its pulse ends for the same reason.
+- The saved check and ring count the Section's saves with
+  `useSectionSavedCount(id)`: only `id`'s saves while it is observed, `0` for
+  `null`; another `id`, or observing again after `null`, starts over at `0`.
+  Their windows, and `CopyButton`'s, share `useConfirmationWindow`
+  (`components/ui/use-confirmation-window.ts`): each event restarts the window,
+  and a counter back at `0` confirms its next event again.
 - `SectionHeader icon`: besides the tile, a 24 × 2 px line in the brand hue
   under the title (all widths), and the header actions (Edit, Add …) with an
   outline in the brand hue, filling with the surface tint on hover (text stays
@@ -452,7 +472,9 @@ never moves:
   strong foreground **instead of the 01–05 index number**, in the number's
   24 px column so the labels stay aligned; each count is a pill (`rounded-full`,
   20 px) on the tone's strong tint, and on `tint-*-emphasis` when the item is
-  current (≥ 5.45:1); hover on the tone's surface tint; the current item on its
+  current (≥ 5.45:1); hover on the tone's surface tint, except on the current
+  item, whose link paints over the indicator (a hover fill there would cover
+  it); the current item on its
   tone's strong tint with a 3 px brand-hue bar, drawn by one sliding indicator
   (`useSlidingIndicator`): it moves to the new item by `translateY` on a click
   or a scroll-spy change (300 ms, `ease-premium`; it jumps under reduced
