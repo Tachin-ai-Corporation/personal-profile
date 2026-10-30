@@ -365,6 +365,168 @@ Premium, purposeful, never bouncy-for-fun.
 - **Reduced motion is respected globally**: `globals.css` collapses animations
   and transitions under `prefers-reduced-motion: reduce`. Don't fight it.
 
+### Accent tints and motion (PROPOSAL, pending integrator review)
+
+> Design refresh of 2026-10-29 (Personal Profile). Not yet accepted. It
+> loosens §1's "if a screen feels colorful, it's wrong" for decorative icon
+> tiles, Section accents (bars, table header rows, row hover, header
+> actions), label chips, the Section menu, the page tabs and the profile header
+> band only. Every piece below is **opt-in**, except the three shared effects
+> listed next, so `/account` changes only by those until it opts in. Accept,
+> amend or reject it here, and in DESIGN.md if accepted.
+
+**Shared effects (not opt-in; every page, `/account` included).**
+
+- **Outline and ghost button hover** (`components/ui/button.tsx`): the hover
+  fill is the blue tint `bg-tint-blue` with `text-tint-blue-foreground` (AA in
+  both themes, table below), instead of `bg-accent`. Dark mode uses the same
+  tint instead of `bg-input/50` (outline) or `bg-accent/50` (ghost).
+- **Press scale** (every `Button`): `active:scale-[0.98]` is now
+  `motion-safe:active:scale-[0.98]`, so a press doesn't scale under reduced
+  motion.
+- **Toast check pop** (`components/ui/toast.tsx`): the success toast's
+  `CheckCircle` pops in once (`animate-icon-pop`, 300 ms; none under reduced
+  motion).
+
+**Tints.** These are brand tints mixed from the brand layer, so a rebrand
+flows through. The soft ones are for hovers; the strong ones only behind
+decorative icons; the header pair only for the profile header band. Never use
+them for status:
+
+| Utility pair | Light | Dark |
+|---|---|---|
+| `bg-tint-blue` / `text-tint-blue-foreground` | primary 12 % on card / primary (4.94:1) | primary 22 % on card / primary-text (4.87:1) |
+| `bg-tint-teal` / `text-tint-teal-foreground` | secondary 12 % / secondary + graphite (4.69:1) | secondary 22 % / secondary + cloud (4.47:1) |
+| `bg-tint-mint` / `text-tint-mint-foreground` | tertiary 12 % / tertiary + graphite (4.50:1) | tertiary 22 % / tertiary (4.18:1) |
+| `bg-tint-blue-strong` / `text-tint-blue-strong-foreground` | primary hue at oklch L 0.92 C 0.05 / `brand-primary` itself (4.67:1) | primary hue at L 0.38 C 0.06 / primary hue at L 0.82 (5.76:1) |
+| `bg-tint-teal-strong` / `text-tint-teal-strong-foreground` | secondary hue at L 0.92 C 0.05 / secondary at full chroma, L 0.46 (5.27:1) | L 0.38 C 0.06 / L 0.82 (5.79:1) |
+| `bg-tint-mint-strong` / `text-tint-mint-strong-foreground` | tertiary hue at L 0.92 C 0.05 / tertiary at full chroma, L 0.46 (5.29:1) | L 0.38 C 0.06 / L 0.82 (5.80:1) |
+| `bg-tint-aqua-strong` / `text-tint-aqua-strong-foreground` (label chips only) | highlight hue at L 0.92 C 0.05 / L 0.46 (5.54:1) | L 0.38 C 0.06 / L 0.82 (5.74:1) |
+| `bg-tint-*-tile` (icon tiles only, never under text) | brand hue at L 0.88 C 0.065; glyph blue 4.14, teal 4.68, mint 4.70 | L 0.40 C 0.07; glyph ≥ 5.2 |
+| `bg-tint-*-surface` (light fills under text) | brand 10 % on card | brand 12 % on card |
+| `from-tint-header-start` / `via-tint-header-mid` (40 %) / `to-tint-header-end` | primary 50 % → secondary 24 % → secondary 12 % on background | 58 % → 36 % → 24 % |
+
+The strong tints use CSS relative color (`oklch(from var(--brand-*) L C h)`):
+the brand hue at a set lightness and chroma, so the tiles read clearly blue,
+teal or mint (a `color-mix` with white keeps trust-blue's low chroma and reads
+grey-blue) and a rebrand still flows through. Each strong foreground also
+meets 4.5:1 on background (≥ 5.46:1) and on `accent` (the menu hover, ≥ 5.35:1).
+Solid `brand-secondary` and `brand-tertiary` are only 2.6:1 and 1.5:1 on their
+tiles, so teal and mint glyphs are the same hue deepened, not the swatch.
+
+The surface tints carry every text color that can sit on them at AA:
+muted-foreground ≥ 5.46:1 (dark ≥ 5.14), success-strong ≥ 4.61 (dark ≥ 5.16),
+link-text ≥ 5.17 (dark ≥ 6.46) and the strong foregrounds ≥ 5.1. The soft
+`tint-*` (12 % / 22 %) is too strong for that in dark mode (mint: 3.8:1 for
+link-text), which is why tables use the surface level.
+
+The header band is strongest at the name. Its contact block (the primary
+phone / email, ≥ 768 px, right-aligned) moves left with a long email, down to
+the band's strongest part (38 % of the width at 768 px with a 46-character
+address), where muted-foreground falls to 4.35:1 (2.66:1 at the start stop;
+dark 4.43:1). So text on the band is foreground only: ≥ 6.45:1 over the whole
+band (dark ≥ 7.42:1), the name and the contact labels included.
+
+Outline and ghost buttons hover on `tint-blue`. Status keeps its own colors.
+
+**Accents.** Decorative and opt-in, drawn on pseudo-elements so the layout
+never moves:
+
+- One tone per Section, `PROFILE_SECTION_TONES` (`features/shell/section-tones.ts`):
+  Personal and Insurance blue, Phone / Email / Social media teal, Addresses mint.
+- `SectionContainer accent={tone}`: a 4 px left border in the brand hue
+  (`brand-primary` / `-secondary` / `-tertiary`). It is a real border, not an
+  absolutely positioned bar: a positioned overlay that grows with the container
+  makes Chrome suppress scroll anchoring, so content appearing above a control
+  (a field error on blur) would move it mid-click. The saved ring is unmounted
+  once its pulse ends for the same reason.
+- The saved check and ring count the Section's saves with
+  `useSectionSavedCount(id)`: only `id`'s saves while it is observed, `0` for
+  `null`; another `id`, or observing again after `null`, starts over at `0`.
+  Their windows, and `CopyButton`'s, share `useConfirmationWindow`
+  (`components/ui/use-confirmation-window.ts`): each event restarts the window,
+  and a counter back at `0` confirms its next event again.
+- `SectionHeader icon`: besides the tile, a 24 × 2 px line in the brand hue
+  under the title (all widths), and the header actions (Edit, Add …) with an
+  outline in the brand hue, filling with the surface tint on hover (text stays
+  foreground).
+- The tone reaches the `SectionTable` inside an accented container
+  (`SectionToneContext`): the column header row on the surface tint with its
+  text in the strong foreground, and read-view rows hovering on the surface
+  tint (no hover while editing, as before).
+- `Chip tone="teal|mint|aqua"` (label chips only; Primary keeps its fill):
+  `labelChipTone()` maps Home → mint, Work → teal, anything else → aqua.
+- `CopyButton` (`components/ui/copy-button.tsx`) after each phone number and
+  email address in the read tables: a 28 px icon (44 × 44 hit area) shown on
+  row hover or keyboard focus (always where there is no hover), named "Copy
+  {value}". A copy swaps it for a ✓ with a decorative "Copied" bubble in the
+  tooltip colors (both pop in, 300 ms; static under reduced motion) for
+  1.5 s, and announces "{value} copied" in its own polite region. If the
+  clipboard refuses (or an insecure page has none), it announces "Couldn't
+  copy {value}. Select it to copy it yourself." The strings are DRAFT COPY in
+  `COMMON_MESSAGES`.
+- `ProfileTabs accent` (→ `PageTabs accent`): the active tab's text in
+  `primary-text` and a 3 px primary → secondary bar over its underline.
+- The icon tile gets a 2 px ring in its brand hue that fades in on hover or
+  keyboard focus in its row (a ring, not a glow: glow stays reserved for focus).
+- `ContactsPanel accent` (→ `SectionNav accent`): the menu shows a 16 px
+  Section icon (`PROFILE_SECTION_ICONS`, the header tile's) in its tone's
+  strong foreground **instead of the 01–05 index number**, in the number's
+  24 px column so the labels stay aligned; each count is a pill (`rounded-full`,
+  20 px) on the tone's strong tint, and on `tint-*-emphasis` when the item is
+  current (≥ 5.45:1); hover on the tone's surface tint, except on the current
+  item, whose link paints over the indicator (a hover fill there would cover
+  it); the current item on its
+  tone's strong tint with a 3 px brand-hue bar, drawn by one sliding indicator
+  (`useSlidingIndicator`): it moves to the new item by `translateY` on a click
+  or a scroll-spy change (300 ms, `ease-premium`; it jumps under reduced
+  motion, and never slides on load). Jump to (< 768 px) has no icons,
+  so it keeps its numbers, in the tone.
+  **Departs from the Ledger UX spec:** DESIGN.md "Section index (desktop)"
+  (`section-index-item`: mono number 01–05, label, mono count; numbers and
+  count turn `primary-text` when active), the `mono-index` type role, and
+  EXPERIENCE.md "Section index" ("sticky numbered left index (01–05)") all
+  call for the numbers. Accepting this proposal means amending those; without
+  `accent` the menu still follows them.
+- With `SectionHeader icon`, the Section heading's focus ring shows only on
+  `:focus-visible`: focus still moves to the heading after a menu click, Save
+  or Cancel, but a mouse action shows no box (keyboard use still does). Without
+  the opt-in, the F3-2 rule stands (the ring on any `:focus`, because Chromium
+  doesn't match `:focus-visible` after script focus that follows a click).
+- Insurance policy cards: a 4 px `brand-primary` rule along the top
+  (`border` when Deleted).
+- `ProfileHeader accent`: the tinted band, a 3 px primary → secondary → tertiary
+  rule over its bottom border and a `brand-secondary` ring on the avatar that
+  scales in once (`.animate-avatar-ring-enter`, 450 ms; static under reduced
+  motion).
+
+**Motion.** All motion is one-shot and animates only transform and opacity.
+None of it loops, and all of it is off under reduced motion
+(`app/globals.css`, "Design refresh motion"):
+
+| Class / component | What | Duration |
+|---|---|---|
+| `.animate-section-enter` (`SectionContainer animated`) | Fade + 14 px rise when a Section's content arrives, staggered 70 ms by display order (`sectionStagger`) | 320 ms, `ease-premium` |
+| `.animate-icon-enter` (`AnimatedIcon entrance`) | Icon tile fades and scales 0.8 → 1.08 → 1 (a slight overshoot) | 380 ms |
+| `AnimatedIcon` hover | Tile lifts 2 px and scales to 1.12 on hover of its `group/icon-host` row or keyboard focus in it (`:focus-visible`, not a click that moves focus there) | 200 ms, `ease-spring` (`cubic-bezier(0.34, 1.56, 0.64, 1)`) |
+| `.animate-icon-success` (`AnimatedIcon success`) | A check pops over the tile after a Section saves, then fades | 300 ms in, 250 ms out after 1.2 s |
+| `.animate-saved-flash` (`SectionContainer animated`) | Success ring fades in and out after a save | 400 ms |
+| `.animate-icon-pop` (success toast) | The toast's check pops in | 300 ms |
+| Section menu indicator (`SectionNav accent`) | Slides to the current item by `translateY` | 300 ms, `ease-premium` |
+| `CopyButton` confirmation (`.animate-icon-pop`) | ✓ and the "Copied" bubble pop in, then go after 1.5 s | 300 ms |
+| `.animate-avatar-ring-enter` (`ProfileHeader accent`) | The avatar ring scales 0.8 → 1.06 → 1 and fades in, once | 450 ms after 120 ms |
+
+The Section header tile (`AnimatedIcon size="lg"`, 40 px with a 20 px glyph)
+shows only from 640 px. At 360 px it would push
+"Edit" / "Add …" onto a second row in Social media and Addresses. Lifts are
+gated with `motion-safe:` rather than reset with `motion-reduce:`, because
+the reset loses to the `group-hover` selectors' specificity.
+
+Entrances fill `backwards` only, so no transform outlives them. A lingering
+transform would make each Section a stacking context. Decorative icons are
+`aria-hidden`; a save is still announced by its toast. E2e runs with
+`reducedMotion: "reduce"`.
+
 ---
 
 ## 10. Accessibility
