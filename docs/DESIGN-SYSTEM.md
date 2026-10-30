@@ -420,10 +420,12 @@ link-text ≥ 5.17 (dark ≥ 6.46) and the strong foregrounds ≥ 5.1. The soft
 `tint-*` (12 % / 22 %) is too strong for that in dark mode (mint: 3.8:1 for
 link-text), which is why tables use the surface level.
 
-The header band is strongest at the name. The only muted text on it (the
-primary phone / email labels, ≥ 768 px, right-aligned) starts at 63 % or
-later; from the 60 % point on muted-foreground is ≥ 4.65:1 (dark ≥ 4.78:1).
-The name is foreground (≥ 6.45:1).
+The header band is strongest at the name. Its contact block (the primary
+phone / email, ≥ 768 px, right-aligned) moves left with a long email, down to
+the band's strongest part (38 % of the width at 768 px with a 46-character
+address), where muted-foreground falls to 4.35:1 (2.66:1 at the start stop;
+dark 4.43:1). So text on the band is foreground only: ≥ 6.45:1 over the whole
+band (dark ≥ 7.42:1), the name and the contact labels included.
 
 Outline and ghost buttons hover on `tint-blue`. Status keeps its own colors.
 
