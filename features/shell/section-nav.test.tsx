@@ -319,6 +319,7 @@ describe("scroll-spy", () => {
     reportIntersections({ phone: true })
     const current = menuLink(/^Phone$/)
     hasClasses(current, "relative", "bg-accent", "text-primary-text", "font-semibold", "before:absolute", "before:w-[3px]", "before:bg-primary")
+    hasClasses(menuLink(/^Personal information$/), "hover:bg-accent")
     hasClasses(current.firstElementChild, "text-primary-text")
     hasClasses(current.querySelector('[data-slot="section-count"]'), "text-primary-text")
     expect(menuLink(/^Personal information$/).classList.contains("bg-accent")).toBe(false)
@@ -331,7 +332,9 @@ describe("scroll-spy", () => {
     // The current item's fill and bar are drawn by the sliding indicator, in the current Section's tone.
     hasClasses(current, "relative", "grid-cols-[24px_1fr_auto]", "font-semibold")
     hasClasses(indicator(), "bg-tint-teal-strong", "before:absolute", "before:w-[3px]", "before:bg-brand-secondary")
-    for (const name of ["bg-accent", "text-primary-text", "bg-tint-teal-strong", "before:bg-brand-secondary", "hover:bg-tint-teal-surface"]) expect(current.classList.contains(name)).toBe(false)
+    // No hover fill either: the link paints over the indicator, so one would cover it (#61 review; e2e design-refresh.spec.ts).
+    for (const name of ["bg-accent", "hover:bg-accent", "text-primary-text", "bg-tint-teal-strong", "before:bg-brand-secondary", "hover:bg-tint-teal-surface"])
+      expect(current.classList.contains(name)).toBe(false)
     // No 01–05: the icon takes the number's column, so the label keeps its place; the names stay the labels.
     expect(menu().textContent).not.toMatch(/0[1-5]/)
     expect(currentItems()).toEqual(["Phone"])

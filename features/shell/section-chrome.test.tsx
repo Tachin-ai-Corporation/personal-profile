@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { axeViolations } from "@/test/axe"
 import { stubLayoutApis } from "@/test/dom-stubs"
 import { sectionHeadingId } from "./nav-types"
-import { SectionContainer } from "./section-container"
+import { SAVED_FLASH_MS, SectionContainer } from "./section-container"
 import { SectionFooter, type SectionFooterProps } from "./section-footer"
 import { SectionHeader } from "./section-header"
 import { SectionRegistryProvider, useSectionRegistry, type SectionRegistry } from "./section-registry"
@@ -138,16 +138,75 @@ describe("SectionContainer", () => {
     expect(box.querySelector("[data-slot='section-saved-flash']")).not.toBe(flash)
   })
 
-  it("`accent`: a 4 px bar in the tone's brand hue over the left border; none by default", () => {
+  it("`animated`: the saved ring is unmounted once its pulse ends (a lasting abspos overlay would suppress scroll anchoring)", () => {
+    vi.useFakeTimers()
+    try {
+      const registry = withRegistry(
+        <SectionContainer editing={false} sectionId="email" animated>
+          x
+        </SectionContainer>,
+      )
+      const box = screen.getByText("x")
+      act(() => registry.report({ type: "saved", id: "email" }))
+      act(() => vi.advanceTimersByTime(SAVED_FLASH_MS - 1))
+      expect(box.querySelector("[data-slot='section-saved-flash']")).not.toBeNull()
+      act(() => vi.advanceTimersByTime(1))
+      expect(box.querySelector("[data-slot='section-saved-flash']")).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("`animated` off and back on: no ring while off; the next save after re-enabling rings again (#61 review)", () => {
+    vi.useFakeTimers()
+    try {
+      let registry: SectionRegistry | undefined
+      function Capture() {
+        registry = useSectionRegistry()
+        return null
+      }
+      const ui = (animated: boolean) => (
+        <SectionRegistryProvider>
+          <Capture />
+          <SectionContainer editing={false} sectionId="email" animated={animated}>
+            x
+          </SectionContainer>
+        </SectionRegistryProvider>
+      )
+      const { rerender } = render(ui(true))
+      const flash = () => screen.getByText("x").querySelector("[data-slot='section-saved-flash']")
+      act(() => registry?.report({ type: "saved", id: "email" }))
+      expect(flash()).not.toBeNull()
+      rerender(ui(false))
+      expect(flash()).toBeNull()
+      act(() => registry?.report({ type: "saved", id: "email" }))
+      expect(flash()).toBeNull()
+      act(() => vi.advanceTimersByTime(SAVED_FLASH_MS))
+      rerender(ui(true))
+      expect(flash()).toBeNull()
+      act(() => registry?.report({ type: "saved", id: "email" }))
+      expect(flash()).not.toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("`accent`: a 4 px left border in the tone's brand hue, with no positioned overlay; none by default", () => {
     const { rerender } = render(<SectionContainer editing={false}>x</SectionContainer>)
     const box = screen.getByText("x")
-    expect(box.className).not.toContain("before:")
+    expect(box.className).not.toContain("border-l-4")
     for (const [tone, hue] of [["blue", "brand-primary"], ["teal", "brand-secondary"], ["mint", "brand-tertiary"]] as const) {
       rerender(<SectionContainer editing={false} accent={tone}>x</SectionContainer>)
-      expect(box.className).toContain(`before:bg-${hue}`)
-      expect(box.className).toContain("before:w-1")
-      expect(box.className).toContain("relative")
+      expect(box.className).toContain("border-l-4")
+      expect(box.className).toContain(`border-l-${hue}`)
+      // An absolutely positioned bar that grows with the container made Chrome suppress scroll anchoring (#62 CI).
+      expect(box.className).not.toContain("before:")
+      expect(box.className).not.toContain("relative")
     }
+    // The tone's border stays while editing (the primary border and halo are on the other sides and the ring).
+    rerender(<SectionContainer editing accent="teal">x</SectionContainer>)
+    expect(box.className).toContain("border-l-brand-secondary")
+    expect(box.className).toContain("border-primary")
   })
 
   it("is a flat hairline card that turns primary with a 3 px accent halo while editing", () => {

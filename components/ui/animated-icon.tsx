@@ -3,6 +3,7 @@
 import * as React from "react"
 import { Check, type LucideIcon } from "lucide-react"
 
+import { useConfirmationWindow } from "@/components/ui/use-confirmation-window"
 import { cn } from "@/lib/utils"
 
 /** How long the saved check stays (its pop, the hold and its fade; app/globals.css `.animate-icon-success`). */
@@ -41,7 +42,8 @@ export interface AnimatedIconProps {
   readonly stagger?: number
   /**
    * A success counter: each increase pops a check over the tile, which fades
-   * after about 1.2 s. `0` (the default) shows none.
+   * after about 1.2 s. `0` (the default) shows none; a counter that drops to
+   * `0` and counts again pops again.
    */
   readonly success?: number
   readonly className?: string
@@ -69,14 +71,8 @@ export function AnimatedIcon({
   success = 0,
   className,
 }: AnimatedIconProps): React.JSX.Element {
-  // The check for success `n` hides once `n`'s timer runs out; a newer save restarts it.
-  const [doneFor, setDoneFor] = React.useState(0)
-  React.useEffect(() => {
-    if (success === 0) return
-    const timer = setTimeout(() => setDoneFor(success), ANIMATED_ICON_SUCCESS_MS)
-    return () => clearTimeout(timer)
-  }, [success])
-  const showCheck = success > 0 && doneFor !== success
+  // The check for success `n` hides once `n`'s window ends; a newer save restarts it.
+  const showCheck = useConfirmationWindow(success, ANIMATED_ICON_SUCCESS_MS)
   const { tile, glyph } = SIZES[size]
 
   return (
