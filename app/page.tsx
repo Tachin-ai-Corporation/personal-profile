@@ -21,14 +21,16 @@ export default async function HomePage() {
     <PortalUrlProvider portalUrl={portalUrl}>
       <PageFrame
         page="profile"
-        header={<ProfileHeader />}
+        header={<ProfileHeader accent />}
         idle={idle}
         saveOrder={SAVE_ORDER}
         saveAllSlot={<SaveAllBar />}
       >
         <ProfileTabs
+          accent
           contacts={
             <ContactsPanel
+              accent
               sections={{
                 personal: <PersonalSection />,
                 phone: <PhoneSection />,

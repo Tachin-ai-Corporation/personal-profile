@@ -218,7 +218,8 @@ describe("PhoneSection: Make primary eligibility (Story 3.4)", () => {
       expect(described(action), number).toContain(reason)
     }
     // Verify beside "Verify this number first" (inline, before Make primary); none on the Home row.
-    const inline = within(rowOf("+1 (415) 555-0111")).getAllByRole("button").map((button) => button.textContent)
+    // The row actions (the copy button, design refresh, sits in the value cell before them).
+    const inline = within(rowOf("+1 (415) 555-0111")).getAllByRole("button").filter((button) => button.dataset.slot !== "copy-button").map((button) => button.textContent)
     expect(inline.slice(0, 2)).toEqual(["Verify", "Make primary"])
     expect(inlineAction("+1 (415) 555-0114", "Verify")).toBeNull()
     // A disabled one does nothing.

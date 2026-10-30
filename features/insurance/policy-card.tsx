@@ -3,7 +3,7 @@
 import { useId, useRef, useState, type JSX } from "react"
 import { Chip } from "@/components/ui/chip"
 import { FallbackImage } from "@/components/ui/fallback-image"
-import { KeyValueTable, RowActions, type RowAction } from "@/features/shell"
+import { KeyValueTable, labelChipTone, RowActions, type RowAction } from "@/features/shell"
 import { INSURANCE_CARD_SIDES, insuranceCardDownloadPath, type InsuranceCardSide, type InsurancePolicy, type Myself } from "@/lib/api"
 import { COMMON_MESSAGES, formatMessage, INSURANCE_MESSAGES, SECTION_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
@@ -147,13 +147,21 @@ export function InsurancePolicyCard({ policy, myself, onEdit, onDelete, deleteDi
       data-slot="insurance-card"
       data-deleted={policy.deleted ? "true" : undefined}
       // A Deleted card: every text muted (the chip already is).
-      className={cn("bg-card min-w-0 rounded-md border", policy.deleted && "[&_*]:text-muted-foreground!")}
+      // Design refresh (PROPOSAL): a 4 px rule along the top in the Section's blue, and an active card lifts 2 px on hover or focus inside
+      // it, its raised shadow fading in on a pseudo-element (transform and opacity only; under reduced motion the shadow alone).
+      className={cn(
+        "bg-card relative min-w-0 rounded-md border",
+        "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-1 before:rounded-t-md",
+        policy.deleted
+          ? "before:bg-border [&_*]:text-muted-foreground!"
+          : "before:bg-brand-primary after:pointer-events-none after:absolute after:inset-0 after:rounded-md after:opacity-0 after:shadow-md after:transition-opacity after:duration-150 transition-transform duration-150 ease-standard motion-safe:hover:-translate-y-0.5 motion-safe:focus-within:-translate-y-0.5 hover:after:opacity-100 focus-within:after:opacity-100",
+      )}
     >
       <div data-slot="insurance-card-title" className="border-border flex min-h-13 flex-wrap items-center gap-x-2.5 gap-y-1 border-b py-1 pr-1 pl-4">
         <h3 id={titleId} className="text-body text-foreground font-semibold">
           {title}
         </h3>
-        {chip ? <Chip variant={chip.variant}>{chip.label}</Chip> : null}
+        {chip ? <Chip variant={chip.variant} tone={labelChipTone(chip.label)}>{chip.label}</Chip> : null}
         {policy.deleted ? null : <RowActions actions={cardActions(policy, onEdit, onDelete, deleteDisabledReason)} name={name} kebabRef={kebabRef} className="ml-auto" />}
       </div>
       <div className="flex flex-col md:flex-row">

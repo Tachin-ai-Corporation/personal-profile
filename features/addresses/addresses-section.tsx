@@ -16,6 +16,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { StatusBadge } from "@/components/ui/status-badge"
 import { Tooltip } from "@/components/ui/tooltip"
 import {
+  PROFILE_SECTION_ICONS,
+  PROFILE_SECTION_TONES,
   RowActions,
   RowEditStatus,
   RowRemoval,
@@ -1362,7 +1364,7 @@ export function AddressesSection() {
   return (
     <section id="addresses" aria-labelledby={headingId} className="min-w-0">
       <LiveStatus message={placesMessage} />
-      <SectionHeader id="addresses" title={SHELL_MESSAGES.sectionAddresses} count={rows?.length} editing={isEditing} actions={headerActions} className="mb-2" />
+      <SectionHeader id="addresses" icon={{ icon: PROFILE_SECTION_ICONS.addresses, tone: PROFILE_SECTION_TONES.addresses }} title={SHELL_MESSAGES.sectionAddresses} count={rows?.length} editing={isEditing} actions={headerActions} className="mb-2" />
       <StateFrame
         state={state}
         skeleton="table"
@@ -1376,7 +1378,7 @@ export function AddressesSection() {
         className={rows ? "overflow-visible rounded-none border-0 bg-transparent" : undefined}
       >
         {rows && (
-          <SectionContainer editing={isEditing} sectionId="addresses">
+          <SectionContainer editing={isEditing} sectionId="addresses" animated accent={PROFILE_SECTION_TONES.addresses}>
             {isEditing ? (
               <>
                 <SectionTable<EditItem>

@@ -60,8 +60,30 @@ test.describe("/ page frame (Stories 1.8, 1.9)", () => {
     }
     expect(order.slice(0, head.length)).toEqual(head)
     // Contacts takes its panel out of the Tab order: its Section menu (or Jump to) follows the tab (F3-3).
-    expect(order[head.length]).toBe(isMobile ? "combobox:01Personal information" : "a:01Personal information")
+    // `/` opts into the design refresh's menu (PROPOSAL): Section icons instead of the 01–05 numbers; Jump to keeps them.
+    expect(order[head.length]).toBe(isMobile ? "combobox:01Personal information" : "a:Personal information")
     expect(order.some((entry) => entry.endsWith(":1health"))).toBe(false)
+  })
+
+  test("Section menu → heading (design refresh, `/`): focus moves either way, but the ring shows only after the keyboard", async ({ page, isMobile }) => {
+    test.skip(isMobile, "the Section menu is desktop only")
+    await mockProfileDefaults(page)
+    await page.goto("/?tab=contacts")
+    const menu = page.getByRole("navigation", { name: "Sections" })
+    const heading = page.getByRole("heading", { level: 2, name: "Phone" })
+    // The icon tile's ring answers keyboard focus in its row too, not a click (`::after` opacity; no transition under reduced motion).
+    const ring = () => page.locator("#phone [data-slot='animated-icon-tile']").evaluate((tile) => getComputedStyle(tile, "::after").opacity)
+    await menu.getByRole("link", { name: "Phone" }).click()
+    await page.mouse.move(0, 0)
+    await expect(heading).toBeFocused()
+    await expect(heading).toHaveCSS("outline-style", "none")
+    await expect.poll(ring).toBe("0")
+    await menu.getByRole("link", { name: "Email" }).focus()
+    await page.keyboard.press("Shift+Tab")
+    await page.keyboard.press("Enter")
+    await expect(heading).toBeFocused()
+    await expect(heading).toHaveCSS("outline-style", "solid")
+    await expect.poll(ring).toBe("1")
   })
 
   for (const tab of TABS) {

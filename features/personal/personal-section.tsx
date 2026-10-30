@@ -12,6 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   KeyValueEditTable,
   KeyValueTable,
+  PROFILE_SECTION_ICONS,
+  PROFILE_SECTION_TONES,
   SIGNATURE_ANCHOR,
   SectionContainer,
   SectionFooter,
@@ -486,6 +488,7 @@ export function PersonalSection() {
     <section id="personal" aria-labelledby={headingId} className="min-w-0">
       <SectionHeader
         id="personal"
+        icon={{ icon: PROFILE_SECTION_ICONS.personal, tone: PROFILE_SECTION_TONES.personal }}
         title={SHELL_MESSAGES.sectionPersonal}
         editing={isEditing}
         className="mb-2"
@@ -510,7 +513,7 @@ export function PersonalSection() {
         className={myself ? "overflow-visible rounded-none border-0 bg-transparent" : undefined}
       >
         {myself && (
-          <SectionContainer editing={isEditing} sectionId="personal">
+          <SectionContainer editing={isEditing} sectionId="personal" animated accent={PROFILE_SECTION_TONES.personal}>
             {isEditing ? (
               <>
                 <KeyValueEditTable

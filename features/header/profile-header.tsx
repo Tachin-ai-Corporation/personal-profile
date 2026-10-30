@@ -1,7 +1,7 @@
 "use client"
 
 import { Camera, UserRound } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { FallbackImage } from "@/components/ui/fallback-image"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DESKTOP_QUERY, useCurrentPage, useMediaQuery, useMyself } from "@/features/shell"
@@ -20,6 +20,7 @@ function Avatar({ text }: { readonly text: string }) {
   return (
     <span
       aria-hidden="true"
+      data-avatar=""
       className="flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-card text-body-sm font-semibold text-primary-text"
     >
       {text || <UserRound className="size-5" />}
@@ -42,6 +43,7 @@ function PictureAvatar({ src, text }: { readonly src: string | null; readonly te
       alt=""
       fallbackWhileLoading
       fallback={<Avatar text={text} />}
+      data-avatar=""
       className="size-10 shrink-0 rounded-full border border-border bg-card object-cover"
     />
   )
@@ -156,12 +158,47 @@ function ContactItem({ label, value }: { readonly label: string; readonly value:
 }
 
 /**
+ * The accent's avatar ring (design refresh, PROPOSAL): a 2 px brand-secondary
+ * ring around the 40 px circle that scales in from 0.8 once
+ * (`.animate-avatar-ring-enter`, transform and opacity only; static under
+ * reduced motion). It is its own element so the entrance never moves the
+ * avatar, and it comes first so the camera badge stays on top. The wrapper is
+ * the 40 px circle (the editable button's 44 px hit area overhangs it by its
+ * negative margin), so the ring sits just outside it. Without `show`, the
+ * avatar renders alone.
+ */
+function AvatarRing({ show, children }: { readonly show: boolean; readonly children: ReactNode }) {
+  if (!show) return children
+  return (
+    <span className="relative flex shrink-0">
+      <span
+        aria-hidden="true"
+        data-slot="avatar-ring"
+        className="ring-brand-secondary animate-avatar-ring-enter pointer-events-none absolute inset-0 rounded-full ring-2"
+      />
+      {children}
+    </span>
+  )
+}
+
+export interface ProfileHeaderProps {
+  /**
+   * Opt-in (design refresh, PROPOSAL): the band on a blue-to-teal brand
+   * gradient (strongest at the name; lighter on the right, under the muted
+   * contact labels), a 3 px blue-teal-mint brand rule over its bottom border and a teal
+   * ring around the avatar that scales in once (off under reduced motion).
+   * `/` opts in; `/account` doesn't.
+   */
+  readonly accent?: boolean
+}
+
+/**
  * The shared profile header (Story 1.9): the avatar (Profile Picture, else
  * initials) + `{firstName} {lastName}` as the page's single `h1`. At 768 px and
  * above it also shows the primary phone and email; below, nothing is fetched.
  * On `/` the avatar is the "Change profile picture" button (Story 1.10).
  */
-export function ProfileHeader() {
+export function ProfileHeader({ accent = false }: ProfileHeaderProps = {}) {
   const { myself, isLoading } = useMyself()
   // Without a name (loading, failed or blank) the h1 still names the page for assistive tech.
   const currentPage = useCurrentPage()
@@ -176,7 +213,19 @@ export function ProfileHeader() {
   const avatarText = myself ? initials(myself.firstName, myself.lastName) : ""
 
   return (
-    <div className="flex items-center gap-3 border-b border-border bg-background px-4 py-4 md:px-6">
+    <div
+      data-accent={accent ? "true" : undefined}
+      className={cn(
+        "flex items-center gap-3 border-b border-border px-4 py-4 md:px-6",
+        // The ring (`AvatarRing`) and the rule are absolutely positioned over the avatar and the border, so the layout never moves.
+        accent
+          ? [
+              "from-tint-header-start via-tint-header-mid to-tint-header-end relative bg-linear-to-r via-40%",
+              "after:from-brand-primary after:via-brand-secondary after:to-brand-tertiary after:pointer-events-none after:absolute after:inset-x-0 after:-bottom-px after:h-[3px] after:bg-linear-to-r",
+            ]
+          : "bg-background",
+      )}
+    >
       {isLoading ? (
         <>
           <h1 className="sr-only">{pageName}</h1>
@@ -189,9 +238,13 @@ export function ProfileHeader() {
         <>
           {/* Decision 2026-10-14: the avatar is a button only on `/`; on `/account` it stays an image. */}
           {currentPage === "profile" ? (
-            <EditablePictureAvatar src={pictureSrc} text={avatarText} />
+            <AvatarRing show={accent}>
+              <EditablePictureAvatar src={pictureSrc} text={avatarText} />
+            </AvatarRing>
           ) : (
-            <PictureAvatar src={pictureSrc} text={avatarText} />
+            <AvatarRing show={accent}>
+              <PictureAvatar src={pictureSrc} text={avatarText} />
+            </AvatarRing>
           )}
           <h1 className={cn("min-w-0 truncate text-h4 text-foreground", capitalize && "capitalize")}>{name || <span className="sr-only">{pageName}</span>}</h1>
         </>
