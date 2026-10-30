@@ -6,7 +6,7 @@ import useSWR from "swr"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { EmptyState } from "@/components/ui/empty-state"
-import { SectionHeader, sectionHeadingId, StateFrame, useMyself, useRegisterSection, useSectionFrame, type FrameState } from "@/features/shell"
+import { PROFILE_SECTION_ICONS, PROFILE_SECTION_TONES, SectionHeader, sectionHeadingId, StateFrame, useMyself, useRegisterSection, useSectionFrame, type FrameState } from "@/features/shell"
 import { keys, mapFetchError, type ApiResponseError, type InsurancePolicy } from "@/lib/api"
 import { INSURANCE_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 import { insuranceActiveCount, sortInsurancePolicies } from "./format"
@@ -91,6 +91,7 @@ export function InsuranceSection(): JSX.Element {
     <section id="insurance" aria-labelledby={headingId} className="min-w-0">
       <SectionHeader
         id="insurance"
+        icon={{ icon: PROFILE_SECTION_ICONS.insurance, tone: PROFILE_SECTION_TONES.insurance }}
         title={SHELL_MESSAGES.profileTabInsurance}
         count={policies ? insuranceActiveCount(policies) : undefined}
         editing={false}
@@ -122,7 +123,7 @@ export function InsuranceSection(): JSX.Element {
           </div>
         ) : null}
         {policies && policies.length > 0 ? (
-          <div data-slot="insurance-cards" className="flex flex-col gap-4">
+          <div data-slot="insurance-cards" className="animate-section-enter flex flex-col gap-4">
             {policies.map((policy, index) => (
               <InsurancePolicyCard
                 key={policy.id === null ? `none-${index}` : `id-${policy.id}`}

@@ -216,8 +216,8 @@ describe("EmailSection: Make primary eligibility (Story 3.6)", () => {
       expect(described(action), address).toContain(reason)
     }
     // Verify beside "Verify this email first" (inline, before Make primary); none on the Home row.
-    const inline = within(rowOf("ann@other.example")).getAllByRole("button").map((button) => button.textContent)
-    expect(inline.slice(0, 2)).toEqual(["Verify", "Make primary"])
+    const inline = within(rowOf("ann@other.example").querySelector<HTMLElement>("[data-slot='row-actions-inline']") as HTMLElement).getAllByRole("button")
+    expect(inline.map((button) => button.textContent)).toEqual(["Verify", "Make primary"])
     expect(inlineAction("ann@home.example", "Verify")).toBeNull()
     // A disabled one does nothing.
     await click(inlineAction("ann@other.example", "Make primary") as HTMLElement)

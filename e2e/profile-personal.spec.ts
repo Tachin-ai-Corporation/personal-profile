@@ -349,6 +349,8 @@ test.describe("SSN entry and Reveal (Story 2.3)", () => {
     const cell = await valueCell(page, "SSN")
     await expect(cell.locator(".mono-value")).toHaveText("***-**-1234")
     const reveal = revealButton(page)
+    // Motion is on: measure after the Section's entrance, whose fractional translate can round the box to 43.9999 px.
+    await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))))
     const box = await reveal.boundingBox()
     expect(box && box.height >= 44 && box.width >= 44).toBe(true)
     await expect(reveal).toHaveCSS("text-decoration-line", "underline")
