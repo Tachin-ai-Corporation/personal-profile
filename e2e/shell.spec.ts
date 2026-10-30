@@ -59,8 +59,10 @@ test.describe("/ page frame (Stories 1.8, 1.9)", () => {
       order.push(await focused(page))
     }
     expect(order.slice(0, head.length)).toEqual(head)
-    // Contacts takes its panel out of the Tab order: its Section menu (or Jump to) follows the tab (F3-3).
-    expect(order[head.length]).toBe(isMobile ? "combobox:01Personal information" : "a:01Personal information")
+    // Contacts takes its panel out of the Tab order: its Section menu (or Jump to) follows the tab (F3-3). A page that
+    // opts into the design refresh's menu accent (PROPOSAL) shows Section icons instead of 01–05; Jump to keeps them.
+    const accented = (await page.locator('[data-slot="section-nav-icon"]').count()) > 0
+    expect(order[head.length]).toBe(isMobile ? "combobox:01Personal information" : accented ? "a:Personal information" : "a:01Personal information")
     expect(order.some((entry) => entry.endsWith(":1health"))).toBe(false)
   })
 
