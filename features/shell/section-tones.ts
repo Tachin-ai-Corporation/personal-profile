@@ -30,7 +30,7 @@ export const PROFILE_SECTION_ICONS: Readonly<Record<ProfileSectionId | "insuranc
 }
 
 export interface ToneClasses {
-  /** `SectionContainer accent`: the 4 px bar over the left border. */
+  /** `SectionContainer accent`: the 4 px left border's brand hue. */
   readonly containerBar: string
   /** `SectionHeader icon`: the short accent line under the title. */
   readonly titleAccent: string
@@ -59,7 +59,7 @@ export interface ToneClasses {
 /** Whole class names per tone, so Tailwind finds them in the source. */
 export const TONE_CLASSES: Readonly<Record<AnimatedIconTone, ToneClasses>> = {
   blue: {
-    containerBar: "before:bg-brand-primary",
+    containerBar: "border-l-brand-primary",
     titleAccent: "after:bg-brand-primary",
     headerActions: "[&_button]:border-brand-primary/50! [&_button:hover]:bg-tint-blue-surface! [&_button:hover]:text-foreground!",
     tableHeader: "bg-tint-blue-surface text-tint-blue-strong-foreground",
@@ -71,7 +71,7 @@ export const TONE_CLASSES: Readonly<Record<AnimatedIconTone, ToneClasses>> = {
     navCountCurrent: "bg-tint-blue-emphasis text-tint-blue-emphasis-foreground",
   },
   teal: {
-    containerBar: "before:bg-brand-secondary",
+    containerBar: "border-l-brand-secondary",
     titleAccent: "after:bg-brand-secondary",
     headerActions: "[&_button]:border-brand-secondary/50! [&_button:hover]:bg-tint-teal-surface! [&_button:hover]:text-foreground!",
     tableHeader: "bg-tint-teal-surface text-tint-teal-strong-foreground",
@@ -83,7 +83,7 @@ export const TONE_CLASSES: Readonly<Record<AnimatedIconTone, ToneClasses>> = {
     navCountCurrent: "bg-tint-teal-emphasis text-tint-teal-emphasis-foreground",
   },
   mint: {
-    containerBar: "before:bg-brand-tertiary",
+    containerBar: "border-l-brand-tertiary",
     titleAccent: "after:bg-brand-tertiary",
     headerActions: "[&_button]:border-brand-tertiary/60! [&_button:hover]:bg-tint-mint-surface! [&_button:hover]:text-foreground!",
     tableHeader: "bg-tint-mint-surface text-tint-mint-strong-foreground",

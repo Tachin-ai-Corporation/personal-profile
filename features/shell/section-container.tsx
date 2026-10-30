@@ -1,6 +1,6 @@
 "use client"
 
-import type { CSSProperties, ReactNode } from "react"
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react"
 import type { AnimatedIconTone } from "@/components/ui/animated-icon"
 import { cn } from "@/lib/utils"
 import { SectionDraftNotice } from "./draft-banner"
@@ -9,6 +9,9 @@ import { sectionStagger } from "./section-motion"
 import { useSectionSavedCount } from "./section-registry"
 import { SectionToneContext } from "./section-tone"
 import { TONE_CLASSES } from "./section-tones"
+
+/** The saved ring's pulse (app/globals.css `.animate-saved-flash`, 400 ms); it is unmounted after. */
+export const SAVED_FLASH_MS = 400
 
 export interface SectionContainerProps {
   /** Edit view: `table-container-editing` (primary border + 3 px accent halo). */
@@ -45,6 +48,14 @@ export interface SectionContainerProps {
  */
 export function SectionContainer({ editing, sectionId, animated = false, accent, children, className }: SectionContainerProps) {
   const saved = useSectionSavedCount(animated && sectionId ? sectionId : null)
+  // The saved ring is unmounted once its pulse ends: a lasting absolutely positioned overlay that resizes with the
+  // container would make Chrome suppress scroll anchoring (see `accent`).
+  const [flashDoneFor, setFlashDoneFor] = useState(0)
+  useEffect(() => {
+    if (saved === 0) return
+    const timer = setTimeout(() => setFlashDoneFor(saved), SAVED_FLASH_MS)
+    return () => clearTimeout(timer)
+  }, [saved])
   return (
     <div
       data-slot="section-container"
@@ -53,17 +64,17 @@ export function SectionContainer({ editing, sectionId, animated = false, accent,
         "bg-card rounded-md border",
         editing ? "border-primary ring-accent ring-[3px]" : "border-border",
         animated && "animate-section-enter relative",
-        accent && [
-          "relative before:pointer-events-none before:absolute before:-inset-y-px before:-left-px before:w-1 before:rounded-l-md",
-          TONE_CLASSES[accent].containerBar,
-        ],
+        // A real 4 px left border, not a positioned pseudo-element: an absolutely positioned bar that grows with the
+        // container made Chrome suppress scroll anchoring, so a field error appearing above a button (blur validation)
+        // moved the button under the pointer mid-click (#62 CI, the 360 px edit card's Verify).
+        accent && ["border-l-4", TONE_CLASSES[accent].containerBar],
         className,
       )}
       style={animated ? ({ "--stagger": sectionId ? sectionStagger(sectionId) : 0 } as CSSProperties) : undefined}
     >
       {sectionId ? <SectionDraftNotice sectionId={sectionId} /> : null}
       <SectionToneContext value={accent ?? null}>{children}</SectionToneContext>
-      {saved > 0 ? (
+      {saved > 0 && flashDoneFor !== saved ? (
         // Restarted per save by its key; opacity 0 at rest, so it shows nothing under reduced motion.
         <span key={saved} aria-hidden="true" data-slot="section-saved-flash" className="animate-saved-flash ring-success pointer-events-none absolute -inset-px rounded-md ring-2" />
       ) : null}

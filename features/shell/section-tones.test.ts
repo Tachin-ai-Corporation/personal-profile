@@ -14,7 +14,7 @@ describe("TONE_CLASSES", () => {
   it("maps each tone to its own brand hue and tints, as whole class names", () => {
     for (const [tone, hue] of [["blue", "brand-primary"], ["teal", "brand-secondary"], ["mint", "brand-tertiary"]] as const) {
       const classes = TONE_CLASSES[tone]
-      expect(classes.containerBar).toBe(`before:bg-${hue}`)
+      expect(classes.containerBar).toBe(`border-l-${hue}`)
       expect(classes.titleAccent).toBe(`after:bg-${hue}`)
       expect(classes.headerActions).toContain(`[&_button]:border-${hue}/`)
       expect(classes.headerActions).toContain(`[&_button:hover]:bg-tint-${tone}-surface!`)

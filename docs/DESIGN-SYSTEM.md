@@ -418,8 +418,12 @@ never moves:
 
 - One tone per Section, `PROFILE_SECTION_TONES` (`features/shell/section-tones.ts`):
   Personal and Insurance blue, Phone / Email / Social media teal, Addresses mint.
-- `SectionContainer accent={tone}`: a 4 px bar in the brand hue
-  (`brand-primary` / `-secondary` / `-tertiary`) over the left border.
+- `SectionContainer accent={tone}`: a 4 px left border in the brand hue
+  (`brand-primary` / `-secondary` / `-tertiary`). It is a real border, not an
+  absolutely positioned bar: a positioned overlay that grows with the container
+  makes Chrome suppress scroll anchoring, so content appearing above a control
+  (a field error on blur) would move it mid-click. The saved ring is unmounted
+  once its pulse ends for the same reason.
 - `SectionHeader icon`: besides the tile, a 24 × 2 px line in the brand hue
   under the title (all widths), and the header actions (Edit, Add …) with an
   outline in the brand hue, filling with the surface tint on hover (text stays
