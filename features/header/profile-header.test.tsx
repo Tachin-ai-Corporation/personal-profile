@@ -189,6 +189,21 @@ describe("ProfileHeader", () => {
     expect(seen.toSorted()).toEqual(["Email", "Landline", "Mobile"])
   })
 
+  it("accent: the contact labels are foreground (AA over the whole band); muted without it", async () => {
+    stubViewport(1280)
+    myself()
+    contacts({ Mobile: [{ id: 2, value: "+14155552125", label: "Primary", type: "Mobile" }], Landline: [], Email: [{ id: 3, value: "ann@example.com", label: "Primary", type: "Email" }] })
+    const { unmount } = setup("profile", true)
+    expect(await screen.findByText("Primary phone")).toBeTruthy()
+    for (const label of ["Primary phone", "Primary email"]) {
+      expect(screen.getByText(label).className).toContain("text-foreground")
+      expect(screen.getByText(label).className).not.toContain("text-muted-foreground")
+    }
+    unmount()
+    setup("profile")
+    expect((await screen.findByText("Primary email")).className).toContain("text-muted-foreground")
+  })
+
   it("formats the primary phone with its own row's region", async () => {
     stubViewport(1280)
     myself()

@@ -148,10 +148,18 @@ function EditablePictureAvatar({ src, text }: { readonly src: string | null; rea
   )
 }
 
-function ContactItem({ label, value }: { readonly label: string; readonly value: string | null }) {
+/**
+ * One primary contact. With `accent` the label is `text-foreground`: a long
+ * email can push the block toward the band's strongest stop, where
+ * muted-foreground drops to 2.66:1 (dark 4.43:1); foreground stays ≥ 6.45:1
+ * (dark ≥ 7.42:1) over the whole gradient (#62 review).
+ */
+function ContactItem({ label, value, accent }: { readonly label: string; readonly value: string | null; readonly accent: boolean }) {
   return (
     <div className="flex flex-col items-end">
-      <dt className="text-caption text-muted-foreground">{label}</dt>
+      <dt data-slot="header-contact-label" className={cn("text-caption", accent ? "text-foreground" : "text-muted-foreground")}>
+        {label}
+      </dt>
       <dd className="text-body-sm font-medium tabular-nums text-foreground">{value}</dd>
     </div>
   )
@@ -184,8 +192,8 @@ function AvatarRing({ show, children }: { readonly show: boolean; readonly child
 export interface ProfileHeaderProps {
   /**
    * Opt-in (design refresh, PROPOSAL): the band on a blue-to-teal brand
-   * gradient (strongest at the name; lighter on the right, under the muted
-   * contact labels), a 3 px blue-teal-mint brand rule over its bottom border and a teal
+   * gradient (strongest at the name; lighter on the right), its contact labels
+   * in foreground (AA wherever a long email puts them), a 3 px blue-teal-mint brand rule over its bottom border and a teal
    * ring around the avatar that scales in once (off under reduced motion).
    * `/` opts in; `/account` doesn't.
    */
@@ -255,9 +263,10 @@ export function ProfileHeader({ accent = false }: ProfileHeaderProps = {}) {
             <ContactItem
               label={HEADER_MESSAGES.primaryPhone}
               value={phone.value === null ? null : formatPhoneDisplay(phone.value, phone.phoneNumberRegion)}
+              accent={accent}
             />
           ) : null}
-          {email ? <ContactItem label={HEADER_MESSAGES.primaryEmail} value={email.value} /> : null}
+          {email ? <ContactItem label={HEADER_MESSAGES.primaryEmail} value={email.value} accent={accent} /> : null}
         </dl>
       ) : null}
     </div>
