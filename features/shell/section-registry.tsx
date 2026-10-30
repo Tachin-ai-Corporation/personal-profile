@@ -244,6 +244,23 @@ export function useSectionRegistry(): SectionRegistry {
   return registry
 }
 
+/**
+ * How many times the Section `id` reported `saved` since mount (its own Save
+ * or Save all); `0` with `id` `null` or outside a registry (the design
+ * refresh's saved pulse, PROPOSAL). Read-only: it never changes a save.
+ */
+export function useSectionSavedCount(id: SectionId | null): number {
+  const registry = useContext(RegistryContext)
+  const [count, setCount] = useState(0)
+  useEffect(() => {
+    if (registry === null || id === null) return
+    return registry.observe((event) => {
+      if (event.type === "saved" && event.id === id) setCount((current) => current + 1)
+    })
+  }, [registry, id])
+  return count
+}
+
 /** Re-renders when any Section's dirty state changes. */
 export function useIsAnyDirty(): boolean {
   const registry = useSectionRegistry()

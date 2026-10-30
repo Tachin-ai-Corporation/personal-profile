@@ -135,6 +135,27 @@ describe("Chip (F6-2)", () => {
     expect(chip.className).not.toContain("rounded-full")
   })
 
+  it.each([
+    ["teal", "bg-tint-teal-strong", "text-tint-teal-strong-foreground"],
+    ["mint", "bg-tint-mint-strong", "text-tint-mint-strong-foreground"],
+    ["aqua", "bg-tint-aqua-strong", "text-tint-aqua-strong-foreground"],
+  ] as const)("tone %s (design refresh, opt-in): a label chip on its tint instead of grey", (tone, background, foreground) => {
+    render(<Chip tone={tone}>Work</Chip>)
+    const chip = screen.getByText("Work")
+    expect(chip.getAttribute("data-tone")).toBe(tone)
+    expect(chip.className).toContain(background)
+    expect(chip.className).toContain(foreground)
+    expect(chip.className).not.toContain("bg-muted")
+  })
+
+  it("ignores a tone on Primary and the other non-label chips", () => {
+    render(<Chip variant="primary" tone="teal">Primary</Chip>)
+    const chip = screen.getByText("Primary")
+    expect(chip.hasAttribute("data-tone")).toBe(false)
+    expect(chip.className).toContain("bg-primary")
+    expect(chip.className).not.toContain("tint")
+  })
+
   it("defaults to the label chip", () => {
     render(<Chip>Old</Chip>)
     expect(screen.getByText("Old").getAttribute("data-variant")).toBe("label")

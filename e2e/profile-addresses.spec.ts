@@ -842,7 +842,9 @@ test.describe("Primary address and removal (Story 4.4)", () => {
     const remove = page.getByRole("menuitem", { name: /^Remove/ })
     await expect(remove).toHaveAttribute("aria-disabled", "true")
     await expect(remove).toContainText("Make another address primary first")
-    // Activation does nothing (aria-disabled: Playwright would wait for it to be enabled).
+    // Activation does nothing (aria-disabled: Playwright would wait for it to be enabled). force skips the stability
+    // wait, and with no entrance animation (reduced motion, the e2e default) the menu may not be placed yet.
+    await expect(remove).toBeInViewport()
     await remove.click({ force: true })
     await expect(footer(page)).toHaveCount(0)
     await page.keyboard.press("Escape")

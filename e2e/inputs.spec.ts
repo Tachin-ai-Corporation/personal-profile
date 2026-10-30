@@ -238,9 +238,10 @@ test.describe("InfoPopover", () => {
     await trigger.evaluate((el) => el.scrollIntoView({ block: "center" }))
     await trigger.focus()
     await expect(popover).toHaveAttribute("data-side", "bottom")
-    const box = await popover.boundingBox()
     const anchor = await trigger.boundingBox()
-    expect(Math.abs((box?.x ?? 0) - (anchor?.x ?? 0))).toBeLessThanOrEqual(1)
+    // With no entrance animation (reduced motion, the e2e default) the box can be read before the popper places it.
+    await expect.poll(async () => Math.abs(((await popover.boundingBox())?.x ?? 0) - (anchor?.x ?? 0))).toBeLessThanOrEqual(1)
+    const box = await popover.boundingBox()
     expect(box?.y ?? 0).toBeGreaterThanOrEqual((anchor?.y ?? 0) + (anchor?.height ?? 0))
 
     await page.keyboard.press("Escape")

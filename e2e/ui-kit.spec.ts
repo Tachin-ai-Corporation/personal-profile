@@ -222,7 +222,9 @@ test.describe("Row kit", () => {
     await page.keyboard.press("Enter")
     const menu = page.getByRole("menu")
     await expect(menu.getByRole("menuitem")).toHaveText(["Verify", "Make primaryAlready primary", "Remove"])
-    // force: Playwright treats aria-disabled as disabled and would wait; this is a real click.
+    // force: Playwright treats aria-disabled as disabled and would wait; this is a real click. With no entrance
+    // animation (reduced motion, the e2e default) force skips the stability wait, so wait until the menu is placed.
+    await expect(menu.getByRole("menuitem", { name: /Make primary/ })).toBeInViewport()
     await menu.getByRole("menuitem", { name: /Make primary/ }).click({ force: true })
     await expect(menu).toBeVisible()
     await expect(page.getByTestId("row-log")).toHaveText("")

@@ -342,6 +342,8 @@ const hideButton = (page: Page): Locator => section(page).getByRole("button", { 
 
 test.describe("SSN entry and Reveal (Story 2.3)", () => {
   test("read view: Reveal shows the SSN with the ring, announces it and focuses Hide; Hide brings the mask back and focuses Reveal", async ({ page }) => {
+    // The countdown ring shows only with motion on (EXPERIENCE.md: reduced motion shows the text alone); e2e defaults to reduce.
+    await page.emulateMedia({ reducedMotion: "no-preference" })
     await openWithFullMyself(page)
     const exposes = await mockPersonalSsnExpose(page)
     const cell = await valueCell(page, "SSN")

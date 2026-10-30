@@ -67,6 +67,28 @@ describe("ProfileTabs", () => {
     expect(tab("Contacts").className).toContain("data-[state=active]:border-primary")
   })
 
+  it("`accent` (design refresh, opt-in): the active tab gets the brand bar and primary-text; off by default", () => {
+    const { unmount } = setup()
+    expect(tab("Contacts").className).not.toContain("after:from-brand-primary")
+    unmount()
+    render(
+      <TestProviders>
+        <CurrentPageProvider value="profile">
+          <SectionRegistryProvider>
+            <main>
+              <ProfileTabs accent />
+            </main>
+          </SectionRegistryProvider>
+        </CurrentPageProvider>
+      </TestProviders>,
+    )
+    const contacts = tab("Contacts")
+    for (const name of ["data-[state=active]:text-primary-text", "data-[state=active]:border-transparent", "after:from-brand-primary", "after:to-brand-secondary", "data-[state=active]:after:opacity-100"])
+      expect(contacts.className).toContain(name)
+    expect(contacts.className).not.toContain("data-[state=active]:border-primary")
+    expect(contacts.className).not.toContain("data-[state=active]:text-foreground")
+  })
+
   it("tags Medical Coming soon (Soon below 768 px)", () => {
     setup()
     expect(tab(MEDICAL).querySelector(".max-md\\:hidden")?.textContent).toBe("Coming soon")

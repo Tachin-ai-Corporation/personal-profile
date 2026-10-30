@@ -322,6 +322,9 @@ test.describe("Add and edit a policy (Story 5.2)", () => {
   test("keyboard only, from the empty card: a new insurer by name, Drug, a Spouse subscriber; own email and age 17 refused", async ({ page, isMobile }) => {
     // Keyboard-only completion is a desktop journey (the 360 px project is a touch device; its journeys are the pointer ones).
     test.skip(isMobile, "keyboard-only journey runs on desktop")
+    // Written with motion on (e2e now defaults to reduced motion): under reduce a keyboard Select pick races the
+    // listbox opening (2–4 in 15 runs fail without this change too).
+    await page.emulateMedia({ reducedMotion: "no-preference" })
     await openEditor(page)
     const posts = await mockInsuranceCreate(page)
     await section(page).locator('[data-slot="empty-state"]').getByRole("button", { name: "Add insurance" }).focus()

@@ -103,6 +103,63 @@
   --tooltip-foreground: #ffffff;
   --qr-surface: #ffffff; /* the QR code sits on white in both themes so scanners read it */
 
+  /* Accent tints (design refresh, PROPOSAL for integrator review; DESIGN-SYSTEM.md
+     "Accent tints and motion"), mixed from the brand layer so a rebrand still
+     flows through. Soft tints (button hovers, shared with /account): each
+     -foreground is >= 4.5:1 on the tint and on card in light (blue 4.94,
+     teal 4.69, mint 4.50). */
+  --tint-blue: color-mix(in oklab, var(--brand-primary) 12%, var(--card));
+  --tint-blue-foreground: var(--brand-primary);
+  --tint-teal: color-mix(in oklab, var(--brand-secondary) 12%, var(--card));
+  --tint-teal-foreground: color-mix(in oklab, var(--brand-secondary) 70%, var(--graphite));
+  --tint-mint: color-mix(in oklab, var(--brand-tertiary) 12%, var(--card));
+  --tint-mint-foreground: color-mix(in oklab, var(--brand-tertiary) 55%, var(--graphite));
+  /* Strong tints for the opt-in Section tones (icon tiles, the active Section
+     menu item): the brand hue at a set lightness and chroma (oklch relative
+     color), so the tile reads clearly blue / teal / mint (a color-mix with
+     white keeps trust-blue's low chroma and reads grey-blue). Each -foreground
+     is the brand hue as icon and text color: brand-primary itself for blue;
+     teal and mint at full chroma, deepened to L 0.46 (the solid swatches are
+     2.6:1 and 1.5:1 on their tiles). Contrast, foreground on: tile blue 4.67,
+     teal 5.27, mint 5.29; background >= 5.46; accent >= 5.35. */
+  --tint-blue-strong: oklch(from var(--brand-primary) 0.92 0.05 h);
+  --tint-blue-strong-foreground: var(--brand-primary);
+  --tint-teal-strong: oklch(from var(--brand-secondary) 0.92 0.05 h);
+  --tint-teal-strong-foreground: oklch(from var(--brand-secondary) 0.46 c h);
+  --tint-mint-strong: oklch(from var(--brand-tertiary) 0.92 0.05 h);
+  --tint-mint-strong-foreground: oklch(from var(--brand-tertiary) 0.46 c h);
+  /* Aqua (brand-highlight), for label chips only: foreground 5.54:1 on it. */
+  --tint-aqua-strong: oklch(from var(--brand-highlight) 0.92 0.05 h);
+  --tint-aqua-strong-foreground: oklch(from var(--brand-highlight) 0.46 c h);
+  /* Icon tiles only: deeper and more saturated than -strong (the blue hue tops
+     out near C 0.05 at L 0.92). Decorative glyphs on them: blue (brand-primary)
+     4.14, teal 4.68, mint 4.70; never text. */
+  --tint-blue-tile: oklch(from var(--brand-primary) 0.88 0.065 h);
+  --tint-teal-tile: oklch(from var(--brand-secondary) 0.88 0.065 h);
+  --tint-mint-tile: oklch(from var(--brand-tertiary) 0.88 0.065 h);
+  /* Emphasis, for the current Section menu item's count pill (it sits on the
+     -strong fill): text on it blue 5.78, teal 5.45, mint 5.47. */
+  --tint-blue-emphasis: oklch(from var(--brand-primary) 0.85 0.075 h);
+  --tint-blue-emphasis-foreground: oklch(from var(--brand-primary) 0.4 c h);
+  --tint-teal-emphasis: oklch(from var(--brand-secondary) 0.85 0.075 h);
+  --tint-teal-emphasis-foreground: oklch(from var(--brand-secondary) 0.4 c h);
+  --tint-mint-emphasis: oklch(from var(--brand-tertiary) 0.85 0.075 h);
+  --tint-mint-emphasis-foreground: oklch(from var(--brand-tertiary) 0.4 c h);
+  /* Surfaces under text (table header rows, row hover, menu hover, the header
+     actions' hover fill): every text color on them stays AA; muted-foreground
+     >= 5.46, success-strong >= 4.61, link-text >= 5.17, -strong-foreground
+     >= 5.1. */
+  --tint-blue-surface: color-mix(in oklab, var(--brand-primary) 10%, var(--card));
+  --tint-teal-surface: color-mix(in oklab, var(--brand-secondary) 10%, var(--card));
+  --tint-mint-surface: color-mix(in oklab, var(--brand-tertiary) 10%, var(--card));
+  /* Profile header band (opt-in), three stops: primary 50 % → secondary 24 % at
+     40 % → secondary 12 %. Foreground >= 6.45:1 everywhere; muted-foreground
+     >= 4.65:1 from the 60 % point on, where the only muted text (the primary
+     phone / email labels, >= 768 px, right-aligned, from 63 %) sits. */
+  --tint-header-start: color-mix(in oklab, var(--brand-primary) 50%, var(--background));
+  --tint-header-mid: color-mix(in oklab, var(--brand-secondary) 24%, var(--background));
+  --tint-header-end: color-mix(in oklab, var(--brand-secondary) 12%, var(--background));
+
   /* Data-viz — healthcare palette ordered to avoid "rainbow" dashboards */
   --chart-1: var(--trust-blue);
   --chart-2: var(--network-teal);
@@ -165,6 +222,44 @@
   --tooltip: var(--cloud);
   --tooltip-foreground: var(--graphite);
   --qr-surface: #ffffff; /* stays white: scanners need dark-on-white */
+
+  /* Accent tints, dark (PROPOSAL): stronger mixes on card-dark, light icon hues
+     (on the tint: blue 4.87, teal 4.47, mint 4.18; icons need 3:1). */
+  --tint-blue: color-mix(in oklab, var(--brand-primary) 22%, var(--card));
+  --tint-blue-foreground: var(--primary-text);
+  --tint-teal: color-mix(in oklab, var(--brand-secondary) 22%, var(--card));
+  --tint-teal-foreground: color-mix(in oklab, var(--brand-secondary) 60%, var(--cloud));
+  --tint-mint: color-mix(in oklab, var(--brand-tertiary) 22%, var(--card));
+  --tint-mint-foreground: var(--brand-tertiary);
+  /* Strong tints, dark: deep brand-hue tiles, light brand-hue foregrounds
+     (on the tile >= 5.76, on background >= 8.65, on accent >= 6.67). */
+  --tint-blue-strong: oklch(from var(--brand-primary) 0.38 0.06 h);
+  --tint-blue-strong-foreground: oklch(from var(--brand-primary) 0.82 c h);
+  --tint-teal-strong: oklch(from var(--brand-secondary) 0.38 0.06 h);
+  --tint-teal-strong-foreground: oklch(from var(--brand-secondary) 0.82 c h);
+  --tint-mint-strong: oklch(from var(--brand-tertiary) 0.38 0.06 h);
+  --tint-mint-strong-foreground: oklch(from var(--brand-tertiary) 0.82 c h);
+  --tint-aqua-strong: oklch(from var(--brand-highlight) 0.38 0.06 h);
+  --tint-aqua-strong-foreground: oklch(from var(--brand-highlight) 0.82 c h);
+  /* Tiles, dark (glyphs on them >= 5.2). */
+  --tint-blue-tile: oklch(from var(--brand-primary) 0.4 0.07 h);
+  --tint-teal-tile: oklch(from var(--brand-secondary) 0.4 0.07 h);
+  --tint-mint-tile: oklch(from var(--brand-tertiary) 0.4 0.07 h);
+  /* Emphasis, dark (text on it >= 5.04). */
+  --tint-blue-emphasis: oklch(from var(--brand-primary) 0.48 0.08 h);
+  --tint-blue-emphasis-foreground: oklch(from var(--brand-primary) 0.92 0.05 h);
+  --tint-teal-emphasis: oklch(from var(--brand-secondary) 0.48 0.08 h);
+  --tint-teal-emphasis-foreground: oklch(from var(--brand-secondary) 0.92 0.05 h);
+  --tint-mint-emphasis: oklch(from var(--brand-tertiary) 0.48 0.08 h);
+  --tint-mint-emphasis-foreground: oklch(from var(--brand-tertiary) 0.92 0.05 h);
+  /* Surfaces, dark: muted-foreground >= 5.14, success-strong >= 5.16, link-text >= 6.46. */
+  --tint-blue-surface: color-mix(in oklab, var(--brand-primary) 12%, var(--card));
+  --tint-teal-surface: color-mix(in oklab, var(--brand-secondary) 12%, var(--card));
+  --tint-mint-surface: color-mix(in oklab, var(--brand-tertiary) 12%, var(--card));
+  /* Header band, dark: foreground >= 7.4:1, muted-foreground >= 4.78:1 from 60 %. */
+  --tint-header-start: color-mix(in oklab, var(--brand-primary) 58%, var(--background));
+  --tint-header-mid: color-mix(in oklab, var(--brand-secondary) 36%, var(--background));
+  --tint-header-end: color-mix(in oklab, var(--brand-secondary) 24%, var(--background));
 }
 
 @theme inline {
@@ -212,6 +307,35 @@
   --color-tooltip: var(--tooltip);
   --color-tooltip-foreground: var(--tooltip-foreground);
   --color-qr-surface: var(--qr-surface);
+  --color-tint-blue: var(--tint-blue);
+  --color-tint-blue-foreground: var(--tint-blue-foreground);
+  --color-tint-teal: var(--tint-teal);
+  --color-tint-teal-foreground: var(--tint-teal-foreground);
+  --color-tint-mint: var(--tint-mint);
+  --color-tint-mint-foreground: var(--tint-mint-foreground);
+  --color-tint-blue-strong: var(--tint-blue-strong);
+  --color-tint-blue-strong-foreground: var(--tint-blue-strong-foreground);
+  --color-tint-teal-strong: var(--tint-teal-strong);
+  --color-tint-teal-strong-foreground: var(--tint-teal-strong-foreground);
+  --color-tint-mint-strong: var(--tint-mint-strong);
+  --color-tint-mint-strong-foreground: var(--tint-mint-strong-foreground);
+  --color-tint-aqua-strong: var(--tint-aqua-strong);
+  --color-tint-aqua-strong-foreground: var(--tint-aqua-strong-foreground);
+  --color-tint-blue-emphasis: var(--tint-blue-emphasis);
+  --color-tint-blue-emphasis-foreground: var(--tint-blue-emphasis-foreground);
+  --color-tint-teal-emphasis: var(--tint-teal-emphasis);
+  --color-tint-teal-emphasis-foreground: var(--tint-teal-emphasis-foreground);
+  --color-tint-mint-emphasis: var(--tint-mint-emphasis);
+  --color-tint-mint-emphasis-foreground: var(--tint-mint-emphasis-foreground);
+  --color-tint-blue-tile: var(--tint-blue-tile);
+  --color-tint-teal-tile: var(--tint-teal-tile);
+  --color-tint-mint-tile: var(--tint-mint-tile);
+  --color-tint-blue-surface: var(--tint-blue-surface);
+  --color-tint-teal-surface: var(--tint-teal-surface);
+  --color-tint-mint-surface: var(--tint-mint-surface);
+  --color-tint-header-start: var(--tint-header-start);
+  --color-tint-header-mid: var(--tint-header-mid);
+  --color-tint-header-end: var(--tint-header-end);
 
   /* Brand hues exposed directly (e.g. bg-brand-primary, text-brand-secondary) */
   --color-brand-primary: var(--brand-primary);
@@ -279,6 +403,8 @@
      custom properties for use in keyframe rules below. */
   --ease-premium: cubic-bezier(0.16, 1, 0.3, 1); /* 1health signature */
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  /* A small overshoot for the design refresh's hover lift (PROPOSAL). */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 /* Focus ring (DESIGN.md {components.focus-ring}): 2 px ring outline, 2 px
@@ -349,6 +475,88 @@
 
 .animate-pop-in {
   animation: pop-in 0.4s var(--ease-premium) forwards;
+}
+
+/* Design refresh motion (PROPOSAL for integrator review; DESIGN-SYSTEM.md
+   "Accent tints and motion"). One-shot, transform/opacity only, 300–400 ms, no
+   loops. Entrances fill `backwards` only and end on the identity transform, so no transform lingers afterwards (a
+   lingering transform would make each Section a stacking context and clip its
+   absolutely positioned popups under the next Section). `--stagger` is the
+   Section's display index (`sectionStagger()`), 70 ms apart. Every class here
+   is switched off under reduced motion (block below). */
+@keyframes section-enter {
+  from { opacity: 0; transform: translateY(14px); }
+}
+
+/* Scales 0.8 -> 1 with a slight overshoot (1.08 at 60 %). */
+@keyframes icon-enter {
+  0% { opacity: 0; transform: scale(0.8); }
+  60% { opacity: 1; transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes icon-success-in {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes icon-success-out {
+  to { opacity: 0; transform: scale(0.9); }
+}
+
+/* The profile header's avatar ring: scales in from 0.8 with a slight overshoot. */
+@keyframes avatar-ring-enter {
+  0% { opacity: 0; transform: scale(0.8); }
+  60% { opacity: 1; transform: scale(1.06); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes saved-flash {
+  0%, 100% { opacity: 0; }
+  35% { opacity: 1; }
+}
+
+.animate-section-enter {
+  animation: section-enter 320ms var(--ease-premium) backwards;
+  animation-delay: calc(var(--stagger, 0) * 70ms);
+}
+
+.animate-icon-enter {
+  animation: icon-enter 380ms var(--ease-standard) backwards;
+  animation-delay: calc(var(--stagger, 0) * 70ms + 60ms);
+}
+
+.animate-avatar-ring-enter {
+  animation: avatar-ring-enter 450ms var(--ease-standard) 120ms backwards;
+}
+
+/* The saved check: pops in (300 ms), holds, then fades (250 ms after 1.2 s). */
+.animate-icon-success {
+  animation:
+    icon-success-in 300ms var(--ease-premium) both,
+    icon-success-out 250ms var(--ease-standard) 1200ms forwards;
+}
+
+/* The toast's success icon: the same pop, no fade (the toast leaves on its own). */
+.animate-icon-pop {
+  animation: icon-success-in 300ms var(--ease-premium) backwards;
+}
+
+/* Saved pulse overlay on a Section container: a success ring that fades in and out (400 ms). */
+.animate-saved-flash {
+  opacity: 0;
+  animation: saved-flash 400ms var(--ease-standard);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-section-enter,
+  .animate-icon-enter,
+  .animate-icon-success,
+  .animate-icon-pop,
+  .animate-saved-flash,
+  .animate-avatar-ring-enter {
+    animation: none;
+  }
 }
 
 /* Animation keyframes for shadcn components */
@@ -490,4 +698,16 @@
                         60 % dark; replaces the template's black 50 % overlay.
      - tooltip          tooltip surface graphite / white; dark cloud / graphite.
      - qr-surface       white behind the authenticator QR code in both themes.
+     - tint-*           design refresh (PROPOSAL): soft blue / teal / mint tints
+                        mixed from the brand layer, each with an AA
+                        -foreground, for button hovers; tint-*-strong
+                        (the brand hue at a set oklch lightness / chroma,
+                        each with an AA -foreground) for the opt-in Section
+                        tones (active menu item, menu numbers, label chips,
+                        incl. tint-aqua-strong); tint-*-emphasis (the
+                        current menu item's count pill); tint-*-tile (deeper, icon
+                        tiles only); tint-*-surface (light fills under text:
+                        table header rows, row and menu hover, header
+                        action hover); tint-header-start/-mid/-end for the opt-in profile
+                        header band.
    ============================================================================ */

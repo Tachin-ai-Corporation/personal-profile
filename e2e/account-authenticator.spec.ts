@@ -88,6 +88,8 @@ test.describe("Authenticator status and app tiles (Story 8.1)", () => {
   }
 
   test("narrow fallback and breakpoint geometry at 320, 767 and 768 px", async ({ page }) => {
+    // Written with motion on (e2e now defaults to reduced motion): under reduce the tile geometry reads before it settles.
+    await page.emulateMedia({ reducedMotion: "no-preference" })
     for (const linked of [false, true]) {
       await mockMyself(page, { body: { ...ANN, totpEnabled: linked } })
       await page.goto("/account?tab=personal")
