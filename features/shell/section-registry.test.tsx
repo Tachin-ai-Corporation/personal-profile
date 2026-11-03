@@ -1,10 +1,19 @@
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react"
-import { useEffect } from "react"
+import { useEffect, type ReactNode } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { FixtureParticipant } from "./__fixtures__/fixture-participant"
 import { setTelemetrySink } from "@/lib/shared/telemetry"
 import type { SectionRegistration } from "./nav-types"
-import { createSectionRegistry, SectionRegistryProvider, useDirtyCount, useIsAnyDirty, useRegisterSection, useSectionRegistry } from "./section-registry"
+import {
+  createSectionRegistry,
+  SectionRegistryProvider,
+  useDirtyCount,
+  useIsAnyDirty,
+  useRegisterSection,
+  useSectionRegistry,
+  useSectionSavedCount,
+  type SectionRegistry,
+} from "./section-registry"
 
 const reg = (overrides: Partial<SectionRegistration> = {}): SectionRegistration => ({
   id: "phone",
@@ -357,5 +366,81 @@ describe("draft contract (F4)", () => {
       "unregistered:phone:readable",
     ])
     expect(registry.get("phone")).toBeUndefined()
+  })
+})
+
+describe("useSectionSavedCount (design refresh)", () => {
+  /** Renders the hook for `id` inside a registry; `registry()` reports events, `rerender({ id })` changes the observed Section. */
+  function renderCount(initial: Parameters<typeof useSectionSavedCount>[0]) {
+    let captured: SectionRegistry | undefined
+    const wrapper = ({ children }: { readonly children: ReactNode }) => <SectionRegistryProvider>{children}</SectionRegistryProvider>
+    const view = renderHook(
+      ({ id }) => {
+        captured = useSectionRegistry()
+        return useSectionSavedCount(id)
+      },
+      { wrapper, initialProps: { id: initial } },
+    )
+    const save = (id: NonNullable<Parameters<typeof useSectionSavedCount>[0]>) => act(() => captured?.report({ type: "saved", id }))
+    const registry = (): SectionRegistry => {
+      if (!captured) throw new Error("no registry")
+      return captured
+    }
+    return { ...view, save, registry }
+  }
+
+  it("counts its own Section's saves only", () => {
+    const { result, save } = renderCount("phone")
+    expect(result.current).toBe(0)
+    save("email")
+    expect(result.current).toBe(0)
+    save("phone")
+    save("phone")
+    expect(result.current).toBe(2)
+  })
+
+  it("phone → null: 0, and a save meanwhile isn't counted", () => {
+    const { result, rerender, save } = renderCount("phone")
+    save("phone")
+    rerender({ id: null })
+    expect(result.current).toBe(0)
+    save("phone")
+    expect(result.current).toBe(0)
+  })
+
+  it("phone → email: starts at 0 and counts only email's saves", () => {
+    const { result, rerender, save } = renderCount("phone")
+    save("phone")
+    rerender({ id: "email" })
+    expect(result.current).toBe(0)
+    save("phone")
+    expect(result.current).toBe(0)
+    save("email")
+    expect(result.current).toBe(1)
+  })
+
+  it("re-enabling (phone → null → phone) starts a fresh count", () => {
+    const { result, rerender, save } = renderCount("phone")
+    save("phone")
+    save("phone")
+    rerender({ id: null })
+    rerender({ id: "phone" })
+    expect(result.current).toBe(0)
+    save("phone")
+    expect(result.current).toBe(1)
+  })
+
+  it("is 0 outside a registry", () => {
+    const { result } = renderHook(() => useSectionSavedCount("phone"))
+    expect(result.current).toBe(0)
+  })
+
+  it("is read-only: the registry's other observers get the same saves", () => {
+    const { result, save, registry } = renderCount("phone")
+    const observer = vi.fn()
+    registry().observe(observer)
+    save("phone")
+    expect(result.current).toBe(1)
+    expect(observer).toHaveBeenCalledWith({ type: "saved", id: "phone" })
   })
 })

@@ -18,19 +18,22 @@ export interface ProfileTabsProps {
   readonly insurance?: ReactNode
   /** Medical tab body; default: the "Coming soon" line. */
   readonly medical?: ReactNode
+  /** Opt-in (design refresh, PROPOSAL): `PageTabs accent`, the brand-colored active tab. */
+  readonly accent?: boolean
 }
 
 /**
  * The `/` tab strip preset (Story 1.8; F6-1): `PageTabs` with
  * `PROFILE_TAB_DEFINITIONS` and the panels composed by `app/page.tsx`.
  */
-export function ProfileTabs({ contacts, insurance, medical }: ProfileTabsProps = {}) {
+export function ProfileTabs({ contacts, insurance, medical, accent = false }: ProfileTabsProps = {}) {
   return (
     <PageTabs
       page="profile"
       tabs={PROFILE_TAB_DEFINITIONS}
       aria-label={PAGE_TAB_LIST_LABELS.profile}
       defaultTab={DEFAULT_PROFILE_TAB}
+      accent={accent}
       panels={{
         contacts: contacts ?? <ContactsPanel />,
         insurance: insurance ?? <InsurancePanel />,

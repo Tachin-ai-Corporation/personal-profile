@@ -10,12 +10,13 @@ const variantStyles = {
   // D13: the fill is the destructive-fill token (white text 5.93:1 in both themes).
   destructive:
     "bg-destructive-fill text-destructive-foreground shadow-xs hover:bg-destructive-fill/90",
+  // Design refresh (PROPOSAL): outline and ghost hover on the blue tint (its foreground is AA on it in both themes).
   outline:
-    "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
+    "border bg-background shadow-xs hover:bg-tint-blue hover:text-tint-blue-foreground dark:bg-input/30 dark:border-input dark:hover:bg-tint-blue",
   // DESIGN.md button-outline-destructive: only for an action that leads to a destructive confirm ("Disable").
   "outline-destructive": "border border-border bg-card text-error-strong shadow-xs hover:bg-muted",
   secondary: "bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80",
-  ghost: "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
+  ghost: "hover:bg-tint-blue hover:text-tint-blue-foreground",
   // Text links read the link-text token (D13), never text-info-strong.
   link: "text-link-text underline-offset-4 hover:underline",
 }
@@ -30,7 +31,7 @@ const sizeStyles = {
 }
 
 const baseStyles =
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all duration-150 ease-standard active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-ring aria-disabled:opacity-50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive"
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all duration-150 ease-standard motion-safe:active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-ring aria-disabled:opacity-50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive"
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: keyof typeof variantStyles

@@ -214,7 +214,7 @@ describe("SignaturePadField: look and accessibility", () => {
     const upload = screen.getByRole("button", { name: "Upload image instead" })
     for (const button of [clear, upload]) {
       expect(button.className).toMatch(/\bh-11\b/)
-      expect(button.className).toMatch(/hover:bg-accent/)
+      expect(button.className).toMatch(/hover:bg-tint-blue/)
       expect(button.getAttribute("type")).toBe("button")
     }
     expect(upload.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true")

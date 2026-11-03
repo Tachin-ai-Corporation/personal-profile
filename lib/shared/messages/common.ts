@@ -33,4 +33,9 @@ export const COMMON_MESSAGES = {
   resendVerification: "Resend verification", // verbatim: EXPERIENCE.md Voice and Tone, "Verify pending"
   // Uploads (spec F7-2): the proxy refused the file (413 TOO_LARGE / 415 UNSUPPORTED_MEDIA → `isUploadRejected`).
   uploadRejected: "{fileName} couldn't be used. Choose another file.", // DRAFT COPY (epics Stories 1.10 and 5.3)
+  // Copy buttons (design refresh, PROPOSAL): a phone number or email address to the clipboard.
+  copyValue: "Copy {value}", // DRAFT COPY (design refresh, the copy button's name)
+  copied: "Copied", // DRAFT COPY (design refresh, the brief visual confirmation)
+  copiedValue: "{value} copied", // DRAFT COPY (design refresh, the live-region announcement)
+  copyFailed: "Couldn't copy {value}. Select it to copy it yourself.", // DRAFT COPY (design refresh, clipboard refused)
 } as const

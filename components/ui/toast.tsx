@@ -26,7 +26,8 @@ const baseStyles =
 /** Toast tones (DESIGN.md Toast): the icon carries the tone; the surface stays neutral. */
 const TONES = {
   default: { Icon: null, iconClassName: "" },
-  success: { Icon: CheckCircle, iconClassName: "text-success-strong" },
+  // Design refresh (PROPOSAL): the success icon pops in once (300 ms; none under reduced motion).
+  success: { Icon: CheckCircle, iconClassName: "text-success-strong animate-icon-pop" },
   partial: { Icon: AlertCircle, iconClassName: "text-warning-strong" },
   error: { Icon: AlertCircle, iconClassName: "text-error-strong" },
 } as const

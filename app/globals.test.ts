@@ -135,3 +135,106 @@ describe("Ledger typography and width utilities (F6-2)", () => {
     expect(utility(name)).toBe(body)
   })
 })
+
+describe("design refresh tints (PROPOSAL; DESIGN-SYSTEM.md Accent tints and motion)", () => {
+  const TINTS: Record<string, string> = {
+    "tint-blue": "--brand-primary",
+    "tint-teal": "--brand-secondary",
+    "tint-mint": "--brand-tertiary",
+    "tint-header-start": "--brand-primary",
+    "tint-blue-surface": "--brand-primary",
+    "tint-teal-surface": "--brand-secondary",
+    "tint-mint-surface": "--brand-tertiary",
+    "tint-header-mid": "--brand-secondary",
+    "tint-header-end": "--brand-secondary",
+  }
+
+  it.each(Object.entries(TINTS))("--%s is mixed from %s in both themes, with a utility", (token, brand) => {
+    for (const scope of [light, dark]) expect(scope.get(`--${token}`)).toMatch(new RegExp(`^color-mix\\(in oklab, var\\(${brand}\\) \\d+%, var\\(--(card|background)\\)\\)$`))
+    expect(theme.get(`--color-${token}`)).toBe(`var(--${token})`)
+  })
+
+  it.each(["tint-blue", "tint-teal", "tint-mint", "tint-blue-strong", "tint-teal-strong", "tint-mint-strong"])("--%s-foreground is defined in both themes, with a utility", (token) => {
+    expect(light.get(`--${token}-foreground`)).toBeTruthy()
+    expect(dark.get(`--${token}-foreground`)).toBeTruthy()
+    expect(theme.get(`--color-${token}-foreground`)).toBe(`var(--${token}-foreground)`)
+  })
+
+  const STRONG: Record<string, string> = {
+    "tint-blue-strong": "--brand-primary",
+    "tint-teal-strong": "--brand-secondary",
+    "tint-mint-strong": "--brand-tertiary",
+    "tint-aqua-strong": "--brand-highlight",
+  }
+  const TILES: Record<string, string> = { "tint-blue-tile": "--brand-primary", "tint-teal-tile": "--brand-secondary", "tint-mint-tile": "--brand-tertiary" }
+
+  it.each([
+    ["tint-blue-emphasis", "--brand-primary"],
+    ["tint-teal-emphasis", "--brand-secondary"],
+    ["tint-mint-emphasis", "--brand-tertiary"],
+  ])("--%s and its foreground are %s's hue in both themes, with utilities", (token, brand) => {
+    for (const scope of [light, dark]) {
+      expect(scope.get(`--${token}`)).toMatch(new RegExp(`^oklch\\(from var\\(${brand}\\) 0\\.\\d+ 0\\.\\d+ h\\)$`))
+      expect(scope.get(`--${token}-foreground`)).toMatch(new RegExp(`^oklch\\(from var\\(${brand}\\) 0\\.\\d+ (c|0\\.\\d+) h\\)$`))
+    }
+    expect(theme.get(`--color-${token}`)).toBe(`var(--${token})`)
+    expect(theme.get(`--color-${token}-foreground`)).toBe(`var(--${token}-foreground)`)
+  })
+
+  it.each(Object.entries(TILES))("--%s is %s's hue at a set oklch lightness and chroma in both themes, with a utility", (token, brand) => {
+    for (const scope of [light, dark]) expect(scope.get(`--${token}`)).toMatch(new RegExp(`^oklch\\(from var\\(${brand}\\) 0\\.\\d+ 0\\.\\d+ h\\)$`))
+    expect(theme.get(`--color-${token}`)).toBe(`var(--${token})`)
+  })
+
+  it.each(Object.entries(STRONG))("--%s is %s's hue at a set oklch lightness and chroma in both themes, with a utility", (token, brand) => {
+    for (const scope of [light, dark]) expect(scope.get(`--${token}`)).toMatch(new RegExp(`^oklch\\(from var\\(${brand}\\) 0\\.\\d+ 0\\.\\d+ h\\)$`))
+    expect(theme.get(`--color-${token}`)).toBe(`var(--${token})`)
+  })
+
+  it.each(Object.entries(STRONG))("--%s-foreground keeps %s's hue (the solid brand-primary for blue)", (token, brand) => {
+    for (const scope of [light, dark]) {
+      const value = scope.get(`--${token}-foreground`) ?? ""
+      expect(value === `var(${brand})` || new RegExp(`^oklch\\(from var\\(${brand}\\) 0\\.\\d+ c h\\)$`).test(value)).toBe(true)
+    }
+    expect(light.get("--tint-blue-strong-foreground")).toBe("var(--brand-primary)")
+  })
+
+  it("is listed in the upstream report", () => {
+    expect(CSS.slice(CSS.indexOf("REPORT UPSTREAM"))).toContain("tint-*")
+  })
+})
+
+describe("design refresh motion (PROPOSAL)", () => {
+  const KEYFRAMES = ["section-enter", "icon-enter", "icon-success-in", "icon-success-out", "saved-flash", "avatar-ring-enter"]
+  const CLASSES = ["animate-section-enter", "animate-icon-enter", "animate-icon-success", "animate-icon-pop", "animate-saved-flash", "animate-avatar-ring-enter"]
+
+  /** The body of `@keyframes <name> { … }` up to its closing brace at column 0. */
+  function keyframes(name: string): string {
+    const start = CSS.indexOf(`@keyframes ${name} {`)
+    expect(start, name).toBeGreaterThanOrEqual(0)
+    return CSS.slice(start, CSS.indexOf("\n}", start))
+  }
+
+  it.each(KEYFRAMES)("@keyframes %s animates only transform and opacity", (name) => {
+    const properties = [...keyframes(name).matchAll(/([a-z-]+)\s*:/g)].map((match) => match[1])
+    expect(properties.length).toBeGreaterThan(0)
+    for (const property of properties) expect(["transform", "opacity"]).toContain(property)
+  })
+
+  it("no class loops, and entrances fill backwards only (no lingering transform)", () => {
+    for (const name of CLASSES) {
+      const start = CSS.indexOf(`.${name} {`)
+      expect(start, name).toBeGreaterThanOrEqual(0)
+      const body = CSS.slice(start, CSS.indexOf("\n}", start))
+      expect(body).not.toContain("infinite")
+      if (name.endsWith("-enter")) expect(body).toContain("backwards")
+    }
+  })
+
+  it("every class is switched off under reduced motion", () => {
+    const blocks = [...CSS.matchAll(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g)].map((match) => match[1])
+    const block = blocks.find((body) => body.includes("animate-section-enter")) ?? ""
+    for (const name of CLASSES) expect(block).toContain(`.${name}`)
+    expect(block).toContain("animation: none")
+  })
+})

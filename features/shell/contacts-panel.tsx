@@ -16,6 +16,12 @@ export interface ContactsPanelProps {
    * that Section's loading placeholder.
    */
   readonly sections?: Partial<Record<ProfileSectionId, ReactNode>>
+  /**
+   * Opt-in (design refresh, PROPOSAL): the Section menu in the Sections'
+   * tones (`PROFILE_SECTION_TONES`): colored numbers and the current item's
+   * tinted fill and bar. Omitted: the menu is unchanged.
+   */
+  readonly accent?: boolean
 }
 
 /**
@@ -23,20 +29,20 @@ export interface ContactsPanelProps {
  * the Section menu (≥ 768 px) or Jump to (< 768 px) beside / above the five
  * Sections, always in `PROFILE_SECTIONS` order.
  */
-export function ContactsPanel({ sections }: ContactsPanelProps = {}) {
+export function ContactsPanel({ sections, accent = false }: ContactsPanelProps = {}) {
   return (
     <SectionCountProvider>
-      <ContactsBody sections={sections} />
+      <ContactsBody sections={sections} accent={accent} />
     </SectionCountProvider>
   )
 }
 
-function ContactsBody({ sections }: ContactsPanelProps) {
+function ContactsBody({ sections, accent }: ContactsPanelProps) {
   const nav = useSectionNavigation()
   useLandmarkCheck(PROFILE_SECTION_IDS, "ContactsPanel")
   return (
     <div className="md:grid md:grid-cols-[200px_minmax(0,1fr)]">
-      <SectionNav state={nav} />
+      <SectionNav state={nav} accent={accent} />
       <div className="flex min-w-0 flex-col gap-8 px-4 py-4 md:p-6">
         <SectionFrameProvider onReady={nav.frameReady}>
           {PROFILE_SECTIONS.map((section) => (

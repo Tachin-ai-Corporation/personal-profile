@@ -6,6 +6,8 @@ import { EmptyState, EmptyStateLine, type EmptyStateAction } from "@/components/
 import { SECTION_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
 import { ROW_EDIT_STATE_CLASSES, type RowEditState } from "./row-removal"
+import { useSectionTone } from "./section-tone"
+import { TONE_CLASSES } from "./section-tones"
 import { DESKTOP_QUERY, useMediaQuery } from "./use-media-query"
 
 /** Where a column goes in the stacked mobile card (read view): line 1 (value + status), line 2 (muted meta), or not at all. */
@@ -64,7 +66,7 @@ export interface SectionTableProps<R> {
   readonly className?: string
 }
 
-const HEADER_CELL = "bg-muted text-muted-foreground h-9 px-3 text-left align-middle text-caption font-semibold tracking-[0.06em] uppercase"
+const HEADER_CELL = "h-9 px-3 text-left align-middle text-caption font-semibold tracking-[0.06em] uppercase"
 /** Long values (links, emails, addresses) wrap inside their cell instead of widening the table. */
 const WRAP = "min-w-0 [overflow-wrap:anywhere]"
 
@@ -103,6 +105,9 @@ export function SectionTable<R>({
   const baseId = React.useId()
   const stateOf = (row: R): RowEditState => rowState?.(row) ?? "saved"
   const columnHeaderId = (column: SectionTableColumn<R>): string => `${baseId}-col-${column.key}`
+  // An accented container's tone (design refresh, opt-in): the header row and row hover take its surface tint.
+  const tone = useSectionTone()
+  const headerFill = tone ? TONE_CLASSES[tone].tableHeader : "bg-muted text-muted-foreground"
 
   if (!desktop) {
     return (
@@ -203,12 +208,12 @@ export function SectionTable<R>({
       <thead>
         <tr className="border-border border-b">
           {columns.map((column) => (
-            <th key={column.key} id={columnHeaderId(column)} scope="col" className={cn(HEADER_CELL, "first:rounded-tl-md")}>
+            <th key={column.key} id={columnHeaderId(column)} scope="col" className={cn(HEADER_CELL, headerFill, "first:rounded-tl-md")}>
               {column.header}
             </th>
           ))}
           {actions ? (
-            <th scope="col" className={cn(HEADER_CELL, "rounded-tr-md")}>
+            <th scope="col" className={cn(HEADER_CELL, headerFill, "rounded-tr-md")}>
               <span className="sr-only">{SECTION_MESSAGES.actionsColumn}</span>
             </th>
           ) : null}
@@ -221,7 +226,7 @@ export function SectionTable<R>({
           const expanded = renderExpanded?.(row)
           const rowClass = cn(
             "group/row border-border text-body-sm border-b last:border-b-0",
-            !editing && "hover:bg-accent focus-within:bg-accent",
+            !editing && (tone ? TONE_CLASSES[tone].rowHover : "hover:bg-accent focus-within:bg-accent"),
             ROW_EDIT_STATE_CLASSES[state],
           )
           if (!isEmptyNode(expanded)) {

@@ -8,6 +8,8 @@ import { isProfileSectionId, PROFILE_SECTION_IDS, PROFILE_SECTIONS, PROFILE_SUB_
 import { isPlainClick } from "./page-nav"
 import { HAND_SCROLL_IGNORE_ATTR, onHandScroll } from "./hand-scroll"
 import { useSectionCounts } from "./section-counts"
+import { PROFILE_SECTION_ICONS, PROFILE_SECTION_TONES, TONE_CLASSES } from "./section-tones"
+import { useSlidingIndicator } from "./sliding-indicator"
 import { motionAwareScrollBehavior, useHashAnchors } from "./use-hash-anchors"
 
 /**
@@ -218,14 +220,27 @@ export function useSectionNavigation(): SectionNavState {
 
 export interface SectionNavProps {
   readonly state: SectionNavState
+  /**
+   * Opt-in (design refresh, PROPOSAL; departs from DESIGN.md's numbered
+   * index): the menu shows each Section's icon (the header tile's) in its tone
+   * instead of the 01–05 number, its count as a pill on the tone's strong tint
+   * (emphasis tint when current), a hover on the tone's surface tint, and the
+   * current item on its tone's strong tint with a bar in the brand hue. Jump
+   * to keeps its numbers, in the tone. Omitted: unchanged.
+   */
+  readonly accent?: boolean
 }
 
 /** The Section menu (≥ 768 px) and Jump to (< 768 px) for the Contacts tab. */
-export function SectionNav({ state }: SectionNavProps) {
+export function SectionNav({ state, accent = false }: SectionNavProps) {
   const counts = useSectionCounts()
   const { activeId, activate, navRef } = state
   const triggerId = useId()
   const labelId = useId()
+  const listRef = useRef<HTMLOListElement>(null)
+  const indicatorRef = useRef<HTMLSpanElement>(null)
+  useSlidingIndicator(listRef, indicatorRef, activeId, accent)
+  const activeTone = TONE_CLASSES[PROFILE_SECTION_TONES[activeId]]
 
   const onMenuClick = (event: MouseEvent<HTMLAnchorElement>, id: ProfileSectionId): void => {
     if (!isPlainClick(event)) return
@@ -249,10 +264,29 @@ export function SectionNav({ state }: SectionNavProps) {
     <>
       <div className="hidden border-r md:block">
         <nav ref={navRef} {...{ [HAND_SCROLL_IGNORE_ATTR]: "" }} aria-label={SHELL_MESSAGES.sectionsNavLabel} className="sticky top-0 py-4">
-          <ol>
+          {accent ? (
+            // The sliding highlight (design refresh): the current item's tint and 3 px bar on one element that
+            // `useSlidingIndicator` moves by transform (no slide under reduced motion). The sticky nav is the offset
+            // parent of it and of the links; it comes first, so the (positioned) links paint over it, and it stays
+            // out of the list. Until measured: py-4 + 44 px rows, exact for one-line labels.
+            <span
+              ref={indicatorRef}
+              aria-hidden="true"
+              data-slot="section-nav-indicator"
+              style={{ transform: `translateY(${16 + PROFILE_SECTION_IDS.indexOf(activeId) * 44}px)`, height: 44 }}
+              className={cn(
+                "pointer-events-none absolute inset-x-0 top-0 before:absolute before:inset-y-0 before:left-0 before:w-[3px]",
+                "motion-safe:data-ready:transition-transform motion-safe:data-ready:duration-300 motion-safe:data-ready:ease-premium",
+                activeTone.navCurrent,
+              )}
+            />
+          ) : null}
+          <ol ref={listRef}>
             {PROFILE_SECTIONS.map((section) => {
               const current = section.id === activeId
               const count = counts[section.id]
+              const tone = accent ? TONE_CLASSES[PROFILE_SECTION_TONES[section.id]] : null
+              const Icon = PROFILE_SECTION_ICONS[section.id]
               return (
                 <li key={section.id}>
                   <a
@@ -261,21 +295,34 @@ export function SectionNav({ state }: SectionNavProps) {
                     onClick={(event) => onMenuClick(event, section.id)}
                     onKeyDown={(event) => onMenuKeyDown(event, section.id)}
                     className={cn(
-                      "focus-ring text-foreground hover:bg-accent relative grid min-h-11 grid-cols-[24px_1fr_auto] items-center pr-4 pl-5 text-body-sm tabular-nums outline-none",
+                      "focus-ring text-foreground relative grid min-h-11 grid-cols-[24px_1fr_auto] items-center pr-4 pl-5 text-body-sm tabular-nums outline-none",
                       // The 3 px bar is a pseudo-element: focus-ring's glow would replace an inset box-shadow.
-                      current &&
-                        "bg-accent text-primary-text before:bg-primary font-semibold before:absolute before:inset-y-0 before:left-0 before:w-[3px]",
+                      // With `accent` the sliding indicator draws the current item's fill and bar, under the (positioned)
+                      // link: the current link takes no hover fill, which would cover it (#61 review).
+                      tone ? !current && tone.navHover : "hover:bg-accent",
+                      current && "font-semibold",
+                      current && !tone && "bg-accent text-primary-text before:bg-primary before:absolute before:inset-y-0 before:left-0 before:w-[3px]",
                     )}
                   >
-                    <span aria-hidden="true" className={cn("text-muted-foreground font-mono text-caption", current && "text-primary-text")}>
-                      {section.number}
-                    </span>
+                    {/* With `accent` the Section icon takes the index number's 24 px column (the label stays aligned). */}
+                    {tone ? (
+                      <Icon aria-hidden="true" data-slot="section-nav-icon" className={cn("size-4", tone.navText)} />
+                    ) : (
+                      <span aria-hidden="true" className={cn("text-muted-foreground font-mono text-caption", current && "text-primary-text")}>
+                        {section.number}
+                      </span>
+                    )}
                     <span>{section.label}</span>
                     {/* aria-hidden: the Section's own header carries its count (DESIGN.md Section header). */}
                     <span
                       aria-hidden="true"
                       data-slot="section-count"
-                      className={cn("text-muted-foreground font-mono text-caption", current && "text-primary-text")}
+                      className={cn(
+                        "font-mono text-caption",
+                        tone
+                          ? count !== undefined && count !== null && ["inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5", current ? tone.navCountCurrent : tone.navCount]
+                          : ["text-muted-foreground", current && "text-primary-text"],
+                      )}
                     >
                       {count ?? null}
                     </span>
@@ -320,7 +367,10 @@ export function SectionNav({ state }: SectionNavProps) {
                   if (event.key === "Enter" || event.key === " ") pick(event, section.id)
                 }}
               >
-                <span aria-hidden="true" className="text-muted-foreground font-mono text-caption">
+                <span
+                  aria-hidden="true"
+                  className={cn("font-mono text-caption", accent ? TONE_CLASSES[PROFILE_SECTION_TONES[section.id]].navText : "text-muted-foreground")}
+                >
                   {section.number}
                 </span>
                 <span>{section.label}</span>

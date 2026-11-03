@@ -21,14 +21,38 @@ const CHIP_VARIANTS = {
 
 export type ChipVariant = keyof typeof CHIP_VARIANTS
 
+/**
+ * Opt-in label chip tints (design refresh, PROPOSAL; DESIGN-SYSTEM.md "Accent
+ * tints and motion"): the strong brand tint with its foreground, >= 5.27:1 in
+ * both themes. Only for `variant="label"`; Primary keeps its fill.
+ */
+const CHIP_TONES = {
+  teal: "bg-tint-teal-strong text-tint-teal-strong-foreground",
+  mint: "bg-tint-mint-strong text-tint-mint-strong-foreground",
+  aqua: "bg-tint-aqua-strong text-tint-aqua-strong-foreground",
+} as const
+
+export type ChipTone = keyof typeof CHIP_TONES
+
 export const CHIP_BASE = "inline-flex h-[22px] w-fit shrink-0 items-center rounded-sm px-2 text-caption font-semibold whitespace-nowrap"
 
 export interface ChipProps extends React.HTMLAttributes<HTMLSpanElement> {
   readonly variant?: ChipVariant
+  /** A `label` chip's tint instead of grey (opt-in); ignored for the other variants. */
+  readonly tone?: ChipTone
 }
 
-export function Chip({ variant = "label", className, ...props }: ChipProps): React.JSX.Element {
-  return <span data-slot="chip" data-variant={variant} className={cn(CHIP_BASE, CHIP_VARIANTS[variant], className)} {...props} />
+export function Chip({ variant = "label", tone, className, ...props }: ChipProps): React.JSX.Element {
+  const toned = variant === "label" && tone ? tone : undefined
+  return (
+    <span
+      data-slot="chip"
+      data-variant={variant}
+      data-tone={toned}
+      className={cn(CHIP_BASE, toned ? CHIP_TONES[toned] : CHIP_VARIANTS[variant], className)}
+      {...props}
+    />
+  )
 }
 
 export interface OverflowChipProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "children"> {

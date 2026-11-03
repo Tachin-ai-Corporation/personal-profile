@@ -24,7 +24,21 @@ export interface PageTabsProps<T extends string> {
   readonly defaultTab: T
   /** The tablist's accessible name (catalog copy). */
   readonly "aria-label"?: string
+  /**
+   * Opt-in (design refresh, PROPOSAL): the active tab's indicator is a 3 px
+   * primary → secondary brand bar and its text is `primary-text` (AA in both
+   * themes). Omitted: the strip is unchanged.
+   */
+  readonly accent?: boolean
 }
+
+/** The accented active tab: the bar sits over the trigger's 2 px bottom border and fades in (opacity only). */
+const ACCENT_TRIGGER = [
+  "relative data-[state=active]:border-transparent data-[state=active]:text-primary-text",
+  "after:pointer-events-none after:absolute after:inset-x-0 after:-bottom-0.5 after:h-[3px] after:rounded-t-sm after:opacity-0",
+  "after:from-brand-primary after:to-brand-secondary after:bg-linear-to-r data-[state=active]:after:opacity-100",
+  "motion-safe:after:transition-opacity motion-safe:after:duration-150",
+]
 
 /**
  * Development check (F6-1 review M3): unique ids, `defaultTab` among them,
@@ -80,7 +94,7 @@ function ComingSoonTag() {
  * and the browser synthesizes no click); the keyup on the same tab activates.
  * Arrow keys, Home/End and the pointer are Radix's, unchanged.
  */
-export function PageTabs<T extends string>({ page, tabs, panels, defaultTab, "aria-label": ariaLabel }: PageTabsProps<T>) {
+export function PageTabs<T extends string>({ page, tabs, panels, defaultTab, "aria-label": ariaLabel, accent = false }: PageTabsProps<T>) {
   assertPageTabsConfig(page, tabs, defaultTab)
   const param = PAGE_TAB_PARAM[page]
   const navigate = useNavigate()
@@ -120,6 +134,7 @@ export function PageTabs<T extends string>({ page, tabs, panels, defaultTab, "ar
           <TabsTrigger
             key={tab.id}
             value={tab.id}
+            className={accent ? cn(ACCENT_TRIGGER) : undefined}
             onKeyDown={(event) => {
               if (!isActivationKey(event)) return
               event.preventDefault()

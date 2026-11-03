@@ -10,7 +10,9 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "github" : "list",
-  use: { baseURL: BASE_URL, trace: "retain-on-failure" },
+  // Reduced motion: the design refresh's entrances start at opacity 0, which would make axe
+  // contrast checks and screenshots depend on timing. Motion itself is covered by unit tests.
+  use: { baseURL: BASE_URL, trace: "retain-on-failure", contextOptions: { reducedMotion: "reduce" } },
   projects: [
     { name: "desktop", use: { ...devices["Desktop Chrome"] } },
     { name: "mobile-360", use: { ...devices["Desktop Chrome"], viewport: { width: 360, height: 740 }, isMobile: true, hasTouch: true } },

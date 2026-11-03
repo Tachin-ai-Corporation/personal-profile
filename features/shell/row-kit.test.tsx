@@ -8,6 +8,7 @@ import { stubLayoutApis } from "@/test/dom-stubs"
 import { stubViewport } from "@/test/media"
 import { RowActions, type RowAction } from "./row-actions"
 import { RowEditStatus, RowRemoval, type RowEditState } from "./row-removal"
+import { SectionContainer } from "./section-container"
 import { SectionTable, type SectionTableColumn } from "./section-table"
 
 beforeEach(() => stubLayoutApis())
@@ -189,6 +190,29 @@ describe("SectionTable (F6-2)", () => {
     expect(within(rows[0]).getAllByRole("cell")[0].className).toContain("h-11")
     expect(screen.getByRole("button", { name: "More actions for +1 (415) 555-0100" })).toBeTruthy()
     expect(await axeViolations()).toEqual([])
+  })
+
+  it("in an accented SectionContainer (design refresh, opt-in): the header row and the row hover take the tone's surface tint", () => {
+    stubViewport(1280)
+    const { rerender } = render(
+      <SectionContainer editing={false} accent="mint">
+        <Table />
+      </SectionContainer>,
+    )
+    const header = screen.getAllByRole("columnheader")[0]
+    expect(header.className).toContain("bg-tint-mint-surface")
+    expect(header.className).toContain("text-tint-mint-strong-foreground")
+    expect(header.className).not.toContain("bg-muted")
+    const row = screen.getAllByRole("row")[1]
+    expect(row.className).toContain("hover:bg-tint-mint-surface")
+    expect(row.className).not.toContain("hover:bg-accent")
+    // Editing: still no hover fill.
+    rerender(
+      <SectionContainer editing accent="mint">
+        <Table editing />
+      </SectionContainer>,
+    )
+    expect(screen.getAllByRole("row")[1].className).not.toContain("hover:")
   })
 
   it("desktop edit view: no hover fill, top-aligned cells, new and removed row styles (status and actions not struck)", () => {
