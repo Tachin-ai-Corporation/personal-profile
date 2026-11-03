@@ -6,11 +6,14 @@ import { useWatch, type Path } from "react-hook-form"
 import useSWR from "swr"
 import { Button } from "@/components/ui/button"
 import { Chip } from "@/components/ui/chip"
+import { CopyButton } from "@/components/ui/copy-button"
 import { DisabledAction } from "@/components/ui/disabled-action"
 import { Input } from "@/components/ui/input"
 import { InputLocked } from "@/components/ui/input-locked"
 import { LiveStatus } from "@/components/ui/live-status"
 import {
+  PROFILE_SECTION_ICONS,
+  PROFILE_SECTION_TONES,
   RowActions,
   RowEditStatus,
   RowRemoval,
@@ -20,6 +23,7 @@ import {
   SectionHeader,
   SectionTable,
   StateFrame,
+  labelChipTone,
   sectionHeadingId,
   useReportSectionCount,
   useSectionForm,
@@ -101,6 +105,16 @@ const verifyStateOf = (states: ContactVerifyStates, row: EmailRow): ContactVerif
   return id === null ? undefined : states.get(id)
 }
 
+/** The Address cell: the address, then its copy button (design refresh, PROPOSAL). */
+function EmailAddress({ value }: { readonly value: string }) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2">
+      <span className="cell-strong text-foreground">{value}</span>
+      <CopyButton value={value} />
+    </span>
+  )
+}
+
 /**
  * The Status cell: empty on a Home row; "Verified"; during a sent link's
  * countdown "Link sent · Resend in {n} s"; else "Not verified", with the help
@@ -125,11 +139,11 @@ const [ADDRESS, LABEL, STATUS, NOTIFICATIONS] = SECTION_COLUMNS.email
 /** Email address · Label · Status · Notifications; below 768 px line 1 is the address and status, line 2 the label and notifications (muted). */
 function emailReadColumns(states: ContactVerifyStates): SectionTableColumn<EmailRow>[] {
   return [
-    { key: "address", header: ADDRESS, width: "w-[40%]", mobileLine: 1, cell: (row) => <span className="cell-strong text-foreground">{row.value}</span> },
+    { key: "address", header: ADDRESS, width: "w-[40%]", mobileLine: 1, cell: (row) => <EmailAddress value={row.value} /> },
     {
       key: "label",
       header: LABEL,
-      cell: (row) => (row.point.label ? <Chip variant={row.primary ? "primary" : "label"}>{row.point.label}</Chip> : null),
+      cell: (row) => (row.point.label ? <Chip variant={row.primary ? "primary" : "label"} tone={labelChipTone(row.point.label)}>{row.point.label}</Chip> : null),
     },
     { key: "status", header: STATUS, mobileLine: 1, cell: (row) => <EmailStatus row={row} state={verifyStateOf(states, row)} /> },
     { key: "notifications", header: NOTIFICATIONS, cell: notificationsOf },
@@ -335,7 +349,7 @@ function emailEditColumns({ section, labelOptions, saved, primaryKey, verifyStat
           return <ChoiceCell section={section} headerId={headerId} path={labelPath(index)} options={labelChoices} placeholder={CONTACT_MESSAGES.chooseLabel} />
         }
         // The Primary (and any Primary-labelled or id-less row) keeps its label: shown as the locked chip.
-        return row.label ? <Chip variant={row.key === primaryKey ? "primary" : "label"}>{row.label}</Chip> : null
+        return row.label ? <Chip variant={row.key === primaryKey ? "primary" : "label"} tone={labelChipTone(row.label)}>{row.label}</Chip> : null
       },
     },
     {
@@ -696,7 +710,7 @@ export function EmailSection() {
 
   return (
     <section id="email" aria-labelledby={headingId} className="min-w-0">
-      <SectionHeader id="email" title={SHELL_MESSAGES.sectionEmail} count={rows?.length} editing={isEditing} actions={headerActions} className="mb-2" />
+      <SectionHeader id="email" icon={{ icon: PROFILE_SECTION_ICONS.email, tone: PROFILE_SECTION_TONES.email }} title={SHELL_MESSAGES.sectionEmail} count={rows?.length} editing={isEditing} actions={headerActions} className="mb-2" />
       <StateFrame
         state={state}
         skeleton="table"
@@ -710,7 +724,7 @@ export function EmailSection() {
         className={rows ? "overflow-visible rounded-none border-0 bg-transparent" : undefined}
       >
         {rows && (
-          <SectionContainer editing={isEditing} sectionId="email">
+          <SectionContainer editing={isEditing} sectionId="email" animated accent={PROFILE_SECTION_TONES.email}>
             {isEditing ? (
               <>
                 <SectionTable<EditItem>

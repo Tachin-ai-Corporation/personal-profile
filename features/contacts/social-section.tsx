@@ -8,6 +8,8 @@ import { DisabledAction } from "@/components/ui/disabled-action"
 import { Input } from "@/components/ui/input"
 import { InputLocked } from "@/components/ui/input-locked"
 import {
+  PROFILE_SECTION_ICONS,
+  PROFILE_SECTION_TONES,
   RowActions,
   RowEditStatus,
   RowRemoval,
@@ -485,7 +487,7 @@ export function SocialSection() {
 
   return (
     <section id="social" aria-labelledby={headingId} className="min-w-0">
-      <SectionHeader id="social" title={SHELL_MESSAGES.sectionSocial} count={rows?.length} editing={isEditing} actions={headerActions} className="mb-2" />
+      <SectionHeader id="social" icon={{ icon: PROFILE_SECTION_ICONS.social, tone: PROFILE_SECTION_TONES.social }} title={SHELL_MESSAGES.sectionSocial} count={rows?.length} editing={isEditing} actions={headerActions} className="mb-2" />
       <StateFrame
         state={state}
         skeleton="table"
@@ -499,7 +501,7 @@ export function SocialSection() {
         className={rows ? "overflow-visible rounded-none border-0 bg-transparent" : undefined}
       >
         {rows && (
-          <SectionContainer editing={isEditing} sectionId="social">
+          <SectionContainer editing={isEditing} sectionId="social" animated accent={PROFILE_SECTION_TONES.social}>
             {isEditing ? (
               <>
                 <SectionTable<EditItem>
