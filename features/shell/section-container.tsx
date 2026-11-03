@@ -10,6 +10,7 @@ import { sectionStagger } from "./section-motion"
 import { useSectionSavedCount } from "./section-registry"
 import { SectionToneContext } from "./section-tone"
 import { TONE_CLASSES } from "./section-tones"
+import { ContainerWidthContext, useElementWidth } from "./use-element-width"
 
 /** The saved ring's pulse (app/globals.css `.animate-saved-flash`, 400 ms); it is unmounted after. */
 export const SAVED_FLASH_MS = 400
@@ -46,14 +47,18 @@ export interface SectionContainerProps {
  * DESIGN.md `table-container` around a Section's table: card fill, border
  * hairline, `rounded-md`, flat. While editing, the border turns primary with
  * a 3 px accent halo (the editing state is never shown by elevation).
+ * Its measured width reaches the tables inside (`ContainerWidthContext`), so
+ * a table that mounts with the edit view picks its layout on first render.
  */
 export function SectionContainer({ editing, sectionId, animated = false, accent, children, className }: SectionContainerProps) {
   const saved = useSectionSavedCount(animated && sectionId ? sectionId : null)
   // The saved ring is unmounted once its pulse ends: a lasting absolutely positioned overlay that resizes with the
   // container would make Chrome suppress scroll anchoring (see `accent`).
   const flashing = useConfirmationWindow(saved, SAVED_FLASH_MS)
+  const [width, measure] = useElementWidth()
   return (
     <div
+      ref={measure}
       data-slot="section-container"
       data-editing={editing ? "true" : undefined}
       className={cn(
@@ -69,7 +74,9 @@ export function SectionContainer({ editing, sectionId, animated = false, accent,
       style={animated ? ({ "--stagger": sectionId ? sectionStagger(sectionId) : 0 } as CSSProperties) : undefined}
     >
       {sectionId ? <SectionDraftNotice sectionId={sectionId} /> : null}
-      <SectionToneContext value={accent ?? null}>{children}</SectionToneContext>
+      <ContainerWidthContext value={width ?? 0}>
+        <SectionToneContext value={accent ?? null}>{children}</SectionToneContext>
+      </ContainerWidthContext>
       {flashing ? (
         // Restarted per save by its key; opacity 0 at rest, so it shows nothing under reduced motion.
         <span key={saved} aria-hidden="true" data-slot="section-saved-flash" className="animate-saved-flash ring-success pointer-events-none absolute -inset-px rounded-md ring-2" />
