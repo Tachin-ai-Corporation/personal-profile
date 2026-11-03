@@ -46,13 +46,13 @@ function MutateProbe() {
   return null
 }
 
-function setup(page: PageId = "profile") {
+function setup(page: PageId = "profile", accent?: boolean) {
   return render(
     <TestProviders>
       <CurrentPageProvider value={page}>
         <MutateProbe />
         <main>
-          <ProfileHeader />
+          <ProfileHeader accent={accent} />
         </main>
       </CurrentPageProvider>
     </TestProviders>,
@@ -121,6 +121,34 @@ describe("ProfileHeader", () => {
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1)
   })
 
+  it("accent (design refresh, opt-in): the band on the brand tint and a ring around the avatar; off by default", async () => {
+    stubViewport(360)
+    myself()
+    const { container, unmount } = setup("profile", true)
+    await screen.findByRole("heading", { level: 1, name: "Ann Lee" })
+    const band = container.querySelector<HTMLElement>("main > div")
+    expect(band?.getAttribute("data-accent")).toBe("true")
+    expect(band?.className).toContain("from-tint-header-start")
+    expect(band?.className).toContain("via-tint-header-mid")
+    expect(band?.className).not.toContain("bg-background")
+    expect(band?.className).toContain("after:via-brand-secondary")
+    expect(container.querySelector("[data-avatar]")).not.toBeNull()
+    // The ring: its own decorative element, before the avatar button (the camera badge stays on top), scaling in once.
+    const ring = container.querySelector<HTMLElement>("[data-slot='avatar-ring']")
+    expect(ring?.getAttribute("aria-hidden")).toBe("true")
+    expect(ring?.className).toContain("animate-avatar-ring-enter")
+    expect(ring?.className).toContain("ring-brand-secondary")
+    expect(ring?.nextElementSibling?.tagName).toBe("BUTTON")
+    unmount()
+    const plain = setup("account")
+    await screen.findByRole("heading", { level: 1, name: "Ann Lee" })
+    const plainBand = plain.container.querySelector<HTMLElement>("main > div")
+    expect(plainBand?.hasAttribute("data-accent")).toBe(false)
+    expect(plainBand?.className).toContain("bg-background")
+    expect(plainBand?.className).not.toContain("tint")
+    expect(plain.container.querySelector("[data-slot='avatar-ring']")).toBeNull()
+  })
+
   it("falls back to the username, and a user icon, when names are blank", async () => {
     stubViewport(360)
     myself({ id: 1, firstName: "", lastName: null, username: "ann.lee" })
@@ -159,6 +187,21 @@ describe("ProfileHeader", () => {
     expect(screen.getByText("Primary phone")).toBeTruthy()
     expect(screen.getByText("Primary email")).toBeTruthy()
     expect(seen.toSorted()).toEqual(["Email", "Landline", "Mobile"])
+  })
+
+  it("accent: the contact labels are foreground (AA over the whole band); muted without it", async () => {
+    stubViewport(1280)
+    myself()
+    contacts({ Mobile: [{ id: 2, value: "+14155552125", label: "Primary", type: "Mobile" }], Landline: [], Email: [{ id: 3, value: "ann@example.com", label: "Primary", type: "Email" }] })
+    const { unmount } = setup("profile", true)
+    expect(await screen.findByText("Primary phone")).toBeTruthy()
+    for (const label of ["Primary phone", "Primary email"]) {
+      expect(screen.getByText(label).className).toContain("text-foreground")
+      expect(screen.getByText(label).className).not.toContain("text-muted-foreground")
+    }
+    unmount()
+    setup("profile")
+    expect((await screen.findByText("Primary email")).className).toContain("text-muted-foreground")
   })
 
   it("formats the primary phone with its own row's region", async () => {

@@ -164,11 +164,14 @@ describe("InsuranceSection: cards", () => {
       ["Secondary", "label"],
       ["Deleted", "deleted"],
     ])
-    // Flat bordered cards in one column, 16 px apart; the title row is ≥ 52 px with a bottom hairline.
+    // Flat bordered cards in one column, 16 px apart; the title row is ≥ 52 px with a bottom hairline. The raised shadow
+    // (design refresh) lives on a pseudo-element shown only on hover or focus, never on the card at rest.
     expect(section().querySelector('[data-slot="insurance-cards"]')?.className).toContain("gap-4")
     expect(card("Medical Insurance").className).toContain("rounded-md")
     expect(card("Medical Insurance").className).toContain("border")
-    expect(card("Medical Insurance").className).not.toContain("shadow")
+    expect(card("Medical Insurance").className).not.toMatch(/(^|\s)shadow-/)
+    expect(card("Medical Insurance").className).toContain("after:opacity-0")
+    expect(card("Medical Insurance").className).toContain("motion-safe:hover:-translate-y-0.5")
     expect(card("Medical Insurance").querySelector('[data-slot="insurance-card-title"]')?.className).toContain("min-h-13")
     expect(card("Medical Insurance").querySelector('[data-slot="insurance-card-title"]')?.className).toContain("border-b")
   })

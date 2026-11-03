@@ -218,8 +218,8 @@ describe("PhoneSection: Make primary eligibility (Story 3.4)", () => {
       expect(described(action), number).toContain(reason)
     }
     // Verify beside "Verify this number first" (inline, before Make primary); none on the Home row.
-    const inline = within(rowOf("+1 (415) 555-0111")).getAllByRole("button").map((button) => button.textContent)
-    expect(inline.slice(0, 2)).toEqual(["Verify", "Make primary"])
+    const inline = within(rowOf("+1 (415) 555-0111").querySelector<HTMLElement>("[data-slot='row-actions-inline']") as HTMLElement).getAllByRole("button")
+    expect(inline.map((button) => button.textContent)).toEqual(["Verify", "Make primary"])
     expect(inlineAction("+1 (415) 555-0114", "Verify")).toBeNull()
     // A disabled one does nothing.
     await click(inlineAction("+1 (415) 555-0111", "Make primary") as HTMLElement)

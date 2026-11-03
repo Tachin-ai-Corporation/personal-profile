@@ -6,11 +6,14 @@ import { useWatch, type Path } from "react-hook-form"
 import useSWR from "swr"
 import { Button } from "@/components/ui/button"
 import { Chip } from "@/components/ui/chip"
+import { CopyButton } from "@/components/ui/copy-button"
 import { DisabledAction } from "@/components/ui/disabled-action"
 import { InputLocked } from "@/components/ui/input-locked"
 import { LiveStatus } from "@/components/ui/live-status"
 import { PhoneInput } from "@/components/ui/phone-input"
 import {
+  PROFILE_SECTION_ICONS,
+  PROFILE_SECTION_TONES,
   RowActions,
   RowEditStatus,
   RowRemoval,
@@ -20,6 +23,7 @@ import {
   SectionHeader,
   SectionTable,
   StateFrame,
+  labelChipTone,
   sectionHeadingId,
   useReportSectionCount,
   useSectionForm,
@@ -106,10 +110,13 @@ function phoneRowsOf(mobile: readonly ContactPoint[], landline: readonly Contact
 function PhoneNumber({ row }: { readonly row: PhoneRow }) {
   const region = normalizeRegion(row.point.phoneNumberRegion)
   const flag = isPhoneRegion(region) ? regionFlag(region) : ""
+  const display = formatPhoneDisplay(row.value, row.point.phoneNumberRegion)
   return (
     <span className="inline-flex flex-wrap items-center gap-x-2">
       {flag ? <span aria-hidden="true">{flag}</span> : null}
-      <span className="cell-strong text-foreground">{formatPhoneDisplay(row.value, row.point.phoneNumberRegion)}</span>
+      <span className="cell-strong text-foreground">{display}</span>
+      {/* Design refresh (PROPOSAL): copies the number as shown. */}
+      <CopyButton value={display} />
     </span>
   )
 }
@@ -224,7 +231,7 @@ function phoneReadColumns(states: ContactVerifyStates): SectionTableColumn<Phone
     {
       key: "label",
       header: LABEL,
-      cell: (row) => (row.point.label ? <Chip variant={row.primary ? "primary" : "label"}>{row.point.label}</Chip> : null),
+      cell: (row) => (row.point.label ? <Chip variant={row.primary ? "primary" : "label"} tone={labelChipTone(row.point.label)}>{row.point.label}</Chip> : null),
     },
     { key: "type", header: TYPE, cell: (row) => phoneTypeLabel(row.type) },
     { key: "status", header: STATUS, mobileLine: 1, cell: (row) => <PhoneStatus row={row} state={verifyStateOf(states, row)} /> },
@@ -405,7 +412,7 @@ function phoneEditColumns({ section, rows, labelOptions, saved, primaryKey, veri
           return <ChoiceCell section={section} headerId={headerId} path={labelPath(index)} options={labelChoices} placeholder={CONTACT_MESSAGES.chooseLabel} />
         }
         // The Primary (and a row without an id) keeps its label: shown as the locked chip.
-        return row.label ? <Chip variant={row.key === primaryKey ? "primary" : "label"}>{row.label}</Chip> : null
+        return row.label ? <Chip variant={row.key === primaryKey ? "primary" : "label"} tone={labelChipTone(row.label)}>{row.label}</Chip> : null
       },
     },
     {
@@ -772,7 +779,7 @@ export function PhoneSection() {
 
   return (
     <section id="phone" aria-labelledby={headingId} className="min-w-0">
-      <SectionHeader id="phone" title={SHELL_MESSAGES.sectionPhone} count={rows?.length} editing={isEditing} actions={headerActions} className="mb-2" />
+      <SectionHeader id="phone" icon={{ icon: PROFILE_SECTION_ICONS.phone, tone: PROFILE_SECTION_TONES.phone }} title={SHELL_MESSAGES.sectionPhone} count={rows?.length} editing={isEditing} actions={headerActions} className="mb-2" />
       <StateFrame
         state={state}
         skeleton="table"
@@ -786,7 +793,7 @@ export function PhoneSection() {
         className={rows ? "overflow-visible rounded-none border-0 bg-transparent" : undefined}
       >
         {rows && (
-          <SectionContainer editing={isEditing} sectionId="phone">
+          <SectionContainer editing={isEditing} sectionId="phone" animated accent={PROFILE_SECTION_TONES.phone}>
             {isEditing ? (
               <>
                 <SectionTable<EditItem>
