@@ -9,6 +9,7 @@ import { sectionHeadingId } from "./nav-types"
 import { SAVED_FLASH_MS, SectionContainer } from "./section-container"
 import { SectionFooter, type SectionFooterProps } from "./section-footer"
 import { SectionHeader } from "./section-header"
+import { SectionLandmark } from "./section-landmark"
 import { SectionRegistryProvider, useSectionRegistry, type SectionRegistry } from "./section-registry"
 
 beforeEach(() => stubLayoutApis())
@@ -104,6 +105,25 @@ describe("SectionHeader icon (design refresh, opt-in)", () => {
     render(<SectionHeader id="authenticator" title="Authenticator app" editing={false} icon={{ icon: Phone, tone: "blue" }} />)
     expect(iconOf()?.style.getPropertyValue("--stagger")).toBe("0")
     expect(savedCheck()).toBeNull()
+  })
+})
+
+describe("SectionLandmark icon (design refresh, opt-in; /account)", () => {
+  it("passes `icon` to its SectionHeader: the tile and the accent line; none without it", () => {
+    const { unmount } = render(
+      <SectionLandmark id="authenticator" title="Authenticator app">
+        x
+      </SectionLandmark>,
+    )
+    expect(document.querySelector("[data-slot='animated-icon']")).toBeNull()
+    unmount()
+    render(
+      <SectionLandmark id="authenticator" title="Authenticator app" icon={{ icon: Phone, tone: "blue" }}>
+        x
+      </SectionLandmark>,
+    )
+    expect(document.querySelector("[data-slot='animated-icon']")?.getAttribute("data-tone")).toBe("blue")
+    expect(screen.getByRole("heading", { level: 2, name: "Authenticator app" }).className).toContain("after:bg-brand-primary")
   })
 })
 

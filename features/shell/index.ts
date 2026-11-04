@@ -78,7 +78,7 @@ export {
   type UseSectionFormOptions,
 } from "./use-section-form"
 export { SectionHeader, type SectionHeaderIcon, type SectionHeaderProps } from "./section-header"
-export { labelChipTone, PROFILE_SECTION_ICONS, PROFILE_SECTION_TONES } from "./section-tones"
+export { labelChipTone, PROFILE_SECTION_ICONS, PROFILE_SECTION_TONES, SECTION_TONE, type ToneSectionId } from "./section-tones"
 export { SectionContainer, type SectionContainerProps } from "./section-container"
 export { SectionFooter, type SectionFooterAddRow, type SectionFooterError, type SectionFooterProps } from "./section-footer"
 export {

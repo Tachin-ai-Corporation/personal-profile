@@ -325,15 +325,15 @@ describe("scroll-spy", () => {
     expect(menuLink(/^Personal information$/).classList.contains("bg-accent")).toBe(false)
   })
 
-  it("`accent` (design refresh, opt-in): Section icons instead of numbers; the current item on its tone's tint with a brand-hue bar", () => {
+  it("`accent` (design refresh, opt-in): Section icons instead of numbers; the current item on the one tone's tint with a brand-primary bar", () => {
     render(<ContactsPanel accent />)
     reportIntersections({ phone: true })
     const current = menuLink(/^Phone$/)
-    // The current item's fill and bar are drawn by the sliding indicator, in the current Section's tone.
+    // The current item's fill and bar are drawn by the sliding indicator, in the Sections' one tone (SECTION_TONE, blue).
     hasClasses(current, "relative", "grid-cols-[24px_1fr_auto]", "font-semibold")
-    hasClasses(indicator(), "bg-tint-teal-strong", "before:absolute", "before:w-[3px]", "before:bg-brand-secondary")
+    hasClasses(indicator(), "bg-tint-blue-strong", "before:absolute", "before:w-[3px]", "before:bg-brand-primary")
     // No hover fill either: the link paints over the indicator, so one would cover it (#61 review; e2e design-refresh.spec.ts).
-    for (const name of ["bg-accent", "hover:bg-accent", "text-primary-text", "bg-tint-teal-strong", "before:bg-brand-secondary", "hover:bg-tint-teal-surface"])
+    for (const name of ["bg-accent", "hover:bg-accent", "text-primary-text", "bg-tint-blue-strong", "before:bg-brand-primary", "hover:bg-tint-blue-surface"])
       expect(current.classList.contains(name)).toBe(false)
     // No 01–05: the icon takes the number's column, so the label keeps its place; the names stay the labels.
     expect(menu().textContent).not.toMatch(/0[1-5]/)
@@ -342,15 +342,17 @@ describe("scroll-spy", () => {
     expect(icon?.getAttribute("data-slot")).toBe("section-nav-icon")
     expect(icon?.getAttribute("aria-hidden")).toBe("true")
     expect(icon?.getAttribute("class")).toContain("lucide-map-pin")
-    expect(icon?.getAttribute("class")).toContain("text-tint-mint-strong-foreground")
+    expect(icon?.getAttribute("class")).toContain("text-tint-blue-strong-foreground")
     expect(icon?.nextElementSibling?.textContent).toBe("Addresses")
     // Not current: no fill; hover on the tone's surface tint.
-    expect(menuLink(/^Addresses$/).className).not.toContain("bg-tint-mint-strong")
-    hasClasses(menuLink(/^Addresses$/), "hover:bg-tint-mint-surface")
+    expect(menuLink(/^Addresses$/).className).not.toContain("bg-tint-blue-strong")
+    hasClasses(menuLink(/^Addresses$/), "hover:bg-tint-blue-surface")
+    // One colour: no Section's item takes teal or mint any more.
+    expect(menu().innerHTML).not.toMatch(/tint-(teal|mint)|brand-(secondary|tertiary)/)
     expect(menuLink(/^Addresses$/).classList.contains("hover:bg-accent")).toBe(false)
   })
 
-  it("`accent`: Jump to keeps its numbers, in each Section's tone", () => {
+  it("`accent`: Jump to keeps its numbers, in the Sections' tone", () => {
     render(<ContactsPanel accent />)
     const trigger = jumpTo()
     expect(trigger.textContent).toContain("01")
@@ -383,10 +385,10 @@ describe("scroll-spy", () => {
       await waitFor(() => expect(slider?.dataset.ready).toBe("true"))
       reportIntersections({ email: true })
       expect(slider?.style.transform).toBe("translateY(104px)")
-      hasClasses(slider, "bg-tint-teal-strong", "before:bg-brand-secondary")
+      hasClasses(slider, "bg-tint-blue-strong", "before:bg-brand-primary")
       fireEvent.click(menuLink(/^Addresses$/))
       expect(slider?.style.transform).toBe("translateY(192px)")
-      hasClasses(slider, "bg-tint-mint-strong", "before:bg-brand-tertiary")
+      hasClasses(slider, "bg-tint-blue-strong", "before:bg-brand-primary")
     } finally {
       offsetTop.mockRestore()
       offsetHeight.mockRestore()
@@ -577,16 +579,16 @@ describe("counts", () => {
       </SectionCountProvider>,
     )
     const pill = (name: RegExp) => menuLink(name).querySelector<HTMLElement>('[data-slot="section-count"]')
-    hasClasses(pill(/^Phone$/), "rounded-full", "font-mono", "bg-tint-teal-strong", "text-tint-teal-strong-foreground")
+    hasClasses(pill(/^Phone$/), "rounded-full", "font-mono", "bg-tint-blue-strong", "text-tint-blue-strong-foreground")
     expect(pill(/^Phone$/)?.textContent).toBe("5")
-    hasClasses(pill(/^Email$/), "rounded-full", "bg-tint-teal-strong")
+    hasClasses(pill(/^Email$/), "rounded-full", "bg-tint-blue-strong")
     expect(pill(/^Email$/)?.textContent).toBe("0")
     // Personal information has no count: no pill.
     expect(pill(/^Personal information$/)?.className).not.toContain("rounded-full")
     // The current item: the stronger emphasis tint.
     act(() => menuLink(/^Phone$/).click())
-    hasClasses(pill(/^Phone$/), "bg-tint-teal-emphasis", "text-tint-teal-emphasis-foreground")
-    expect(pill(/^Phone$/)?.className).not.toContain("bg-tint-teal-strong ")
+    hasClasses(pill(/^Phone$/), "bg-tint-blue-emphasis", "text-tint-blue-emphasis-foreground")
+    expect(pill(/^Phone$/)?.className).not.toContain("bg-tint-blue-strong ")
   })
 
   it("shows each Section's reported saved-entry count, blank when none is reported", () => {

@@ -1,32 +1,49 @@
-import { AtSign, Mail, MapPin, Phone, ShieldCheck, UserRound, type LucideIcon } from "lucide-react"
+import { AtSign, KeyRound, Mail, MapPin, Phone, ShieldCheck, Stethoscope, UserCog, UserRound, type LucideIcon } from "lucide-react"
 import type { AnimatedIconTone } from "@/components/ui/animated-icon"
 import type { ChipTone } from "@/components/ui/chip"
-import type { ProfileSectionId } from "./anchors"
+import type { AccountSectionId, ProfileSectionId } from "./anchors"
+
+/** Every Section with a design-refresh header: the five Contacts Sections, Insurance and the `/account` Sections. */
+export type ToneSectionId = ProfileSectionId | "insurance" | AccountSectionId
 
 /**
- * The design refresh's color per Personal Profile Section (PROPOSAL;
- * DESIGN-SYSTEM.md "Accent tints and motion"): its header icon tile and title
- * accent, its container bar, table tints and header actions, and its Section
- * menu item all take this tone, so they never drift apart. Only opt-in
- * callers use it; `/account` doesn't.
+ * The design refresh's one accent (PROPOSAL; DESIGN-SYSTEM.md "Accent tints
+ * and motion"; feedback 2026-11-03: one colour for every Section, no longer
+ * blue / teal / mint per Section): `brand-primary`, through the `blue` tone's
+ * tints, so a rebrand still flows through.
+ */
+export const SECTION_TONE = "blue" satisfies AnimatedIconTone
+
+/**
+ * The design refresh's color per Section, on `/` and `/account`: its header
+ * icon tile and title accent, its container bar, table tints and header
+ * actions, and its Section menu item all take this tone, so they never drift
+ * apart. Every Section takes `SECTION_TONE`; change it here, never per
+ * Section.
  */
 export const PROFILE_SECTION_TONES = {
-  personal: "blue",
-  phone: "teal",
-  email: "teal",
-  social: "teal",
-  addresses: "mint",
-  insurance: "blue",
-} as const satisfies Record<ProfileSectionId | "insurance", AnimatedIconTone>
+  personal: SECTION_TONE,
+  phone: SECTION_TONE,
+  email: SECTION_TONE,
+  social: SECTION_TONE,
+  addresses: SECTION_TONE,
+  insurance: SECTION_TONE,
+  account: SECTION_TONE,
+  authenticator: SECTION_TONE,
+  provider: SECTION_TONE,
+} as const satisfies Record<ToneSectionId, AnimatedIconTone>
 
-/** Each Section's icon: its header tile and its Section menu item. */
-export const PROFILE_SECTION_ICONS: Readonly<Record<ProfileSectionId | "insurance", LucideIcon>> = {
+/** Each Section's icon: its header tile and (Contacts) its Section menu item. */
+export const PROFILE_SECTION_ICONS: Readonly<Record<ToneSectionId, LucideIcon>> = {
   personal: UserRound,
   phone: Phone,
   email: Mail,
   social: AtSign,
   addresses: MapPin,
   insurance: ShieldCheck,
+  account: UserCog,
+  authenticator: KeyRound,
+  provider: Stethoscope,
 }
 
 export interface ToneClasses {

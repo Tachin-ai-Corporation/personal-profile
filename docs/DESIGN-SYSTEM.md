@@ -371,11 +371,13 @@ Premium, purposeful, never bouncy-for-fun.
 > loosens §1's "if a screen feels colorful, it's wrong" for decorative icon
 > tiles, Section accents (bars, table header rows, row hover, header
 > actions), label chips, the Section menu, the page tabs and the profile header
-> band only. Every piece below is **opt-in**, except the three shared effects
-> listed next, so `/account` changes only by those until it opts in. Accept,
-> amend or reject it here, and in DESIGN.md if accepted.
+> band only. Every piece below is an **opt-in** prop, except the three shared
+> effects listed next, and **both pages opt in to all of it** (`/` and
+> `/account`, every tab with Sections; feedback of 2026-11-03: the refresh
+> applies everywhere, in one accent colour). A new page or Section opts in
+> the same way. Accept, amend or reject it here, and in DESIGN.md if accepted.
 
-**Shared effects (not opt-in; every page, `/account` included).**
+**Shared effects (not opt-in; every page).**
 
 - **Outline and ghost button hover** (`components/ui/button.tsx`): the hover
   fill is the blue tint `bg-tint-blue` with `text-tint-blue-foreground` (AA in
@@ -402,7 +404,7 @@ them for status:
 | `bg-tint-teal-strong` / `text-tint-teal-strong-foreground` | secondary hue at L 0.92 C 0.05 / secondary at full chroma, L 0.46 (5.27:1) | L 0.38 C 0.06 / L 0.82 (5.79:1) |
 | `bg-tint-mint-strong` / `text-tint-mint-strong-foreground` | tertiary hue at L 0.92 C 0.05 / tertiary at full chroma, L 0.46 (5.29:1) | L 0.38 C 0.06 / L 0.82 (5.80:1) |
 | `bg-tint-aqua-strong` / `text-tint-aqua-strong-foreground` (label chips only) | highlight hue at L 0.92 C 0.05 / L 0.46 (5.54:1) | L 0.38 C 0.06 / L 0.82 (5.74:1) |
-| `bg-tint-*-tile` (icon tiles only, never under text) | brand hue at L 0.88 C 0.065; glyph blue 4.14, teal 4.68, mint 4.70 | L 0.40 C 0.07; glyph ≥ 5.2 |
+| `bg-tint-*-tile` (icon tiles only, never under text) | brand hue at L 0.88 C 0.065; glyph blue 4.13, teal 4.68, mint 4.70 | L 0.40 C 0.07; glyph ≥ 5.2 (blue 5.30) |
 | `bg-tint-*-surface` (light fills under text) | brand 10 % on card | brand 12 % on card |
 | `from-tint-header-start` / `via-tint-header-mid` (40 %) / `to-tint-header-end` | primary 50 % → secondary 24 % → secondary 12 % on background | 58 % → 36 % → 24 % |
 
@@ -429,11 +431,39 @@ band (dark ≥ 7.42:1), the name and the contact labels included.
 
 Outline and ghost buttons hover on `tint-blue`. Status keeps its own colors.
 
-**Accents.** Decorative and opt-in, drawn on pseudo-elements so the layout
-never moves:
+**One accent colour.** Every Section on both pages takes the same tone,
+`SECTION_TONE` = `blue`, the brand primary (`--brand-primary`, trust blue by
+default), set once in `PROFILE_SECTION_TONES` (`features/shell/section-tones.ts`):
+the header tile and title line, the container bar, the table tints, the
+header actions and the Section menu item all read it, so they never drift
+apart. Never pick a tone per Section; change `SECTION_TONE` to recolor them
+all. (Until 2026-11-03 Personal and Insurance were blue, Phone / Email /
+Social media teal and Addresses mint.) The teal, mint and aqua tints stay for
+label chips, and the header band and tab bar keep their primary → secondary
+blend.
 
-- One tone per Section, `PROFILE_SECTION_TONES` (`features/shell/section-tones.ts`):
-  Personal and Insurance blue, Phone / Email / Social media teal, Addresses mint.
+Measured on the blue tone (WCAG 2.1, computed colors; text ≥ 4.5:1,
+graphics ≥ 3:1):
+
+| Pair | Light | Dark |
+|---|---|---|
+| Table header text (`tint-blue-strong-foreground`) on `tint-blue-surface` | 5.10 | 6.87 |
+| Row text on the surface (read-view hover): foreground / muted-foreground / link-text | 12.90 / 5.31 / 5.18 | 9.85 / 5.88 / 7.38 |
+| Status text on the surface: success-strong / warning-strong / error-strong | 4.62 / 4.61 / 5.14 | 5.89 / 6.90 / 4.86 |
+| Header actions on hover: foreground on `tint-blue-surface` | 12.90 | 9.85 |
+| Section menu label on the current item (`tint-blue-strong`) | 11.82 | 8.26 |
+| Menu icon / Jump to number on background · on hover (surface) · on the current item · on `accent` | 5.46 · 5.10 · 4.67 · 5.34 | 8.65 · 6.87 · 5.77 · 6.66 |
+| Count pill · current item's pill (`tint-blue-emphasis`) | 4.67 · 5.76 | 5.77 · 5.14 |
+| Header tile glyph on `tint-blue-tile` (graphic) | 4.13 | 5.30 |
+| Button hover: `tint-blue-foreground` on `tint-blue` | 4.95 | 4.85 |
+| Container bar, title line, card rule (`brand-primary`) on card · on background (decorative) | 5.87 · 5.46 | 2.18 · 2.53 |
+
+The bars, lines and card rules are decorative (they carry no state or
+meaning), so 1.4.11 doesn't apply; in dark mode trust blue reads dim on the
+dark surfaces, as for `text-primary` (see "Primary-colored text").
+
+**Accents.** Decorative and opt-in, drawn on pseudo-elements or borders so the
+layout never moves:
 - `SectionContainer accent={tone}`: a 4 px left border in the brand hue
   (`brand-primary` / `-secondary` / `-tertiary`). It is a real border, not an
   absolutely positioned bar: a positioned overlay that grows with the container
@@ -493,8 +523,13 @@ never moves:
   or Cancel, but a mouse action shows no box (keyboard use still does). Without
   the opt-in, the F3-2 rule stands (the ring on any `:focus`, because Chromium
   doesn't match `:focus-visible` after script focus that follows a click).
-- Insurance policy cards: a 4 px `brand-primary` rule along the top
-  (`border` when Deleted).
+- Insurance policy cards and `/account` organization cards: a 4 px
+  `brand-primary` rule along the top (`border` when Deleted or the
+  organization is disabled); an active card lifts 2 px with a raised shadow on
+  hover or focus inside it (shadow only under reduced motion).
+- `SectionLandmark icon` passes `SectionHeader icon` through (`/account`'s
+  Authenticator app and Individual Provider Registration), and
+  `AccountTabs accent` passes `PageTabs accent` (as `ProfileTabs accent`).
 - `ProfileHeader accent`: the tinted band, a 3 px primary → secondary → tertiary
   rule over its bottom border and a `brand-secondary` ring on the avatar that
   scales in once (`.animate-avatar-ring-enter`, 450 ms; static under reduced
