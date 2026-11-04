@@ -8,12 +8,19 @@ import { cn } from "@/lib/utils"
 import { ROW_EDIT_STATE_CLASSES, type RowEditState } from "./row-removal"
 import { useSectionTone } from "./section-tone"
 import { TONE_CLASSES } from "./section-tones"
+import { columnsFit, measureLength, measureMinContent, sharedWidths, type FitColumn } from "./table-fit"
+import { ContainerWidthContext, useElementWidth, useFontLoads } from "./use-element-width"
 import { DESKTOP_QUERY, useMediaQuery } from "./use-media-query"
 
 /** Where a column goes in the stacked mobile card (read view): line 1 (value + status), line 2 (muted meta), or not at all. */
 export type MobileLine = 1 | 2 | "none"
 
-export type SectionTableLayout = "table" | "card"
+/**
+ * `compact` (#63 review): the table, too narrow for the inline row actions;
+ * its actions cell gets only the kebab (`RowActions` with `showInline={false}`,
+ * as in a card). Compare with `"table"` to decide on inline actions.
+ */
+export type SectionTableLayout = "table" | "card" | "compact"
 
 /** What a cell renderer gets besides the row. */
 export interface SectionTableCellContext {
@@ -43,11 +50,16 @@ export interface SectionTableProps<R> {
   readonly labelledBy?: string
   /**
    * The row's actions cell, usually `RowActions` (read view) or `RowRemoval`
-   * (edit view). The card layout passes `"card"`: give `RowActions`
-   * `showInline={false}` there (touch relies on the kebab).
+   * (edit view). The card layout passes `"card"` and a compact table
+   * `"compact"`: give `RowActions` `showInline={layout === "table"}` (touch
+   * and narrow tables rely on the kebab).
    */
   readonly actions?: (row: R, layout: SectionTableLayout) => React.ReactNode
-  /** The actions column's width class (default `w-60` in read view, `w-32` in edit view). */
+  /**
+   * The actions column's width class (default `w-60` in read view, `w-32` in
+   * edit view). Only the read view's default narrows to the kebab
+   * (`compact`); a Section's own width is kept.
+   */
   readonly actionsWidth?: string
   /** Edit view: no hover fill, roomier top-aligned cells; below 768 px each column is a labelled block. */
   readonly editing?: boolean
@@ -69,6 +81,43 @@ export interface SectionTableProps<R> {
 const HEADER_CELL = "h-9 px-3 text-left align-middle text-caption font-semibold tracking-[0.06em] uppercase"
 /** Long values (links, emails, addresses) wrap inside their cell instead of widening the table. */
 const WRAP = "min-w-0 [overflow-wrap:anywhere]"
+/** The kebab-only actions column of a compact table. */
+const COMPACT_ACTIONS_WIDTH = "w-14"
+/** The least width of a column, so short values ("Landline", "Not verified") keep whole words. */
+const MIN_COLUMN_PX = 96
+/** The same in edit view, with room for a control. */
+const MIN_EDIT_COLUMN_PX = 128
+
+interface Fit {
+  readonly layout: "table" | "compact" | "card"
+  /** Table layouts: the px width of each unsized column (`null` for sized ones); unmeasured: none (equal shares). */
+  readonly widths?: readonly (number | null)[]
+  /** The width those were computed for. */
+  readonly width?: number
+}
+
+/**
+ * The widest layout whose columns all fit `width` (#63 review): the table,
+ * else (read view, default actions column) the table with kebab-only actions,
+ * else cards. Each column needs its header's longest word and the floor; the
+ * unsized columns get their need first, then equal parts of the rest. An
+ * unmeasured width (server render, jsdom) keeps the table with equal shares.
+ */
+function fitOf<R>(width: number, columns: readonly SectionTableColumn<R>[], hasActions: boolean, actionsWidth: string | undefined, editing: boolean): Fit {
+  if (width <= 0) return { layout: "table" }
+  const floor = editing ? MIN_EDIT_COLUMN_PX : MIN_COLUMN_PX
+  const fit: FitColumn[] = columns.map((column) => ({
+    length: column.width ? measureLength(column.width) : null,
+    min: Math.max(floor, measureMinContent(column.header, HEADER_CELL)),
+  }))
+  const actions = hasActions ? [measureLength(actionsWidth ?? (editing ? "w-32" : "w-60"))] : []
+  if (columnsFit(width, fit, actions)) return { layout: "table", widths: sharedWidths(width, fit, actions), width }
+  const compact = [measureLength(COMPACT_ACTIONS_WIDTH)]
+  if (hasActions && !editing && actionsWidth === undefined && columnsFit(width, fit, compact)) {
+    return { layout: "compact", widths: sharedWidths(width, fit, compact), width }
+  }
+  return { layout: "card" }
+}
 
 const isEmptyNode = (node: React.ReactNode): boolean => node === undefined || node === null || node === false
 
@@ -83,9 +132,16 @@ const isEmptyNode = (node: React.ReactNode): boolean => node === undefined || no
  * in read view line 1 value + status and line 2 muted meta (each value keeps
  * its column name for screen readers); in edit view one full-width block per
  * column under its visible header. An expanded row (`renderExpanded`) is one
- * full-width cell or the card body. The layout is picked with
- * `useMediaQuery`, never by CSS-hidden twins, so a breakpoint change
- * remounts the cells: keep per-row state in the Section, not in cells.
+ * full-width cell or the card body. From 768 px the table is used only
+ * while its columns fit the width it has (its `SectionContainer`'s, or its
+ * parent's): each column gets its header's longest word and 96 px (128 px in edit
+ * view), the unsized ones that need first and equal parts of the rest; else
+ * a read view with the default actions column keeps only the kebab there
+ * (`compact`); else the rows are cards (#63 review: at tablet widths the
+ * Contacts columns shrank to ~25 px). The layout is picked with
+ * `useMediaQuery` and the measured width, never by CSS-hidden twins, so a
+ * layout change remounts the cells: keep per-row state in the Section, not
+ * in cells.
  */
 export function SectionTable<R>({
   rows,
@@ -102,6 +158,12 @@ export function SectionTable<R>({
   className,
 }: SectionTableProps<R>): React.JSX.Element {
   const desktop = useMediaQuery(DESKTOP_QUERY)
+  const containerWidth = React.useContext(ContainerWidthContext)
+  // The parent's width, not the table's: column widths can stretch a fixed-layout table past it.
+  const [ownWidth, measure] = useElementWidth(true)
+  // Re-renders (and re-measures the headers) when the web font arrives.
+  useFontLoads()
+  const fit: Fit = desktop ? fitOf(ownWidth ?? containerWidth, columns, actions !== undefined, actionsWidth, editing) : { layout: "card" }
   const baseId = React.useId()
   const stateOf = (row: R): RowEditState => rowState?.(row) ?? "saved"
   const columnHeaderId = (column: SectionTableColumn<R>): string => `${baseId}-col-${column.key}`
@@ -109,9 +171,9 @@ export function SectionTable<R>({
   const tone = useSectionTone()
   const headerFill = tone ? TONE_CLASSES[tone].tableHeader : "bg-muted text-muted-foreground"
 
-  if (!desktop) {
+  if (fit.layout === "card") {
     return (
-      <ul data-slot="section-table" data-layout="card" aria-labelledby={labelledBy} className={cn("tabular-nums", className)}>
+      <ul ref={measure} data-slot="section-table" data-layout="card" aria-labelledby={labelledBy} className={cn("tabular-nums", className)}>
         {rows.length === 0 && empty ? (
           <li className="px-3 py-0.5">
             <EmptyStateLine message={empty.message} action={empty.action} />
@@ -194,16 +256,19 @@ export function SectionTable<R>({
   const columnCount = columns.length + (actions ? 1 : 0)
   return (
     <table
+      ref={measure}
       data-slot="section-table"
-      data-layout="table"
+      data-layout={fit.layout}
       aria-labelledby={labelledBy}
       className={cn("w-full table-fixed border-collapse tabular-nums", className)}
     >
       <colgroup>
-        {columns.map((column) => (
-          <col key={column.key} className={column.width} />
-        ))}
-        {actions ? <col className={actionsWidth ?? (editing ? "w-32" : "w-60")} /> : null}
+        {columns.map((column, index) => {
+          // A share of the table, not px: on a resize the columns still add up until the next measurement.
+          const shared = fit.widths?.[index]
+          return <col key={column.key} className={column.width} style={shared == null || !fit.width ? undefined : { width: `${((shared / fit.width) * 100).toFixed(3)}%` }} />
+        })}
+        {actions ? <col className={fit.layout === "compact" ? COMPACT_ACTIONS_WIDTH : (actionsWidth ?? (editing ? "w-32" : "w-60"))} /> : null}
       </colgroup>
       <thead>
         <tr className="border-border border-b">
@@ -247,7 +312,7 @@ export function SectionTable<R>({
               ))}
               {actions ? (
                 <td data-slot="row-actions-cell" className={cn("px-1 text-right", editing ? "py-4 align-top" : "py-0 align-middle")}>
-                  {actions(row, "table")}
+                  {actions(row, fit.layout)}
                 </td>
               ) : null}
             </tr>

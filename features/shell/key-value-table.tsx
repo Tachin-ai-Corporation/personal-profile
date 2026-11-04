@@ -1,10 +1,12 @@
 "use client"
 
-import { useId, type ReactNode } from "react"
+import { useContext, useId, type ReactNode } from "react"
 import { FieldError, FormField, type FieldControlProps } from "@/components/ui/form-field"
 import { isNotProvided } from "@/lib/shared/display-value"
 import { COMMON_MESSAGES } from "@/lib/shared/messages"
 import { cn } from "@/lib/utils"
+import { columnsFit, measureMinContent, type FitColumn } from "./table-fit"
+import { ContainerWidthContext, useElementWidth, useFontLoads } from "./use-element-width"
 import { DESKTOP_QUERY, useMediaQuery } from "./use-media-query"
 
 /** One read-view pair. */
@@ -63,6 +65,24 @@ function ValueCell({ row, keyCellId }: { readonly row: KeyValueRow; readonly key
   )
 }
 
+/** The least width of a value column in four columns. */
+const MIN_VALUE_PX = 96
+const KEY_COLUMN = { slope: 0.16, offset: 0 }
+const VALUE_COLUMN = { slope: 0.34, offset: 0 }
+
+/**
+ * Whether four columns fit `width` (#63 review: beside the insurance card
+ * thumbnails the 16 % keys were ~69 px and "Cancellation" ran into its
+ * value): each key column holds the longest label word, each value column
+ * 96 px. An unmeasured width (server render, jsdom) keeps four columns.
+ */
+function fourColumnsFit(width: number, rows: readonly KeyValueRow[]): boolean {
+  if (width <= 0) return true
+  const key: FitColumn = { length: KEY_COLUMN, min: Math.max(0, ...rows.map((row) => measureMinContent(row.label, KEY_CELL))) }
+  const value: FitColumn = { length: VALUE_COLUMN, min: MIN_VALUE_PX }
+  return columnsFit(width, [key, value, key, value])
+}
+
 /** Pairs of rows for the desktop four-column layout (filled row by row). */
 function pairs<R>(rows: readonly R[]): (readonly [R, R | undefined])[] {
   const result: (readonly [R, R | undefined])[] = []
@@ -73,16 +93,30 @@ function pairs<R>(rows: readonly R[]): (readonly [R, R | undefined])[] {
 /**
  * DESIGN.md Key/value table, read view (Personal information, Account
  * settings, Registered view): desktop four columns key | value | key | value,
- * filled row by row, with a vertical hairline between the pairs; below 768 px
- * one Field | Value pair per row (key 44 %). Keys are `th scope="row"`. The
- * layout is picked with `useMediaQuery`, never by CSS-hidden twins.
+ * filled row by row, with a vertical hairline between the pairs, while
+ * they fit the table's width (each key its longest word, each value 96 px);
+ * below 768 px, or when they don't fit (a card beside its thumbnails), one
+ * Field | Value pair per row (key 44 %). Keys are `th scope="row"`. The
+ * layout is picked with `useMediaQuery` and the measured width, never by
+ * CSS-hidden twins.
  */
 export function KeyValueTable({ rows, labelledBy, className }: KeyValueTableProps) {
   const desktop = useMediaQuery(DESKTOP_QUERY)
+  const containerWidth = useContext(ContainerWidthContext)
+  const [ownWidth, measure] = useElementWidth()
+  // Re-renders (and re-measures the labels) when the web font arrives.
+  useFontLoads()
+  const fourColumns = desktop && fourColumnsFit(ownWidth ?? containerWidth, rows)
   const baseId = useId()
   return (
-    <table data-slot="key-value-table" aria-labelledby={labelledBy} className={cn("w-full table-fixed border-collapse", className)}>
-      {desktop ? (
+    <table
+      ref={measure}
+      data-slot="key-value-table"
+      data-columns={fourColumns ? 4 : 2}
+      aria-labelledby={labelledBy}
+      className={cn("w-full table-fixed border-collapse", className)}
+    >
+      {fourColumns ? (
         <>
           <colgroup>
             <col className="w-[16%]" />
