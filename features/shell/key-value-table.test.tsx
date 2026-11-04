@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react"
 import { beforeEach, describe, expect, it } from "vitest"
 import { Input } from "@/components/ui/input"
 import { axeViolations } from "@/test/axe"
+import { stubTableLayout } from "@/test/dom-stubs"
 import { stubViewport } from "@/test/media"
 import { KeyValueEditTable, KeyValueTable, type KeyValueEditRow, type KeyValueRow } from "./key-value-table"
 
@@ -87,6 +88,28 @@ describe("KeyValueTable (read)", () => {
     stubViewport(width)
     render(<Tables />)
     expect(await axeViolations()).toEqual([])
+  })
+})
+
+describe("KeyValueTable: four columns only while they fit (#63 review)", () => {
+  // The longest label word is "Signature" (9 · 8 + 24 = 96 px): 16 % holds it from 600 px.
+  it("wide enough: key | value | key | value", () => {
+    stubViewport(1280)
+    stubTableLayout(600)
+    render(<Tables />)
+    const table = screen.getByRole("table", { name: "Personal information" })
+    expect(table.getAttribute("data-columns")).toBe("4")
+    expect(cellsOf(within(table).getAllByRole("row")[0])).toEqual(["First name", "Ann", "Last name", "Lee"])
+  })
+
+  it("narrower (a policy card beside its thumbnails): one Field | Value pair per row", () => {
+    stubViewport(1280)
+    stubTableLayout(599)
+    render(<Tables />)
+    const table = screen.getByRole("table", { name: "Personal information" })
+    expect(table.getAttribute("data-columns")).toBe("2")
+    expect(within(table).getAllByRole("row")).toHaveLength(READ_ROWS.length)
+    expect(cellsOf(within(table).getAllByRole("row")[0])).toEqual(["First name", "Ann"])
   })
 })
 

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { axeViolations } from "@/test/axe"
-import { stubLayoutApis } from "@/test/dom-stubs"
+import { stubLayoutApis, stubTableLayout } from "@/test/dom-stubs"
 import { stubViewport } from "@/test/media"
 import { RowActions, type RowAction } from "./row-actions"
 import { RowEditStatus, RowRemoval, type RowEditState } from "./row-removal"
@@ -352,6 +352,94 @@ describe("SectionTable (F6-2)", () => {
     expect(cards[0].className).toContain("items-start")
     expect(within(cards[1]).getByText("+1 (415) 555-0100").className).toContain("line-through")
     expect(await axeViolations()).toEqual([])
+  })
+})
+
+describe("SectionTable: the layout follows the width it has (#63 review)", () => {
+  // Four shared columns of at least 96 px (the headers are shorter) and the 240 px actions column:
+  // the table from 624 px, kebab-only actions (56 px) from 440 px, else cards.
+  function Sized({ editing, actionsWidth, onLayout }: { readonly editing?: boolean; readonly actionsWidth?: string; readonly onLayout?: (layout: string) => void }) {
+    return (
+      <SectionContainer editing={editing ?? false}>
+        <h2 id="phone-heading">Phone</h2>
+        <SectionTable<Phone>
+          rows={PHONES}
+          columns={COLUMNS}
+          getRowKey={(row) => String(row.id)}
+          labelledBy="phone-heading"
+          editing={editing}
+          actionsWidth={actionsWidth}
+          actions={(row, layout) => {
+            onLayout?.(layout)
+            return <RowActions actions={actions().list} name={row.number} showInline={layout === "table"} />
+          }}
+        />
+      </SectionContainer>
+    )
+  }
+
+  const layoutOf = () => document.querySelector("[data-slot='section-table']")?.getAttribute("data-layout")
+  const actionsCol = () => document.querySelector("col:last-child")?.className
+
+  it("wide enough: the table with the inline actions", () => {
+    stubViewport(1280)
+    stubTableLayout(700)
+    render(<Sized />)
+    expect(layoutOf()).toBe("table")
+    expect(actionsCol()).toBe("w-60")
+    // The four unsized columns: 96 px each plus a quarter of the 76 px left over, as a share of the 700 px table.
+    expect([...document.querySelectorAll("col")].slice(0, 4).map((col) => col.style.width)).toEqual(Array(4).fill("16.429%"))
+    expect(screen.getAllByRole("button", { name: "Verify" })).toHaveLength(2)
+  })
+
+  it("too narrow for the 240 px actions: the table keeps its columns, and the actions cell only the kebab (`compact`)", () => {
+    stubViewport(1280)
+    stubTableLayout(500)
+    const layouts: string[] = []
+    render(<Sized onLayout={(layout) => layouts.push(layout)} />)
+    expect(screen.getByRole("table", { name: "Phone" })).toBeTruthy()
+    expect(layoutOf()).toBe("compact")
+    expect(actionsCol()).toBe("w-14")
+    // The first mount renders before the container is measured; the last layout passed is the one shown.
+    expect(layouts.at(-1)).toBe("compact")
+    expect(screen.queryByRole("button", { name: "Verify" })).toBeNull()
+    expect(screen.getByRole("button", { name: "More actions for +1 (415) 551-2125" })).toBeTruthy()
+  })
+
+  it("too narrow even then: cards from 768 px too, row actions on the kebab", () => {
+    stubViewport(1280)
+    stubTableLayout(400)
+    render(<Sized />)
+    expect(screen.queryByRole("table")).toBeNull()
+    expect(layoutOf()).toBe("card")
+    expect(screen.getAllByRole("listitem")).toHaveLength(2)
+    expect(screen.getByRole("button", { name: "More actions for +1 (415) 555-0100" })).toBeTruthy()
+  })
+
+  it("edit view: the table or cards, never compact (its controls need 128 px per column)", () => {
+    stubViewport(1280)
+    stubTableLayout(500)
+    render(<Sized editing />)
+    expect(layoutOf()).toBe("card")
+  })
+
+  it("a Section's own actions width is kept: the table or cards, never compact", () => {
+    stubViewport(1280)
+    stubTableLayout(430)
+    render(<Sized actionsWidth="w-14" />)
+    expect(layoutOf()).toBe("card")
+  })
+
+  it("read ↔ edit in the same container: the edit table picks cards on its first render (no table mounted first)", () => {
+    stubViewport(1280)
+    stubTableLayout(500)
+    const { rerender } = render(<Sized />)
+    const layouts: string[] = []
+    const seen = vi.fn((layout: string) => layouts.push(layout))
+    rerender(<Sized editing onLayout={seen} />)
+    expect(layoutOf()).toBe("card")
+    expect(layouts.length).toBeGreaterThan(0)
+    expect(new Set(layouts)).toEqual(new Set(["card"]))
   })
 })
 

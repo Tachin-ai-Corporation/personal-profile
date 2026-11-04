@@ -26,6 +26,43 @@ export function stubLayoutApis(): void {
 }
 
 /**
+ * A minimal layout for the shared tables' width checks
+ * (`features/shell/table-fit`, #63 review): a Section container, Section
+ * table and key/value table are `width` px wide (`clientWidth`); a width
+ * class probe resolves `w-[N%]` / `w-N` against its parent's inline width;
+ * a text probe is 8 px per character of its longest word plus 24 px padding.
+ * Includes an inert `ResizeObserver` (the widths never change). Call inside
+ * a test (`restoreMocks` and `unstubGlobals` undo it).
+ */
+export function stubTableLayout(width: number): void {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    },
+  )
+  vi.spyOn(Element.prototype, "clientWidth", "get").mockImplementation(function (this: Element) {
+    return this.matches("[data-slot='section-container'], [data-slot='section-table'], [data-slot='key-value-table']") ? width : 0
+  })
+  const real = Element.prototype.getBoundingClientRect
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+    const element = this as HTMLElement
+    const parent = Number.parseFloat(element.parentElement?.style.width ?? "")
+    const percent = /\bw-\[(\d+)%\]/.exec(element.className)
+    const fixed = /\bw-(\d+)\b/.exec(element.className)
+    let measured: number | null = null
+    if (!Number.isNaN(parent)) measured = percent ? (parent * Number(percent[1])) / 100 : fixed ? Number(fixed[1]) * 4 : parent
+    else if (element.tagName === "SPAN" && element.parentElement === document.body) {
+      measured = Math.max(...(element.textContent ?? "").split(/\s+/).map((word) => word.length)) * 8 + 24
+    }
+    if (measured === null) return real.call(this)
+    return { x: 0, y: 0, top: 0, left: 0, width: measured, height: 0, right: measured, bottom: 0, toJSON: () => ({}) } as DOMRect
+  })
+}
+
+/**
  * Section navigation stubs (F3-3, ported from main's Story 1.8B): an
  * `IntersectionObserver` driven by hand, a recording `Element.scrollIntoView`,
  * and `matchMedia` with reduced motion on or off, plus the layout APIs Radix
