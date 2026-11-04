@@ -1,7 +1,9 @@
 import { expect, type Locator, type Page } from "@playwright/test"
 import {
+  ACCOUNT_SETTINGS_MYSELF,
   ANN,
   CONTACT_PHONES,
+  REGISTERED_PROVIDER_NPI,
   PERSONAL_FULL_MYSELF,
   addressRow,
   contactPointRow,
@@ -15,6 +17,7 @@ import {
   mockInsuranceCard,
   mockMyself,
   mockProfileDefaults,
+  mockUserNpi,
   setTheme,
   signIn,
   test,
@@ -194,10 +197,29 @@ test.describe("shared tables at tablet widths (#63 review)", () => {
         await expectReadable(page, page.getByRole("tabpanel"), "insurance")
       })
 
-      test("/account: key/value grids", async ({ page }) => {
+      // The pages the design refresh opts in everywhere (one accent colour): the 4 px container bar must not cost readability.
+      test("/account Personal Account: the settings key/value grid in its accented container", async ({ page }) => {
         await mockAccountDefaults(page)
+        await mockMyself(page, { body: ACCOUNT_SETTINGS_MYSELF })
         await page.goto("/account")
-        await expectReadable(page, page.getByRole("main"), "account")
+        await expect(page.locator('#account [data-slot="section-container"]')).toBeVisible()
+        await expectReadable(page, page.getByRole("main"), "account settings")
+      })
+
+      test("/account Individual Provider Registration: the registered view's key/value grid", async ({ page }) => {
+        await mockAccountDefaults(page)
+        await mockUserNpi(page, { body: REGISTERED_PROVIDER_NPI })
+        await page.goto("/account?tab=provider")
+        await expect(page.locator('#provider [data-slot="section-container"]')).toBeVisible()
+        await expectReadable(page, page.getByRole("main"), "provider registered")
+      })
+
+      test("Medical: no shared tables yet (Epic 6 placeholder), and no horizontal overflow", async ({ page }) => {
+        await mockProfileDefaults(page)
+        await page.goto("/?tab=medical")
+        await expect(page.getByRole("tab", { name: /Medical/, selected: true })).toBeVisible()
+        await expect(page.getByRole("tabpanel").locator("[data-slot='section-table'], [data-slot='key-value-table']")).toHaveCount(0)
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0)
       })
     })
   }
