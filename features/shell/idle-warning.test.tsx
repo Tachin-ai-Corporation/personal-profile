@@ -7,9 +7,9 @@ import { IDLE_MESSAGES, LEAVE_GUARD_MESSAGES, SESSION_EXPIRED_MESSAGES } from "@
 import { FakeBroadcastChannel } from "@/test/fake-broadcast-channel"
 import { server } from "@/test/msw-server"
 import { setTestUrl } from "@/test/next-navigation"
-import { TestProviders, testIdle } from "@/test/providers"
+import { TEST_PORTAL_URL, TestProviders, testIdle } from "@/test/providers"
 import { FixtureParticipant } from "./__fixtures__/fixture-participant"
-import { IDLE_PING_TIMEOUT_MS, IDLE_SAFETY_MARGIN_MS, IdleWarning } from "./idle-warning"
+import { formatIdleCountdown, IDLE_PING_TIMEOUT_MS, IDLE_SAFETY_MARGIN_MS, IdleWarning, idleMilestone } from "./idle-warning"
 import { requestLeave, resetLeaveState } from "./leave"
 import { PageFrame } from "./page-frame"
 
@@ -47,7 +47,12 @@ afterEach(() => {
 })
 
 function renderWarning(overrides: Partial<{ lastSeen: number; absoluteExpiresAt: number; serverNow: number }> = {}) {
-  return render(<IdleWarning {...testIdle(T0)} {...overrides} />)
+  // Inside the providers: "Sign out now" uses the app's navigation (portal URL, router).
+  return render(
+    <TestProviders>
+      <IdleWarning {...testIdle(T0)} {...overrides} />
+    </TestProviders>,
+  )
 }
 
 async function advance(ms: number): Promise<void> {
@@ -65,6 +70,8 @@ const dialog = () => screen.queryByRole("alertdialog", { name: IDLE_MESSAGES.tit
 const stayButton = () => screen.getByRole("button", { name: IDLE_MESSAGES.stay })
 const isBusy = () => stayButton().getAttribute("aria-disabled") === "true"
 const status = () => screen.getByRole("status").textContent
+const signOutButton = () => screen.getByRole("button", { name: IDLE_MESSAGES.signOut })
+const countdown = () => screen.getByRole("timer").textContent
 
 /** A ping that answers 204 and echoes the (fake) server clock. */
 function pingOk(): void {
@@ -87,17 +94,32 @@ describe("IdleWarning: warning", () => {
     expect(document.activeElement).toBe(stayButton())
     expect(isBusy()).toBe(false)
     expect(status()).toBe("")
-    expect(screen.getAllByRole("button")).toHaveLength(1)
+    // Redesign: a title, the countdown in the description, Sign out now then Stay signed in (the primary).
+    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual([IDLE_MESSAGES.signOut, IDLE_MESSAGES.stay])
+    expect(dialog()?.getAttribute("aria-describedby")).toBeTruthy()
+    expect(document.getElementById(dialog()?.getAttribute("aria-describedby") ?? "")?.textContent).toBe("For your security, you'll be signed out in 1:00.")
     expect(expired).not.toHaveBeenCalled()
   })
 
-  it("Escape and outside clicks do not close it", async () => {
+  it("an outside press does not close it", async () => {
     renderWarning()
     await advance(WARN)
-    fireEvent.keyDown(stayButton(), { key: "Escape" })
     fireEvent.pointerDown(document.body)
     await settle()
     expect(dialog()).not.toBeNull()
+    expect(pings).toBe(0)
+  })
+
+  it("Escape means Stay signed in: one ping, and the warning closes once it lands", async () => {
+    pingOk()
+    renderWarning()
+    await advance(WARN)
+    fireEvent.keyDown(stayButton(), { key: "Escape" })
+    fireEvent.keyDown(stayButton(), { key: "Escape" })
+    await settle()
+    expect(pings).toBe(1)
+    expect(dialog()).toBeNull()
+    expect(expired).not.toHaveBeenCalled()
   })
 
   it("lastActivity is the larger of the page's lastSeen and the recorded activity", async () => {
@@ -116,6 +138,97 @@ describe("IdleWarning: warning", () => {
     expect(dialog()).toBeNull()
     await advance(SEC)
     expect(dialog()).not.toBeNull()
+  })
+})
+
+describe("IdleWarning: countdown (redesign)", () => {
+  it("formats m:ss, rounding a part second up", () => {
+    expect(formatIdleCountdown(60)).toBe("1:00")
+    expect(formatIdleCountdown(59.2)).toBe("1:00")
+    expect(formatIdleCountdown(59)).toBe("0:59")
+    expect(formatIdleCountdown(9)).toBe("0:09")
+    expect(formatIdleCountdown(0)).toBe("0:00")
+    expect(formatIdleCountdown(-3)).toBe("0:00")
+  })
+
+  it("milestones: nothing above 30 s, then 30 s, then 10 s", () => {
+    expect(idleMilestone(60)).toBe("")
+    expect(idleMilestone(31)).toBe("")
+    expect(idleMilestone(30)).toBe("30 seconds left before you're signed out.")
+    expect(idleMilestone(11)).toBe("30 seconds left before you're signed out.")
+    expect(idleMilestone(10)).toBe("10 seconds left before you're signed out.")
+    expect(idleMilestone(1)).toBe("10 seconds left before you're signed out.")
+  })
+
+  it("counts down each second; the status speaks only at 30 s and 10 s, not every second", async () => {
+    renderWarning()
+    await advance(WARN)
+    expect(countdown()).toBe("1:00")
+    // The visible timer is not a live region (role timer is aria-live off).
+    expect(screen.getByRole("timer").getAttribute("aria-live")).toBeNull()
+    await advance(SEC)
+    expect(countdown()).toBe("0:59")
+    const heard = new Set<string>()
+    for (let left = 59; left > 1; left--) {
+      heard.add(status() ?? "")
+      await advance(SEC)
+    }
+    expect(countdown()).toBe("0:01")
+    expect([...heard]).toEqual(["", "30 seconds left before you're signed out.", "10 seconds left before you're signed out."])
+    // At the deadline the warning still closes and publishes as before.
+    await advance(SEC)
+    expect(dialog()).toBeNull()
+    expect(expired).toHaveBeenCalledTimes(1)
+  })
+
+  it("the countdown runs to the absolute deadline when that comes first", async () => {
+    // Absolute 14:30 server → 14:00 client, 30 s before the idle deadline: the warning opens at 13:30 with 0:30 left.
+    renderWarning({ absoluteExpiresAt: T0 + 14 * MIN + 30 * SEC })
+    await advance(WARN)
+    expect(countdown()).toBe("0:30")
+    expect(status()).toBe("30 seconds left before you're signed out.")
+    await advance(30 * SEC)
+    expect(dialog()).toBeNull()
+    expect(expired).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("IdleWarning: Sign out now (redesign)", () => {
+  it("runs the portal exit: logout, then 1health in this tab; a second press does nothing", async () => {
+    const calls: string[] = []
+    server.use(
+      http.post("/api/session/logout", () => {
+        calls.push("logout")
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const assign = vi.fn((url: string) => void calls.push(`assign ${url}`))
+    vi.stubGlobal("location", { ...window.location, assign, pathname: "/", search: "" })
+    renderWarning()
+    await advance(WARN)
+    fireEvent.click(signOutButton())
+    fireEvent.click(signOutButton())
+    await settle()
+    expect(calls).toEqual(["logout", `assign ${TEST_PORTAL_URL}`])
+    expect(signOutButton().getAttribute("aria-busy")).toBe("true")
+    expect(pings).toBe(0)
+  })
+
+  it("while Stay signed in is pending, Sign out now is aria-disabled and does nothing", async () => {
+    let release: () => void = () => undefined
+    server.use(http.post(PING, () => new Promise<Response>((resolve) => (release = () => resolve(new HttpResponse(null, { status: 204 }))))))
+    const assign = vi.fn()
+    vi.stubGlobal("location", { ...window.location, assign, pathname: "/", search: "" })
+    renderWarning()
+    await advance(WARN)
+    fireEvent.click(stayButton())
+    await settle()
+    expect(signOutButton().getAttribute("aria-disabled")).toBe("true")
+    fireEvent.click(signOutButton())
+    await settle()
+    expect(assign).not.toHaveBeenCalled()
+    release()
+    await settle()
   })
 })
 

@@ -57,6 +57,21 @@ describe("SessionDialog", () => {
     expect(document.querySelector("[data-slot='dialog-overlay']")?.className).toContain("bg-scrim")
   })
 
+  it("redesign: the idle warning's layout (padded header and footer, a decorative brand-blue tile, no close button)", () => {
+    const { events } = setup()
+    act(() => events.publish("session-expired"))
+    const dialog = screen.getByRole("alertdialog", { name: TITLE })
+    expect(dialog.getAttribute("data-slot")).toBe("session-dialog")
+    expect(dialog.querySelector("[data-slot='dialog-header']")?.className).toContain("px-6")
+    expect(dialog.querySelector("[data-slot='dialog-footer']")?.contains(screen.getByRole("button", { name: "Return to 1health" }))).toBe(true)
+    const tile = dialog.querySelector("[data-slot='dialog-header'] > span")
+    expect(tile?.getAttribute("aria-hidden")).toBe("true")
+    expect(tile?.className).toContain("bg-tint-blue-strong")
+    expect(tile?.className).toContain("text-tint-blue-strong-foreground")
+    expect(screen.getByRole("heading", { name: TITLE }).getAttribute("data-slot")).toBe("dialog-title")
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull()
+  })
+
   it("opens on mount when the event was already published", () => {
     const events = createSessionEvents()
     events.publish("session-expired")

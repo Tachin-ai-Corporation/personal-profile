@@ -220,6 +220,22 @@ test.describe("session expired (Story 1.7)", () => {
     expect(logouts()).toBe(0)
   })
 
+  test("redesign: fits 360 px with a full-width Return to 1health, and the tile is decorative", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 })
+    await mockProfileDefaults(page)
+    await mockMyself(page, { status: 401, body: { errorCode: "SESSION_EXPIRED", source: "proxy" } })
+    await page.goto("/")
+    const dialog = page.getByRole("alertdialog", { name: "Your session ended" })
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toHaveAccessibleDescription("Your changes are kept on this device. Relaunch from 1health to continue.")
+    const [box, button] = await Promise.all([dialog.boundingBox(), dialog.getByRole("button", { name: "Return to 1health" }).boundingBox()])
+    expect(box && box.x >= 16 && box.x + box.width <= 344).toBe(true)
+    // The footer's 24 px side padding: the button spans the rest.
+    expect(box && button && Math.abs(button.width - (box.width - 48 - 2)) <= 1).toBe(true)
+    await expect(dialog.locator('[data-slot="dialog-header"] > span[aria-hidden="true"]')).toHaveCount(1)
+    await expectNoAxeViolations(page, "session dialog at 360 px")
+  })
+
   for (const [saved, landing] of [
     ["/?tab=insurance", /\/\?tab=insurance$/],
     ["/account?tab=provider", /\/\?tab=contacts$/],
@@ -603,7 +619,7 @@ test.describe("leave guard: every Story 1.13 case (fixture page; spec NG-9027)",
 })
 
 test.describe("idle warning (Story 1.6)", () => {
-  const WARNING = "You'll be signed out in 1 minute"
+  const WARNING = "Still there?"
 
   /** Answers the ping like the BFF: 204 echoing the given server time. */
   async function mockPing(page: Page, echo: () => number): Promise<() => number> {
@@ -636,8 +652,6 @@ test.describe("idle warning (Story 1.6)", () => {
     await expect(dialog).toBeVisible()
     const stay = dialog.getByRole("button", { name: "Stay signed in" })
     await expect(stay).toBeFocused()
-    await page.keyboard.press("Escape")
-    await expect(dialog).toBeVisible()
     await expectNoAxeViolations(page, "idle warning")
 
     // The page clock tracks the server clock here (offset ≈ 0), so "now" is the echo.
@@ -647,6 +661,68 @@ test.describe("idle warning (Story 1.6)", () => {
     expect(pings()).toBe(1)
     await page.clock.fastForward("05:00")
     await expect(dialog).toHaveCount(0)
+  })
+
+  test("redesign: title, live countdown, keyboard within the dialog, and Escape = Stay signed in", async ({ page }) => {
+    let echo = 0
+    const pings = await mockPing(page, () => echo)
+    await openProfile(page)
+    const dialog = page.getByRole("alertdialog", { name: WARNING })
+    await page.clock.fastForward("13:31")
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toHaveAccessibleDescription(/^For your security, you'll be signed out in [01]:\d\d\.$/)
+    const timer = dialog.getByRole("timer")
+    await expect(timer).toHaveText(/^[01]:\d\d$/)
+    await page.clock.fastForward("00:30")
+    await expect(timer).toHaveText(/^0:(29|30)$/)
+    await expect(dialog.getByRole("status")).toHaveText("30 seconds left before you're signed out.")
+
+    // Focus stays in the dialog: Stay signed in ⇄ Sign out now, whichever way.
+    const stay = dialog.getByRole("button", { name: "Stay signed in" })
+    const signOut = dialog.getByRole("button", { name: "Sign out now" })
+    await expect(stay).toBeFocused()
+    await page.keyboard.press("Tab")
+    await expect(signOut).toBeFocused()
+    await page.keyboard.press("Tab")
+    await expect(stay).toBeFocused()
+    await page.keyboard.press("Shift+Tab")
+    await expect(signOut).toBeFocused()
+
+    // An outside press does nothing; Escape is Stay signed in.
+    await page.mouse.click(5, 5)
+    await expect(dialog).toBeVisible()
+    expect(pings()).toBe(0)
+    echo = await page.evaluate(() => Date.now())
+    await page.keyboard.press("Escape")
+    await expect(dialog).toHaveCount(0)
+    expect(pings()).toBe(1)
+  })
+
+  test("Sign out now: logout, then 1health in this tab", async ({ page }) => {
+    const logouts = await mockExit(page)
+    await openProfile(page)
+    const dialog = page.getByRole("alertdialog", { name: WARNING })
+    await page.clock.fastForward("13:31")
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole("button", { name: "Sign out now" }).click()
+    await page.waitForURL((url) => url.origin === new URL(PORTAL_URL).origin)
+    expect(logouts()).toBe(1)
+  })
+
+  test("fits 360 px (stacked full-width buttons, Stay signed in on top) and the bar doesn't move under reduced motion", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 })
+    await openProfile(page)
+    const dialog = page.getByRole("alertdialog", { name: WARNING })
+    await page.clock.fastForward("13:31")
+    await expect(dialog).toBeVisible()
+    const box = await dialog.boundingBox()
+    expect(box && box.x >= 16 && box.x + box.width <= 344).toBe(true)
+    const [stay, signOut] = await Promise.all([dialog.getByRole("button", { name: "Stay signed in" }).boundingBox(), dialog.getByRole("button", { name: "Sign out now" }).boundingBox()])
+    expect(stay && signOut && stay.y < signOut.y && Math.abs(stay.width - signOut.width) < 1).toBe(true)
+    // The e2e default is reduced motion: the countdown bar steps, it doesn't transition.
+    const duration = await dialog.locator('[data-slot="idle-countdown-bar"]').evaluate((bar) => getComputedStyle(bar).transitionDuration)
+    expect(Number.parseFloat(duration)).toBeLessThan(0.001)
+    await expectNoAxeViolations(page, "idle warning at 360 px")
   })
 
   test("two tabs: activity in one closes the other tab's warning and keeps it from firing early", async ({ page, context }) => {
