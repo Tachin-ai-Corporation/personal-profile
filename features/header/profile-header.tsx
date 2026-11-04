@@ -195,7 +195,7 @@ export interface ProfileHeaderProps {
    * gradient (strongest at the name; lighter on the right), its contact labels
    * in foreground (AA wherever a long email puts them), a 3 px blue-teal-mint brand rule over its bottom border and a teal
    * ring around the avatar that scales in once (off under reduced motion).
-   * `/` opts in; `/account` doesn't.
+   * Both pages opt in (`/` and `/account`).
    */
   readonly accent?: boolean
 }

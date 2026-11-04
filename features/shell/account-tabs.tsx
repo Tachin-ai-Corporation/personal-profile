@@ -12,19 +12,22 @@ export interface AccountTabsProps {
   readonly provider?: ReactNode
   /** My Organizations tab body (Epic 10); default: the card-grid placeholder. */
   readonly organizations?: ReactNode
+  /** Opt-in (design refresh, PROPOSAL): `PageTabs accent`, the brand-colored active tab. */
+  readonly accent?: boolean
 }
 
 /**
  * The `/account` tab strip preset (Story 7.1; F6-1): `PageTabs` with
  * `ACCOUNT_TAB_DEFINITIONS` and the panels composed by `app/account/page.tsx`.
  */
-export function AccountTabs({ personal, provider, organizations }: AccountTabsProps = {}) {
+export function AccountTabs({ personal, provider, organizations, accent = false }: AccountTabsProps = {}) {
   return (
     <PageTabs
       page="account"
       tabs={ACCOUNT_TAB_DEFINITIONS}
       aria-label={PAGE_TAB_LIST_LABELS.account}
       defaultTab={DEFAULT_ACCOUNT_TAB}
+      accent={accent}
       panels={{
         personal: personal ?? <AccountPersonalPanel />,
         provider: provider ?? <AccountTabPlaceholder tab="provider" />,

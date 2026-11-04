@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useCachedValue } from "@/features/shell/use-cached-value"
-import { KeyValueTable, SectionHeader, SectionContainer, SectionFooter, StateFrame, useSectionForm, useSectionRegistry, useSectionDraft, sectionHeadingId, useClaimMyselfError, useMyself, useSectionFrame, type FrameState, type KeyValueRow } from "@/features/shell"
+import { KeyValueTable, PROFILE_SECTION_ICONS, PROFILE_SECTION_TONES, SectionHeader, SectionContainer, SectionFooter, StateFrame, useSectionForm, useSectionRegistry, useSectionDraft, sectionHeadingId, useClaimMyselfError, useMyself, useSectionFrame, type FrameState, type KeyValueRow } from "@/features/shell"
 import { keys, loadContactPoints, mapFetchError, type ContactPoint, type MappedError } from "@/lib/api"
 import { ACCOUNT_MESSAGES, COMMON_MESSAGES, FIELD_MESSAGES, SHELL_MESSAGES, SECTION_MESSAGES, formatMessage, messageFor } from "@/lib/shared/messages"
 import useSWR, { useSWRConfig } from "swr"
@@ -209,9 +209,9 @@ export function AccountSettingsSection() {
   const restoreBusy = (restoreDependencies.email && email.isValidating) || (restoreDependencies.mobile && mobile.isValidating)
   return (
     <section id="account" aria-labelledby={sectionHeadingId("account")} className="min-w-0">
-      <SectionHeader id="account" title={SHELL_MESSAGES.accountSectionHeading} editing={section.isEditing} actions={!section.isEditing && state === "ready" ? <Button variant="outline" size="touch" {...section.editButtonProps} onClick={() => { pendingRestore.current = false; setRestoring(false); setNotices({ email: false, mobile: false }); setOutcomes([]); setLoadPrimaries(true); section.startEdit() }}>{SECTION_MESSAGES.edit}</Button> : undefined} className="mb-2" />
+      <SectionHeader id="account" icon={{ icon: PROFILE_SECTION_ICONS.account, tone: PROFILE_SECTION_TONES.account }} title={SHELL_MESSAGES.accountSectionHeading} editing={section.isEditing} actions={!section.isEditing && state === "ready" ? <Button variant="outline" size="touch" {...section.editButtonProps} onClick={() => { pendingRestore.current = false; setRestoring(false); setNotices({ email: false, mobile: false }); setOutcomes([]); setLoadPrimaries(true); section.startEdit() }}>{SECTION_MESSAGES.edit}</Button> : undefined} className="mb-2" />
       <StateFrame state={state} className={state === "ready" ? "overflow-visible border-0 bg-transparent" : undefined} skeleton="kv" loadError={{ kind: "page" }} level="section" onRetry={retryMyself} attempt={failure.attempt} onSettled={settled}>
-        {view && <SectionContainer editing={section.isEditing} sectionId="account">
+        {view && <SectionContainer editing={section.isEditing} sectionId="account" animated accent={PROFILE_SECTION_TONES.account}>
           {section.isEditing ? <>
             <AccountEditFields notices={notices} onPrimaryChange={(kind) => setNotices((previous) => ({ ...previous, [kind]: true }))} section={section} view={view} roles={myself?.roles ?? undefined} contacts={{
               email: { data: email.data, error: email.error, loading: email.isLoading || email.isValidating, attempt: emailAttempt, retry: () => { void email.mutate() } },

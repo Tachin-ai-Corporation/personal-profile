@@ -4,7 +4,7 @@ import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
 import type { AccountSectionId } from "./anchors"
 import { sectionHeadingId, type SectionId } from "./nav-types"
-import { SectionHeader } from "./section-header"
+import { SectionHeader, type SectionHeaderIcon } from "./section-header"
 
 export interface SectionLandmarkProps {
   /** The Section id or `/account` landmark (`authenticator`, or `provider` which is no deep-link anchor): the `<section id>`. */
@@ -12,6 +12,8 @@ export interface SectionLandmarkProps {
   readonly title: string
   /** Right-aligned header tools (Edit, Add …), from the Section. */
   readonly tools?: ReactNode
+  /** Opt-in (design refresh, PROPOSAL): `SectionHeader icon`, the header's icon tile and accent. */
+  readonly icon?: SectionHeaderIcon
   readonly className?: string
   readonly children?: ReactNode
 }
@@ -22,10 +24,10 @@ export interface SectionLandmarkProps {
  * script only, so Section navigation and deep links can move focus to it.
  * The card around the Section's table is `SectionContainer` (F3-2).
  */
-export function SectionLandmark({ id, title, tools, className, children }: SectionLandmarkProps) {
+export function SectionLandmark({ id, title, tools, icon, className, children }: SectionLandmarkProps) {
   return (
     <section id={id} aria-labelledby={sectionHeadingId(id)} className={cn("min-w-0", className)}>
-      <SectionHeader id={id} title={title} editing={false} actions={tools} className="mb-2" />
+      <SectionHeader id={id} title={title} editing={false} actions={tools} icon={icon} className="mb-2" />
       {children}
     </section>
   )

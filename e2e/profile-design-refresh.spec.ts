@@ -1,5 +1,20 @@
+import AxeBuilder from "@axe-core/playwright"
 import { expect, type Locator, type Page } from "@playwright/test"
-import { contactPointRow, mockContacts, mockProfileDefaults, setTheme, signIn, test } from "./fixtures"
+import {
+  CONTACT_PHONES,
+  addressRow,
+  contactPointRow,
+  insurancePage,
+  insurancePolicy,
+  mockAddresses,
+  mockContacts,
+  mockInsurance,
+  mockInsuranceCard,
+  mockProfileDefaults,
+  setTheme,
+  signIn,
+  test,
+} from "./fixtures"
 
 /**
  * `/`'s opt-in to the design refresh (Team A, NG-9019; #62 review): the
@@ -113,3 +128,92 @@ test.describe("accented header at 768 px with a long primary email", () => {
     })
   }
 })
+
+// --- One accent colour on every tab (feedback 2026-11-03) ------------------------------------------
+
+const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]
+const CONTACT_SECTIONS = ["personal", "phone", "email", "social", "addresses"] as const
+
+/** `--brand-primary` as the browser computes a color (`rgb(…)`). */
+const brandPrimary = (page: Page) =>
+  page.evaluate(() => {
+    const probe = document.createElement("span")
+    probe.style.color = "var(--brand-primary)"
+    document.body.append(probe)
+    const color = getComputedStyle(probe).color
+    probe.remove()
+    return color
+  })
+
+const style = (locator: Locator, property: string, pseudo?: string) =>
+  locator.evaluate((element, [name, before]) => getComputedStyle(element, before || null).getPropertyValue(name), [property, pseudo ?? ""] as const)
+
+async function expectNoAxeViolations(page: Page, label: string): Promise<void> {
+  for (const theme of ["light", "dark"] as const) {
+    await setTheme(page, theme)
+    const results = await new AxeBuilder({ page }).withTags(WCAG).analyze()
+    expect(results.violations, `${label} (${theme})`).toEqual([])
+  }
+  await setTheme(page, "light")
+}
+
+for (const reducedMotion of ["no-preference", "reduce"] as const) {
+  test.describe(`one accent colour on \`/\`, reducedMotion ${reducedMotion}`, () => {
+    test.use({ contextOptions: { reducedMotion } })
+
+    test("Contacts: every Section's icon, title line and container bar in brand-primary; no Section accent in teal or mint", async ({ page, isMobile }) => {
+      await mockProfileDefaults(page)
+      await mockContacts(page, {
+        ...CONTACT_PHONES,
+        Email: [contactPointRow({ id: 31, value: "ann.lee@example.com", type: "Email", label: "Primary", phoneNumberRegion: null })],
+        "Social Media": [contactPointRow({ id: 41, value: "https://www.linkedin.com/in/ann-lee", type: "Social Media", label: "Personal", isVerified: null, phoneNumberRegion: null })],
+      })
+      await mockAddresses(page, [addressRow({ id: 1, primary: true, validated: true })])
+      await page.goto("/?tab=contacts")
+      const primary = await brandPrimary(page)
+      for (const id of CONTACT_SECTIONS) {
+        const container = page.locator(`#${id} [data-slot="section-container"]`)
+        await expect(container).toBeVisible()
+        await expect(page.locator(`#${id} [data-slot="animated-icon"]`)).toHaveAttribute("data-tone", "blue")
+        expect(await style(page.locator(`#${id}-heading`), "background-color", "::after"), id).toBe(primary)
+        expect(await style(container, "border-left-color"), id).toBe(primary)
+        if (reducedMotion === "reduce") {
+          expect(await style(container, "animation-name"), id).toBe("none")
+        } else {
+          expect(await style(container, "animation-name"), id).toBe("section-enter")
+          expect(Number.parseFloat(await style(container, "animation-duration")), id).toBeCloseTo(0.32, 2)
+        }
+      }
+      // The Section accents only: label chips keep their own tints (Home mint, Work teal).
+      const offTone = await page
+        .getByRole("tabpanel")
+        .evaluate((panel) => [...panel.querySelectorAll("[class]")].filter((element) => !element.closest('[data-slot="chip"]') && /tint-(teal|mint)|brand-(secondary|tertiary)/.test(element.getAttribute("class") ?? "")).length)
+      expect(offTone).toBe(0)
+      if (!isMobile) {
+        const menu = page.getByRole("navigation", { name: "Sections" })
+        await expect(menu.locator('[data-slot="section-nav-icon"]')).toHaveCount(5)
+        for (const icon of await menu.locator('[data-slot="section-nav-icon"]').all()) await expect(icon).toHaveClass(/text-tint-blue-strong-foreground/)
+      }
+    })
+
+    test("Insurance: the header tile and the card rule in brand-primary; axe in light and dark", async ({ page }) => {
+      await mockProfileDefaults(page)
+      await mockInsuranceCard(page)
+      await mockInsurance(page, { body: insurancePage([insurancePolicy()]) })
+      await page.goto("/?tab=insurance")
+      const card = page.locator('[data-slot="insurance-card"]')
+      await expect(card).toBeVisible()
+      await expect(page.locator('#insurance [data-slot="animated-icon"]')).toHaveAttribute("data-tone", "blue")
+      expect(await style(card, "background-color", "::before")).toBe(await brandPrimary(page))
+      await expectNoAxeViolations(page, "Insurance")
+    })
+
+    test("Medical: no Sections to accent yet (Epic 6 placeholder); the accented tab; axe in light and dark", async ({ page }) => {
+      await mockProfileDefaults(page)
+      await page.goto("/?tab=medical")
+      await expect(page.getByRole("tab", { name: /Medical/, selected: true })).toHaveClass(/after:from-brand-primary/)
+      await expect(page.getByRole("tabpanel").locator('[data-slot="section-container"]')).toHaveCount(0)
+      await expectNoAxeViolations(page, "Medical")
+    })
+  })
+}

@@ -11,6 +11,7 @@ import { FixtureParticipant } from "./__fixtures__/fixture-participant"
 import { resetLeaveState } from "./leave"
 import { LeaveGuard } from "./leave-guard"
 import { CurrentPageProvider } from "./navigate"
+import { AccountTabs } from "./account-tabs"
 import { ProfileTabs } from "./profile-tabs"
 import { SectionRegistryProvider } from "./section-registry"
 
@@ -87,6 +88,26 @@ describe("ProfileTabs", () => {
       expect(contacts.className).toContain(name)
     expect(contacts.className).not.toContain("data-[state=active]:border-primary")
     expect(contacts.className).not.toContain("data-[state=active]:text-foreground")
+  })
+
+  it("AccountTabs `accent` (design refresh, opt-in; /account): the same brand bar on its active tab; off by default", () => {
+    const renderAccount = (accent: boolean) =>
+      render(
+        <TestProviders>
+          <CurrentPageProvider value="account">
+            <SectionRegistryProvider>
+              <main>
+                <AccountTabs accent={accent} personal={<p>personal</p>} provider={<p>provider</p>} organizations={<p>organizations</p>} />
+              </main>
+            </SectionRegistryProvider>
+          </CurrentPageProvider>
+        </TestProviders>,
+      )
+    const { unmount } = renderAccount(false)
+    expect(tab("Personal Account").className).not.toContain("after:from-brand-primary")
+    unmount()
+    renderAccount(true)
+    for (const name of ["data-[state=active]:text-primary-text", "after:from-brand-primary", "data-[state=active]:after:opacity-100"]) expect(tab("Personal Account").className).toContain(name)
   })
 
   it("tags Medical Coming soon (Soon below 768 px)", () => {

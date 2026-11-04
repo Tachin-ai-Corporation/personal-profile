@@ -1,12 +1,22 @@
 import { describe, expect, it } from "vitest"
-import { PROFILE_SECTION_IDS } from "./anchors"
-import { labelChipTone, PROFILE_SECTION_ICONS, PROFILE_SECTION_TONES, TONE_CLASSES } from "./section-tones"
+import { ACCOUNT_ANCHORS, PROFILE_SECTION_IDS } from "./anchors"
+import { labelChipTone, PROFILE_SECTION_ICONS, PROFILE_SECTION_TONES, SECTION_TONE, TONE_CLASSES } from "./section-tones"
 
 describe("PROFILE_SECTION_TONES / PROFILE_SECTION_ICONS", () => {
-  it("give every Contacts Section and Insurance a tone and an icon", () => {
-    const ids = [...PROFILE_SECTION_IDS, "insurance"].sort()
+  it("give every Contacts Section, Insurance and every /account Section a tone and an icon", () => {
+    const ids = [...PROFILE_SECTION_IDS, "insurance", ...ACCOUNT_ANCHORS, "provider"].sort()
     expect(Object.keys(PROFILE_SECTION_TONES).sort()).toEqual(ids)
     expect(Object.keys(PROFILE_SECTION_ICONS).sort()).toEqual(ids)
+  })
+
+  it("one colour (2026-11-03 feedback): every Section takes SECTION_TONE, the brand-primary blue", () => {
+    expect(SECTION_TONE).toBe("blue")
+    expect(new Set(Object.values(PROFILE_SECTION_TONES))).toEqual(new Set([SECTION_TONE]))
+    expect(TONE_CLASSES[SECTION_TONE].containerBar).toBe("border-l-brand-primary")
+  })
+
+  it("a distinct icon per Section", () => {
+    expect(new Set(Object.values(PROFILE_SECTION_ICONS)).size).toBe(Object.keys(PROFILE_SECTION_ICONS).length)
   })
 })
 
