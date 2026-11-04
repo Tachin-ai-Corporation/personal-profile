@@ -4,7 +4,7 @@ import { InfoIconButton } from "@/components/ui/info-icon-button"
 import { LinkTextButton } from "@/components/ui/link-text-button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip } from "@/components/ui/tooltip"
-import { KeyValueTable, SectionContainer, SignatureThumb, useMyself, useNavigate } from "@/features/shell"
+import { KeyValueTable, PROFILE_SECTION_TONES, SectionContainer, SignatureThumb, useMyself, useNavigate } from "@/features/shell"
 import type { UserNpi } from "@/lib/api"
 import { isNotProvided } from "@/lib/shared/display-value"
 import { COMMON_MESSAGES, NPI_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
@@ -35,7 +35,7 @@ export function RegisteredView({ registration }: { readonly registration: UserNp
     <LinkTextButton onClick={() => void navigate({ page: "profile", tab: "contacts", hash: "signature" })}>{SHELL_MESSAGES.pageProfile}</LinkTextButton>
   </div>
   return <>
-    <SectionContainer editing={false}><KeyValueTable labelledBy="provider-heading" rows={[
+    <SectionContainer editing={false} animated accent={PROFILE_SECTION_TONES.provider}><KeyValueTable labelledBy="provider-heading" rows={[
       { key: "npi", label: NPI_MESSAGES.npi, value: npiValue(provider?.npi) },
       { key: "taxonomy", label: NPI_MESSAGES.taxonomy, value: provider?.taxonomy?.name },
       { key: "hie", label: NPI_MESSAGES.healthInformationExchange, value: registration.hie?.endpoint },

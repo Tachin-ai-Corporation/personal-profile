@@ -5,7 +5,7 @@ import { Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { StatusBadge } from "@/components/ui/status-badge"
 import { Tooltip } from "@/components/ui/tooltip"
-import { SectionLandmark, StateFrame, type FrameState } from "@/features/shell"
+import { PROFILE_SECTION_ICONS, PROFILE_SECTION_TONES, SectionLandmark, StateFrame, type FrameState } from "@/features/shell"
 import { formatMessage, MFA_MESSAGES, SHELL_MESSAGES } from "@/lib/shared/messages"
 
 export const MFA_APPS = [
@@ -35,7 +35,7 @@ export interface AuthenticatorCardProps {
 }
 
 export function AuthenticatorCard({ state, linked, onRetry, attempt, onSettled, onLink, onDisable, busyApp, notice, disableBusy, mutationInert }: AuthenticatorCardProps) {
-  return <SectionLandmark id="authenticator" title={SHELL_MESSAGES.authenticatorHeading} tools={state === "ready" ? <>
+  return <SectionLandmark id="authenticator" icon={{ icon: PROFILE_SECTION_ICONS.authenticator, tone: PROFILE_SECTION_TONES.authenticator }} title={SHELL_MESSAGES.authenticatorHeading} tools={state === "ready" ? <>
     <StatusBadge status={linked ? "verified" : "pending"}>{linked ? MFA_MESSAGES.enabled : MFA_MESSAGES.notSetUp}</StatusBadge>
     {linked && <Button type="button" variant="outline-destructive" size="touch" data-mfa-disable busy={disableBusy} busyLabel={MFA_MESSAGES.disable} aria-disabled={mutationInert || undefined} onClick={(event) => { event.currentTarget.focus(); onDisable?.() }}>{MFA_MESSAGES.disable}</Button>}
   </> : undefined}>

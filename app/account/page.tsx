@@ -18,15 +18,18 @@ export const metadata: Metadata = { title: SHELL_MESSAGES.pageAccount }
  * Provider Registration / My Organizations tabs (Story 7.1). The composition
  * root (F6-1): each feature's entry point fills its slot; a feature story
  * changes only its own `features/<id>/` files. No Save all (AD-8). The page
- * never reads `lpl` (D1): only `/auth` launches.
+ * never reads `lpl` (D1): only `/auth` launches. It opts into the design
+ * refresh like `/` (the header band and the accented tabs; each Section opts
+ * in its own header and container).
  */
 export default async function AccountPage() {
   const { portalUrl, idle } = await requirePageSession()
 
   return (
     <PortalUrlProvider portalUrl={portalUrl}>
-      <PageFrame page="account" header={<ProfileHeader />} idle={idle}>
+      <PageFrame page="account" header={<ProfileHeader accent />} idle={idle}>
         <AccountTabs
+          accent
           personal={<AccountPersonalPanel account={<AccountSettingsSection />} authenticator={<AuthenticatorSection />} />}
           provider={<ProviderTab />}
           organizations={<OrganizationsTab />}
