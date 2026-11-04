@@ -1,11 +1,13 @@
 "use client"
 
+import { Hourglass } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { activity, recordUserActivity, sessionEvents } from "@/lib/api"
 import type { PageIdleTiming } from "@/lib/shared/bff-contract"
-import { IDLE_MESSAGES } from "@/lib/shared/messages"
+import { formatMessage, IDLE_MESSAGES } from "@/lib/shared/messages"
+import { useNavigate } from "./navigate"
 
 /** The warning opens this long before the (client) idle deadline. */
 export const IDLE_WARNING_LEAD_MS = 60_000
@@ -27,6 +29,21 @@ const TICK_MS = 1_000
 
 const preventDismiss = (event: Event): void => event.preventDefault()
 
+/** The countdown's milestones read out by the status region (the visible timer itself is not live). */
+const ANNOUNCED_SECONDS = [30, 10] as const
+
+/** `m:ss`, e.g. `0:59`. */
+export function formatIdleCountdown(seconds: number): string {
+  const whole = Math.max(0, Math.ceil(seconds))
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`
+}
+
+/** The status line for `seconds` left: the latest milestone passed (30 s, then 10 s), else nothing. */
+export function idleMilestone(seconds: number): string {
+  const milestone = ANNOUNCED_SECONDS.filter((mark) => seconds <= mark).at(-1)
+  return milestone === undefined ? "" : formatMessage(IDLE_MESSAGES.remaining, { seconds: milestone })
+}
+
 export type IdleWarningProps = PageIdleTiming
 
 /**
@@ -36,8 +53,12 @@ export type IdleWarningProps = PageIdleTiming
  *   `activity.lastAt()`; activity from any tab (an echoed `X-PP-Activity-At`,
  *   shared over `pp-activity`) moves it.
  * - Client deadlines are the server's minus `IDLE_SAFETY_MARGIN_MS`.
- * - 60 s before the idle deadline a non-dismissable `alertdialog` offers
- *   "Stay signed in", which pings `POST /api/session/ping` (≤ 10 s).
+ * - 60 s before the idle deadline an `alertdialog` ("Still there?") counts
+ *   down to the deadline and offers "Stay signed in", which pings
+ *   `POST /api/session/ping` (≤ 10 s; also on Escape), and "Sign out now",
+ *   the app's portal exit (leave guard, logout, 1health). A press outside
+ *   does nothing. The visible `m:ss` timer is not live; a status line reads
+ *   the 30 s and 10 s marks (and "Keeping you signed in…" while pinging).
  * - At `min(idle deadline, absolute deadline)` it closes and publishes
  *   `session-expired` (the leave guard settles and the session dialog opens),
  *   unless a ping is in flight: then the ping's outcome decides.
@@ -49,6 +70,10 @@ export type IdleWarningProps = PageIdleTiming
 export function IdleWarning({ idleTimeoutSec, lastSeen, absoluteExpiresAt, serverNow }: IdleWarningProps) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  /** Whole seconds to the deadline, for display only (set by `evaluate`, which ticks every second while open). */
+  const [secondsLeft, setSecondsLeft] = useState(0)
+  const [signingOut, setSigningOut] = useState(false)
+  const navigate = useNavigate()
   const buttonRef = useRef<HTMLButtonElement>(null)
   const offsetRef = useRef<number | null>(null)
   const stoppedRef = useRef(false)
@@ -83,6 +108,7 @@ export function IdleWarning({ idleTimeoutSec, lastSeen, absoluteExpiresAt, serve
       }
       const warnAt = idleDeadline - IDLE_WARNING_LEAD_MS
       setOpen(now >= warnAt)
+      setSecondsLeft(Math.ceil((deadline - now) / 1000))
       const next = now < warnAt ? Math.min(warnAt, deadline) : deadline
       timer = setTimeout(evaluate, Math.min(next - now, TICK_MS))
     }
@@ -128,19 +154,32 @@ export function IdleWarning({ idleTimeoutSec, lastSeen, absoluteExpiresAt, serve
     evaluateRef.current?.()
   }
 
+  /** "Sign out now": the portal exit every page uses (Return to 1health); a cancelled leave guard keeps the warning. */
+  async function signOut(): Promise<void> {
+    if (signingOut || pingingRef.current) return
+    setSigningOut(true)
+    if (!(await navigate({ external: "portal" }))) setSigningOut(false)
+  }
+
   // Focus returns to the button when the dialog opens or a ping settles.
   useEffect(() => {
     if (open && !busy) buttonRef.current?.focus()
   }, [open, busy])
 
+  const [before, after] = IDLE_MESSAGES.description.split("{time}")
+  // Decorative: the share of the warning's minute left, drawn as a scaled bar (transform only).
+  const share = Math.min(1, Math.max(0, secondsLeft / (IDLE_WARNING_LEAD_MS / 1000)))
   return (
     <Dialog open={open}>
       <DialogContent
         role="alertdialog"
-        aria-describedby={undefined}
+        data-slot="idle-warning"
         showCloseButton={false}
-        className="max-w-md"
-        onEscapeKeyDown={preventDismiss}
+        onEscapeKeyDown={(event) => {
+          // Escape means "Stay signed in"; the warning closes once the ping lands, not before.
+          event.preventDefault()
+          if (!signingOut) void stay()
+        }}
         onPointerDownOutside={preventDismiss}
         onInteractOutside={preventDismiss}
         onOpenAutoFocus={(event) => {
@@ -148,16 +187,38 @@ export function IdleWarning({ idleTimeoutSec, lastSeen, absoluteExpiresAt, serve
           buttonRef.current?.focus()
         }}
       >
-        <DialogTitle className="text-body font-semibold">{IDLE_MESSAGES.title}</DialogTitle>
+        <DialogHeader className="gap-3 pr-6 pb-5">
+          <span aria-hidden="true" className="bg-tint-blue-strong text-tint-blue-strong-foreground inline-flex size-12 items-center justify-center rounded-full">
+            <Hourglass className="size-6" />
+          </span>
+          <DialogTitle>{IDLE_MESSAGES.title}</DialogTitle>
+          <DialogDescription className="text-body">
+            {before}
+            <span role="timer" data-slot="idle-countdown" className="text-foreground font-semibold tabular-nums">
+              {formatIdleCountdown(secondsLeft)}
+            </span>
+            {after}
+          </DialogDescription>
+          <div aria-hidden="true" className="bg-tint-blue-surface mt-1 h-1 overflow-hidden rounded-full">
+            <div
+              data-slot="idle-countdown-bar"
+              className="bg-brand-primary h-full origin-left rounded-full motion-safe:transition-transform motion-safe:duration-1000 motion-safe:ease-linear"
+              style={{ transform: `scaleX(${share})` }}
+            />
+          </div>
+        </DialogHeader>
         <p role="status" className="sr-only">
-          {busy ? IDLE_MESSAGES.staying : ""}
+          {busy ? IDLE_MESSAGES.staying : idleMilestone(secondsLeft)}
         </p>
-        <div className="flex justify-end">
+        <DialogFooter className="max-sm:flex-col-reverse max-sm:items-stretch">
+          <Button type="button" variant="outline" size="touch" busy={signingOut} aria-disabled={busy || undefined} onClick={() => void signOut()}>
+            {IDLE_MESSAGES.signOut}
+          </Button>
           {/* busy (aria-busy + aria-disabled), not disabled: focus stays on the button while the ping is pending. */}
-          <Button ref={buttonRef} type="button" size="touch" busy={busy} onClick={() => void stay()}>
+          <Button ref={buttonRef} type="button" size="touch" busy={busy} aria-disabled={signingOut || undefined} onClick={() => void stay()}>
             {IDLE_MESSAGES.stay}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
